@@ -56,7 +56,10 @@ from .merge import (
     counts_in_hint,
     entry_key,
     is_static_success,
+    number,
     resource_type,
+    seconds,
+    took_ms,
 )
 
 # The browsing contexts a session remembers the last entries of, for aligning
@@ -456,7 +459,7 @@ class Capture:
         row = {
             "id": f"{nav}.{buffer.counter}",
             "seq": buffer.seq,
-            "at": _seconds(params.get("timestamp")),
+            "at": seconds(params.get("timestamp")),
             "method": held.masker.text(str(request.get("method") or "")),
             "url": held.masker.url(str(request.get("url") or ""), keep_query=True),
             "status": None,
@@ -476,7 +479,7 @@ class Capture:
         _bump(buffer.seen, nav)
         timestamp = params.get("timestamp")
         buffer.in_flight[(rid, _redirect(params))] = _Flight(
-            row, rid, timestamp if _number(timestamp) else None, kind, navigation
+            row, rid, timestamp if number(timestamp) else None, kind, navigation
         )
         while len(buffer.in_flight) > REQUEST_LIMIT:
             buffer.in_flight.popitem(last=False)
@@ -502,16 +505,16 @@ class Capture:
         mask = held.masker.text  # every text a server or page chose (ruling 13)
         status = response.get("status")
         size = response.get("bodySize")
-        if not _number(size):  # never content.size
+        if not number(size):  # never content.size
             size = response.get("bytesReceived")
         row["status"] = (
             status if isinstance(status, int) and not isinstance(status, bool) else None
         )
         row["status_text"] = mask(str(response.get("statusText") or ""))
         row["mime"] = mask(str(response.get("mimeType") or ""))
-        row["size"] = size if _number(size) else None
+        row["size"] = size if number(size) else None
         row["response_headers"] = held.masker.headers(response.get("headers"))
-        row["took_ms"] = _took(params.get("timestamp"), flight.begin)
+        row["took_ms"] = took_ms(params, flight.begin)
         if row["type"] == "other":
             row["type"] = resource_type(flight.kind, row["mime"], flight.navigation)
         if row["nav"] != buffer.nav:  # it began on an older page
@@ -526,7 +529,7 @@ class Capture:
         row = flight.row
         row["failed"] = True
         row["error"] = held.masker.text(str(params.get("errorText") or ""))
-        row["took_ms"] = _took(params.get("timestamp"), flight.begin)
+        row["took_ms"] = took_ms(params, flight.begin)
         self._settle(buffer, held, flight)
         return True
 
@@ -585,7 +588,7 @@ class Capture:
             {
                 "nav": buffer.nav,
                 "url": held.masker.url(str(params.get("url") or ""), keep_query=True),
-                "at": _seconds(params.get("timestamp")),
+                "at": seconds(params.get("timestamp")),
             }
         )
         marked = {m["nav"] for m in buffer.marks}
@@ -652,18 +655,6 @@ def _strip(row: dict) -> None:
 
 def _bump(counter: dict[int, int], nav: int) -> None:
     counter[nav] = counter.get(nav, 0) + 1
-
-
-def _number(value) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
-
-
-def _seconds(timestamp) -> float | None:
-    return timestamp / 1000 if _number(timestamp) else None
-
-
-def _took(end, begin) -> int | None:
-    return round(end - begin) if _number(end) and _number(begin) else None
 
 
 def _redirect(params: dict) -> int:

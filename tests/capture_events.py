@@ -124,6 +124,21 @@ def req(
     }
 
 
+def chrome_timings(origin, end):
+    """Chrome's ``request.timings`` (measured): ``timeOrigin`` is the epoch ms
+    the request started, and every other field is ms relative to it, with
+    ``requestTime`` 0. Chrome also stamps every event of the request with that
+    start, so its events' ``timestamp`` say nothing about how long it took."""
+    return {"timeOrigin": origin, "requestTime": 0, "requestStart": end * 0.7,
+            "responseStart": end * 0.99, "responseEnd": end}
+
+
+def firefox_timings(start, end):
+    """Firefox's (measured): ``timeOrigin`` 0, every field epoch ms."""
+    return {"timeOrigin": 0, "requestTime": start, "requestStart": start + 1,
+            "responseStart": end - 1, "responseEnd": end}
+
+
 def done(
     rid,
     status,
@@ -135,6 +150,7 @@ def done(
     ts=1010.0,
     ctx="top-1",
     url="",
+    timings=None,
 ):
     response = {
         "url": url,
@@ -153,18 +169,27 @@ def done(
         "context": ctx,
         "navigation": None,
         "redirectCount": redirect,
-        "request": {"request": rid, "url": url, "method": "GET", "headers": []},
+        "request": _ended(rid, url, timings),
         "timestamp": ts,
         "response": response,
     }
 
 
-def fail(rid, error="net::ERR_FAILED", ts=1010.0, ctx="top-1", redirect=0, url=""):
+def fail(
+    rid, error="net::ERR_FAILED", ts=1010.0, ctx="top-1", redirect=0, url="", timings=None
+):
     return "network.fetchError", {
         "context": ctx,
         "navigation": None,
         "redirectCount": redirect,
-        "request": {"request": rid, "url": url, "method": "GET", "headers": []},
+        "request": _ended(rid, url, timings),
         "timestamp": ts,
         "errorText": error,
     }
+
+
+def _ended(rid, url, timings):
+    request = {"request": rid, "url": url, "method": "GET", "headers": []}
+    if timings is not None:
+        request["timings"] = timings
+    return request

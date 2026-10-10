@@ -1,5 +1,6 @@
-"""From BiDi events to rows: a console entry, a request's type, what is kept
-and what the hint counts, and the key Chrome's replay is aligned on."""
+"""From BiDi events to rows: a console entry, a request's type and duration,
+what is kept and what the hint counts, and the key Chrome's replay is aligned
+on."""
 
 from __future__ import annotations
 
@@ -72,7 +73,7 @@ def console_entry(params: dict, masker: Masker) -> dict:
         "text": masker.text(str(params.get("text") or "")),
         "source": source,
         "context": (params.get("source") or {}).get("context"),
-        "at": _seconds(params.get("timestamp")),
+        "at": seconds(params.get("timestamp")),
     }
 
 
@@ -122,6 +123,37 @@ def is_static_success(row: dict) -> bool:
     )
 
 
-def _seconds(timestamp) -> float | None:
+def took_ms(params: dict, begin) -> int | None:
+    """How long a request took, from its end event's ``request.timings``.
+
+    One formula serves both browsers: start = ``timeOrigin + requestTime``,
+    end = ``timeOrigin + responseEnd`` (Chrome's origin is the epoch and the
+    rest relative to it; Firefox's origin is 0 and the rest epoch). Only when
+    ``responseEnd`` is 0 or absent is it the end event's ``timestamp`` less
+    the start's ``begin`` — and since Chrome stamps every event of a request
+    with its start, a fallback of 0 says nothing: None, never a false 0.
+    """
+    timings = (params.get("request") or {}).get("timings")
+    timings = timings if isinstance(timings, dict) else {}
+    end = timings.get("responseEnd")
+    start = timings.get("requestTime")
+    if number(end) and end > 0 and number(start):
+        origin = timings.get("timeOrigin")
+        origin = origin if number(origin) else 0
+        took = (origin + end) - (origin + start)
+        return round(took) if took >= 0 else None
+    stamp = params.get("timestamp")
+    if not (number(stamp) and number(begin)):
+        return None
+    took = round(stamp - begin)
+    return took if took > 0 else None
+
+
+def number(value) -> bool:
+    """A JSON number: an int or a float, never a bool."""
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def seconds(timestamp) -> float | None:
     """A BiDi timestamp (epoch milliseconds) in seconds."""
-    return timestamp / 1000 if isinstance(timestamp, int | float) else None
+    return timestamp / 1000 if number(timestamp) else None

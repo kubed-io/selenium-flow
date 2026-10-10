@@ -17,10 +17,12 @@ from kubed.selenium_flow.capture import (
 from kubed.selenium_flow.capture.store import CONTEXTS, Capture, Located, Mark
 
 from .capture_events import (
+    chrome_timings,
     context_created,
     context_destroyed,
     done,
     fail,
+    firefox_timings,
     log,
     nav_event,
     nav_started,
@@ -91,14 +93,52 @@ def test_successful_static_is_counted_not_kept_and_a_failed_image_is_kept(captur
 
 
 def test_requests_merge_by_id_and_redirect(capture):
+    """As Chrome sends them: each event stamped with its request's start, and
+    the duration only in ``timings``, relative to ``timeOrigin``."""
     attach(capture)
     feed(capture, nav_started("https://a.test/"),
          req("r1", "https://a.test/login", dest="document", nav="n1", ts=2000.0),
-         done("r1", 302, mime="text/html", ts=2010.0),
+         done("r1", 302, mime="text/html", ts=2000.0, timings=chrome_timings(2000.0, 10.2)),
          req("r1", "https://a.test/home", dest="document", nav="n1", redirect=1, ts=2011.0),
-         done("r1", 200, mime="text/html", redirect=1, ts=2050.0))
+         done("r1", 200, mime="text/html", redirect=1, ts=2011.0,
+              timings=chrome_timings(2011.0, 39.4)))
     rows = capture.network("ws")["requests"]
     assert [(r["id"], r["status"], r["took_ms"]) for r in rows] == [("1.2", 200, 39), ("1.1", 302, 10)]
+
+
+def test_firefox_takes_its_duration_from_its_epoch_timings(capture):
+    """Network time, as DevTools shows it: not the events' stamps, which on
+    Firefox include delivering the body."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"),
+         req("r1", "https://a.test/api", ts=1_791_663_814_846.0),
+         done("r1", 200, ts=1_791_663_814_976.0,
+              timings=firefox_timings(1_791_663_814_842.131, 1_791_663_814_890.473)))
+    assert capture.network("ws")["requests"][0]["took_ms"] == 48
+
+
+def test_without_a_response_end_the_events_stamps_are_the_duration(capture):
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"),
+         req("r1", "https://a.test/api", ts=1000.0),
+         done("r1", 500, ts=1120.0, timings={"timeOrigin": 0, "requestTime": 0, "responseEnd": 0}),
+         req("r2", "https://a.test/api2", ts=1000.0),
+         done("r2", 500, ts=1030.0))
+    rows = capture.network("ws")["requests"]
+    assert [(r["id"], r["took_ms"]) for r in rows] == [("1.2", 30), ("1.1", 120)]
+
+
+def test_a_duration_nothing_measured_is_unknown_never_zero(capture):
+    """Chrome's fallback: equal stamps say nothing, so the row says it does not
+    know rather than that the request took no time."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"),
+         req("r1", "https://a.test/api", ts=1000.0),
+         fail("r1", ts=1000.0, timings=chrome_timings(1000.0, 0)),
+         req("r2", "https://a.test/api2", ts=1000.0),
+         done("r2", 200, ts=1000.0, timings={"timeOrigin": True, "requestTime": 0, "responseEnd": True}))
+    rows = capture.network("ws")["requests"]
+    assert [r["took_ms"] for r in rows] == [None, None]
 
 
 def test_size_is_body_size_never_content_size(capture):
