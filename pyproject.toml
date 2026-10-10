@@ -121,6 +121,7 @@ selenium-flow = "kubed.selenium_flow.main:main"
 [tool.setuptools]
 packages = [
   "kubed.selenium_flow",
+  "kubed.selenium_flow.bidi",
   "kubed.selenium_flow.core",
   "kubed.selenium_flow.flows",
   "kubed.selenium_flow.http",

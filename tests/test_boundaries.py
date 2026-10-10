@@ -68,6 +68,7 @@ NO_PROTOCOL = (
     *walk("site_data"),
     *walk("recordings"),
     *walk("monitor"),
+    *walk("bidi"),
     *(
         f"kubed.selenium_flow.{name}"
         for name in (
@@ -90,6 +91,8 @@ NO_SELENIUM = tuple(
         "monitor.events",
         "monitor.bidi",
         "monitor.monitor",
+        "bidi.connection",
+        "bidi.channel",
         "flows.template",
         "flows.redact",
         "flows.engine",
@@ -177,6 +180,7 @@ def test_the_walk_finds_the_layers():
     """The walk reaches each layer, so an empty one cannot pass for clean."""
     assert "kubed.selenium_flow.flows.engine" in NO_PROTOCOL
     assert "kubed.selenium_flow.monitor.events" in NO_PROTOCOL
+    assert "kubed.selenium_flow.bidi.connection" in NO_PROTOCOL
     assert "kubed.selenium_flow.workspace.store" in NO_PROTOCOL
     assert "kubed.selenium_flow.site_data.snapshot" in NO_PROTOCOL
     assert "kubed.selenium_flow.core.coerce" in NO_PROTOCOL
@@ -226,7 +230,7 @@ UPPER = tuple(
 )
 
 # The kernel: the same layers `NO_PROTOCOL` walks, `flows/api` excepted.
-KERNEL = ("core", "workspace", "flows", "site_data", "recordings", "monitor")
+KERNEL = ("core", "workspace", "flows", "site_data", "recordings", "monitor", "bidi")
 KERNEL_SKIP = {"flows/api.py"}
 
 # Upward imports that exist today, each with the reason. Keyed by file and the
@@ -331,10 +335,10 @@ def test_the_upward_check_leaves_the_kernel_alone():
 
 # ---- one socket library, one importer -----------------------------------------
 
-# The held BiDi socket is the monitor's (session monitor spec, ruling 1). A
+# Every BiDi conversation goes through one client (capture spec, ruling 1). A
 # second module holding a socket of its own would be a second set of rules about
-# pings, deadlines and intercepts, so `websockets` has exactly one importer.
-WEBSOCKETS_HOME = "monitor/bidi.py"
+# pings, deadlines and closing clean, so `websockets` has exactly one importer.
+WEBSOCKETS_HOME = "bidi/connection.py"
 
 
 def websockets_importers() -> set[str]:
@@ -354,5 +358,8 @@ def websockets_importers() -> set[str]:
     return found
 
 
-def test_only_the_monitor_holds_a_socket():
-    assert websockets_importers() == {WEBSOCKETS_HOME}
+def test_one_module_imports_websockets():
+    # `monitor/bidi.py` is the client `bidi/` replaces; Task 3 of the capture
+    # plan moves the monitor onto `bidi.Connection`, deletes it, and narrows
+    # this to `== {WEBSOCKETS_HOME}`.
+    assert websockets_importers() <= {WEBSOCKETS_HOME, "monitor/bidi.py"}
