@@ -78,29 +78,6 @@ async def test_a_server_close_fails_waiting_commands_and_calls_on_close(browser)
     assert closed == [1]
 
 
-async def test_reopen_asks_again_for_the_same_events(browser):
-    conn = Connection(browser.url)
-    await conn.open()
-    got = []
-    conn.listen(["log.entryAdded"], lambda m, p: got.append(p), name="kept")
-    await conn.subscribe(["log.entryAdded", "network.responseCompleted"])
-    await conn.add_collector({"dataTypes": ["response"]})
-    await browser.connections[-1].close()
-    await asyncio.sleep(0.05)
-    await conn.reopen()
-    assert len(browser.connections) == 2
-    assert conn.subscriptions == {
-        "sub-2": (("log.entryAdded", "network.responseCompleted"), None)
-    }
-    assert conn.collectors == set()
-    assert browser.received.count("network.addDataCollector") == 1
-    # A listener is this side's, not the connection's: it hears the new one.
-    await browser.event("log.entryAdded", {"n": 1})
-    await conn.flush()
-    assert got == [{"n": 1}]
-    await conn.close()
-
-
 async def test_a_cancelled_close_still_releases_and_propagates(browser):
     conn = Connection(browser.url)
     await conn.open()

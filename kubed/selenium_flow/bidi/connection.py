@@ -265,7 +265,7 @@ class Connection:
         # Events no subscriber asked for: Firefox fans every event out to every
         # socket on the session, whoever subscribed.
         self.unsolicited = 0
-        # subscription id -> (events, contexts), so a reopen can ask again.
+        # subscription id -> (events, contexts): what close unsubscribes.
         self.subscriptions: dict[
             str, tuple[tuple[str, ...], tuple[str, ...] | None]
         ] = {}
@@ -402,20 +402,6 @@ class Connection:
 
         Never raises, and always releases the socket and its reader, even when
         cancelled part-way (the cancellation is then re-raised)."""
-        await self._shut(listeners=False)
-
-    async def reopen(self) -> None:
-        """Open again and ask for the same events in the same contexts: an id
-        is its connection's. Collectors are not added again; listeners stay."""
-        asked = list(self.subscriptions.values())
-        await self._shut(listeners=True)
-        self.subscriptions = {}
-        self.collectors = set()
-        await self.open()
-        for events, contexts in asked:
-            await self.subscribe(events, contexts)
-
-    async def _shut(self, *, listeners: bool) -> None:
         self._closing = True
         reader, self._reader = self._reader, None
         try:
@@ -436,9 +422,8 @@ class Connection:
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(ws.close(), OPEN_TIMEOUT)
         finally:
-            if not listeners:
-                for subscriber in tuple(self._subscribers):
-                    subscriber.cancel()
+            for subscriber in tuple(self._subscribers):
+                subscriber.cancel()
             self._closed = True
             # Synchronous, so a pending cancellation cannot skip it: a no-op
             # when the graceful close finished, the release when it did not.
