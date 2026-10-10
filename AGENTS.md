@@ -14,6 +14,11 @@ before changing anything it covers;
 [the workspaces rename](docs/superpowers/specs/2026-10-09-workspaces-rename-design.md)
 is where the vocabulary below comes from.
 
+**`docs/` is the GitHub wiki**, checked out as a submodule: the generated
+pages at its root, hand-written `notes/`, and the design record in
+`superpowers/` and `saga/`. Changing a spec or plan is a commit inside it,
+pushed to a wiki branch, and a pointer bump here; merging publishes it.
+
 **[`docs/saga/`](docs/saga/) is deprecated** and kept as written: four chapters
 (flows, pilot reports, other clients, the Hangar) that came before the specs.
 Nothing new goes there, and nothing there is edited. It is still the reference
@@ -305,7 +310,7 @@ in-process, so the wiki is downstream of the code and cannot describe a server t
 longer exists.
 `tests/test_wiki.py` fails when the committed pages do not match the generator.
 
-Hand-written prose lives in `wiki/notes/<tool>.notes.md` — inside the wiki submodule — and
+Hand-written prose lives in `docs/notes/<tool>.notes.md` — inside the wiki submodule — and
 is folded into the bottom of that tool's page, below the generated tables. Regeneration
 leaves it alone, so it is where guidance a schema cannot express belongs.
 
