@@ -146,6 +146,17 @@ costs if wrong.
 16. Claude: **performance is measured, not guessed.** The plan's last task
     measures dispatcher latency and queue depth on a real page load with
     capture on; E4 (metrics, traces) and the cluster's profiler watch it after.
+17. Claude, PR review: **the deadline close counts as Grid activity**, so the
+    browser gets one more idle timeout (Verify first 5): bounded, and closing
+    clean beats leaving Firefox's fan-out and the collector behind. Wrong, it
+    costs one idle timeout per pause; revisit with ending at the deadline.
+18. Claude, PR review: **Chrome reports a fetch's failure only once its body is
+    read** (Verify first 2), so such a call has no hint;
+    `references/TROUBLESHOOTING.md` says where to look instead.
+19. Claude, PR review: **a reply waits up to 0.5 s behind a flood**, the price
+    of dropping nothing (Verify first 4); E4's metrics watch it.
+20. Claude, PR review: **the admin bundle budget is 50 KB**, from 45, for the
+    Console and Network tabs.
 
 ## Goal
 
@@ -211,8 +222,13 @@ a `bidi.Connection` (not its own socket class) for a watch owed `capture`.
   backs off (1, 2, 4 … 30 s); `stop()` iterates a copy; a raising monitor never
   fails `end_browser`.
 - At the deadline (programme R3): close clean (ruling 7); `capturing` goes
-  false; the admin shows **capture paused**. The next call touches the watch and
-  re-attaches.
+  false; the admin shows **capture paused**. The next call holds it again
+  before it runs. **Never under a call:** `Monitor.calling` / `called` count a
+  session's calls in flight (each a touch), the connection is kept while any
+  is, and the deadline counts from the last one's end — a call borrows the
+  connection (its flush, a save's spare tab), and a close mid-call took them
+  with it. A hold a call tried and failed backs off like a look's, so a hung
+  `/se/bidi` costs one call `ATTACH_TIMEOUT`, not every call.
 - On reconnect: resubscribe, then Chrome's replay is aligned (ruling 9).
 
 ### 3. `site_data/` — over `Channel`, raw BiDi
@@ -236,16 +252,21 @@ params)` is the monitor's `on_bidi`.
   context, nav}` — `text` capped at 4 kB; `debug` counted, not kept (ruling 4).
 - **Request** (merged from its events): `{id, seq, at, method, url, status,
   status_text, type, mime, size, took_ms, failed, error, context, nav,
-  navigation: bool, request_headers, response_headers}` — `id` our own
+  navigation: bool, request_headers, response_headers, headers_dropped}` —
+  each side's headers kept while names and values fit 16 kB, a name cut to
+  256 characters, the rest counted in `headers_dropped`; `id` our own
   (`<nav>.<n>`), mapped to the browser's id in the index; resource type from
   the request's `destination`/`initiatorType` or the MIME type; timings
-  normalised per browser (Chrome relative, Firefox epoch); size from
+  normalised per browser (Chrome relative, Firefox epoch), unknown when two
+  clocks were mixed (below 0 or past an hour); size from
   `bodySize`/`bytesReceived`, never `content.size`. Successful static counted,
   not kept (ruling 3).
 - **Navigation marks** from `navigationStarted`/`Committed` of the top-level
   context; the last 5 kept.
 - **Masking** (ruling 13) by one `Masker` the buffer and the tail share; the
-  catalogue values bound in the workspace come from the secrets binding.
+  catalogue values bound in the workspace come from the secrets binding, in
+  every spelling a URL, a JSON or an HTML echo gives them, and carry to the
+  session that replaces one. A session still held is never evicted.
 - **Store**: per workspace, a `cachetools.TTLCache`-backed holder of two
   `collections.deque(maxlen=1000)`, counts, marks and the index; TTL slides on
   every entry. An explicit `open_session` without capture discards the
@@ -288,7 +309,12 @@ carries the same `page` object.
   `GET /browser/network/{id}/body`; read-only (`reads()` annotation — it writes
   nothing); MCP visibility `["model", "app"]` so the request view's Fetch body
   can call it; ruling 11's caps; 404 when the browser is gone, 400 for an
-  unknown id.
+  unknown id. A binary body is answered from its row (type and size), never
+  asked; a text body its row says is over 8 MB is refused (400) unasked; the
+  rest is asked on a connection of its own (`open_channel(private=True)`),
+  because Chrome answers `network.getData` decoded in one frame, and a frame
+  past the 16 MiB limit closes its socket — that one, a 400, never the one
+  capture holds. The text is masked before its cut.
 - `workspace://current` gains `capture` and `capturing` (programme R16).
 - Every text an agent reads names these by URI (AGENTS.md). Skill: a routing
   row and `references/TROUBLESHOOTING.md` gains "a call failed and the page said
@@ -527,7 +553,8 @@ each ended in a `finally` by the server's `DELETE /browser` or the Grid's own
      Nothing leaks: the end drops the watch a moment later.
 
    **Also changed in the final review's wave** (the controller's rulings, for
-   Dr K; §4 and §7 above describe the design before them):
+   Dr K; §2, §4 and §7 above now describe the design after them, and after
+   the PR review's):
    - The first call after the deadline closed the connection holds it again
      before it runs, so the call that comes back from a pause is captured.
    - Each side of a request keeps headers only while their names and values
