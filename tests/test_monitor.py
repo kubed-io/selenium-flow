@@ -55,11 +55,13 @@ class FakeConnection:
     """Stands in for `bidi.Connection`: records what the monitor asked of it.
 
     ``refuse`` makes every open raise ConnectionError, ``hang_on_subscribe``
-    makes every subscribe wait forever; both are reset per test (`reset`)."""
+    makes every subscribe wait until ``gate`` is set (forever without one);
+    all are reset per test (`reset`)."""
 
     made: ClassVar[list] = []
     refuse: ClassVar[bool] = False
     hang_on_subscribe: ClassVar[bool] = False
+    gate: ClassVar[asyncio.Event | None] = None
 
     def __init__(self, url, *, on_close=None):
         self.url, self.on_close = url, on_close
@@ -79,6 +81,7 @@ class FakeConnection:
     @classmethod
     def reset(cls):
         cls.made, cls.refuse, cls.hang_on_subscribe = [], False, False
+        cls.gate = None
 
     async def open(self):
         if FakeConnection.refuse:
@@ -98,7 +101,7 @@ class FakeConnection:
 
     async def subscribe(self, events, contexts=None):
         if FakeConnection.hang_on_subscribe:
-            await asyncio.Event().wait()
+            await (FakeConnection.gate or asyncio.Event()).wait()
         self.subscribed.append(list(events))
         subscription = f"sub-{len(self.subscribed)}"
         self._subscriptions.add(subscription)
@@ -431,6 +434,21 @@ async def test_a_connection_that_cannot_open_is_tried_again_and_logged_once(
     await monitor.look()
     assert monitor.capturing(GID)
     assert monitor.watches[GID].failures == 0 and GID not in monitor._failed_logged
+
+
+async def test_a_watch_ended_during_a_hold_is_not_a_failure(parts, caplog):
+    monitor, _listing, _clock, _heard = parts
+    FakeConnection.hang_on_subscribe, FakeConnection.gate = True, asyncio.Event()
+    monitor.watch(GID, "bot", "capture")
+    with caplog.at_level(logging.INFO):
+        look = asyncio.create_task(monitor.look())
+        await asyncio.sleep(0.01)  # the hold waits in subscribe
+        monitor.ended("bot", GID, "ended")
+        FakeConnection.gate.set()
+        await look
+    [conn] = FakeConnection.made
+    assert conn.closed and ("detached", "bot", GID) in monitor.sink.calls
+    assert GID not in monitor._failed_logged and "trying again" not in caplog.text
 
 
 async def test_ending_closes_the_connection(parts):

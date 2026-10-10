@@ -501,7 +501,8 @@ class Monitor:
                 else:
                     await self._extend(w, w.connection)
         except Exception as exc:  # noqa: BLE001 - tried again after a back-off
-            self._failed(w, now, exc)
+            if self.watches.get(w.session_id) is w:  # an ended watch owes nothing
+                self._failed(w, now, exc)
 
     async def _hold(self, w: Watch) -> None:
         """Open a connection, learn the top context, listen, subscribe and add
@@ -573,8 +574,7 @@ class Monitor:
         if conn is not None and conn.dropped:
             w.connection, w.subscribed, w.dropped = None, frozenset(), True
             self._detached(w)
-            if self._loop is not None:
-                self._close_later(conn)  # stops its listeners
+            self._close_later(conn)  # stops its listeners
 
     def _succeeded(self, w: Watch) -> None:
         w.failures, w.retry_at = 0, 0.0
@@ -598,8 +598,9 @@ class Monitor:
             log.warning("monitor: the capture sink failed (%s)", type(exc).__name__)
 
     def _close_later(self, conn: Connection) -> asyncio.Task:
-        """Close ``conn`` in a task `stop` waits for."""
-        closing = self._loop.create_task(conn.close())
+        """Close ``conn`` in a task `stop` waits for. On the loop, which is
+        the running one even when `look` is called before `start`."""
+        closing = asyncio.get_running_loop().create_task(conn.close())
         self._closing.add(closing)
         closing.add_done_callback(self._closing.discard)
         return closing
