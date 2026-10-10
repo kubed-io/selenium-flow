@@ -9,6 +9,7 @@ from kubed.selenium_flow.capture.merge import (
     entry_key,
     is_static_success,
     resource_type,
+    took_ms,
 )
 
 from .capture_events import log
@@ -78,3 +79,25 @@ def test_a_console_entry_keeps_no_args_and_counts_lines_from_one():
         "context": "top-1",
         "at": 1.5,
     }
+
+
+def timed(**timings):
+    return {"request": {"timings": timings}}
+
+
+@pytest.mark.parametrize("params, begin", [
+    # Chrome's relative times beside an epoch origin on one side only.
+    (timed(timeOrigin=0, requestTime=12.0, responseEnd=1_791_500_000_000.0), None),
+    (timed(timeOrigin=1_791_500_000_000.0, requestTime=1_791_500_000_000.0, responseEnd=90.0), None),
+    # The fallback: an end stamped on another clock than its start.
+    ({"timestamp": 1_791_500_000_000.0}, 12.0),
+    ({"timestamp": 12.0}, 1_791_500_000_000.0),
+])
+def test_a_duration_from_mixed_time_bases_is_none(params, begin):
+    """Negative, or past an hour: two clocks, not a slow request (PR review)."""
+    assert took_ms(params, begin) is None
+
+
+def test_an_hour_is_still_a_duration():
+    assert took_ms(timed(timeOrigin=0, requestTime=0.0, responseEnd=3_600_000.0), None) == 3_600_000
+    assert took_ms({"timestamp": 1_000.0 + 3_600_000}, 1_000.0) == 3_600_000

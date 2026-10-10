@@ -123,6 +123,11 @@ def is_static_success(row: dict) -> bool:
     )
 
 
+# The longest a request is believed to take: past it, or below zero, two
+# numbers on different clocks were subtracted, and None is the true answer.
+TOOK_MAX_MS = 3_600_000
+
+
 def took_ms(params: dict, begin) -> int | None:
     """How long a request took, from its end event's ``request.timings``.
 
@@ -132,6 +137,7 @@ def took_ms(params: dict, begin) -> int | None:
     ``responseEnd`` is 0 or absent is it the end event's ``timestamp`` less
     the start's ``begin`` — and since Chrome stamps every event of a request
     with its start, a fallback of 0 says nothing: None, never a false 0.
+    A result below zero or past `TOOK_MAX_MS` mixed two time bases: None.
     """
     timings = (params.get("request") or {}).get("timings")
     timings = timings if isinstance(timings, dict) else {}
@@ -140,13 +146,13 @@ def took_ms(params: dict, begin) -> int | None:
     if number(end) and end > 0 and number(start):
         origin = timings.get("timeOrigin")
         origin = origin if number(origin) else 0
-        took = (origin + end) - (origin + start)
-        return round(took) if took >= 0 else None
+        took = round((origin + end) - (origin + start))
+        return took if 0 <= took <= TOOK_MAX_MS else None
     stamp = params.get("timestamp")
     if not (number(stamp) and number(begin)):
         return None
     took = round(stamp - begin)
-    return took if took > 0 else None
+    return took if 0 < took <= TOOK_MAX_MS else None
 
 
 def number(value) -> bool:
