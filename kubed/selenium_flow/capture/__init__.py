@@ -11,6 +11,8 @@ layers and no Selenium (`tests/test_boundaries.py`). This module is the
 constants, verbatim from the spec.
 """
 
+from __future__ import annotations
+
 # The capture subscription and the data collector it adds (spec §2).
 EVENTS = (
     "log.entryAdded",

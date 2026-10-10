@@ -53,6 +53,10 @@ It is often the real diagnosis: the click landed and the page threw.
    then `network_body(id)` for the response itself.
 
 Warnings and failed images are never hinted; they are in the buffers if you ask.
+On Chrome a `fetch` whose body the page never reads reports its failure late or
+never, so no hint: when a call looks wrong but says nothing, check
+`workspace://network?filter=failed`, and `workspace://network` for a request
+still without a status.
 This needs capture on: `open_session(capture=true)`. It is **not inherited** -
 an `open_session()` without it turns capture off **and forgets what was
 captured**, so read the console and the network before you reopen.
