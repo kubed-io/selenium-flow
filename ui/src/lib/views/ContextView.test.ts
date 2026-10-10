@@ -43,3 +43,31 @@ test('without onshow the chip is not a button', () => {
   expect(screen.queryByRole('button')).toBeNull()
   expect(screen.getByTitle("Open isn't available in this client")).toHaveTextContent('Site data')
 })
+
+test('capture paused and the two chips', async () => {
+  const onshow = vi.fn()
+  render(ContextView, { props: { data: { ...base, live: false, capture: true, capturing: false,
+    captured: { console: 4, network: 9, errors: 2, failed_requests: 1 } }, onshow } })
+  expect(screen.getByText('capture paused')).toHaveClass('pill', 'capture-paused')
+  expect(screen.getByText('2 errors')).toBeInTheDocument()
+  expect(screen.getByText('1 failed')).toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: /Console/ }))
+  await fireEvent.click(screen.getByRole('button', { name: /Network/ }))
+  expect(onshow.mock.calls).toEqual([['workspace://console'], ['workspace://network']])
+})
+
+test('REC and capturing pills; chips are inert without onshow', () => {
+  render(ContextView, { props: { data: { ...base, settings: { record: true }, capture: true, capturing: true,
+    captured: { console: 0, network: 0, errors: 0, failed_requests: 0 } } } })
+  expect(screen.getByText('● REC')).toHaveClass('pill', 'rec')
+  expect(screen.getByText('● capture')).toHaveClass('pill', 'capture')
+  expect(screen.queryByRole('button')).toBeNull()
+  expect(screen.getAllByTitle("Open isn't available in this client").length).toBeGreaterThanOrEqual(2)
+})
+
+test('no capture pills or chips when capture is off; REC needs a live browser', () => {
+  render(ContextView, { props: { data: { ...base, live: false, settings: { record: true }, site_data: undefined } } })
+  expect(screen.queryByText('● REC')).toBeNull()
+  expect(screen.queryByText(/capture/)).toBeNull()
+  expect(screen.queryByText('Console')).toBeNull()
+})

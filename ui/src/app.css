@@ -149,6 +149,8 @@ input[type=password], input[type=text] {
 
 .pill.live { color: var(--ok); border-color: currentColor; }
 .pill.rec { background: var(--warn); border-color: var(--warn); color: var(--panel); }
+.pill.capture { color: var(--accent); border-color: currentColor; }
+.pill.capture-paused { color: var(--muted); border-style: dashed; }
 .pill.warn { color: var(--warn); border-color: currentColor; }
 
 /* Polish only (spec, difference 3): a soft pulse on the live badge's dot.

@@ -5,6 +5,7 @@
   } from '@modelcontextprotocol/ext-apps'
   import { onMount, tick, type Component } from 'svelte'
   import { leaf, plural } from './lib/format'
+  import ConsoleView from './lib/views/ConsoleView.svelte'
   import ContextView from './lib/views/ContextView.svelte'
   import DocumentView from './lib/views/DocumentView.svelte'
   import FilesView from './lib/views/FilesView.svelte'
@@ -12,6 +13,8 @@
   import FlowsView from './lib/views/FlowsView.svelte'
   import FlowView from './lib/views/FlowView.svelte'
   import FolderView from './lib/views/FolderView.svelte'
+  import NetworkView from './lib/views/NetworkView.svelte'
+  import RequestView from './lib/views/RequestView.svelte'
   import SiteView from './lib/views/SiteView.svelte'
   import SitesView from './lib/views/SitesView.svelte'
   import SecretsView from './lib/views/SecretsView.svelte'
@@ -21,12 +24,16 @@
     uri?: string
     onshow?: (uri: string) => void
     onlink?: (url: string) => void
+    oncall?: (name: string, args: Record<string, unknown>) => Promise<unknown>
     expanded?: boolean
     expandable?: boolean
   }
   // By the name a `show` result carries in `component`.
   const VIEWS: Record<string, Component<Props>> = {
     context: ContextView as Component<Props>,
+    console: ConsoleView as Component<Props>,
+    network: NetworkView as Component<Props>,
+    request: RequestView as Component<Props>,
     file: FileView as Component<Props>,
     files: FilesView as Component<Props>,
     folder: FolderView as Component<Props>,
@@ -40,7 +47,7 @@
   const EXPANDS = new Set(['flow', 'document'])
   // What Back says: the view it returns to (spec 2026-10-09-show-everything, ruling 12).
   const LABELS: Record<string, string> = { context: 'Workspace', files: 'Files', flows: 'Flows', sites: 'Site data', secrets: 'Secrets' }
-  const NOUNS: Record<string, string> = { files: 'kept file', folder: 'file', flows: 'flow', secrets: 'secret' }
+  const NOUNS: Record<string, string> = { files: 'kept file', folder: 'file', flows: 'flow', secrets: 'secret', console: 'entry', network: 'request' }
 
   type Shown = { component?: string; uri?: string; data?: unknown }
   type Result = { structuredContent?: unknown; isError?: boolean; content?: { type: string; text?: string }[] }
@@ -63,6 +70,7 @@
   let modes = $state.raw<McpUiDisplayMode[]>([])
   let onshow = $state.raw<((uri: string) => void) | undefined>(undefined)
   let onlink = $state.raw<((url: string) => void) | undefined>(undefined)
+  let oncall = $state.raw<((name: string, args: Record<string, unknown>) => Promise<unknown>) | undefined>(undefined)
 
   const top = $derived(stack.at(-1))
   const View = $derived(top && Object.hasOwn(VIEWS, String(top.component)) ? VIEWS[String(top.component)] : null)
@@ -112,6 +120,13 @@
     } finally {
       if (mine === gen) pending = null
     }
+  }
+
+  // A tool a view calls for itself, such as network_body: its structured result.
+  async function call(name: string, args: Record<string, unknown>): Promise<unknown> {
+    const r = (await host!.callServerTool({ name, arguments: args })) as Result
+    if (r.isError) throw new Error(r.content?.find((c) => c.text)?.text || `Could not call ${name}.`)
+    return r.structuredContent
   }
 
   async function toggle() {
@@ -171,6 +186,7 @@
         if (gone) return
         adopt(h.getHostContext())
         onshow = h.getHostCapabilities()?.serverTools ? push : undefined
+        oncall = h.getHostCapabilities()?.serverTools ? call : undefined
         // The view has already cancelled the anchor, so a host that says no
         // (a blocked domain resolves isError) would otherwise leave a dead click.
         const denied = (url: string) => { error = `The host would not open this link: ${url}` }
@@ -215,7 +231,7 @@
   {#if error}<div class="small error line">{error}</div>{/if}
   <div class="view" aria-busy={pending !== null}>
     {#if View}
-      {#key top}<View data={top.data as never} uri={top.uri} {onshow} {onlink} {expanded} {expandable} />{/key}
+      {#key top}<View data={top.data as never} uri={top.uri} {onshow} {onlink} {oncall} {expanded} {expandable} />{/key}
     {:else}
       <div class="empty error">Nothing to show{top.component ? ` for "${top.component}"` : ''}.</div>
     {/if}

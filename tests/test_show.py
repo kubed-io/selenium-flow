@@ -74,6 +74,28 @@ def test_every_showable_uri_has_one_view(uri, component):
 
 
 @pytest.mark.parametrize(
+    ("uri", "component"),
+    [
+        ("workspace://console", "console"),
+        ("workspace://console?level=error&pages=2", "console"),
+        ("workspace://network", "network"),
+        ("workspace://network?filter=failed", "network"),
+        ("workspace://network/3.7", "request"),
+    ],
+)
+def test_the_capture_uris_have_views(uri, component):
+    assert show.view_for(uri) == component
+
+
+async def test_capture_off_still_draws(flow_server):
+    async with Client(flow_server.mcp) as c:
+        result = await c.call_tool("show", {"uri": "workspace://console"})
+    assert result.structured_content["data"] == {
+        "capture": False, "how": "open_session(capture=true)"
+    }
+
+
+@pytest.mark.parametrize(
     ("uri", "entry"),
     [
         ("workspace://files/screenshots/a.png", True),
