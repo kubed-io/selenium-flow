@@ -129,6 +129,13 @@ GROUPS = [
         "another comes back signed in. See [Workspaces](Workspaces).",
         ["save_site_data", "list_site_data", "get_site_data"],
     ),
+    (
+        "Console and network",
+        "What a page logged and fetched, kept when a session is opened with "
+        "`capture=true`. The lists are the resources `workspace://console` and "
+        "`workspace://network`.",
+        ["network_body"],
+    ),
 ]
 
 ORDER = [tool for _, _, tools in GROUPS for tool in tools]

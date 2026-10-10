@@ -67,11 +67,11 @@ Seventeen actions, each a tool **and** an endpoint with identical parameters —
 | [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | `POST /browser/upload` | Attach a file to a file input 📎 |
 | [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `DELETE /browser` | Give the slot back, keep the workspace 🧹 |
 
-Every parameter, every return field and the traps worth knowing are one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from `openapi.yaml`, which is itself generated from the live tool schemas, so it cannot drift from the server. The same schemas are served at `GET /openapi.yaml`.
+Every parameter, return field and trap worth knowing is one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from the live tool schemas, so it cannot drift from the server. The same schemas are served at `GET /openapi.yaml`.
 
 ### 🦊 Chrome or Firefox
 
-`open_session(browser="firefox")` and you are on Firefox; leave it out and you are on Chrome. Every other action behaves identically on both — both are plain W3C WebDriver, so only session creation differs.
+`open_session(browser="firefox")` and you are on Firefox; leave it out and you are on Chrome. Every other action behaves identically on both (plain W3C WebDriver), so only session creation differs.
 
 ### 🧠 A workspace is not a browser
 
@@ -81,17 +81,17 @@ The workspace outlives the sessions it holds — a session is the live browser o
 open_session()      # same browser, same window, back where you were
 ```
 
-Workspaces expire on `WORKSPACE_TTL`, slid forward on every use. Nothing else removes one. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Workspaces).
+Workspaces expire on `WORKSPACE_TTL`, slid forward on every use; nothing else removes one. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Workspaces).
 
 ### 🧭 About that `url` parameter
 
-`click`, `write`, `press_key`, `extract`, `screenshot` and `execute_script` all take an optional `url`, and it is **not an assertion**. If the browser is elsewhere it goes there first, so you can jump straight to a page instead of clicking a path to it.
+`click`, `write`, `press_key`, `extract`, `screenshot` and `execute_script` all take an optional `url`, which is **not an assertion**: if the browser is elsewhere it goes there first, so you can jump straight to a page instead of clicking a path to it.
 
 ---
 
 ## 🍪 Workspaces
 
-**Every workspace is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name — there is no session id in the contract at all, so there is nothing to keep and nothing to pass.
+**Every workspace is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name — there is no session id in the contract, so nothing to keep or pass.
 
 | How to name it | Looks like | Use it when |
 |---|---|---|
@@ -101,11 +101,11 @@ Workspaces expire on `WORKSPACE_TTL`, slid forward on every use. Nothing else re
 
 The old `?session=` and `X-Session-Key` are refused with a 400 naming the new spelling.
 
-**Sending both is a 400**, not a contest one wins: two names is two ideas about who is calling, and quietly picking one hides that from whoever wired it up. Naming nothing is a 400 too, with a message saying how — except on the flow library, which falls back to the shared `global` one that everyone reads and nobody writes.
+**Sending both is a 400**, not a contest: two names is two ideas about who is calling, and picking one hides that from whoever wired it up. Naming nothing is a 400 too, with a message saying how — except on the flow library, which falls back to the shared `global` one that everyone reads and nobody writes.
 
-**`open_session` always comes first.** Nothing opens a browser implicitly, because that is the only place its browser, window size and timeouts can be chosen.
+**`open_session` always comes first.** Nothing opens a browser implicitly, because that is the only place its browser, window size and timeouts are chosen.
 
-Call again with the same name — after a reconnect, a client restart, a week later — and you are back on the same browser at the same page.
+Call again with the same name — after a reconnect, a restart, a week later — and you are back on the same browser at the same page.
 
 > ⚠️ n8n opens a **new MCP transport per tool call**, so nothing the transport negotiates is ever the same twice. Name the workspace in the URL and it simply works.
 
@@ -207,13 +207,15 @@ opts out when a capture is not worth keeping.
 `open_session(record=true)` films the browser's whole life — from that call until
 the browser ends or the Grid reaps it — and the video appears under
 `workspace://files/recordings` (and in the admin page's Recordings row) shortly
-after. Like screenshots, recordings stay until they are kept into Files or
+after. Like screenshots, they stay until kept into Files or
 cleared.
+
+`open_session(capture=true)` keeps the page's console and network for `workspace://console` and `workspace://network`, and a call that caused a page error says so.
 
 **Selenium records; you deliver; selenium-flow files.** Every docker-selenium
 node image from `4.45.0-20260606` contains the recorder and starts it for a
 session that asks with `se:recordVideo`. The Grid has no endpoint to download a
-recording, so how the file reaches this server is yours to choose. The one rule:
+recording, so how it reaches this server is yours to choose. The one rule:
 
 > Make the Grid's recordings arrive in `RECORDING_DIR` (default
 > `$DATA_DIR/recordings`), and set `RECORDING_ENABLED=true`.

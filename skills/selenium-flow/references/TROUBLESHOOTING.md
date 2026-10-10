@@ -40,6 +40,23 @@ If the URL is right and the element still is not found, in order of likelihood:
 4. **The XPath is brittle** — positional paths break on any layout change; match
    on an attribute or on visible text instead.
 
+## A call failed and the page said why
+
+A result may carry a `page` hint: `{"errors": 1, "failed_requests": 2, "see": ...}`.
+It means the page itself reported errors, or requests failed, *because of that
+call* - and a failed call carries the same thing as a sentence on its error.
+It is often the real diagnosis: the click landed and the page threw.
+
+1. Read what `see` names first: `workspace://console?level=error` for page
+   errors, `workspace://network?filter=failed` for failed requests.
+2. For a request, read `workspace://network/{id}` (headers, status, timing),
+   then `network_body(id)` for the response itself.
+
+Warnings and failed images are never hinted; they are in the buffers if you ask.
+This needs capture on: `open_session(capture=true)`. It is **not inherited** -
+an `open_session()` without it turns capture off. `capturing: false` in
+`workspace://current` means capture is paused until the next call.
+
 ## "name your workspace"
 
 You called without naming one. Add `?workspace=<name>` to the server URL, or send
