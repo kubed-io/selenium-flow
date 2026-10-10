@@ -34,7 +34,7 @@
   {@const none = m.mode === 'captured' && !m.visible.length}
   {#if m.visible.length || m.clearedAt !== null}
     <div class="clist">
-      {#each m.visible as r (r.seq)}
+      {#each m.visible as r (m.key(r))}
         {@const go = opens(r)}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (mouse-only, like the workspace cards) -->
         <div class={['crow', go && 'click']} onclick={go}>

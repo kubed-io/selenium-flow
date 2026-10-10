@@ -69,3 +69,28 @@ test('a source is a file name and line, never the query or the whole URL', async
   expect(await screen.findByText('example.com:2')).toBeInTheDocument()
   expect(screen.getByText('app.js:9')).toBeInTheDocument()
 })
+
+test('Live survives a buffer that starts again: a repeated seq is a new row, and Clear does not hide it', async () => {
+  render(CaptureConsolePane, { props: props() })
+  await fireEvent.click(await screen.findByRole('button', { name: 'Live' }))
+  const es = FakeEventSource.last
+  es.emit({ seq: 5, at: 1, level: 'log', text: 'before', kept: true })
+  expect(await screen.findByText('before')).toBeInTheDocument()
+  await fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+  // The buffer expired or was discarded: the server counts from 1 again.
+  es.emit({ seq: 1, at: 2, level: 'log', text: 'again one', kept: true })
+  es.emit({ seq: 1, at: 3, level: 'log', text: 'again two', kept: true })
+  expect(await screen.findByText('again one')).toBeInTheDocument()
+  expect(screen.getByText('again two')).toBeInTheDocument()
+  expect(screen.queryByText('before')).toBeNull()
+})
+
+test('two live rows with one seq are both drawn', async () => {
+  render(CaptureConsolePane, { props: props() })
+  await fireEvent.click(await screen.findByRole('button', { name: 'Live' }))
+  const es = FakeEventSource.last
+  es.emit({ seq: 1, at: 1, level: 'log', text: 'first life', kept: true })
+  es.emit({ seq: 1, at: 2, level: 'log', text: 'second life', kept: true })
+  expect(await screen.findByText('second life')).toBeInTheDocument()
+  expect(screen.getByText('first life')).toBeInTheDocument()
+})

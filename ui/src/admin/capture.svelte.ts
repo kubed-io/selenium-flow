@@ -3,7 +3,9 @@ import type { CaptureOff, ConsoleData, ConsoleEntry, NetworkData, RequestRow } f
 import { workspacePath, type Api } from './api'
 
 export const TAIL_ROWS = 2000
-type Row = ConsoleEntry | RequestRow
+/* `live` numbers a Live row as it arrives: the server's seq starts again when a
+   buffer expires or is discarded, so it cannot key the rows or place a Clear. */
+type Row = (ConsoleEntry | RequestRow) & { live?: number }
 
 const level = (r: Row) => ('level' in r ? r.level : '')
 const KEEP: Record<string, (r: Row) => boolean> = {
@@ -26,8 +28,10 @@ export class CaptureModel {
   pages = $state(1)
   clearedAt = $state<number | null>(null)
   /* The highest seq on screen at Clear: rows are hidden by the server's order,
-     never by comparing the browser's clock with this one's. */
+     never by comparing the browser's clock with this one's. In Live, the
+     highest arrival number instead. */
   clearedSeq = $state<number | null>(null)
+  clearedLive = $state<number | null>(null)
   rows = $state.raw<Row[]>([])
   /* What Pause froze on screen; rows keep arriving behind it. */
   held = $state.raw<Row[] | null>(null)
@@ -37,6 +41,7 @@ export class CaptureModel {
   data = $state.raw<ConsoleData | NetworkData | CaptureOff | null>(null)
   error = $state<string | null>(null)
   #stream: EventSource | null = null
+  #arrived = 0
   readonly #api: Api
   readonly #root: string
   readonly #key: string
@@ -52,11 +57,18 @@ export class CaptureModel {
   readonly visible = $derived.by(() => {
     const keep = KEEP[this.filter] ?? KEEP.all
     const q = this.text.trim().toLowerCase()
-    const cut = this.clearedSeq
+    const live = this.mode === 'live'
+    const cut = live ? this.clearedLive : this.clearedSeq
+    const order = (r: Row) => (live ? r.live ?? 0 : r.seq)
     const text = (r: Row) => ('text' in r ? r.text : r.url).toLowerCase()
     return (this.paused ? this.held ?? this.rows : this.rows)
-      .filter((r) => keep(r) && (!q || text(r).includes(q)) && (cut === null || r.seq > cut))
+      .filter((r) => keep(r) && (!q || text(r).includes(q)) && (cut === null || order(r) > cut))
   })
+
+  /* A row's key in a keyed list: unique on screen in either mode. */
+  key(r: Row): number {
+    return r.live ?? r.seq
+  }
 
   readonly counts = $derived.by(() => {
     const out: Record<string, number> = {}
@@ -111,6 +123,7 @@ export class CaptureModel {
       if (typeof row.dropped === 'number') { this.dropped = row.dropped; return }
       if (this.paused) this.fresh++
       else this.seen++
+      row.live = ++this.#arrived
       this.rows = [row, ...this.rows].slice(0, TAIL_ROWS)
     }
     es.onerror = () => {
@@ -145,7 +158,8 @@ export class CaptureModel {
 
   clear(): void {
     this.clearedAt = Date.now() / 1000
-    this.clearedSeq = this.rows.reduce((top, r) => Math.max(top, r.seq), 0)
+    if (this.mode === 'live') this.clearedLive = this.#arrived
+    else this.clearedSeq = this.rows.reduce((top, r) => Math.max(top, r.seq), 0)
   }
 
   dispose(): void {
