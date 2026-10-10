@@ -172,9 +172,12 @@ def _save_through_the_server(monkeypatch, channel, broken=None):
     return server, response
 
 
-def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
+def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch, caplog):
     """A dead BiDi route is a 503 saying what to do, not a 500 saying
-    "socket is already closed."."""
+    "socket is already closed." — and a Grid URL with userinfo, which the
+    socket's own error quotes, never reaches the answer or a log line."""
+    from kubed.selenium_flow.bidi import CHANNEL_DOWN, Channels
+
     from .fakes import FakeChannel
 
     server, response = _save_through_the_server(
@@ -184,6 +187,23 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch):
     error = response.json()["error"]
     assert error.startswith("the browser's BiDi channel is unavailable")
     assert server.workspaces.store.get(NAMED).site_data == {}
+
+    url = "ws://user:pw@grid.invalid/session/x/se/bidi"
+
+    def connect(where):
+        raise OSError(f"[Errno 111] Connect call failed: {where} is closed")
+
+    channels = Channels(lambda _sid: url, connect=connect)
+    server, response = _save_through_the_server(monkeypatch, None)
+    server.actions.channels = channels
+    with caplog.at_level("DEBUG"):
+        response = TestClient(server.mcp.http_app()).post(
+            "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
+        )
+    assert response.status_code == 503, response.json()
+    assert response.json()["error"] == CHANNEL_DOWN
+    assert "pw" not in response.text and "user:" not in response.text
+    assert "user:pw" not in caplog.text and "grid.invalid/session" not in caplog.text
 
 
 def test_a_channel_that_will_not_open_is_a_503_and_saves_nothing(monkeypatch):
