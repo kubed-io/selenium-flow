@@ -120,3 +120,17 @@ def test_a_scoped_listener_sees_only_its_contexts(browser_in_thread):
         portal.call(_event, "network.beforeRequestSent", {})
         ch.flush()
     assert got == [{"context": "tab-1"}, {"source": {"context": "tab-1"}}]
+
+
+def test_a_save_interrupted_by_its_connection_closing_leaves_no_intercept(browser_in_thread):
+    """The deadline (or a shutdown) closing the held connection in the middle
+    of a save: the spare tab's own clean-up then fails on the closed socket,
+    so the connection's clean close is what removes its intercept."""
+    from kubed.selenium_flow.site_data.spare import spare_tab
+
+    url, portal, loop = browser_in_thread
+    held = portal.call(_opened, url)
+    channels = Channels(lambda _s: "ws://unused", held=lambda _s: held, loop=lambda: loop)
+    with channels.open_channel("s") as ch, spare_tab(ch):
+        portal.call(held.close)
+    assert browser_params("network.removeIntercept") == [{"intercept": "int-1"}]

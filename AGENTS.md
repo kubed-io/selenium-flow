@@ -193,8 +193,8 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
   2026-10-10, rulings 1 and 8). While the monitor holds a connection for a session (capture
   on), every user of that session shares it; otherwise `Channels.open_channel` opens one for
   the block and closes it. A connection closes clean — it unsubscribes by id and removes the
-  data collectors it added — so Firefox's fan-out never floods another socket and no body
-  outlives its reader. `websockets` is imported in `bidi/connection.py` and nowhere else. An
+  intercepts and data collectors added on it — so Firefox's fan-out never floods another
+  socket, no body outlives its reader and no intercept outlives a save the close cut off. `websockets` is imported in `bidi/connection.py` and nowhere else. An
   intercept is added only by the spare tab (`site_data/spare.py`), scoped to its tab and one
   path, and removed before its listener: a request matching an orphaned intercept hangs with
   nobody to answer. Selenium's own BiDi client is not used. A held socket is a channel, never
@@ -596,7 +596,10 @@ still not.
 its browser alive forever (measured: 2.2× the timeout and counting), so a
 watched session carries a deadline: its last call plus its node's
 `sessionTimeout`, read from `/status`. At the deadline the monitor
-unsubscribes, closes the socket and lets the Grid's timer run. This server
+unsubscribes, closes the socket and lets the Grid's timer run — never while a
+call on the session is in flight (`Monitor.calling` / `called`, from
+`workspace/calls.py`): the call borrows that connection, and the deadline
+counts from its end. This server
 ends no session on a timer of its own.
 
 ### The session monitor and the bus

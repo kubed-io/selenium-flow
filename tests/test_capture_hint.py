@@ -32,7 +32,7 @@ class Bus:
 
 
 class FakeMonitor:
-    """Records `touch` and what the bus was handed; holds no connection unless
+    """Records `calling` / `called` and what the bus was handed; holds no connection unless
     a test gives it one."""
 
     def __init__(self):
@@ -43,8 +43,14 @@ class FakeMonitor:
         self.owed: set[str] = set()  # sessions that owe capture
         self.attached: list = []
 
-    def touch(self, session_id, at=None):
-        self.touched.append(session_id)
+    def calling(self, session_id):
+        self.touched.append(("calling", session_id))
+
+    def called(self, session_id):
+        self.touched.append(("called", session_id))
+
+    def backing_off(self, session_id):
+        return False
 
     def connection(self, session_id):
         return self.held
@@ -265,7 +271,7 @@ def test_every_call_touches_and_publishes_call_finished(captured_ws):
                        tool="write", surface="http")
     [event] = monitor.published
     assert (event.tool, event.surface, event.outcome, event.browser) == ("write", "http", "4xx", "chrome")
-    assert monitor.touched == [event.session_id]
+    assert monitor.touched == [("calling", event.session_id), ("called", event.session_id)]
 
 
 def test_a_call_without_capture_is_said_too(plain_ws):
@@ -301,7 +307,7 @@ def test_a_monitor_that_raises_never_fails_the_call(captured_ws, caplog):
     def broken(*args, **kwargs):
         raise RuntimeError("the monitor fell over")
 
-    monitor.touch = broken
+    monitor.calling = monitor.called = broken
     monitor.bus.publish = broken
     result = workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="extract")
     assert result == {"url": "u"}
@@ -495,3 +501,27 @@ def test_every_call_that_can_carry_the_hint_declares_it():
             assert declared["page"] == PAGE_HINT, row.name
     assert FLOW_SCHEMAS["FlowRun"]["properties"]["page"] == PAGE_HINT
     assert set(PAGE_HINT["properties"]) == {"errors", "failed_requests", "see"}
+
+
+def test_a_step_that_fails_before_it_acts_still_ends_its_call(flow_run_with_capture, monkeypatch):
+    """A save step's pages are written before it acts; when that write fails
+    the step was still begun, and a call left in flight would keep its
+    connection held past every deadline (PR review I1)."""
+    from kubed.selenium_flow.flows import api as flowapi
+
+    run = flow_run_with_capture
+    settle, failed = run.workspaces.settle, []
+
+    def settle_once_failing(*args, **kwargs):
+        if not failed:
+            failed.append(1)
+            raise RuntimeError("the store blinked")
+        return settle(*args, **kwargs)
+
+    monkeypatch.setattr(run.workspaces, "settle", settle_once_failing)
+    run.actions.save_site_data = lambda session_id, **kwargs: {"url": "https://a.test/"}
+    run.store.save("ws", "keep", {"steps": [{"tool": "save_site_data", "args": {}}]})
+    report = flowapi.run_for(run.store, run.actions, run.workspaces, "ws", "keep")
+    assert report["status"] != "ok"
+    said = [kind for kind, _ in run.monitor.touched]
+    assert said == ["calling", "called"]

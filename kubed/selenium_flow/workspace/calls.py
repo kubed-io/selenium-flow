@@ -9,7 +9,10 @@ and that is the whole of what it does here:
 - capture is held again when it is owed and was let go while the agent
   paused (the deadline closes an idle connection), so the call that comes back
   is captured too;
-- the monitor is touched, so a held connection's deadline moves on;
+- the monitor is told the call is under way and when it is over, each a
+  touch, so a held connection's deadline moves on and is never reached while
+  the call runs (a close would take its late events, its flush and any
+  borrowed channel with it);
 - `call.finished` is published, values-free (ruling 14): who, which tool on
   which surface, how it came out, when and how long;
 - with capture on, what the page reported while the call ran is counted
@@ -130,7 +133,9 @@ class Calls:
         return self._mark(workspace) is not None
 
     def begin(self, workspace: str, session_id: str, *, browser: str = "") -> Begun:
-        """A call starts: capture is held again if it lapsed, then marked."""
+        """A call starts: the monitor is told, capture is held again if it
+        lapsed, then marked."""
+        told(self.monitor, "calling", session_id)
         self._resume(workspace, session_id, browser)
         return Begun(workspace, session_id, self.clock(), self._mark(workspace))
 
@@ -146,7 +151,7 @@ class Calls:
         """Touch, flush, count and say the call; the hint, or None. Never raises."""
         # The call's own time: the flush below is bookkeeping, not the action.
         duration = max(0.0, self.clock() - begun.started)
-        told(self.monitor, "touch", begun.session_id)
+        told(self.monitor, "called", begun.session_id)
         page = None
         if begun.mark is not None:
             self._flush(begun.session_id)
@@ -182,13 +187,17 @@ class Calls:
         owes capture and none is held: the deadline let it go while the agent
         paused, and the touch at the end would come too late for this call.
         A hold again aligns Chrome's replay. A failure costs this call its
-        capture, never the call; it is logged by type (it names a Grid id)."""
+        capture, never the call; it is logged by type (it names a Grid id),
+        and backs off: until it ends, a call does not try, so a route that
+        hangs costs one call ATTACH_TIMEOUT rather than every call."""
         monitor = self.monitor
         if monitor is None or self.capture is None:
             return
         try:
-            lapsed = monitor.owes(session_id, "capture") and not monitor.capturing(
-                session_id
+            lapsed = (
+                monitor.owes(session_id, "capture")
+                and not monitor.capturing(session_id)
+                and not monitor.backing_off(session_id)
             )
             if lapsed:
                 monitor.attach(workspace, session_id, "capture", browser=browser)

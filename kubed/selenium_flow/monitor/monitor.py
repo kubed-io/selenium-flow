@@ -33,6 +33,13 @@ its session (measured), so the monitor closes it when the watch ends, and
 closes it clean: `Connection.close` unsubscribes and removes the data
 collectors it added first (capture spec, ruling 7).
 
+**The deadline never closes a connection under a call.** A call is
+`calling` from its start and `called` at its end (`workspace.calls`), each a
+touch; while any call on a session is in flight its connection is kept, and
+the deadline counts again from the last one's end. A call borrows the held
+connection (a save's spare tab, a body's fetch, the call's own flush), and a
+close in the middle would take those with it.
+
 **Capture attaches before the first page** (capture spec, ruling 6). `attach`
 holds the connection now — open, subscribe, add the data collector — and
 returns only then, so the open path can navigate knowing nothing is missed; a
@@ -198,6 +205,10 @@ class Monitor:
         self._listing_failed = False
         self._empty_since: float | None = None  # the current run of no-node listings
         self._failed_logged: set[str] = set()  # sessions whose failing hold was logged
+        # Calls in flight per session, counted from the worker threads that
+        # make them, so a look sees a call the moment it starts.
+        self._in_flight: dict[str, int] = {}
+        self._in_flight_lock = threading.Lock()
 
     # ---- from any thread ---------------------------------------------------
 
@@ -295,6 +306,24 @@ class Monitor:
 
         self._post(apply)
 
+    def calling(self, session_id: str) -> None:
+        """A call on this session starts: a touch, and its connection is kept
+        until the call is `called`, whatever the deadline says."""
+        with self._in_flight_lock:
+            self._in_flight[session_id] = self._in_flight.get(session_id, 0) + 1
+        self.touch(session_id)
+
+    def called(self, session_id: str) -> None:
+        """A call on this session ended: a touch, from which the deadline
+        counts once no other call is in flight."""
+        with self._in_flight_lock:
+            left = self._in_flight.get(session_id, 0) - 1
+            if left > 0:
+                self._in_flight[session_id] = left
+            else:
+                self._in_flight.pop(session_id, None)
+        self.touch(session_id)
+
     def connection(self, session_id: str) -> Connection | None:
         """The connection held to this session's browser, if one is open."""
         w = self.watches.get(session_id)
@@ -310,6 +339,12 @@ class Monitor:
         """Whether a connection to this session's browser is held right now."""
         w = self.watches.get(session_id)
         return bool(w and w.connection and w.connection.is_open)
+
+    def backing_off(self, session_id: str) -> bool:
+        """Whether a hold on this session failed and its back-off has not run
+        out: a call then does not try again (`Calls`), nor wait for it."""
+        w = self.watches.get(session_id)
+        return w is not None and w.retry_at > self.clock()
 
     @property
     def loop(self) -> asyncio.AbstractEventLoop | None:
@@ -477,7 +512,10 @@ class Monitor:
                         await self._hold(w)
                     else:
                         await self._extend(w, w.connection)
-            except BaseException:
+            except BaseException as exc:
+                # Backed off like a look's hold, so a call that resumes it
+                # does not pay ATTACH_TIMEOUT again on every call.
+                self._failed(w, self.clock(), exc)
                 if added:
                     self._unowe(session_id, reason)
                 raise
@@ -490,7 +528,7 @@ class Monitor:
         passed, past it close it clean, and back off a hold that fails."""
         if w.busy.locked():
             return  # an attach is at it
-        if not self._wanted(w) or now >= w.deadline:
+        if not self._wanted(w) or (now >= w.deadline and not self._in_call(w)):
             if w.connection is not None:
                 async with w.busy:
                     conn, w.connection, w.subscribed = w.connection, None, frozenset()
@@ -585,7 +623,11 @@ class Monitor:
         w.failures, w.retry_at = 0, 0.0
         self._failed_logged.discard(w.session_id)
 
-    def _failed(self, w: Watch, now: float, exc: Exception) -> None:
+    def _in_call(self, w: Watch) -> bool:
+        with self._in_flight_lock:
+            return self._in_flight.get(w.session_id, 0) > 0
+
+    def _failed(self, w: Watch, now: float, exc: BaseException) -> None:
         w.retry_at = now + min(BACKOFF_MAX, 2 ** min(w.failures, 5))
         w.failures += 1
         if w.session_id not in self._failed_logged:
@@ -649,7 +691,11 @@ class Monitor:
 
     def _wait(self) -> float:
         now = self.clock()
-        waits = [w.deadline - now for w in self.watches.values() if w.connection]
+        waits = [  # a call in flight holds past it; its end wakes the loop
+            w.deadline - now
+            for w in self.watches.values()
+            if w.connection and not self._in_call(w)
+        ]
         waits += [  # a hold backing off is tried again when its wait is over
             w.retry_at - now
             for w in self.watches.values()

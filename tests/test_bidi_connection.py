@@ -322,3 +322,17 @@ async def test_the_fell_behind_warning_re_arms_only_once_the_queue_has_drained(c
     warned = [r for r in caplog.records if "fell behind" in r.getMessage()]
     assert len(warned) == 2
     sub.cancel()
+
+
+async def test_close_removes_the_intercepts_it_added_and_not_the_removed_ones(browser):
+    """An intercept outliving its user would block its tab's requests; a
+    connection closed under a save removes the one the save added (PR review I1)."""
+    conn = Connection(browser.url)
+    await conn.open()
+    kept = (await conn.command("network.addIntercept", {"phases": ["beforeRequestSent"]}))["intercept"]
+    gone = (await conn.command("network.addIntercept", {"phases": ["beforeRequestSent"]}))["intercept"]
+    await conn.command("network.removeIntercept", {"intercept": gone})
+    await conn.close()
+    removed = [p["intercept"] for m, p in zip(browser.received, browser.received_params, strict=True)
+               if m == "network.removeIntercept"]
+    assert removed == [gone, kept]

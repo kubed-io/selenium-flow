@@ -10,6 +10,7 @@ from kubed.selenium_flow.faults import BidiUnavailable
 from kubed.selenium_flow.monitor import monitor as monitor_module
 from kubed.selenium_flow.monitor.events import LocalBus
 from kubed.selenium_flow.monitor.monitor import Monitor
+from kubed.selenium_flow.workspace.calls import Calls
 
 from .test_monitor import GID, Clock, FakeConnection, FakeSink
 
@@ -147,3 +148,83 @@ async def test_attach_before_start_is_a_runtime_error(clock):
     monitor = monitor_for(FakeSink(), clock)
     with pytest.raises(RuntimeError, match="not running"):
         await asyncio.to_thread(monitor.attach, "ws1", GID, "capture")
+
+
+# ---- a call in flight (PR review I1) ------------------------------------------
+
+
+class Marks:
+    """A capture that marks every call, so `Calls` resumes a lapsed hold."""
+
+    def mark(self, workspace):
+        return None
+
+
+def calls_for(monitor, clock):
+    return Calls(monitor=monitor, capture=Marks(), clock=clock)
+
+
+async def test_a_call_begun_a_second_before_the_deadline_keeps_its_connection(running_monitor, clock):
+    """The reviewer's probe: a call that starts at 299 s is not closed under
+    two seconds later, so its late events and its flush still land."""
+    monitor, _ = running_monitor
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+    clock.now += 299
+    await asyncio.to_thread(calls_for(monitor, clock).begin, "ws1", GID)
+    clock.now += 2
+    await monitor.look()
+    assert monitor.capturing(GID)
+
+
+async def test_the_deadline_never_closes_under_a_call_and_counts_from_its_end(running_monitor, clock):
+    monitor, _ = running_monitor
+    calls = calls_for(monitor, clock)
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+    begun = await asyncio.to_thread(calls.begin, "ws1", GID)
+    clock.now += 900  # one long call: an assert that waits, a slow save
+    await monitor.look()
+    assert monitor.capturing(GID)
+    assert monitor._wait() == monitor.tick  # no spin while the call runs on
+    await asyncio.to_thread(calls.end, begun, tool="assert", surface="mcp", browser="chrome")
+    clock.now += 299
+    await monitor.look()
+    assert monitor.capturing(GID)
+    clock.now += 2
+    await monitor.look()
+    assert not monitor.capturing(GID) and FakeConnection.made[0].closed_clean
+
+
+async def test_two_calls_in_flight_hold_until_the_last_ends(running_monitor, clock):
+    monitor, _ = running_monitor
+    calls = calls_for(monitor, clock)
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+    first = await asyncio.to_thread(calls.begin, "ws1", GID)
+    second = await asyncio.to_thread(calls.begin, "ws1", GID)
+    await asyncio.to_thread(calls.end, first, tool="extract", surface="mcp", browser="")
+    clock.now += 900
+    await monitor.look()
+    assert monitor.capturing(GID)
+    await asyncio.to_thread(calls.end, second, tool="extract", surface="mcp", browser="")
+    clock.now += 301
+    await monitor.look()
+    assert not monitor.capturing(GID)
+
+
+async def test_a_failed_resume_backs_off_instead_of_costing_every_call(running_monitor, clock):
+    """A hanging /se/bidi would cost each call ATTACH_TIMEOUT under the
+    session's lock; past one failure, the calls skip it until the back-off ends."""
+    monitor, _ = running_monitor
+    calls = calls_for(monitor, clock)
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+    clock.now += 301
+    await monitor.look()  # the deadline let it go
+    FakeConnection.refuse = True
+    for _ in range(3):
+        begun = await asyncio.to_thread(calls.begin, "ws1", GID)
+        await asyncio.to_thread(calls.end, begun, tool="extract", surface="mcp", browser="")
+    assert len(FakeConnection.made) == 2  # the hold, and one failed resume
+    assert monitor.owes(GID, "capture")
+    FakeConnection.refuse = False
+    clock.now += 1
+    await asyncio.to_thread(calls.begin, "ws1", GID)
+    assert len(FakeConnection.made) == 3 and monitor.capturing(GID)

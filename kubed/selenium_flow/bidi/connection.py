@@ -21,8 +21,10 @@ spare tab's intercept answer would wait on a page flooding the console — so th
 reader never waits on one.
 
 **A connection closes clean** (ruling 7): it unsubscribes every subscription it
-made and removes every data collector it added before the socket goes, so
-Firefox's fan-out never floods another socket and no body outlives its reader.
+made and removes every intercept and data collector it added before the socket
+goes, so Firefox's fan-out never floods another socket, no body outlives its
+reader, and no request waits on an intercept whose answerer has gone (a spare
+tab whose save was cut off by the close).
 """
 
 from __future__ import annotations
@@ -259,6 +261,8 @@ class Connection:
         ] = {}
         # The data collectors this connection added, removed when it closes.
         self.collectors: set[str] = set()
+        # The network intercepts added on it and not yet removed: likewise.
+        self.intercepts: set[str] = set()
 
     @property
     def is_open(self) -> bool:
@@ -301,11 +305,17 @@ class Connection:
                 )
             except ConnectionClosed as exc:
                 raise ConnectionError("the BiDi socket closed") from exc
-            return await asyncio.wait_for(reply, timeout)
+            result = await asyncio.wait_for(reply, timeout)
         finally:
             self._pending.pop(cid, None)
             if reply.done() and not reply.cancelled():
                 reply.exception()  # retrieved, so an unawaited one never logs
+        # Whoever adds one (a spare tab, through a `Channel`), close removes it.
+        if method == "network.addIntercept" and result.get("intercept"):
+            self.intercepts.add(str(result["intercept"]))
+        elif method == "network.removeIntercept":
+            self.intercepts.discard(str((params or {}).get("intercept")))
+        return result
 
     async def subscribe(
         self, events: Sequence[str], contexts: Sequence[str] | None = None
@@ -377,7 +387,8 @@ class Connection:
             await asyncio.gather(*(s.barrier() for s in tuple(self._subscribers)))
 
     async def close(self) -> None:
-        """Unsubscribe, remove the collectors, stop every subscriber, close.
+        """Unsubscribe, remove the intercepts and collectors, stop every
+        subscriber, close.
 
         Never raises, and always releases the socket and its reader, even when
         cancelled part-way (the cancellation is then re-raised)."""
@@ -402,6 +413,11 @@ class Connection:
                 for subscription in list(self.subscriptions):
                     with contextlib.suppress(Exception):
                         await self.unsubscribe(subscription)
+                for intercept in list(self.intercepts):
+                    with contextlib.suppress(Exception):
+                        await self.command(
+                            "network.removeIntercept", {"intercept": intercept}
+                        )
                 for collector in list(self.collectors):
                     with contextlib.suppress(Exception):
                         await self.remove_collector(collector)

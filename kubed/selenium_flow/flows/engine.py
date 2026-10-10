@@ -101,9 +101,10 @@ class Hooks(Protocol):
     soon as they are known and before the step acts: capture masks them from
     the first keystroke (capture spec, ruling 13). Only for a step that binds.
 
-    ``step_done(tool, error)`` after every step that acted, still inside its
-    turn on the browser — ``error`` is what it raised, or None. A step refused
-    before it acted (a bad binding, cancelled while it waited) is never done.
+    ``step_done(tool, error)`` after every step `before_step` began, still
+    inside its turn on the browser — ``error`` is what it raised, or None. A
+    step refused before it began (a bad binding, cancelled while it waited) is
+    never done.
     """
 
     def before_step(self, entry: dict, total: int) -> None: ...
@@ -643,15 +644,17 @@ def _drive(
     outcome.summary = summarise(tool, kwargs, guarded)
     forms = binding.forms_of(kwargs, guarded)
     run.seen |= forms
-    # `step_done` once for a step that acted, and never for one that did not.
+    # `step_done` once for a step that was begun, and never for one that was
+    # not: a save whose pages could not be written first was still begun, and
+    # a call never ended would keep its capture held past every deadline.
     acting = done = False
     try:
         if forms:
             call.hooks.bound(forms)
         call.hooks.before_step(outcome.entry(), run.total)
+        acting = True
         if tool == SAVE_SITE_DATA:
             call.hooks.before_save(list(run.pages))
-        acting = True
         raw = method(call.session_id, **kwargs)
         # Before the result is copied for the report: the hook strips the
         # private capture from `raw`.

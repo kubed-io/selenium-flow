@@ -1,7 +1,7 @@
 """A browser's BiDi end, on a real WebSocket server on localhost.
 
 `FakeBrowser` answers enough of BiDi to hold a connection against: subscribe,
-unsubscribe, a data collector, a body, a few commands, an error, silence, a slow
+unsubscribe, a data collector, an intercept, a tab, a body, a few commands, an error, silence, a slow
 reply, and events on demand. ``received`` is every command's method in the
 order it arrived, across connections, and ``received_params`` its params beside
 it.
@@ -30,6 +30,7 @@ class FakeBrowser:
         self.connections = []
         self.subscriptions = 0
         self.collectors = 0
+        self.intercepts = 0
         self.bodies: dict[str, dict] = {}
         self.delay = 0.0
         self.server = None
@@ -56,6 +57,13 @@ class FakeBrowser:
                 reply = {"collector": f"col-{self.collectors}"}
             elif method == "network.removeDataCollector":
                 reply = {}
+            elif method == "network.addIntercept":
+                self.intercepts += 1
+                reply = {"intercept": f"int-{self.intercepts}"}
+            elif method in ("network.removeIntercept", "browsingContext.close"):
+                reply = {}
+            elif method == "browsingContext.create":
+                reply = {"context": "tab-2"}
             elif method == "network.getData" and params.get("request") in self.bodies:
                 reply = self.bodies[params["request"]]
             elif method == "network.getData":
