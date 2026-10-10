@@ -49,6 +49,29 @@
             "description": "Always true: a false assertion is an error, not a result.",
             "type": "boolean"
           },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "script": {
             "description": "The expression that was true.",
             "type": "string"
@@ -156,6 +179,29 @@
           "message": {
             "description": "The dialog's text, read before it was answered.",
             "type": "string"
+          },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
           },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
@@ -307,6 +353,29 @@
             "description": "Whether the travel was incremental.",
             "type": "boolean"
           },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -430,6 +499,29 @@
       },
       "ExecuteScriptResponse": {
         "properties": {
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "result": {
             "description": "Whatever the script returned. Any JSON type."
           },
@@ -529,6 +621,29 @@
           "html": {
             "description": "innerHTML of the matched element.",
             "type": "string"
+          },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
           },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
@@ -805,6 +920,29 @@
                 "type": "string"
               }
             },
+            "type": "object"
+          },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
             "type": "object"
           },
           "site_data": {
@@ -1118,6 +1256,29 @@
             "description": "Whether the session is now inside a frame.",
             "type": "boolean"
           },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -1269,6 +1430,29 @@
             "description": "Present when the pointer was already inside the target and had to step away first, so the move it was asked for was a move.",
             "type": "boolean"
           },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -1342,6 +1526,29 @@
       },
       "NavigateResponse": {
         "properties": {
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -1718,6 +1925,29 @@
             },
             "type": "array"
           },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -1824,6 +2054,29 @@
           "key": {
             "description": "The key that was sent.",
             "type": "string"
+          },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
           },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
@@ -1943,6 +2196,29 @@
               "html"
             ],
             "type": "string"
+          },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
           },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
@@ -2072,6 +2348,29 @@
             "description": "Window height now in effect.",
             "type": "integer"
           },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -2154,6 +2453,29 @@
       },
       "SaveSiteDataResponse": {
         "properties": {
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "saved": {
             "description": "What this save kept, in place of the last. Never a value.",
             "properties": {
@@ -2346,6 +2668,29 @@
             "description": "Base64 PNG.",
             "format": "byte",
             "type": "string"
+          },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
           },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
@@ -2844,6 +3189,29 @@
             "description": "The name the page sees for the attached file.",
             "type": "string"
           },
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -3109,6 +3477,29 @@
       },
       "WriteResponse": {
         "properties": {
+          "page": {
+            "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
+            "properties": {
+              "errors": {
+                "description": "Console errors and uncaught exceptions.",
+                "type": "integer"
+              },
+              "failed_requests": {
+                "description": "Document, fetch and XHR requests that failed or got a 4xx/5xx.",
+                "type": "integer"
+              },
+              "see": {
+                "description": "The resource URI to read for the detail.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "errors",
+              "failed_requests",
+              "see"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {

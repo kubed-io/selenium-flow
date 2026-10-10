@@ -14,7 +14,7 @@ while a builder is followed.
 
 from __future__ import annotations
 
-from ..core.capabilities import CAPABILITIES, SITE_DATA_HINT
+from ..core.capabilities import CAPABILITIES, PAGE_HINT, SITE_DATA_HINT
 
 # What each capability answers is a column of its row in `core.capabilities`,
 # so a row cannot be written without one. This is that column by name, plus
@@ -399,6 +399,8 @@ FLOW_SCHEMAS = {
             },
             # Present only when the run's browser was reopened after a reap.
             "site_data": SITE_DATA_HINT,
+            # Present only with capture on: the steps' hints, summed.
+            "page": PAGE_HINT,
         },
     },
     "FlowDeleted": {

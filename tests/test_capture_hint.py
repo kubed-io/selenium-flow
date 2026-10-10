@@ -379,3 +379,47 @@ def test_a_flow_run_sums_its_steps_hints(flow_run_with_capture):
 def test_a_quiet_flow_run_has_no_hint(flow_run_with_capture):
     report = flow_run_with_capture(steps=[("interact", 0, 0)])
     assert report["status"] == "ok" and "page" not in report
+
+
+class SecretFlowActions(FlowActions):
+    """A flow's `write` whose page echoes what was typed into its console."""
+
+    def write(self, session_id, text=None, **kwargs):
+        self.capture.ingest("ws", session_id, *log(f"saw {text}", level="error"))
+        return {"url": "https://a.test/", "title": "A", "value": text}
+
+
+def test_a_flow_steps_bound_value_is_masked_in_what_capture_keeps(tmp_path):
+    from kubed.selenium_flow.flows import api as flowapi
+
+    capture, monitor = Capture(), FakeMonitor()
+    actions = SecretFlowActions(capture)
+    workspaces = build(capture, monitor, actions)
+    store = flow_store.LocalFlowStore(tmp_path)
+    store.save("ws", "login", {"steps": [{"tool": "write", "args": {
+        "selector": {"css": "#p"}, "secret": {"name": "demo", "key": "password"},
+    }}]})
+    report = flowapi.run_for(
+        store, actions, workspaces, "ws", "login", secrets_catalogue=Anywhere()
+    )
+    assert report["status"] == "ok" and report["page"]["errors"] == 1
+    console = str(capture.console("ws"))
+    assert "saw" in console and "hunter2" not in console
+
+
+# ---- the published contract ---------------------------------------------------
+
+
+def test_every_call_that_can_carry_the_hint_declares_it():
+    from kubed.selenium_flow.core.capabilities import CAPABILITIES, PAGE_HINT
+    from kubed.selenium_flow.spec.schemas import FLOW_SCHEMAS
+
+    # Opening and ending a browser are served by `Workspaces`, not `act`.
+    for row in CAPABILITIES:
+        declared = row.response["properties"]
+        if row.name in ("open_session", "end_browser"):
+            assert "page" not in declared, row.name
+        else:
+            assert declared["page"] == PAGE_HINT, row.name
+    assert FLOW_SCHEMAS["FlowRun"]["properties"]["page"] == PAGE_HINT
+    assert set(PAGE_HINT["properties"]) == {"errors", "failed_requests", "see"}

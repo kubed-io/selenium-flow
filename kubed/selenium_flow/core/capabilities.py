@@ -110,10 +110,44 @@ SITE_DATA_HINT = {
 }
 
 
+# Present only with capture on, and only when the call made the page report a
+# failure (`workspace.calls`): left out of `required` like `site_data`.
+PAGE_HINT = {
+    "type": "object",
+    "description": (
+        "Present only when this browser was opened with capture=true and the "
+        "page reported a failure while the call ran: what it caused, and where "
+        "to read it."
+    ),
+    "properties": {
+        "errors": {
+            "type": "integer",
+            "description": "Console errors and uncaught exceptions.",
+        },
+        "failed_requests": {
+            "type": "integer",
+            "description": (
+                "Document, fetch and XHR requests that failed or got a 4xx/5xx."
+            ),
+        },
+        "see": {
+            "type": "string",
+            "description": "The resource URI to read for the detail.",
+        },
+    },
+    "required": ["errors", "failed_requests", "see"],
+}
+
+
 def _page(**extra) -> dict:
     return {
         "type": "object",
-        "properties": {**extra, **PAGE_STATE, "site_data": SITE_DATA_HINT},
+        "properties": {
+            **extra,
+            **PAGE_STATE,
+            "site_data": SITE_DATA_HINT,
+            "page": PAGE_HINT,
+        },
     }
 
 
