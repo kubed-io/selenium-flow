@@ -388,6 +388,8 @@ def register(
         capture=true keeps what the page logs and fetches — workspace://console and
         workspace://network — and a call that caused a page error says so in its
         result. Off by default and not inherited: ask again for the next browser.
+        An open without capture=true also forgets what was captured, so read those
+        first when you are debugging.
         """
         return workspaces.open_browser(
             clients.caller(),

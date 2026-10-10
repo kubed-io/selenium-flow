@@ -561,10 +561,11 @@ or the leak `caller_key` existed to prevent comes straight back.
 - The buffer is per workspace, in memory: 1 000 console entries and 1 000 requests, the last 5
   navigations, gone `capture.ttl` after its last entry, discarded by an explicit open without
   capture. Successful static requests and `debug` entries are counted, not kept.
-- Masking happens once, at capture, for buffer and tail alike: the header list, cookies,
+- Masking happens once, at capture, for buffer and tail alike: the `authorization`,
+  `proxy-authorization`, `cookie` and `set-cookie` headers in any case, cookies,
   `goog:postData`, every bound secret, a URL's userinfo password (in URLs and the `referer` /
-  `location` / `content-location` headers) and every free-text row field; query strings only on
-  the newest navigation.
+  `location` / `content-location` headers), every free-text row field and a fetched body's text;
+  query strings only on the newest navigation.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
   page keeps 2 000.
 - Each subscriber's queue is bounded by count (1 000) **and** bytes (`QUEUE_BYTES`, 32 MiB). A

@@ -54,8 +54,10 @@ It is often the real diagnosis: the click landed and the page threw.
 
 Warnings and failed images are never hinted; they are in the buffers if you ask.
 This needs capture on: `open_session(capture=true)`. It is **not inherited** -
-an `open_session()` without it turns capture off. `capturing: false` in
-`workspace://current` means capture is paused until the next call.
+an `open_session()` without it turns capture off **and forgets what was
+captured**, so read the console and the network before you reopen.
+`capturing: false` in `workspace://current` means capture is paused until the
+next call.
 
 ## "name your workspace"
 
