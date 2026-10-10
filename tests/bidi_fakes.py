@@ -2,7 +2,7 @@
 
 `FakeBrowser` answers enough of BiDi to hold a connection against: subscribe,
 unsubscribe, a data collector, an intercept, a tab, a body, a few commands, an error, silence, a slow
-reply, and events on demand. ``received`` is every command's method in the
+reply, any method's reply set in ``replies``, and events on demand. ``received`` is every command's method in the
 order it arrived, across connections, and ``received_params`` its params beside
 it.
 
@@ -32,6 +32,7 @@ class FakeBrowser:
         self.collectors = 0
         self.intercepts = 0
         self.bodies: dict[str, dict] = {}
+        self.replies: dict[str, dict] = {}  # a method's result, ahead of the rest
         self.delay = 0.0
         self.server = None
         self.url = ""
@@ -45,7 +46,9 @@ class FakeBrowser:
             params = message.get("params") or {}
             self.received.append(method)
             self.received_params.append(params)
-            if method == "session.subscribe":
+            if method in self.replies:
+                reply = self.replies[method]
+            elif method == "session.subscribe":
                 self.subscriptions += 1
                 reply = {"subscription": f"sub-{self.subscriptions}"}
             elif method == "session.unsubscribe":

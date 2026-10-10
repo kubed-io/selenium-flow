@@ -93,8 +93,8 @@ def _scoped(
 @contextlib.contextmanager
 def _unavailable() -> Iterator[None]:
     """A closed connection or a reply that never came is a 503; the browser's
-    own error reply passes through, and so does a reply too large for the
-    socket, which its caller knows how to put."""
+    own error reply passes through, and so does a frame too large for the
+    socket: already a 503 (`MessageTooBig`), unless its caller knows better."""
     try:
         yield
     except (BidiError, MessageTooBig):

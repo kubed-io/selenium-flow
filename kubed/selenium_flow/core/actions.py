@@ -1328,10 +1328,12 @@ class Actions:
                     {"dataType": "response", "request": located.request},
                 )
         except MessageTooBig:
+            # On Firefox the frame may have been an event, fanned out to every
+            # socket, rather than this reply: no more is said than is known.
             raise ValueError(
-                f"request {id}'s body is too large to fetch: it decodes past what "
-                f"one BiDi message carries. {NETWORK_URI}/{id} has its headers "
-                f"and size"
+                f"request {id}'s body could not be read: the browser sent a "
+                f"message too large to read while fetching this body. "
+                f"{NETWORK_URI}/{id} has its headers and size"
             ) from None
         except BidiError as exc:
             # The browser's own words are never passed on: they can carry paths.

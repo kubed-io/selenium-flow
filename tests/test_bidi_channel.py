@@ -134,3 +134,35 @@ def test_a_save_interrupted_by_its_connection_closing_leaves_no_intercept(browse
     with channels.open_channel("s") as ch, spare_tab(ch):
         portal.call(held.close)
     assert browser_params("network.removeIntercept") == [{"intercept": "int-1"}]
+
+
+# ---- a frame past the socket's limit (PR review, round 2) ----------------------
+
+
+def test_a_save_whose_jar_is_past_the_frame_limit_is_a_503(browser_in_thread, monkeypatch):
+    """A 1009 is the channel failing, not the caller's mistake: a save's
+    `storage.getCookies` answers 503 like any channel that did not answer."""
+    from kubed.selenium_flow import errors
+    from kubed.selenium_flow.bidi import connection as connection_module
+    from kubed.selenium_flow.site_data import transfer
+
+    from . import bidi_fakes
+
+    url, _portal, loop = browser_in_thread
+    monkeypatch.setattr(connection_module, "MAX_MESSAGE", 4096)
+    jar = [{"name": f"c{i}", "value": {"type": "string", "value": "x" * 100}} for i in range(100)]
+    bidi_fakes._running.replies["storage.getCookies"] = {"cookies": jar}
+    channels = Channels(lambda _s: url, loop=lambda: loop)
+    with channels.open_channel("s") as ch, pytest.raises(BidiUnavailable) as raised:
+        transfer.capture(ch, driver=None)
+    assert errors.status_for(raised.value) == 503
+
+
+def test_a_frame_past_the_limit_on_any_call_is_a_503(browser_in_thread):
+    from kubed.selenium_flow import errors
+
+    url, _portal, loop = browser_in_thread
+    channels = Channels(lambda _s: url, loop=lambda: loop)
+    with channels.open_channel("s") as ch, pytest.raises(BidiUnavailable) as raised:
+        ch.call("too.big")
+    assert errors.status_for(raised.value) == 503

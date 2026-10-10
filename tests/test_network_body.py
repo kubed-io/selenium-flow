@@ -266,9 +266,14 @@ def test_a_body_too_large_for_its_frame_is_400_and_capture_keeps_its_connection(
     actions = Actions(FakeGrid())
     actions.capture = fed.capture
     actions.channels = Channels(lambda _s: url, held=lambda _s: held, loop=lambda: loop)
-    with pytest.raises(ValueError, match="too large to fetch") as raised:
+    with pytest.raises(ValueError) as raised:
         actions.network_body("s1", "1.1")
     assert errors.status_for(raised.value) == 400
+    # Firefox fans every event to every socket, so the frame may not have been
+    # the body's: the refusal says what is known and no more.
+    assert "the browser sent a message too large to read while fetching this body" in str(raised.value)
     assert "workspace://network/1.1" in str(raised.value)
     assert held.is_open
+    # The body's own connection subscribes to nothing.
+    assert "session.subscribe" not in bidi_fakes.browser_methods()
     portal.call(held.close)

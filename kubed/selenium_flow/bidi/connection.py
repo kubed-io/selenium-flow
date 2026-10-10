@@ -41,6 +41,8 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
+from ..faults import BidiUnavailable
+
 log = logging.getLogger(__name__)
 
 # Seconds to open a socket, and to wait for one command's reply.
@@ -76,9 +78,19 @@ DRAIN_TURN = 0.005
 MESSAGE_TOO_BIG = 1009
 
 
-class MessageTooBig(ConnectionError):
+TOO_BIG = (
+    "the browser sent a BiDi message larger than the socket takes, and it "
+    "closed: retry, and if it persists the answer itself is too large"
+)
+
+
+class MessageTooBig(BidiUnavailable):
     """A frame was larger than the connection takes, and it closed: every
-    command waiting on it gets this rather than a plain ConnectionError."""
+    command waiting on it gets this rather than a plain ConnectionError.
+
+    The channel failing, so a 503 wherever it reaches a caller (errors.py);
+    a caller that knows better, `network_body`, catches it first. Which frame
+    it was is not known: Firefox fans every event out to every socket."""
 
 
 class BidiError(Exception):
@@ -497,7 +509,7 @@ class Connection:
             for reply in self._pending.values():
                 if not reply.done():
                     reply.set_exception(
-                        MessageTooBig("a frame was too large for the BiDi socket")
+                        MessageTooBig(TOO_BIG)
                         if too_big
                         else ConnectionError("the BiDi socket closed")
                     )
