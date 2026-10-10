@@ -29,6 +29,7 @@ walked, lazy imports included, and every offending import is named.
 import ast
 import json
 import pkgutil
+import re
 import subprocess
 import sys
 import textwrap
@@ -375,10 +376,13 @@ def test_only_the_bidi_client_holds_a_socket():
 
 def test_only_the_spare_tab_adds_an_intercept():
     """An intercept outlives the connection that added it and hangs every request
-    it matches with nobody to answer (plan ruling 2): one module may add one."""
+    it matches with nobody to answer (plan ruling 2): one module may add one.
+    `bidi/connection.py` names the method too, to remove on close what was
+    added on it (PR review I1); it never sends it."""
+    sends = re.compile(r'\(\s*"network\.addIntercept"')
     found = {
         path.relative_to(PACKAGE).as_posix()
         for path in PACKAGE.rglob("*.py")
-        if "network.addIntercept" in path.read_text()
+        if sends.search(path.read_text())
     }
     assert found == {"site_data/spare.py"}
