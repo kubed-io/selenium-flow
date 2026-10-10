@@ -17,6 +17,7 @@ const host = vi.hoisted(() => ({
   applyDocumentTheme: vi.fn(),
   applyHostStyleVariables: vi.fn(),
   applyHostFonts: vi.fn(),
+  openLink: vi.fn(),
 }))
 vi.mock('@modelcontextprotocol/ext-apps', () => ({
   App: class {
@@ -30,6 +31,7 @@ vi.mock('@modelcontextprotocol/ext-apps', () => ({
     callServerTool(p: unknown) { return host.callServerTool(p) }
     updateModelContext(p: unknown) { return host.updateModelContext(p) }
     requestDisplayMode(p: unknown) { return host.requestDisplayMode(p) }
+    openLink(p: unknown) { return host.openLink(p) }
   },
   applyDocumentTheme: (t: unknown) => host.applyDocumentTheme(t),
   applyHostStyleVariables: (v: unknown) => host.applyHostStyleVariables(v),
@@ -57,7 +59,7 @@ beforeEach(() => {
   host.caps0 = undefined
   host.caps = { serverTools: {} }
   host.ctx = {}
-  for (const fn of [host.callServerTool, host.updateModelContext, host.requestDisplayMode, host.applyDocumentTheme, host.applyHostStyleVariables, host.applyHostFonts]) fn.mockReset()
+  for (const fn of [host.callServerTool, host.updateModelContext, host.requestDisplayMode, host.applyDocumentTheme, host.applyHostStyleVariables, host.applyHostFonts, host.openLink]) fn.mockReset()
   host.updateModelContext.mockResolvedValue({})
   document.documentElement.style.height = ''
 })
@@ -75,6 +77,11 @@ function deferred<T>() {
 
 const contexts = () => host.updateModelContext.mock.calls.map(([p]) => (p as { content: { text: string }[] }).content[0].text)
 
+const SITES = {
+  component: 'sites', uri: 'workspace://site-data',
+  data: { saved_at: null, uri: 'workspace://site-data', sites: [{ site: 'app.example.com', uri: 'workspace://site-data/app.example.com', cookies: 1, storage: [] }] },
+}
+
 test.each([
   ['context', { workspace: 'drk', url: 'https://example.com/', live: true }, 'drk'],
   ['files', { workspace: 's', count: 0, files: [], folders: [{ name: 'screenshots', uri: 'workspace://files/screenshots', count: 2 }] }, 'Screenshots'],
@@ -82,6 +89,10 @@ test.each([
   ['flows', FLOWS.data, 'login'],
   ['flow', FLOW.data, 'navigate'],
   ['secrets', { workspace: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
+  ['sites', SITES.data, 'app.example.com'],
+  ['site', { site: 'app.example.com', uri: 'workspace://site-data/app.example.com', cookies: [], storage: [], own_cookies: [], kept_shared: [] }, 'Nothing saved for this site.'],
+  ['file', { name: 'a.png', size: 10, url: 'https://flow.example.com/f/a.png', image: true, content_type: 'image/png', uri: 'workspace://files/screenshots/a.png' }, 'a.png'],
+  ['document', '# When something goes wrong\n\nRead the error first.\n', 'Read the error first.'],
 ])('draws the %s view from a show result', async (component, data, text) => {
   render(App)
   expect(screen.getByText('Loading…')).toBeInTheDocument()
@@ -89,10 +100,69 @@ test.each([
   await vi.waitFor(() => expect(screen.getByText(text)).toBeInTheDocument())
 })
 
+test('the file view opens its link through the host when the host offers it', async () => {
+  host.caps = { serverTools: {}, openLinks: {} }
+  host.openLink.mockResolvedValue({})
+  render(App)
+  await shown({ component: 'file', uri: 'workspace://files/x.csv', data: { name: 'x.csv', size: 1, url: 'https://flow.example.com/f/x.csv', content_type: 'text/csv' } })
+  await fireEvent.click(await screen.findByRole('link', { name: 'Open' }))
+  expect(host.openLink).toHaveBeenCalledWith({ url: 'https://flow.example.com/f/x.csv' })
+})
+
+test.each([
+  ['refuses it', () => host.openLink.mockResolvedValue({ isError: true })],
+  ['fails', () => host.openLink.mockRejectedValue(new Error('gone'))],
+])('a link the host %s says so above the view', async (_, how) => {
+  host.caps = { serverTools: {}, openLinks: {} }
+  how()
+  render(App)
+  await shown({ component: 'file', uri: 'workspace://files/x.csv', data: { name: 'x.csv', size: 1, url: 'https://flow.example.com/f/x.csv', content_type: 'text/csv' } })
+  await fireEvent.click(await screen.findByRole('link', { name: 'Open' }))
+  await vi.waitFor(() => expect(screen.getByText('The host would not open this link: https://flow.example.com/f/x.csv')).toHaveClass('error'))
+  expect(screen.getByText('x.csv', { selector: 'strong' })).toBeInTheDocument()
+})
+
+test('Back under a folder names the folder', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
+    component: 'file', uri: 'workspace://files/screenshots/a.png',
+    data: { name: 'a.png', size: 10, url: 'https://flow.example.com/f/a.png', image: true, content_type: 'image/png', uri: 'workspace://files/screenshots/a.png' },
+  } })
+  const { container } = render(App)
+  await shown({ component: 'folder', uri: 'workspace://files/screenshots', data: {
+    workspace: 's', folder: 'screenshots', uri: 'workspace://files/screenshots', count: 1,
+    files: [{ name: 'a.png', size: 10, url: 'https://flow.example.com/f/a.png', image: true, uri: 'workspace://files/screenshots/a.png' }],
+  } })
+  await vi.waitFor(() => expect(container.querySelector('a.thumb')).not.toBeNull())
+  await fireEvent.click(container.querySelector('a.thumb')!)
+  expect(host.callServerTool).toHaveBeenCalledWith({ name: 'show', arguments: { uri: 'workspace://files/screenshots/a.png' } })
+  expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← Screenshots')
+})
+
+test('without openLinks, Open is a plain link', async () => {
+  render(App)
+  await shown({ component: 'file', uri: 'workspace://files/x.csv', data: { name: 'x.csv', size: 1, url: 'https://flow.example.com/f/x.csv', content_type: 'text/csv' } })
+  const open = await screen.findByRole('link', { name: 'Open' })
+  expect(open).toHaveAttribute('target', '_blank')
+  await fireEvent.click(open)
+  expect(host.openLink).not.toHaveBeenCalled()
+})
+
 test('fileSections is no longer drawn', async () => {
   render(App)
   await shown({ component: 'fileSections', downloads: [], screenshots: [], files: [] })
   await vi.waitFor(() => expect(screen.getByText('Nothing to show for "fileSections".')).toHaveClass('error'))
+})
+
+test('a site row drills in, and Back says Site data', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
+    component: 'site', uri: 'workspace://site-data/app.example.com',
+    data: { site: 'app.example.com', uri: 'workspace://site-data/app.example.com', cookies: [], storage: [], own_cookies: [], kept_shared: [] },
+  } })
+  render(App)
+  await shown(SITES)
+  await fireEvent.click(await screen.findByRole('button', { name: /app\.example\.com/ }))
+  expect(host.callServerTool).toHaveBeenCalledWith({ name: 'show', arguments: { uri: 'workspace://site-data/app.example.com' } })
+  expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← Site data')
 })
 
 test.each(['workspaceList', 'workspaceSummary'])('%s is not a view: no tool emits it', async (component) => {
@@ -238,6 +308,23 @@ test('the mode the host grants is the one used', async () => {
   expect(screen.getByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
 })
 
+test('a document can go fullscreen when the host offers it', async () => {
+  host.ctx = { availableDisplayModes: ['inline', 'fullscreen'] }
+  render(App)
+  await shown({ component: 'document', uri: 'skill://selenium-flow/SKILL.md', data: '# T\n\ntext\n' })
+  expect(await screen.findByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
+})
+
+test('Back under a document names its file', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
+    component: 'document', uri: 'skill://selenium-flow/references/FLOWS.md', data: '# Flows\n\nSave once.\n',
+  } })
+  render(App)
+  await shown({ component: 'document', uri: 'skill://selenium-flow/SKILL.md', data: '# Skill\n\nSee `skill://selenium-flow/references/FLOWS.md`.\n' })
+  await fireEvent.click(await screen.findByRole('button', { name: 'skill://selenium-flow/references/FLOWS.md' }))
+  expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← SKILL.md')
+})
+
 test('no fullscreen button when the host does not offer it', async () => {
   host.ctx = { availableDisplayModes: ['inline'] }
   render(App)
@@ -352,4 +439,24 @@ test('a fresh show result starts its view fresh', async () => {
   await shown(secrets(['alpha', 'beta']))
   await vi.waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2))
   expect(screen.queryByRole('button', { name: '← All secrets' })).not.toBeInTheDocument()
+})
+
+test('Back names the view it returns to', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: FLOW })
+  render(App)
+  await shown(FLOWS)
+  await fireEvent.click(await screen.findByRole('button', { name: 'login' }))
+  const back = await screen.findByRole('button', { name: 'Back' })
+  expect(back).toHaveTextContent('← Flows')
+})
+
+test('Back under the files root says Files', async () => {
+  host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
+    component: 'folder', uri: 'workspace://files/screenshots',
+    data: { workspace: 's', folder: 'screenshots', uri: 'workspace://files/screenshots', count: 0, files: [] },
+  } })
+  render(App)
+  await shown({ component: 'files', uri: 'workspace://files', data: { workspace: 's', count: 0, files: [], folders: [{ name: 'screenshots', uri: 'workspace://files/screenshots', count: 0 }] } })
+  await fireEvent.click(await screen.findByRole('button', { name: /Screenshots/ }))
+  expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← Files')
 })

@@ -7,6 +7,10 @@ export interface FileEntry {
   image?: boolean
   created?: number | null
   content_type?: string | null
+  /** The file's own address: what `show` draws and `keep_file` takes. */
+  uri?: string
+  /** Outside Files: the call that keeps it past the browser. */
+  keep_with?: string
 }
 
 export interface FilesData {
@@ -150,6 +154,8 @@ export interface SiteDataPayload {
   uri?: string
   details: Record<string, SiteDetail>
 }
+/** `workspace://site-data`, as `show` hands it to the app. */
+export interface SitesData { sites: SiteRow[]; saved_at: number | null; uri?: string }
 
 /** What the snapshot holds for one host, as History's pill counts it. */
 export interface SavedCounts { cookies: number; local: number; session: number }

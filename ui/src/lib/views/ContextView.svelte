@@ -2,7 +2,7 @@
   import { browserMark, safeHref } from '../format'
   import type { ContextData } from '../types'
 
-  let { data }: { data: ContextData; onshow?: (uri: string) => void } = $props()
+  let { data, onshow }: { data: ContextData; onshow?: (uri: string) => void } = $props()
   const href = $derived(safeHref(data.url))
   const who = $derived(data.principal ? (data.principal.username || data.principal.kind) : '')
 </script>
@@ -23,6 +23,16 @@
   <div class="row" style="flex-wrap:wrap">
     {#if data.window}<span class="pill">{data.window}</span>{/if}
     {#if who}<span class="pill name">{who}</span>{/if}
-    {#if data.site_data}<span class="pill">{data.site_data.sites} {data.site_data.sites === 1 ? 'site' : 'sites'}</span>{/if}
   </div>
+  {#if data.site_data}
+    <div class="chips">
+      {#if onshow && data.site_data.uri}
+        <button type="button" class="chip" onclick={() => onshow(data.site_data!.uri!)}>
+          <span>Site data</span><span class="pill">{data.site_data.sites}</span>
+        </button>
+      {:else}
+        <span class="chip" title="Open isn't available in this client"><span>Site data</span><span class="pill">{data.site_data.sites}</span></span>
+      {/if}
+    </div>
+  {/if}
 </div>

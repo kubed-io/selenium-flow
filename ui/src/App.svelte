@@ -4,25 +4,42 @@
     type McpUiDisplayMode, type McpUiHostContext,
   } from '@modelcontextprotocol/ext-apps'
   import { onMount, tick, type Component } from 'svelte'
-  import { plural } from './lib/format'
+  import { leaf, plural } from './lib/format'
   import ContextView from './lib/views/ContextView.svelte'
+  import DocumentView from './lib/views/DocumentView.svelte'
   import FilesView from './lib/views/FilesView.svelte'
+  import FileView from './lib/views/FileView.svelte'
   import FlowsView from './lib/views/FlowsView.svelte'
   import FlowView from './lib/views/FlowView.svelte'
   import FolderView from './lib/views/FolderView.svelte'
+  import SiteView from './lib/views/SiteView.svelte'
+  import SitesView from './lib/views/SitesView.svelte'
   import SecretsView from './lib/views/SecretsView.svelte'
 
-  type Props = { data: never; onshow?: (uri: string) => void; expanded?: boolean }
+  type Props = {
+    data: never
+    uri?: string
+    onshow?: (uri: string) => void
+    onlink?: (url: string) => void
+    expanded?: boolean
+    expandable?: boolean
+  }
   // By the name a `show` result carries in `component`.
   const VIEWS: Record<string, Component<Props>> = {
     context: ContextView as Component<Props>,
+    file: FileView as Component<Props>,
     files: FilesView as Component<Props>,
     folder: FolderView as Component<Props>,
     flows: FlowsView as Component<Props>,
     flow: FlowView as Component<Props>,
+    sites: SitesView as Component<Props>,
+    site: SiteView as Component<Props>,
     secrets: SecretsView as Component<Props>,
+    document: DocumentView as Component<Props>,
   }
-  const EXPANDS = new Set(['flow'])
+  const EXPANDS = new Set(['flow', 'document'])
+  // What Back says: the view it returns to (spec 2026-10-09-show-everything, ruling 12).
+  const LABELS: Record<string, string> = { context: 'Workspace', files: 'Files', flows: 'Flows', sites: 'Site data', secrets: 'Secrets' }
   const NOUNS: Record<string, string> = { files: 'kept file', folder: 'file', flows: 'flow', secrets: 'secret' }
 
   type Shown = { component?: string; uri?: string; data?: unknown }
@@ -45,10 +62,13 @@
   let mode = $state<McpUiDisplayMode>('inline')
   let modes = $state.raw<McpUiDisplayMode[]>([])
   let onshow = $state.raw<((uri: string) => void) | undefined>(undefined)
+  let onlink = $state.raw<((url: string) => void) | undefined>(undefined)
 
   const top = $derived(stack.at(-1))
   const View = $derived(top && Object.hasOwn(VIEWS, String(top.component)) ? VIEWS[String(top.component)] : null)
+  const below = $derived(stack.at(-2))
   const expanded = $derived(mode === 'fullscreen')
+  const expandable = $derived(modes.includes('fullscreen'))
   // Also while fullscreen, so Back to a view that cannot expand still has a way out.
   const toggles = $derived(modes.includes('fullscreen') && (expanded || EXPANDS.has(String(top?.component))))
 
@@ -56,6 +76,14 @@
     const count = (s.data as { count?: unknown } | undefined)?.count
     const noun = NOUNS[String(s.component)]
     return `Showing ${s.uri}` + (noun && typeof count === 'number' ? `, ${plural(count, noun)}` : '')
+  }
+
+  function label(s: Shown | undefined): string {
+    const c = String(s?.component)
+    const folder = (s?.data as { folder?: unknown } | undefined)?.folder
+    if (c === 'folder' && typeof folder === 'string') return folder.charAt(0).toUpperCase() + folder.slice(1)
+    if (c === 'document' && s?.uri) return leaf(s.uri)
+    return Object.hasOwn(LABELS, c) ? LABELS[c] : 'Back'
   }
 
   function settle(next: Shown[]) {
@@ -143,6 +171,14 @@
         if (gone) return
         adopt(h.getHostContext())
         onshow = h.getHostCapabilities()?.serverTools ? push : undefined
+        // The view has already cancelled the anchor, so a host that says no
+        // (a blocked domain resolves isError) would otherwise leave a dead click.
+        const denied = (url: string) => { error = `The host would not open this link: ${url}` }
+        onlink = h.getHostCapabilities()?.openLinks
+          ? (url: string) => {
+              h.openLink({ url }).then((r) => { if (r?.isError) denied(url) }, () => denied(url))
+            }
+          : undefined
       } catch (err) {
         if (!gone) failed = err instanceof Error ? err.message : String(err)
       }
@@ -167,7 +203,7 @@
   {#if stack.length > 1 || toggles}
     <div class="nav">
       {#if stack.length > 1}
-        <button type="button" aria-label="Back" onclick={() => settle(stack.slice(0, -1))}>← Back</button>
+        <button type="button" aria-label="Back" onclick={() => settle(stack.slice(0, -1))}>← {label(below)}</button>
       {/if}
       <span class="grow"></span>
       {#if toggles}
@@ -179,7 +215,7 @@
   {#if error}<div class="small error line">{error}</div>{/if}
   <div class="view" aria-busy={pending !== null}>
     {#if View}
-      {#key top}<View data={top.data as never} {onshow} {expanded} />{/key}
+      {#key top}<View data={top.data as never} uri={top.uri} {onshow} {onlink} {expanded} {expandable} />{/key}
     {:else}
       <div class="empty error">Nothing to show{top.component ? ` for "${top.component}"` : ''}.</div>
     {/if}

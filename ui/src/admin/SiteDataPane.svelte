@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
   import { ago } from '../lib/format'
+  import { siteCounts } from '../lib/sites'
   import type { SiteCookie, SiteDetail, SiteRow, SiteStorage } from '../lib/types'
   import { workspacePath, type Api } from './api'
   import { folds } from './folds.svelte'
@@ -43,12 +44,6 @@
   })
 
   const plural = (n: number, one: string, many = one + 's') => n + ' ' + (n === 1 ? one : many)
-  const sum = (r: SiteRow, k: 'local_storage' | 'session_storage') => r.storage.reduce((n, e) => n + e[k], 0)
-  // A cookie-only host reads "3 cookies"; one with storage gives every count.
-  const counts = (r: SiteRow) => [
-    plural(r.cookies, 'cookie'),
-    ...(r.storage.length ? [sum(r, 'local_storage') + ' local', sum(r, 'session_storage') + ' session'] : []),
-  ].join(' · ')
   // The origin when the host has one, the host when it has none or several.
   const titleOf = (r: SiteRow) => (r.storage.length === 1 ? r.storage[0].origin : r.site)
 
@@ -149,7 +144,7 @@
            once, at mount. -->
       {#key r.site === site}
         <Section id={idOf(r)} title={titleOf(r)}>
-          {#snippet summary()}<span class="small muted">{counts(r)}</span>{/snippet}
+          {#snippet summary()}<span class="small muted">{siteCounts(r)}</span>{/snippet}
           {#snippet actions()}<button class="danger" onclick={() => forget(r)}>Forget</button>{/snippet}
           {#if d}
             <h3>Cookies</h3>

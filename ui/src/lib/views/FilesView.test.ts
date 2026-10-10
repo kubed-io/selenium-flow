@@ -33,3 +33,11 @@ test('a chip that opens carries no unavailable tooltip', () => {
   render(FilesView, { props: { data, onshow: () => {} } })
   expect(screen.queryByTitle("Open isn't available in this client")).toBeNull()
 })
+
+test('with onshow a kept file drills into its file view', async () => {
+  const onshow = vi.fn()
+  const files = [{ ...data.files[0], uri: 'workspace://files/k.pdf' }]
+  const { container } = render(FilesView, { props: { data: { ...data, files }, onshow } })
+  await fireEvent.click(container.querySelector('a.thumb')!)
+  expect(onshow).toHaveBeenCalledWith('workspace://files/k.pdf')
+})
