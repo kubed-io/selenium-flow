@@ -202,7 +202,7 @@ class Actions:
         try:
             return self.pointers.get(session_id)
         except Exception:  # not knowing is a state here, not a failure
-            log.debug("could not read the pointer for %s", session_id, exc_info=True)
+            log.debug("could not read the pointer", exc_info=True)
             return None
 
     def _moved(self, session_id: str, at) -> None:
@@ -213,7 +213,7 @@ class Actions:
             else:
                 self.pointers.set(session_id, at[0], at[1])
         except Exception:  # see `_pointer`
-            log.debug("could not record the pointer for %s", session_id, exc_info=True)
+            log.debug("could not record the pointer", exc_info=True)
 
     # ---- session lifecycle -------------------------------------------------
 

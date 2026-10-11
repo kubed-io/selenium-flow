@@ -386,3 +386,37 @@ def test_only_the_spare_tab_adds_an_intercept():
         if sends.search(path.read_text())
     }
     assert found == {"site_data/spare.py"}
+
+
+# ---- no log line carries a Grid id (spotless 5) ---------------------------------
+
+# The names the package gives a Grid id. A log line is read by everyone with the
+# pod's logs, and a Grid id is how a browser is reached: AGENTS ("logs never
+# carry a Grid id"). `workspace` names it instead.
+GRID_ID_NAMES = {"session_id", "sid", "grid_id", "browser_id"}
+LOG_LEVELS = {"debug", "info", "warning", "error", "exception", "critical", "log"}
+
+
+def _formats_a_grid_id(node: ast.Call) -> bool:
+    for argument in [*node.args[1:], *(k.value for k in node.keywords if k.arg != "exc_info")]:
+        for part in ast.walk(argument):
+            name = part.id if isinstance(part, ast.Name) else getattr(part, "attr", None)
+            if name in GRID_ID_NAMES:
+                return True
+    return False
+
+
+def test_no_log_line_formats_a_grid_id():
+    found = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(), str(path))):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in LOG_LEVELS
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in ("log", "logger")
+                and _formats_a_grid_id(node)
+            ):
+                found.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    assert found == [], f"log lines formatting a Grid id: {found}"

@@ -497,18 +497,14 @@ class Workspaces:
             )
 
         if self.actions.grid.is_alive(record.session_id):
-            log.debug("session %s recalled for %s", record.session_id, name)
+            log.debug("browser recalled for workspace %s", name)
             return record.session_id, (
                 (record.settings or {}).get("browser") or DEFAULT_BROWSER
             )
 
         # The Grid reaped it. Reopen where the caller left off, with the same
         # settings, so a refresh does not silently change the browser's shape.
-        log.info(
-            "browser %s is gone from the grid, reopening for workspace %s",
-            record.session_id,
-            name,
-        )
+        log.info("the browser is gone from the grid, reopening for workspace %s", name)
         self._ended(name, record.session_id, "lost")
         saved = self._restorable(record)
         replay = dict(record.settings or {})
@@ -1016,15 +1012,16 @@ class Workspaces:
         _, kept = self.store.change(name, bound, create=True)
         if not kept:
             return session_id
-        log.info(
-            "two opens raced for workspace %s: quitting browser %s", name, session_id
-        )
+        log.info("two opens raced for workspace %s: quitting the loser's browser", name)
         try:
             self.actions.end_browser(session_id)
         except Exception as exc:  # noqa: BLE001 - it may be gone already
-            # faults.message strips the Grid URL's credentials, which a
-            # requests HTTPError quotes whole (Copilot, #50).
-            log.info("could not end browser %s: %s", session_id, faults.message(exc))
+            # By type: an HTTPError quotes the Grid URL, Grid id and all.
+            log.info(
+                "could not end the losing browser for workspace %s: %s",
+                name,
+                type(exc).__name__,
+            )
         else:
             self._ended(name, session_id, "ended")
         return kept
@@ -1141,7 +1138,12 @@ class Workspaces:
             # Already gone, or the Grid is unreachable. Detach regardless: a
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
-            log.info("could not end browser %s: %s", target, faults.message(exc))
+            # By type: an HTTPError quotes the Grid URL, Grid id and all.
+            log.info(
+                "could not end the browser for workspace %s: %s",
+                name,
+                type(exc).__name__,
+            )
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.
         self.store.update(
@@ -1153,5 +1155,5 @@ class Workspaces:
         # the monitor's listing finds it later if it is watched.
         if quit_ok:
             self._ended(name, target, "ended")
-        log.info("ended browser %s for workspace %s", target, name)
+        log.info("ended the browser for workspace %s", name)
         return target
