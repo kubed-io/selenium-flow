@@ -392,11 +392,11 @@ def test_only_the_spare_tab_adds_an_intercept():
 
 # The names the package gives a Grid id. A log line is read by everyone with the
 # pod's logs, and a Grid id is how a browser is reached: AGENTS ("logs never
-# carry a Grid id"). `workspace` names it instead. `target`, `kept`, `resolved`
-# and `replacing` are what `workspace/workspaces.py` calls one.
+# carry a Grid id"). `workspace` names it instead. `target`, `kept`, `resolved`,
+# `replacing` and `current` are what `workspace/workspaces.py` calls one.
 GRID_ID_NAMES = {
     "session_id", "sid", "grid_id", "browser_id", "gid",
-    "target", "kept", "resolved", "replacing",
+    "target", "kept", "resolved", "replacing", "current",
 }
 LOG_LEVELS = {"debug", "info", "warning", "error", "exception", "critical", "log"}
 # The same names meaning something else, each with what it is there.
@@ -447,6 +447,7 @@ def _is_log_call(node) -> bool:
         'log.info("quitting %s", target)',
         'log.warning("kept %s", kept)',
         'logger.debug("ended " + sid)',
+        'log.info("bound first by %s", current)',
     ],
 )
 def test_the_guard_sees_a_grid_id_however_it_is_formatted(line):
