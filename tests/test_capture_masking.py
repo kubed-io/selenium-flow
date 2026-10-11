@@ -1123,27 +1123,48 @@ def sibling_event(m, hostile, own=("sid", "Qx7-pL2mN9vR4tK8wZ3yB6cD"), header=Tr
     return own[1]
 
 
+def quoted(pairs):
+    """Cookies a server set quoted: a browser stores and sends the quotes."""
+    return [(n, f'"{v}"') for n, v in pairs]
+
+
+@pytest.mark.parametrize("quote", [False, True], ids=["plain", "quoted"])
 @pytest.mark.parametrize("header", [False, True], ids=["bidi", "bidi+header"])
 @pytest.mark.parametrize("n", [8, 180])
-def test_a_sibling_rotating_cookies_cannot_starve_a_first_partys_new_session(n, header):
+def test_a_sibling_rotating_cookies_cannot_starve_a_first_partys_new_session(n, header, quote):
     """L-1: an event's takes went to the top eight by rank across every
     domain, so a sibling rotating eight stronger cookies on the parent domain
     kept the first party's session from ever being learned."""
     m = Masker()
     for event in range(12):
-        own = sibling_event(m, rotating(n, 80, event * 1000), header=header)
+        hostile = rotating(n, 80, event * 1000)
+        own = sibling_event(m, quoted(hostile) if quote else hostile, header=header)
         assert m.text(own) == MASK, f"event {event}"
 
 
-def test_a_cookie_header_pair_keeps_the_domain_its_bidi_cookie_named():
+@pytest.mark.parametrize("quote", [False, True], ids=["plain", "quoted"])
+def test_a_cookie_header_pair_keeps_the_domain_its_bidi_cookie_named(quote):
     """L-1: the Cookie header names no domain; a value the same request's
-    BiDi cookies named is that domain's, not the request host's."""
+    BiDi cookies named is that domain's, not the request host's. A quoted
+    one too: BiDi reports its quotes, the header pair is read without them
+    (T-1)."""
     m = Masker()
     sibling = rotating(20, 80, 0)                         # past what cookies() takes
-    sibling_event(m, sibling)
-    held = [v for _, v in sibling if v in m._cookies.values]
+    sibling_event(m, quoted(sibling) if quote else sibling)
+    values = {v for _, v in sibling}
+    held = [v for v in m._cookies.values if v.strip('"') in values]
     assert len(held) > 8
     assert {m._cookies._domain[v] for v in held} == {"example.com"}
+
+
+def test_what_names_a_header_pairs_domain_holds_only_what_could_be_learned():
+    """T-2: the last request's BiDi domains, by value, kept only for values a
+    tier could hold: not a short one, nor only letters."""
+    m = Masker()
+    m.cookies([{"name": n, "value": {"type": "string", "value": v}, "domain": ".example.com"}
+               for n, v in [("a", "1"), ("b", "acceptedcookiesyes"), ("sid", "s3ss-0123456789-abc")]],
+              "https://app.example.com/")
+    assert set(m._named) == {"s3ss-0123456789-abc"}
 
 
 def test_a_long_token_that_is_not_b64token_is_counted_not_learned(monkeypatch):

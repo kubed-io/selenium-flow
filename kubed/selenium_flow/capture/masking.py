@@ -397,9 +397,10 @@ class Masker:
         self._cookies = _Ranked(COOKIE_FORMS)
         self.skipped = 0
         self._skips: set[int] = set()
-        # The domains the last request's BiDi cookies named, by value: its
-        # Cookie header names none, and a pair the BiDi cookies named is that
-        # domain's, not the request host's.
+        # The domains the last request's BiDi cookies named, by value as a
+        # Cookie header pair reads it (`_unquoted`), and only for values a
+        # tier could hold: the header names no domain, and a pair the BiDi
+        # cookies named is that domain's, not the request host's.
         self._named: dict[str, str] = {}
         # Every form masked, longest first, and their negated lengths: one
         # tuple, replaced whole, because a body is masked on a worker thread
@@ -444,8 +445,10 @@ class Masker:
                 domain = domain.strip().lstrip(".") if isinstance(domain, str) else ""
                 domain = domain.lower()
                 value = _header_value(c.get("value"))
-                if domain:
-                    self._named[value] = domain
+                if domain and self._learnable(
+                    _unquoted(value), COOKIE_MIN, count=False
+                ):
+                    self._named[_unquoted(value)] = domain
                 self._offer(name, value, domain or host, offers)
         if self._cookies.offer(offers, self._cookie_forms):
             self._sort()
@@ -483,7 +486,7 @@ class Masker:
         for pair in pairs:
             if "=" in pair:
                 cookie_name, cookie = pair.split("=", 1)
-                cookie = cookie.strip().strip('"')
+                cookie = _unquoted(cookie)
                 domain = self._named.get(cookie, host)
                 self._offer(cookie_name.strip(), cookie, domain, offers)
         return False
@@ -738,6 +741,12 @@ def _password(url: str) -> tuple[int, int] | None:
     at = url.rfind("@", start, end)
     colon = url.find(":", start, at) if at != -1 else -1
     return None if colon == -1 else (colon + 1, at)
+
+
+def _unquoted(cookie: str) -> str:
+    """A cookie's value as a header pair is read: a browser stores and sends
+    a quoted value with its quotes, as BiDi reports it."""
+    return cookie.strip().strip('"')
 
 
 def _host(url: str) -> str:
