@@ -9,6 +9,7 @@ or reports a failure reaches neither the driver nor the classification.
 
 from __future__ import annotations
 
+import re
 import traceback
 
 import requests
@@ -50,12 +51,36 @@ class Unresolved(Exception):
     """A page the caller named, whose host has no address: a 400.
 
     It carries the host and a fixed reason, never the browser's own text, which
-    quotes the whole URL on Firefox (`errors.unresolved` reads that text)."""
+    quotes the whole URL on Firefox (`unresolved` reads that text). The reason
+    is hedged because the browser does not say *which* lookup failed: a host
+    that resolves and redirects to one that does not fails in the same words,
+    and the caller must not be told their own host failed when it did not."""
 
     def __init__(self, host: str | None):
         self.host = host
         where = f"the host {host}" if host else "the URL's host"
-        super().__init__(f"{where} did not resolve: check the URL")
+        super().__init__(
+            f"{where}, or a host it redirected to, did not resolve: check the URL"
+        )
+
+
+# How each browser reports a page whose host has no address in DNS: Chrome's
+# net error, and the error page Firefox says it reached. Only this one: a
+# refused connection, a timeout or a bad certificate can be the network's or
+# the site's, and a guess that it is the caller's is the dangerous one.
+_DNS_NOT_FOUND = re.compile(
+    r"\bnet::ERR_NAME_NOT_RESOLVED\b|\babout:neterror\?(?:\S*&)?e=dnsNotFound\b"
+)
+
+
+def unresolved(exc: BaseException) -> bool:
+    """Whether a driver's failure says the page's host did not resolve.
+
+    Read from the driver's own ``msg``, which only a WebDriver failure has, so
+    words of ours that quote the marker are never mistaken for the browser's.
+    """
+    said = getattr(exc, "msg", None)
+    return isinstance(said, str) and bool(_DNS_NOT_FOUND.search(said))
 
 
 class BidiUnavailable(ConnectionError):

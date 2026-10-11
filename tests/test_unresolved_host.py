@@ -31,7 +31,9 @@ pytestmark = pytest.mark.unit
 
 HOST = "nonexistent.invalid"
 URL = f"https://{HOST}/"
-SAID = f"the host {HOST} did not resolve: check the URL"
+# Hedged, because the browser does not say which lookup failed: a host that
+# resolves and redirects to one that does not fails in exactly the same words.
+SAID = f"the host {HOST}, or a host it redirected to, did not resolve: check the URL"
 
 # What each browser raises from `driver.get` for a host with no address, as
 # the smoke test saw them: the driver's `msg`, Chrome's session furniture and
@@ -77,18 +79,18 @@ class Unreachable(ScriptedDriver):
 
 @pytest.mark.parametrize("name", sorted(DNS))
 def test_each_browsers_dns_failure_is_recognised(name):
-    assert errors.unresolved(WebDriverException(DNS[name]))
+    assert faults.unresolved(WebDriverException(DNS[name]))
 
 
 @pytest.mark.parametrize("name", sorted(OTHER_NET_ERRORS))
 def test_no_other_net_error_is_read_as_dns(name):
-    assert not errors.unresolved(WebDriverException(OTHER_NET_ERRORS[name]))
+    assert not faults.unresolved(WebDriverException(OTHER_NET_ERRORS[name]))
 
 
 def test_only_a_driver_failure_is_read_as_dns():
     """Our own words quoting the marker — a flow's assertion message, say —
     are not the browser reporting a failed lookup."""
-    assert not errors.unresolved(ValueError("net::ERR_NAME_NOT_RESOLVED"))
+    assert not faults.unresolved(ValueError("net::ERR_NAME_NOT_RESOLVED"))
 
 
 @pytest.mark.parametrize("name", sorted(DNS))
@@ -112,6 +114,61 @@ def test_the_refusal_says_the_host_and_nothing_else_of_the_url_or_the_error(name
         assert leaked not in said
     # Nor anywhere a traceback could reach: the browser's exception is dropped.
     assert caught.value.__cause__ is None and caught.value.__suppress_context__
+
+
+@pytest.mark.parametrize("name", sorted(DNS))
+def test_a_redirect_to_a_host_that_does_not_resolve_does_not_blame_the_callers_alone(name):
+    """`fine.test` resolves and redirects to a host that does not; Chrome says
+    ERR_NAME_NOT_RESOLVED all the same. Still a 400 - the retry fails the same
+    way - but the caller is not told their own host failed when it did not."""
+    with pytest.raises(faults.Unresolved) as caught:
+        browser.go(Unreachable(DNS[name]), "https://fine.test/login")
+    said = faults.message(caught.value)
+    assert errors.status_for(caught.value) == 400
+    assert said != "the host fine.test did not resolve: check the URL"
+    assert "fine.test, or a host it redirected to," in said
+
+
+# URLs `urlsplit` reads oddly, or refuses: whatever the shape, the answer is the
+# 400 and its fixed words, never a parse error and never the browser's text.
+AWKWARD_URLS = {
+    "http://[::1": "the URL's host",
+    "https://bücher.invalid/": "the host bücher.invalid",
+    "http://[::1]:8080/": "the host ::1",
+    "https://nonexistent.invalid:8443/": f"the host {HOST}",
+    "https://user:hunter2@nonexistent.invalid/": f"the host {HOST}",
+    "nonexistent.invalid/path": "the URL's host",
+    "https:///nothing": "the URL's host",
+}
+
+
+@pytest.mark.parametrize("url", sorted(AWKWARD_URLS))
+@pytest.mark.parametrize("name", sorted(DNS))
+def test_any_url_shape_is_the_400_and_nothing_else(name, url):
+    with pytest.raises(faults.Unresolved) as caught:
+        browser.go(Unreachable(DNS[name]), url)
+    said = faults.message(caught.value)
+    assert said.startswith(AWKWARD_URLS[url] + ", or a host it redirected to,")
+    assert errors.status_for(caught.value) == 400
+    for leaked in ("hunter2", "8443", "8080", "path", "nothing", "neterror", "net::"):
+        assert leaked not in said
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+    assert caught.value.__context__ is None or caught.value.__suppress_context__
+
+
+def test_the_browser_layer_does_not_reach_for_the_status_table():
+    """`errors` imports `core.cancel`; `core.browser` reading it closed a loop
+    through the kernel. The match is in `faults`, which imports no driver."""
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(browser.__file__).read_text())
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported.add(node.module or "")
+            imported.update(f"{node.module or ''}.{a.name}" for a in node.names)
+    assert not any(name.split(".")[-1] == "errors" for name in imported), imported
 
 
 @pytest.mark.parametrize("name", sorted(OTHER_NET_ERRORS))

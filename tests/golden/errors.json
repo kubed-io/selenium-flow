@@ -121,7 +121,7 @@
   },
   "Unresolved": {
     "body": {
-      "error": "the host nonexistent.invalid did not resolve: check the URL"
+      "error": "the host nonexistent.invalid, or a host it redirected to, did not resolve: check the URL"
     },
     "status": 400
   },

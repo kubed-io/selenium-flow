@@ -37,8 +37,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from urllib3.connection import HTTPConnection
 from urllib3.exceptions import ProtocolError
 
-from .. import errors
-from ..faults import Unresolved
+from ..faults import Unresolved, unresolved
 from ..urls import normalize_url
 from . import probe
 from .defaults import (
@@ -800,12 +799,19 @@ def go(driver, url: str) -> None:
     try:
         driver.get(url)
     except WebDriverException as exc:
-        if not errors.unresolved(exc):
+        if not unresolved(exc):
             raise
-        host = urlsplit(url).hostname
     else:
         return
-    raise Unresolved(host) from None
+    raise Unresolved(_host(url)) from None
+
+
+def _host(url: str) -> str | None:
+    """The URL's host, or None when it has none or does not parse."""
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
 
 
 def ensure_url(driver, url: str) -> bool:

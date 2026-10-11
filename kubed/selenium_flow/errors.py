@@ -16,8 +16,10 @@ the mapping has to be explicit. **The default stays 500**, deliberately: for a
 failure we do not recognise, "it is the caller's fault" is the dangerous guess,
 because it tells a client to stop retrying something that may well be ours.
 
-The MCP surface is unaffected — a tool raises and FastMCP reports the message.
-Only HTTP has status codes to get right.
+Both surfaces ask this module. HTTP answers with the status. Over MCP, where a
+failed tool call is an error result with no status, `mcp/failures.py` logs a
+4xx as one warning line and keeps the traceback for the rest, and answers a
+failed resource read with invalid params (a 4xx) or resource not found (a 404).
 
 What a failure *says* (`message`, `formatted`) and the package's own exception
 types live in `faults.py`, which imports no driver: this module is the half
@@ -25,8 +27,6 @@ that has to know Selenium's classes.
 """
 
 from __future__ import annotations
-
-import re
 
 import requests
 import urllib3.exceptions
@@ -45,7 +45,6 @@ from selenium.common.exceptions import (
     SessionNotCreatedException,
     StaleElementReferenceException,
     TimeoutException,
-    WebDriverException,
 )
 
 from .core.cancel import Ended
@@ -63,6 +62,8 @@ from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge, Unreso
 # instead, which is below.
 CALLER = (
     AssertionFailed,
+    # A page whose host has no address (`faults.unresolved`): the same request
+    # fails the same way, wherever the lookup that failed was.
     Unresolved,
     TimeoutException,
     InvalidSelectorException,
@@ -76,24 +77,6 @@ CALLER = (
     MoveTargetOutOfBoundsException,
     StaleElementReferenceException,
 )
-
-# How each browser reports a page whose host has no address in DNS: Chrome's
-# net error, and the error page Firefox says it reached. The host is the one the
-# caller named, so a retry fails the same way and it is theirs to fix
-# (`browser.go` raises `Unresolved` for it). Only this one: a refused
-# connection, a timeout or a bad certificate can be the network's or the
-# site's, and a guess that it is the caller's is the dangerous one.
-_DNS_NOT_FOUND = re.compile(
-    r"\bnet::ERR_NAME_NOT_RESOLVED\b|\babout:neterror\?(?:\S*&)?e=dnsNotFound\b"
-)
-
-
-def unresolved(exc: BaseException) -> bool:
-    """Whether the driver said the page's host did not resolve."""
-    if not isinstance(exc, WebDriverException):
-        return False
-    return bool(_DNS_NOT_FOUND.search(str(exc.msg or "")))
-
 
 # The browser named in the request is not on the Grid — ended, reaped, or never
 # real. Its own status because the fix is specific and a workflow can automate
