@@ -372,3 +372,5 @@ async def test_a_body_that_is_gone_is_not_told_to_open_a_browser(spec):
     body = spec["paths"]["/browser/network-body"]["post"]["responses"]["404"]["description"]
     assert body != shared and "retry" in shared.lower()
     assert "body" in body and "Open a new one" not in body
+    # The 404 the capability gives once the workspace has no session (spotless 1).
+    assert "no session is open in this workspace" in body.lower()
