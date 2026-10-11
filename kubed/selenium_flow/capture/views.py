@@ -122,7 +122,8 @@ def request(buffer: Buffer, id: str) -> dict | None:
 
 def counts(buffer: Buffer) -> dict:
     """What was kept since the last navigation (plan ruling 12): console
-    counts kept entries, network every request seen, static included."""
+    counts kept entries, network every request seen, static included. Its
+    ``dropped`` (`lost`) is the exception: since the buffer began."""
     nav = buffer.nav
     return {
         "console": sum(1 for e in buffer.console if e["nav"] == nav),
@@ -135,7 +136,9 @@ def counts(buffer: Buffer) -> dict:
 
 def lost(buffer: Buffer) -> dict:
     """``dropped``: the events the browser sent that capture never heard,
-    present only when there were some — any view may be missing them."""
+    present only when there were some — any view may be missing them. Counted
+    since the buffer began, not per navigation, unlike every count beside it:
+    a dropped event cannot be placed on a page."""
     return {"dropped": buffer.dropped} if buffer.dropped else {}
 
 

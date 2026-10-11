@@ -374,3 +374,10 @@ async def test_a_body_that_is_gone_is_not_told_to_open_a_browser(spec):
     assert "body" in body and "Open a new one" not in body
     # The 404 the capability gives once the workspace has no session (spotless 1).
     assert "no session is open in this workspace" in body.lower()
+
+
+async def test_captured_dropped_says_it_counts_since_the_buffer_began(spec):
+    """R1-6: its neighbours count since the last navigation; it does not."""
+    captured = spec["components"]["schemas"]["WorkspaceStatus"]["properties"]["captured"]
+    said = captured["properties"]["dropped"]["description"]
+    assert "not since the last navigation" in said

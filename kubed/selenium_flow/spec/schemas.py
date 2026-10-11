@@ -83,8 +83,10 @@ RESPONSES = {
                         "type": "integer",
                         "description": (
                             "Events the browser sent that capture lost when"
-                            " they came faster than it could keep them; present"
-                            " only when there were some."
+                            " they came faster than it could keep them, since"
+                            " the workspace's capture began, not since the last"
+                            " navigation: a lost event cannot be placed on a"
+                            " page. Present only when there were some."
                         ),
                     },
                 },
