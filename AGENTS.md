@@ -134,7 +134,9 @@ tag exists. A failed build after a successful tag strands a tag on a nonexistent
 
   A timeout is the case worth knowing: it is **400**, not 5xx, because every wait here is
   for an element, frame or dialog *the caller named*, and a page that never contained
-  `//nope` will not contain it on the retry. A dead browser is **404** — the fix is
+  `//nope` will not contain it on the retry. So is a URL whose host does not resolve
+  (`browser.go`), said as the host and nothing of the browser's text, which quotes the
+  URL; a refused connection, a timeout or a bad certificate stays 500. A dead browser is **404** — the fix is
   specific and automatable, call `/browser/open`. An unreachable or full Grid is **503**.
   Anything unrecognised stays **500**, deliberately: "the caller's fault" is the dangerous
   guess about a failure we do not understand, because it tells a client to stop retrying
