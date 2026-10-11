@@ -509,8 +509,12 @@ def mount(
                     "browser": (record.settings or {}).get("browser")
                     or DEFAULT_BROWSER,
                     # Beside the browser because it is the same kind of fact:
-                    # what this session is running, and how big.
-                    "window": record.window,
+                    # what this session is running, and how big. Live, the
+                    # size it has, as workspace://current says; idle, the size
+                    # the next open asks for (None: the node's default).
+                    "window": (record.window_seen or record.window)
+                    if live
+                    else record.window,
                     # How long the Grid lets its session sit idle: kept from
                     # the last open, so an idle card shows it too.
                     "grid_timeout": record.grid_timeout,

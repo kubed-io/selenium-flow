@@ -246,6 +246,12 @@ class Caller:
         return settings_module.from_client(*self.said)
 
 
+def _measured(opened: dict) -> str | None:
+    """The window an open measured its browser at, as ``WxH``, or None."""
+    width, height = opened.get("width"), opened.get("height")
+    return f"{width}x{height}" if width and height else None
+
+
 def _two_names(names: list[str]) -> str:
     """The refusal for a request that repeats its name with different values."""
     count = "two" if len(names) == 2 else str(len(names))
@@ -534,6 +540,7 @@ class Workspaces:
             replacing=record.session_id,
             report=opened.get("site_data"),
             grid_timeout=timeout,
+            window_seen=_measured(opened),
         )
         if kept == opened["session_id"]:
             self._told(
@@ -884,6 +891,7 @@ class Workspaces:
             replacing=ended, forget_site_data=forgotten is not None,
             opened_by=caller.principal.opener() if caller.principal else None,
             grid_timeout=timeout,
+            window_seen=_measured(opened),
         )
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
@@ -956,6 +964,7 @@ class Workspaces:
         report: dict | None = None,
         opened_by: dict | object | None = KEEP,
         grid_timeout: int | None = None,
+        window_seen: str | None = None,
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
@@ -998,6 +1007,7 @@ class Workspaces:
                 reopened={"browser": session_id, "report": report} if report else {},
                 **({} if opened_by is KEEP else {"opened_by": opened_by}),
                 grid_timeout=grid_timeout,
+                window_seen=window_seen,
             )
             return fresh.visited(url, ttl=ttl), None
 
