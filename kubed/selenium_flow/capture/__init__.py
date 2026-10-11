@@ -68,8 +68,8 @@ MASKED_HEADERS = frozenset(
 # an Authorization token of CREDENTIAL_MIN or more, a cookie of COOKIE_MIN or
 # more, neither only letters nor only digits ("accepted", "undefined", a
 # timestamp), none over CREDENTIAL_MAX (counted instead), none holding a NUL.
-AUTH_FORMS = 64
-COOKIE_FORMS = 192
+AUTH_FORMS = 16
+COOKIE_FORMS = 48
 FORM_CHARS = 32_768  # per tier, past the newest value it keeps
 CREDENTIAL_MIN = 8
 COOKIE_MIN = 16

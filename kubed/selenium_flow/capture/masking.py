@@ -106,7 +106,9 @@ class Masker:
         # tuple, replaced whole, because a body is masked on a worker thread
         # while the loop learns and evicts. Read apart, an eviction between
         # the two reads could shift the forms under an index into them.
-        self._state: tuple[tuple[str, ...], tuple[int, ...]] = ((), ())
+        # The third: whether no form holds a NUL, so a row's header texts can
+        # be scanned joined on one.
+        self._state: tuple[tuple[str, ...], tuple[int, ...], bool] = ((), (), True)
         self.add(secrets)
 
     @property
@@ -188,7 +190,11 @@ class Masker:
         )
         # Longest first, so a secret containing another is masked whole.
         secrets = tuple(sorted(known, key=len, reverse=True))
-        self._state = (secrets, tuple(-len(f) for f in secrets))  # ascending
+        self._state = (
+            secrets,
+            tuple(-len(f) for f in secrets),  # ascending
+            not any(NUL in f for f in secrets),
+        )
 
     def text(
         self, value: str, cap: int = TEXT_CAP, *, also: tuple[int, int] | None = None
@@ -212,34 +218,11 @@ class Masker:
         ``also`` is one more span of ``value`` to mask, merged with the
         secrets' (a URL's password, so a secret holding it is masked whole).
         """
-        secrets, lengths = self._state  # once: see `__init__`
+        secrets, lengths, _ = self._state  # once: see `__init__`
         longest = len(secrets[0]) if secrets else 0
         read = value[: cap + longest]
-        spans = []
-        # A secret longer than what was read cannot be in it: most header
-        # values are shorter than a token, and each secret costs a scan.
-        fits = bisect.bisect_left(lengths, -len(read))
-        for secret in secrets[fits:]:
-            at = read.find(secret)
-            while at != -1:
-                spans.append((at, at + len(secret)))
-                at = read.find(secret, at + 1)
-        if len(read) < len(value) and longest > 1:
-            spans.append((len(read) - (longest - 1), len(read)))
-        if also is not None and also[0] < len(read):
-            spans.append((also[0], min(also[1], len(read))))
-        if not spans:
-            return read[:cap]
-        spans.sort()
-        out, kept_to, start, end = [], 0, *spans[0]
-        for s, e in spans[1:]:
-            if s <= end:
-                end = max(end, e)
-                continue
-            out += [read[kept_to:start], MASK]
-            kept_to, start, end = end, s, e
-        out += [read[kept_to:start], MASK, read[end:]]
-        return "".join(out)[:cap]
+        spans = _scan(read, secrets, lengths, len(read))
+        return _shown(read, len(value), cap, spans, longest, also)
 
     def url(self, value: str, *, keep_query: bool) -> str:
         """A URL masked — bound secrets, and any password in its userinfo —
@@ -271,22 +254,108 @@ class Masker:
                 learned = self._learn_header(name, value) or learned
         if learned:
             self._sort()
+        state = self._state  # once, after the learning: see `__init__`
+        longest = len(state[0][0]) if state[0] else 0
+        heard = given[:HEADER_LIMIT]
         kept: list[dict] = []
-        spent = 0
-        for header in given[:HEADER_LIMIT]:
-            name = str(header.get("name") or "")
-            if name.lower() in MASKED_HEADERS:
-                value = MASK
-            else:
-                value = _header_value(header.get("value"))
-                password = _password(value) if name.lower() in URL_HEADERS else None
-                value = self.text(value, HEADER_VALUE_CAP, also=password)
-            shown = {"name": self.text(name, HEADER_NAME_CAP), "value": value}
-            spent += len(shown["name"].encode()) + len(value.encode())
-            if spent > HEADER_BYTES:
-                break
-            kept.append(shown)
+        spent, at = 0, 0
+        # In batches of about the bytes a side keeps: a hostile server's 32
+        # headers of 4 kB cost one batch's scan, not 128 kB of them.
+        while at < len(heard):
+            batch, size = [], 0
+            while at < len(heard) and size < HEADER_BYTES:
+                name = str(heard[at].get("name") or "")
+                if name.lower() in MASKED_HEADERS:
+                    value, also = None, None
+                else:
+                    value = _header_value(heard[at].get("value"))
+                    also = _password(value) if name.lower() in URL_HEADERS else None
+                batch.append((name, value, also))
+                size += min(len(name), HEADER_NAME_CAP + longest)
+                if value is not None:
+                    size += min(len(value), HEADER_VALUE_CAP + longest)
+                at += 1
+            for name, value in _masked(batch, state, longest):
+                spent += len(name.encode()) + len(value.encode())
+                if spent > HEADER_BYTES:
+                    return kept, len(given) - len(kept)
+                kept.append({"name": name, "value": value})
         return kept, len(given) - len(kept)
+
+
+NUL = "\x00"
+
+
+def _scan(read: str, secrets, lengths, fit: int) -> list[tuple[int, int]]:
+    """Every occurrence in ``read`` of every secret no longer than ``fit``:
+    one ``find`` pass per such secret, which is what masking costs."""
+    spans = []
+    for secret in secrets[bisect.bisect_left(lengths, -fit) :]:
+        at = read.find(secret)
+        while at != -1:
+            spans.append((at, at + len(secret)))
+            at = read.find(secret, at + 1)
+    return spans
+
+
+def _shown(
+    read: str, whole: int, cap: int, spans: list, longest: int, also
+) -> str:
+    """``read`` (the first characters of a text ``whole`` long) with ``spans``
+    masked, as `Masker.text` describes, cut to ``cap``."""
+    if len(read) < whole and longest > 1:
+        spans.append((len(read) - (longest - 1), len(read)))
+    if also is not None and also[0] < len(read):
+        spans.append((also[0], min(also[1], len(read))))
+    if not spans:
+        return read[:cap]
+    spans.sort()
+    out, kept_to, start, end = [], 0, *spans[0]
+    for s, e in spans[1:]:
+        if s <= end:
+            end = max(end, e)
+            continue
+        out += [read[kept_to:start], MASK]
+        kept_to, start, end = end, s, e
+    out += [read[kept_to:start], MASK, read[end:]]
+    return "".join(out)[:cap]
+
+
+def _masked(batch: list, state, longest: int) -> list[tuple[str, str]]:
+    """Each header of ``batch`` — (name, value or None for a credential,
+    password span) — as shown: masked and cut as `Masker.text` would, but
+    every text of the batch found in **one** scan, joined on NUL. Neither a
+    header text nor a learned form holds one, so no match crosses a join; a
+    bound form or a text that does is scanned on its own."""
+    secrets, lengths, nul_free = state
+    texts = []  # (read, whole length, cap, password span)
+    for name, value, also in batch:
+        read = name[: HEADER_NAME_CAP + longest]
+        texts.append((read, len(name), HEADER_NAME_CAP, None))
+        if value is not None:
+            read = value[: HEADER_VALUE_CAP + longest]
+            texts.append((read, len(value), HEADER_VALUE_CAP, also))
+    reads = [t[0] for t in texts]
+    found: list[list] = [[] for _ in texts]
+    if nul_free and not any(NUL in r for r in reads):
+        starts, offset = [], 0
+        for read in reads:
+            starts.append(offset)
+            offset += len(read) + 1
+        fit = max(map(len, reads), default=0)
+        for s, e in _scan(NUL.join(reads), secrets, lengths, fit):
+            i = bisect.bisect_right(starts, s) - 1
+            found[i].append((s - starts[i], e - starts[i]))
+    else:
+        found = [_scan(r, secrets, lengths, len(r)) for r in reads]
+    shown = iter(
+        _shown(read, whole, cap, spans, longest, also)
+        for (read, whole, cap, also), spans in zip(texts, found, strict=True)
+    )
+    return [
+        (next(shown), MASK if value is None else next(shown))
+        for _name, value, _also in batch
+    ]
 
 
 def _password(url: str) -> tuple[int, int] | None:

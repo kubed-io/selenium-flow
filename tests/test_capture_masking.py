@@ -412,3 +412,90 @@ def test_an_authorization_without_a_token_learns_nothing(value):
     m = Masker()
     bearer(m, value)
     assert m.secrets == ()
+
+
+# ---- what masking costs (R1-1) ----------------------------------------------------
+
+
+def worst_masker():
+    """A session at its budgets, every value spelt as many ways as an echo can
+    (eleven) and every spelling ASCII: a form with a character the text cannot
+    hold is refused by `str.find` at once, so it would understate the cost."""
+    from kubed.selenium_flow.capture import AUTH_FORMS, COOKIE_FORMS
+
+    m = Masker()
+    for i in range(AUTH_FORMS):
+        bearer(m, f"Bearer t/{i:04}+&'<x>\"" + "q" * 40)
+    for i in range(COOKIE_FORMS):
+        cookie(m, f"c/{i:04}+&'<x>\"" + "z" * 40)
+    return m
+
+
+def rows(n=32, size=600):
+    return [{"name": f"x-header-{i}", "value": {"type": "string", "value": f"{i}-" + "v" * size}}
+            for i in range(n)]
+
+
+def test_one_side_of_a_request_is_scanned_once_not_once_per_header(monkeypatch):
+    """Each scan costs a pass per form: a row's names and values are joined and
+    scanned together (on NUL, which neither holds), not one header at a time."""
+    from kubed.selenium_flow.capture import masking
+
+    m = worst_masker()
+    scans, real = [], masking._scan
+    monkeypatch.setattr(masking, "_scan", lambda *a: scans.append(1) or real(*a))
+    m.headers(rows(size=100))
+    assert len(scans) == 1
+
+
+def test_joined_scanning_masks_exactly_as_one_at_a_time():
+    secret = "hunter2-secret-0123"
+    m = Masker([secret, "hunter2"])
+    raw = [
+        {"name": "a", "value": {"type": "string", "value": f"x {secret} y"}},
+        {"name": f"n-{secret}", "value": {"type": "string", "value": "hunter2"}},
+        {"name": "referer", "value": {"type": "string", "value": "https://u:pw@h/p"}},
+        {"name": "Authorization", "value": {"type": "string", "value": "Bearer zz"}},
+        {"name": "big", "value": {"type": "string", "value": "v" * (HEADER_VALUE_CAP - 3) + secret}},
+    ]
+    shown, dropped = m.headers(raw)
+    assert shown[0]["value"] == f"x {MASK} y"
+    assert shown[1] == {"name": f"n-{MASK}", "value": MASK}
+    assert shown[2]["value"] == f"https://u:{MASK}@h/p"
+    assert shown[3]["value"] == MASK
+    assert "hun" not in shown[4]["value"] and len(shown[4]["value"]) <= HEADER_VALUE_CAP
+    assert dropped == 0
+
+
+def test_a_bound_secret_holding_a_nul_is_still_masked_in_a_header():
+    m = Masker(["a\x00b-secret"])
+    [header], _ = m.headers([{"name": "x", "value": {"type": "string", "value": "1 a\x00b-secret 2"}}])
+    assert header["value"] == f"1 {MASK} 2"
+
+
+def test_the_worst_case_request_event_stays_cheap():
+    """The pin: a request event at the forms budget, its 32 headers of 600
+    characters and a 2 kB URL, runs on the server's main loop. Measured at
+    about 0.6 ms on the machine that set the budget (16 + 48 forms); the
+    bound is generous for a slow runner, and still fails at the 256 forms the
+    budget replaced (3.3 ms there)."""
+    import time as clock
+
+    from kubed.selenium_flow.capture.store import Capture
+
+    from .capture_events import nav_started, req
+
+    capture = Capture()
+    capture.attached("ws", "s1", "chrome", "top-1", again=False)
+    capture.ingest("ws", "s1", *nav_started("https://a.test/"))
+    held = capture._sessions["s1"]
+    held.masker = worst_masker()
+    headers = [(f"x-header-{i}", f"{i}-" + "v" * 600) for i in range(32)]
+    url = "https://a.test/p?" + "q" * 2000
+    times = []
+    for i in range(30):
+        event = req(f"r{i}", url, headers=headers)
+        started = clock.perf_counter()
+        capture.ingest("ws", "s1", *event)
+        times.append(clock.perf_counter() - started)
+    assert sorted(times)[len(times) // 2] < 0.002
