@@ -153,6 +153,7 @@ class Subscriber:
         self._bytes = 0  # their frames' length; a barrier carries none
         self._wake = asyncio.Event()
         self._full = False  # in a streak of dropped events, until drained
+        self._drop_failed = False  # ``on_drop`` raised in this streak
         self._failing: str | None = None  # the type of a streak of failures
         self._cancelled = False
         self._task = asyncio.get_running_loop().create_task(
@@ -171,7 +172,17 @@ class Subscriber:
         if self._depth >= self.limit or self._bytes + size > self.max_bytes:
             self.dropped += 1
             if self._on_drop is not None:
-                self._on_drop()
+                try:
+                    self._on_drop()
+                except Exception as exc:  # noqa: BLE001 - this runs on the reader
+                    if not self._drop_failed:  # once a streak, as the drops are
+                        self._drop_failed = True
+                        # The type only, as a handler's: a message can carry
+                        # page data.
+                        log.warning(
+                            "bidi: subscriber %s's on_drop failed (%s)",
+                            self.name, type(exc).__name__,
+                        )
             if not self._full:
                 self._full = True
                 log.warning(
@@ -224,6 +235,7 @@ class Subscriber:
                 await self._handle(*item)
                 if self._depth == 0:
                     self._full = False  # caught up: a new streak is a new line
+                    self._drop_failed = False
                 if time.monotonic() >= until:
                     break
             # A turn for the reader and the other subscribers between batches.
