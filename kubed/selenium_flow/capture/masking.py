@@ -455,11 +455,11 @@ class Masker:
                 domain = c.get("domain")  # ".example.com" is example.com's
                 domain = domain.strip().lstrip(".") if isinstance(domain, str) else ""
                 domain = domain.lower()
-                value = _header_value(c.get("value"))
-                if domain and self._learnable(
-                    _unquoted(value), COOKIE_MIN, count=False
-                ):
-                    self._named[_unquoted(value)] = domain
+                # Unquoted, as its Cookie header pair is read: one entry for
+                # both, and its forms are inside every form of the quoted one.
+                value = _unquoted(_header_value(c.get("value")))
+                if domain and self._learnable(value, COOKIE_MIN, count=False):
+                    self._named[value] = domain
                 self._offer(name, value, domain or host, offers)
         if self._cookies.offer(offers, self._cookie_forms):
             self._sort()
@@ -755,8 +755,10 @@ def _password(url: str) -> tuple[int, int] | None:
 
 
 def _unquoted(cookie: str) -> str:
-    """A cookie's value as a header pair is read: a browser stores and sends
-    a quoted value with its quotes, as BiDi reports it."""
+    """A cookie's value as it is learned, from BiDi or a header pair: a
+    browser stores and sends a quoted value with its quotes. Every form
+    `hidden_forms` builds escapes character by character, so each form of
+    the quoted value holds the unquoted value's form: masking that masks it."""
     return cookie.strip().strip('"')
 
 

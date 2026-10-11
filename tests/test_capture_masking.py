@@ -1228,3 +1228,26 @@ def test_when_each_domain_was_served_is_remembered_within_a_bound():
                     "value": {"type": "string", "value": f"v-{event:05}-{i:03}-0123456789"}}
                    for i in range(8)], "https://app.example/")
     assert len(m._cookies._served) <= SERVED_HELD
+
+
+@pytest.mark.parametrize("inner", [
+    "s3ss-0123456789-abc",
+    "a/b+c&d<e>f'géh=ij-0123456789",                 # every escape a form spells
+], ids=["plain", "escaping"])
+def test_a_quoted_cookie_is_one_entry_and_masked_in_every_spelling(inner):
+    """M-2: BiDi reports a quoted value with its quotes, the Cookie header is
+    read without them; offered both ways it took two entries, twice its
+    domain's share. The unquoted one is held, and masks every spelling of the
+    quoted one too: each form is the value's form between the quotes'."""
+    from kubed.selenium_flow.flows.redact import hidden_forms
+
+    m = Masker()
+    quoted = f'"{inner}"'
+    m.cookies([{"name": "sid", "value": {"type": "string", "value": quoted},
+                "domain": "app.example.com"}], "https://app.example.com/")
+    m.headers([{"name": "Cookie", "value": {"type": "string", "value": f"sid={quoted}"}}],
+              "https://app.example.com/")
+    assert [v for v in m._cookies.values if v.strip('"') == inner] == [inner]
+    for echo in hidden_forms([quoted, inner]):
+        shown = m.text(f"echo {echo} end")
+        assert not any(form in shown for form in hidden_forms([inner])), echo
