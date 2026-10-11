@@ -286,6 +286,42 @@ async def test_a_resume_waiting_on_a_hold_that_fails_does_not_try_again(running_
     monitor.called(GID)
 
 
+async def test_a_looks_failed_hold_backs_off_from_when_it_failed(clock):
+    """The flaky back-off test's cause: a look reads the clock, then waits on
+    the Grid's status; a hold it tries after that and fails was backed off
+    from the look's start, so a slow listing spent the back-off before it
+    began, and the next call held again at once."""
+    import threading
+
+    FakeConnection.reset()
+    began, answer = threading.Event(), threading.Event()
+
+    def listing():
+        began.set()
+        answer.wait(5)
+        return 1, {GID: 300}
+
+    monitor = Monitor(LocalBus(), listing=listing, socket_url=lambda s: f"ws://x/{s}",
+                      events_for={"capture": EVENTS}, collectors_for={"capture": COLLECTOR},
+                      connect=FakeConnection, sink=FakeSink(), clock=clock)
+    monitor.bus.start()
+    await monitor.start()
+    try:
+        await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+        await asyncio.to_thread(began.wait, 5)       # a look began, and asks the Grid
+        FakeConnection.made[0].dropped = True        # meanwhile the connection drops
+        FakeConnection.refuse = True
+        clock.now += 60                              # and the Grid takes a minute
+        answer.set()
+        await until(lambda: monitor.watches[GID].failures)
+        assert monitor.backing_off(GID)
+    finally:
+        answer.set()
+        await monitor.stop()
+        await monitor.bus.stop()
+        FakeConnection.reset()
+
+
 async def test_a_failed_resume_backs_off_instead_of_costing_every_call(running_monitor, clock):
     """A hanging /se/bidi would cost each call ATTACH_TIMEOUT under the
     session's lock; past one failure, the calls skip it until the back-off ends."""

@@ -557,7 +557,10 @@ class Monitor:
                     await self._extend(w, w.connection)
         except Exception as exc:  # noqa: BLE001 - tried again after a back-off
             if self.watches.get(w.session_id) is w:  # an ended watch owes nothing
-                self._failed(w, now, exc)
+                # From when it failed, not the look's ``now``: that was read
+                # before the Grid's status, and a slow one spent the back-off
+                # before it began.
+                self._failed(w, self.clock(), exc)
 
     async def _hold(self, w: Watch) -> None:
         """Open a connection, learn the top context, listen, subscribe and add
