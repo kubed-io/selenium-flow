@@ -323,6 +323,8 @@ def register(
             reshapes=row.reshapes,
             tool=row.name,
             surface="mcp",
+            closed=row.closed
+            and (lambda name: getattr(actions, row.closed)(name, **arguments)),
         )
 
     def action(

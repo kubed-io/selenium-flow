@@ -382,6 +382,13 @@ class Capture:
             buffer = self._cache.get(workspace)
             return None if buffer is None else views.request(buffer, id)
 
+    def known(self, workspace: str, id: str) -> bool:
+        """Whether request ``id`` is kept in ``workspace``'s capture, whatever
+        browser made it."""
+        with self._lock:
+            buffer = self._cache.get(workspace)
+            return buffer is not None and id in buffer.index
+
     def counts(self, workspace: str) -> dict | None:
         with self._lock:
             buffer = self._cache.get(workspace)

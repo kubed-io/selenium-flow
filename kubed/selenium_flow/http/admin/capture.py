@@ -19,6 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from ...core.actions import BODY_CLOSED
 from ...faults import NotFound
 from .. import answer, links
 from .workspaces import HEARTBEAT
@@ -27,9 +28,6 @@ log = logging.getLogger(__name__)
 
 TAIL_PATH = "/admin/workspaces/{key}/tail"
 KINDS = ("console", "network")
-NO_SESSION = (
-    "no session is open in this workspace; a body lives only as long as its browser"
-)
 
 
 def tail_path(key: str) -> str:
@@ -131,7 +129,7 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
                 workspaces.browser, request.path_params["key"]
             )
             if not session_id:
-                raise NotFound(NO_SESSION)
+                raise NotFound(BODY_CLOSED)
             body = await run_in_threadpool(
                 actions.network_body, session_id, request.path_params["id"]
             )

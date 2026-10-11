@@ -72,6 +72,10 @@ BODY_GONE = (
     "the browser no longer holds this body: it keeps them while it lives, "
     "and drops the oldest past about 200 MB"
 )
+# A body asked for once the workspace's session has ended (spec §7, ruling 11).
+BODY_CLOSED = (
+    "no session is open in this workspace; a body lives only as long as its browser"
+)
 BODY_ANSWERS = {
     "no such network data": BODY_GONE,
     "unavailable network data": (
@@ -1357,6 +1361,18 @@ class Actions:
             "text": masked.encode()[:BODY_CAP].decode("utf-8", "ignore"),
             "truncated": size > BODY_CAP,
         }
+
+    def network_body_closed(self, workspace: str, id) -> None:
+        """`network_body` in a workspace with no session open: a request
+        capture kept is a 404 naming why, because its body went with the
+        browser and a new one cannot return it. Anything else is left to the
+        usual refusal (a 400: call open_session)."""
+        if (
+            self.capture is not None
+            and isinstance(id, str)
+            and self.capture.known(workspace, id)
+        ):
+            raise NotFound(BODY_CLOSED)
 
     def _recipe(self, wait=None, retry_stale=False) -> Recipe:
         """The road for an action that takes ``url``: through `_at`.

@@ -49,7 +49,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
@@ -484,7 +484,7 @@ class Workspaces:
             # Detached reads the same as absent on purpose. A caller is told it
             # has no browser and calls open_session, which is the one path that
             # opens one — and which now inherits this record's browser and page.
-            raise ValueError(
+            raise faults.NoSession(
                 f"no session is open in workspace {name!r} yet: call open_session "
                 "first. It takes the window size and timeouts this session "
                 "should use, which is why it is not done implicitly."
@@ -645,6 +645,7 @@ class Workspaces:
         reshapes: bool = False,
         tool: str = "",
         surface: str = "mcp",
+        closed: Callable[[str], None] | None = None,
     ) -> dict:
         """Resolve this workspace's browser, act on it, remember where it ended up.
 
@@ -666,9 +667,18 @@ class Workspaces:
         (the lock is reentrant), so what the page reported in between is this
         call's alone, and comes back as ``page`` — or, when it raised, as a
         sentence on its error (plan rulings 7, 8).
+
+        ``closed`` is asked first when no session is open, with the workspace's
+        name: a call whose answer went with the browser raises its own refusal
+        there (`network_body`'s 404), since opening one cannot bring it back.
         """
         name = caller.name
-        resolved, kind = self.resolved(name)
+        try:
+            resolved, kind = self.resolved(name)
+        except faults.NoSession:
+            if closed is not None:
+                closed(name)
+            raise
         turn = (
             locks.driving(resolved)
             if self.calls.wanted(name)

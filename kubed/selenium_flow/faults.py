@@ -35,6 +35,12 @@ class NotFound(LookupError):
     """The thing the caller named is not there: a 404, with its own words."""
 
 
+class NoSession(ValueError):
+    """The caller's workspace has no session open: a 400, since the fix is the
+    caller's — call ``open_session`` — unless the call says otherwise
+    (`Workspaces.act`'s ``closed``)."""
+
+
 class TooLarge(ValueError):
     """A body or a document over its cap: a 413 over HTTP, and over MCP a
     refusal that says which cap, as every ValueError does."""

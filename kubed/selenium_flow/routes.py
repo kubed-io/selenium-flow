@@ -380,6 +380,8 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
                 reshapes=row.reshapes,
                 tool=row.name,
                 surface="http",
+                closed=row.closed
+                and (lambda name: getattr(actions, row.closed)(name, **kwargs)),
             )
 
         return await _answer(request, token, path, call)

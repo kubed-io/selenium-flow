@@ -153,6 +153,40 @@ def test_an_unknown_body_id_is_400(admin_client, fed, monkeypatch):
     assert r.status_code == 400 and "s1" not in r.text
 
 
+# ---- the capability, once the browser has ended (spotless 1) -------------------
+
+
+BODY_CLOSED = "no session is open in this workspace; a body lives only as long as its browser"
+
+
+def test_a_known_body_after_end_browser_is_404_over_http(admin_client, fed):
+    """Spec §7 and ruling 11: a body for a browser that has ended is a 404
+    naming why, never the "call open_session first" 400 — opening one cannot
+    bring the body back."""
+    r = admin_client.post("/browser/network-body", json={"id": "1.1"},
+                          headers={**AUTH, "X-Workspace": "ws"})
+    assert r.status_code == 404 and r.json()["error"] == BODY_CLOSED
+
+
+def test_an_unknown_body_id_with_no_session_stays_400_over_http(admin_client, fed):
+    r = admin_client.post("/browser/network-body", json={"id": "9.9"},
+                          headers={**AUTH, "X-Workspace": "ws"})
+    assert r.status_code == 400 and "open_session" in r.json()["error"]
+
+
+async def test_a_known_body_after_end_browser_names_why_over_mcp(fed, monkeypatch):
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+
+    from .conftest import calling_as
+
+    calling_as(monkeypatch, "ws")
+    async with Client(fed.mcp) as client:
+        with pytest.raises(ToolError) as caught:
+            await client.call_tool("network_body", {"id": "1.1"})
+    assert BODY_CLOSED in str(caught.value) and "call open_session" not in str(caught.value)
+
+
 def test_capture_off_reads_as_off(admin_client, plain):
     assert admin_client.get("/admin/workspaces/plain/network", headers=AUTH).json() == {
         "capture": False, "how": "open_session(capture=true)"}
