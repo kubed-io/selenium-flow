@@ -3,17 +3,24 @@
 What capture keeps and what it tails are the same masked rows, so a value is
 masked here or nowhere. Credential headers are masked by name, whatever their
 value; the values the secrets catalogue bound in this session are masked
-wherever they appear — a URL, a header, a console text. Request cookies and
-``goog:postData`` are never read, so they never reach a row.
+wherever they appear — a URL, a header, a console text, a body. So are the
+values those headers and the request's cookies carried, since a page can echo
+them: they are learned as they pass, never shown. ``goog:postData`` is never
+read, so it never reaches a row.
 """
 
 from __future__ import annotations
 
+import bisect
 import re
+from collections import OrderedDict
 from collections.abc import Iterable
 from urllib.parse import urlsplit, urlunsplit
 
+from ..flows.redact import hidden_forms
 from . import (
+    CREDENTIAL_MIN,
+    CREDENTIALS,
     HEADER_BYTES,
     HEADER_LIMIT,
     HEADER_NAME_CAP,
@@ -48,10 +55,20 @@ def strip_query(url: str) -> str:
 
 
 class Masker:
-    """The secrets bound in one session, and how a value is shown without them."""
+    """The secrets bound in one session, and how a value is shown without them.
+
+    Two kinds: the forms the secrets catalogue bound, kept for the session's
+    life; and the credentials its headers and cookies carried, at most
+    `CREDENTIALS` values, the least recently seen going first — a page and its
+    server choose how many cookies there are, and each costs every text a scan.
+    """
 
     def __init__(self, secrets: Iterable[str] = ()):
+        self._bound: set[str] = set()
+        # A credential's value -> its forms, least recently seen first.
+        self._credentials: OrderedDict[str, set[str]] = OrderedDict()
         self._secrets: tuple[str, ...] = ()
+        self._lengths: tuple[int, ...] = ()
         self.add(secrets)
 
     @property
@@ -61,9 +78,48 @@ class Masker:
 
     def add(self, forms: Iterable[str]) -> None:
         """Mask ``forms`` from now on: a secret's raw value and its encodings."""
-        known = set(self._secrets) | {f for f in forms if isinstance(f, str) and f}
+        self._bound |= {f for f in forms if isinstance(f, str) and f}
+        self._sort()
+
+    def carry(self, other: Masker) -> None:
+        """Mask what ``other`` masks: the session this one replaces."""
+        self._bound |= other._bound
+        for value, forms in other._credentials.items():
+            self._credentials.pop(value, None)
+            self._credentials[value] = forms
+        while len(self._credentials) > CREDENTIALS:
+            self._credentials.popitem(last=False)
+        self._sort()
+
+    def cookies(self, raw) -> None:
+        """Mask the values of a request's BiDi ``cookies`` from now on."""
+        self._learn(
+            _header_value(c.get("value"))
+            for c in (raw if isinstance(raw, list) else ())
+            if isinstance(c, dict) and not _binary(c.get("value"))
+        )
+
+    def _learn(self, values: Iterable[str]) -> None:
+        """Mask each credential in ``values`` wherever it appears from now on."""
+        changed = False
+        for value in values:
+            if len(value) < CREDENTIAL_MIN:
+                continue
+            if value in self._credentials:
+                self._credentials.move_to_end(value)
+                continue
+            self._credentials[value] = hidden_forms([value])
+            changed = True
+        if changed:
+            while len(self._credentials) > CREDENTIALS:
+                self._credentials.popitem(last=False)
+            self._sort()
+
+    def _sort(self) -> None:
+        known = self._bound.union(*self._credentials.values())
         # Longest first, so a secret containing another is masked whole.
         self._secrets = tuple(sorted(known, key=len, reverse=True))
+        self._lengths = tuple(-len(f) for f in self._secrets)  # ascending
 
     def text(
         self, value: str, cap: int = TEXT_CAP, *, also: tuple[int, int] | None = None
@@ -90,7 +146,10 @@ class Masker:
         longest = len(self._secrets[0]) if self._secrets else 0
         read = value[: cap + longest]
         spans = []
-        for secret in self._secrets:
+        # A secret longer than what was read cannot be in it: most header
+        # values are shorter than a token, and each secret costs a scan.
+        fits = bisect.bisect_left(self._lengths, -len(read))
+        for secret in self._secrets[fits:]:
             at = read.find(secret)
             while at != -1:
                 spans.append((at, at + len(secret)))
@@ -133,6 +192,16 @@ class Masker:
         URL-bearing one's password too) and cut to ``HEADER_VALUE_CAP``, every
         name to ``HEADER_NAME_CAP``."""
         given = [h for h in (raw or ()) if isinstance(h, dict)]
+        # Learned before any value is shown, so one header cannot echo another.
+        self._learn(
+            credential
+            for header in given[:HEADER_LIMIT]
+            if not _binary(header.get("value"))
+            for credential in _credentials(
+                str(header.get("name") or "").lower(),
+                _header_value(header.get("value")),
+            )
+        )
         kept: list[dict] = []
         spent = 0
         for header in given[:HEADER_LIMIT]:
@@ -165,6 +234,25 @@ def _password(url: str) -> tuple[int, int] | None:
     at = url.rfind("@", start, end)
     colon = url.find(":", start, at) if at != -1 else -1
     return None if colon == -1 else (colon + 1, at)
+
+
+def _credentials(name: str, value: str) -> list[str]:
+    """The secrets a credential header ``name`` carries in ``value``: an
+    ``Authorization`` whole and without its scheme, each cookie's value."""
+    if name in ("authorization", "proxy-authorization"):
+        scheme_and_token = value.split(None, 1)
+        return [value, *scheme_and_token[1:]]
+    if name == "cookie":
+        pairs = value.split(";")
+    elif name == "set-cookie":  # one per line where a browser folds several
+        pairs = [line.split(";", 1)[0] for line in value.splitlines()]
+    else:
+        return []
+    return [p.split("=", 1)[1].strip().strip('"') for p in pairs if "=" in p]
+
+
+def _binary(value) -> bool:
+    return isinstance(value, dict) and value.get("type") == "base64"
 
 
 def _header_value(value) -> str:

@@ -59,6 +59,12 @@ MASK = "•••"
 MASKED_HEADERS = frozenset(
     {"authorization", "proxy-authorization", "cookie", "set-cookie"}
 )
+# A value one of those headers (or a request cookie) carried is masked wherever
+# else it appears — a page can echo it — but at most this many per session, the
+# newest kept, and none shorter than CREDENTIAL_MIN, or a cookie of "1" would
+# mask every digit of the page.
+CREDENTIALS = 256
+CREDENTIAL_MIN = 8
 
 # Counted, not kept, when they succeed (ruling 3); counted in the hint when they
 # fail (ruling 12).

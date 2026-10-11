@@ -570,7 +570,9 @@ or the leak `caller_key` existed to prevent comes straight back.
   `proxy-authorization`, `cookie` and `set-cookie` headers in any case, cookies,
   `goog:postData`, every bound secret, a URL's userinfo password (in URLs and the `referer` /
   `location` / `content-location` headers), every free-text row field and a fetched body's text;
-  query strings only on the newest navigation.
+  query strings only on the newest navigation. The values those headers and the request's
+  cookies carried are masked wherever a page echoes them, like a bound secret: at most
+  `CREDENTIALS` (256) a session, newest kept, none under 8 characters.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
   page keeps 2 000.
 - Each subscriber's queue is bounded by count (1 000) **and** bytes (`QUEUE_BYTES`, 32 MiB). A

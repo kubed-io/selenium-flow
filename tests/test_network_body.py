@@ -277,3 +277,43 @@ def test_a_body_too_large_for_its_frame_is_400_and_capture_keeps_its_connection(
     # The body's own connection subscribes to nothing.
     assert "session.subscribe" not in bidi_fakes.browser_methods()
     portal.call(held.close)
+
+
+# ---- a credential header echoed by the page (spotless 2) -------------------------
+
+
+def echoing(fed, rid, n, headers):
+    """Request ``1.<n>``, sent with ``headers``, whose page echoes them."""
+    for method, params in (
+        req(rid, f"https://a.test/anything/{rid}", initiator="fetch", headers=headers),
+        done(rid, 200, mime="application/json"),
+    ):
+        fed.capture.ingest("ws", "s1", method, params)
+    return f"1.{n}"
+
+
+def test_an_echoed_bearer_comes_back_masked_in_the_body(actions, fed):
+    rid = echoing(fed, "r2", 2, [("Authorization", "Bearer abcdefgh12345")])
+    fed.channel.bodies["r2"] = body_of('{"headers": {"Authorization": "Bearer abcdefgh12345"}}')
+    got = actions.network_body("s1", rid)
+    assert got["text"] == f'{{"headers": {{"Authorization": "{MASK}"}}}}'
+
+
+def test_an_echoed_cookie_comes_back_masked_in_the_body_the_console_and_the_tail(actions, fed):
+    from .capture_events import log
+
+    rid = echoing(fed, "r2", 2, [("Cookie", "sid=COOKIE-VALUE; pref=preference-9")])
+    fed.channel.bodies["r2"] = body_of('{"cookies": {"sid": "COOKIE-VALUE", "pref": "preference-9"}}')
+    got = actions.network_body("s1", rid)
+    assert "COOKIE-VALUE" not in got["text"] and "preference-9" not in got["text"]
+    tail = fed.capture.tail("ws", "console")
+    fed.capture.ingest("ws", "s1", *log("cookie is preference-9"))
+    assert tail._queue.get_nowait()["text"] == f"cookie is {MASK}"
+    tail.close()
+    assert fed.capture.console("ws")["entries"][-1]["text"] == f"cookie is {MASK}"
+
+
+def test_a_short_credential_does_not_mask_the_body(actions, fed):
+    rid = echoing(fed, "r2", 2, [("Cookie", "n=1")])
+    fed.channel.bodies["r2"] = body_of('{"count": 1, "n": "1"}')
+    assert actions.network_body("s1", rid)["text"] == '{"count": 1, "n": "1"}'

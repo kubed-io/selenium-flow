@@ -465,6 +465,17 @@ def test_a_new_session_in_the_workspace_keeps_its_secrets(capture):
     assert [e["text"] for e in capture.console("other")["entries"]] == ["hunter2"]
 
 
+def test_a_credential_a_header_carried_is_masked_by_the_session_that_replaces_it(capture):
+    """A reopen restores the login, so the next browser can echo the token the
+    last one sent before it sends it itself."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"),
+         req("r1", "https://a.test/api", headers=[("Authorization", "Bearer abcdefgh12345")]))
+    capture.attached("ws", "s2", "chrome", "top-1", again=False)
+    feed(capture, log("token abcdefgh12345"), session_id="s2")
+    assert texts(capture) == [f"token {MASK}"]
+
+
 def test_an_expired_buffer_comes_back_empty_with_the_sessions_secrets(capture, clock):
     attach(capture)
     capture.secret("ws", ["hunter2"])

@@ -229,16 +229,16 @@ class Capture:
                     else None
                 )
                 return
-            secrets: list[str] = []
+            masker = Masker()
             for sid in [
                 s for s, h in self._sessions.items() if h.workspace == workspace
             ]:
-                secrets += self._sessions.pop(sid).masker.secrets
+                masker.carry(self._sessions.pop(sid).masker)
             parked = self._parked.pop(workspace, None)
             if parked is not None:
-                secrets += parked.masker.secrets
+                masker.carry(parked.masker)
             self._sessions[session_id] = Held(
-                workspace, session_id, browser, top, masker=Masker(secrets)
+                workspace, session_id, browser, top, masker=masker
             )
             self._evict()
             buffer = self._cache.get(workspace)
@@ -521,6 +521,7 @@ class Capture:
         buffer.counter += 1
         buffer.seq += 1
         nav = buffer.nav
+        held.masker.cookies(request.get("cookies"))  # learned, never shown
         headers, dropped = held.masker.headers(request.get("headers"))
         row = {
             "id": f"{nav}.{buffer.counter}",

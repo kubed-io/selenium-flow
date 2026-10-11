@@ -221,3 +221,79 @@ def test_a_bound_secret_holding_the_userinfo_is_masked_whole():
 def test_a_password_in_a_relative_or_padded_url_is_masked(value, expected):
     header = {"name": "Location", "value": {"type": "string", "value": value}}
     assert kept([header])[0]["value"] == expected
+
+
+# ---- a credential header's value is masked wherever it is echoed (spotless 2) --
+
+
+def test_a_masked_credential_is_masked_wherever_it_is_echoed():
+    """The headers view masks ``Authorization`` by name; a page that echoes it
+    (httpbin's ``/anything``) must not hand the value back in its text."""
+    m = Masker()
+    kept([{"name": "Authorization", "value": {"type": "string", "value": "Bearer abcdefgh12345"}}], m)
+    assert m.text('{"Authorization": "Bearer abcdefgh12345"}') == f'{{"Authorization": "{MASK}"}}'
+    assert m.text("token=abcdefgh12345") == f"token={MASK}"     # the credential without its scheme
+    assert m.url("https://a.test/?t=abcdefgh12345", keep_query=True) == f"https://a.test/?t={MASK}"
+
+
+def test_each_cookie_of_a_cookie_header_is_masked_on_its_own():
+    m = Masker()
+    kept([{"name": "Cookie", "value": {"type": "string", "value": "sid=session-0123; theme=dark-mode-on"}}], m)
+    kept([{"name": "set-cookie", "value": {"type": "string", "value": "tok=set-cookie-77; Path=/; HttpOnly"}}], m)
+    echoed = '{"cookies": {"sid": "session-0123", "theme": "dark-mode-on", "tok": "set-cookie-77"}}'
+    assert m.text(echoed) == f'{{"cookies": {{"sid": "{MASK}", "theme": "{MASK}", "tok": "{MASK}"}}}}'
+    assert m.text("Path=/; HttpOnly") == "Path=/; HttpOnly"      # attributes are not credentials
+
+
+def test_a_request_cookie_value_is_masked():
+    m = Masker()
+    m.cookies([{"name": "sid", "value": {"type": "string", "value": "COOKIE-VALUE"}}])
+    assert m.text("saw COOKIE-VALUE") == f"saw {MASK}"
+
+
+def test_a_short_credential_masks_nothing():
+    """A value like ``1`` would mask every digit of a page."""
+    m = Masker()
+    kept([{"name": "Cookie", "value": {"type": "string", "value": "a=1; b=short"}}], m)
+    m.cookies([{"name": "c", "value": {"type": "string", "value": "7"}}])
+    assert m.text("1 short 7 a=1") == "1 short 7 a=1"
+
+
+def test_credentials_are_capped_per_session_and_the_newest_kept():
+    from kubed.selenium_flow.capture import CREDENTIALS
+
+    m = Masker()
+    values = [f"cookie-value-{i:04}" for i in range(CREDENTIALS + 10)]
+    for value in values:
+        m.cookies([{"name": "c", "value": {"type": "string", "value": value}}])
+    assert m.text(values[0]) == values[0]                     # the oldest went
+    assert m.text(values[-1]) == MASK
+    assert m.text(values[10]) == MASK                         # the oldest kept
+    m.cookies([{"name": "c", "value": {"type": "string", "value": values[10]}}])
+    m.cookies([{"name": "c", "value": {"type": "string", "value": "cookie-value-new"}}])
+    assert m.text(values[10]) == MASK                         # seen again: newest again
+    assert m.text(values[11]) == values[11]
+
+
+def test_a_bound_secret_is_never_crowded_out_by_credentials():
+    from kubed.selenium_flow.capture import CREDENTIALS
+
+    m = Masker(["hunter2"])
+    for i in range(CREDENTIALS + 1):
+        m.cookies([{"name": "c", "value": {"type": "string", "value": f"cookie-value-{i:04}"}}])
+    assert m.text("hunter2") == MASK
+
+
+def test_a_carried_credential_stays_a_credential():
+    """The session a reopen replaces hands its credentials on, still under the
+    cap: carried over and over, they would otherwise grow without bound."""
+    from kubed.selenium_flow.capture import CREDENTIALS
+
+    old = Masker(["hunter2"])
+    old.cookies([{"name": "c", "value": {"type": "string", "value": "carried-cookie"}}])
+    new = Masker()
+    new.carry(old)
+    assert new.text("carried-cookie hunter2") == f"{MASK} {MASK}"
+    for i in range(CREDENTIALS):
+        new.cookies([{"name": "c", "value": {"type": "string", "value": f"cookie-value-{i:04}"}}])
+    assert new.text("carried-cookie hunter2") == f"carried-cookie {MASK}"
