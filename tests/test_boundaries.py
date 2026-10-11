@@ -392,31 +392,102 @@ def test_only_the_spare_tab_adds_an_intercept():
 
 # The names the package gives a Grid id. A log line is read by everyone with the
 # pod's logs, and a Grid id is how a browser is reached: AGENTS ("logs never
-# carry a Grid id"). `workspace` names it instead.
-GRID_ID_NAMES = {"session_id", "sid", "grid_id", "browser_id"}
+# carry a Grid id"). `workspace` names it instead. `target`, `kept`, `resolved`
+# and `replacing` are what `workspace/workspaces.py` calls one.
+GRID_ID_NAMES = {
+    "session_id", "sid", "grid_id", "browser_id", "gid",
+    "target", "kept", "resolved", "replacing",
+}
 LOG_LEVELS = {"debug", "info", "warning", "error", "exception", "critical", "log"}
+# The same names meaning something else, each with what it is there.
+NOT_A_GRID_ID = {
+    ("kubed/selenium_flow/core/probe.py", "target"): "the locator a probe was aimed at",
+    ("kubed/selenium_flow/flows/store.py", "target"): "a kept file's path",
+    ("kubed/selenium_flow/http/admin/flows.py", "target"): "the library a flow moved to",
+}
 
 
-def _formats_a_grid_id(node: ast.Call) -> bool:
-    for argument in [*node.args[1:], *(k.value for k in node.keywords if k.arg != "exc_info")]:
+def _grid_ids_formatted(node: ast.Call) -> set[str]:
+    """The Grid-id names any argument of a log call formats: the message too, so
+    an f-string or a `%` expression counts, and a subscript by a constant key
+    (`opened["session_id"]`) as well as a name or an attribute."""
+    found = set()
+    for argument in [*node.args, *(k.value for k in node.keywords if k.arg != "exc_info")]:
         for part in ast.walk(argument):
-            name = part.id if isinstance(part, ast.Name) else getattr(part, "attr", None)
+            if isinstance(part, ast.Name):
+                name = part.id
+            elif isinstance(part, ast.Attribute):
+                name = part.attr
+            elif isinstance(part, ast.Subscript) and isinstance(part.slice, ast.Constant):
+                name = part.slice.value
+            else:
+                continue
             if name in GRID_ID_NAMES:
-                return True
-    return False
+                found.add(name)
+    return found
+
+
+def _is_log_call(node) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in LOG_LEVELS
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in ("log", "logger")
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'log.info(f"ended {session_id}")',
+        'log.info("ended %s" % session_id)',
+        'log.info("ended %s", opened["session_id"])',
+        'log.info("ended %s", record.session_id)',
+        'log.info("quitting %s", target)',
+        'log.warning("kept %s", kept)',
+        'logger.debug("ended " + sid)',
+    ],
+)
+def test_the_guard_sees_a_grid_id_however_it_is_formatted(line):
+    [node] = [n for n in ast.walk(ast.parse(line)) if _is_log_call(n)]
+    assert _grid_ids_formatted(node)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        'log.info("ended the browser for workspace %s", name)',
+        'log.info("session_id is never logged")',
+        'log.info("%s", opened["url"])',
+    ],
+)
+def test_the_guard_passes_a_line_that_names_no_grid_id(line):
+    [node] = [n for n in ast.walk(ast.parse(line)) if _is_log_call(n)]
+    assert not _grid_ids_formatted(node)
 
 
 def test_no_log_line_formats_a_grid_id():
     found = []
     for path in sorted(PACKAGE.rglob("*.py")):
+        where = str(path.relative_to(REPO))
         for node in ast.walk(ast.parse(path.read_text(), str(path))):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in LOG_LEVELS
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id in ("log", "logger")
-                and _formats_a_grid_id(node)
-            ):
-                found.append(f"{path.relative_to(REPO)}:{node.lineno}")
+            if _is_log_call(node):
+                names = {
+                    n for n in _grid_ids_formatted(node)
+                    if (where, n) not in NOT_A_GRID_ID
+                }
+                if names:
+                    found.append(f"{where}:{node.lineno} {sorted(names)}")
     assert found == [], f"log lines formatting a Grid id: {found}"
+
+
+def test_every_allowance_still_names_a_log_line():
+    """An allowance with nothing left to allow would hide a new offender."""
+    used = set()
+    for path in sorted(PACKAGE.rglob("*.py")):
+        where = str(path.relative_to(REPO))
+        for node in ast.walk(ast.parse(path.read_text(), str(path))):
+            if _is_log_call(node):
+                used |= {(where, n) for n in _grid_ids_formatted(node)}
+    assert set(NOT_A_GRID_ID) <= used
