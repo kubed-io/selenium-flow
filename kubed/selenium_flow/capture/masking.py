@@ -67,14 +67,17 @@ class Masker:
         self._bound: set[str] = set()
         # A credential's value -> its forms, least recently seen first.
         self._credentials: OrderedDict[str, set[str]] = OrderedDict()
-        self._secrets: tuple[str, ...] = ()
-        self._lengths: tuple[int, ...] = ()
+        # Every form masked, longest first, and their negated lengths: one
+        # tuple, replaced whole, because a body is masked on a worker thread
+        # while the loop learns and evicts. Read apart, an eviction between
+        # the two reads could shift the forms under an index into them.
+        self._state: tuple[tuple[str, ...], tuple[int, ...]] = ((), ())
         self.add(secrets)
 
     @property
     def secrets(self) -> tuple[str, ...]:
         """Every form masked, longest first."""
-        return self._secrets
+        return self._state[0]
 
     def add(self, forms: Iterable[str]) -> None:
         """Mask ``forms`` from now on: a secret's raw value and its encodings."""
@@ -118,8 +121,8 @@ class Masker:
     def _sort(self) -> None:
         known = self._bound.union(*self._credentials.values())
         # Longest first, so a secret containing another is masked whole.
-        self._secrets = tuple(sorted(known, key=len, reverse=True))
-        self._lengths = tuple(-len(f) for f in self._secrets)  # ascending
+        secrets = tuple(sorted(known, key=len, reverse=True))
+        self._state = (secrets, tuple(-len(f) for f in secrets))  # ascending
 
     def text(
         self, value: str, cap: int = TEXT_CAP, *, also: tuple[int, int] | None = None
@@ -143,13 +146,14 @@ class Masker:
         ``also`` is one more span of ``value`` to mask, merged with the
         secrets' (a URL's password, so a secret holding it is masked whole).
         """
-        longest = len(self._secrets[0]) if self._secrets else 0
+        secrets, lengths = self._state  # once: see `__init__`
+        longest = len(secrets[0]) if secrets else 0
         read = value[: cap + longest]
         spans = []
         # A secret longer than what was read cannot be in it: most header
         # values are shorter than a token, and each secret costs a scan.
-        fits = bisect.bisect_left(self._lengths, -len(read))
-        for secret in self._secrets[fits:]:
+        fits = bisect.bisect_left(lengths, -len(read))
+        for secret in secrets[fits:]:
             at = read.find(secret)
             while at != -1:
                 spans.append((at, at + len(secret)))

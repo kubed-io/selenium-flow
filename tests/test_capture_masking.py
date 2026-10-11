@@ -297,3 +297,30 @@ def test_a_carried_credential_stays_a_credential():
     for i in range(CREDENTIALS):
         new.cookies([{"name": "c", "value": {"type": "string", "value": f"cookie-value-{i:04}"}}])
     assert new.text("carried-cookie hunter2") == f"carried-cookie {MASK}"
+
+
+# ---- fix round 1 ------------------------------------------------------------------
+
+
+def test_a_text_masked_while_credentials_change_masks_with_one_state(monkeypatch):
+    """R1-3: `network_body` masks on a worker thread while the loop learns and
+    evicts. A text must read the forms and their lengths as one state: read
+    apart, an eviction between them shifts the forms under an index taken
+    before it, and the slice skips the bound token."""
+    from kubed.selenium_flow.capture import masking
+
+    token = "Tk-bound-secret-token-0123456789"                   # 32: fits the text
+    m = Masker([token])
+    m.cookies([{"name": "c", "value": {"type": "string", "value": "L" * 30 + "-cookie-0123456789-abcdefghij"}}])
+    real, fired = masking.bisect.bisect_left, []
+
+    def meanwhile(*args, **kwargs):
+        found = real(*args, **kwargs)                         # skips the long cookie
+        if not fired:
+            fired.append(1)                                   # the loop, between two reads:
+            for i in range(600):                              # churn evicts the long cookie
+                m.cookies([{"name": "c", "value": {"type": "string", "value": f"ck-{i:04}-abcdefgh"}}])
+        return found
+
+    monkeypatch.setattr(masking.bisect, "bisect_left", meanwhile)
+    assert m.text(f"auth {token}") == f"auth {MASK}"
