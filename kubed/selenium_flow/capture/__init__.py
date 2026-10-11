@@ -60,11 +60,20 @@ MASKED_HEADERS = frozenset(
     {"authorization", "proxy-authorization", "cookie", "set-cookie"}
 )
 # A value one of those headers (or a request cookie) carried is masked wherever
-# else it appears — a page can echo it — but at most this many per session, the
-# newest kept, and none shorter than CREDENTIAL_MIN, or a cookie of "1" would
-# mask every digit of the page.
-CREDENTIALS = 256
+# else it appears — a page can echo it. Each is kept with every spelling an echo
+# gives it (its forms), and every form costs every masked text a scan, so what a
+# session learns is a budget of forms and of their characters, in two tiers: an
+# Authorization token's, which cookies cannot evict, and the cookies', the least
+# recently seen going first. A value is learned only when it can be a secret:
+# an Authorization token of CREDENTIAL_MIN or more, a cookie of COOKIE_MIN or
+# more, neither only letters nor only digits ("accepted", "undefined", a
+# timestamp), none over CREDENTIAL_MAX (counted instead), none holding a NUL.
+AUTH_FORMS = 64
+COOKIE_FORMS = 192
+FORM_CHARS = 32_768  # per tier, past the newest value it keeps
 CREDENTIAL_MIN = 8
+COOKIE_MIN = 16
+CREDENTIAL_MAX = 4096
 
 # Counted, not kept, when they succeed (ruling 3); counted in the hint when they
 # fail (ruling 12).

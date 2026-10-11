@@ -302,12 +302,13 @@ def test_an_echoed_bearer_comes_back_masked_in_the_body(actions, fed):
 def test_an_echoed_cookie_comes_back_masked_in_the_body_the_console_and_the_tail(actions, fed):
     from .capture_events import log
 
-    rid = echoing(fed, "r2", 2, [("Cookie", "sid=COOKIE-VALUE; pref=preference-9")])
-    fed.channel.bodies["r2"] = body_of('{"cookies": {"sid": "COOKIE-VALUE", "pref": "preference-9"}}')
+    rid = echoing(fed, "r2", 2, [("Cookie", "sid=COOKIE-VALUE-0123; pref=preference-9-abcdef")])
+    fed.channel.bodies["r2"] = body_of(
+        '{"cookies": {"sid": "COOKIE-VALUE-0123", "pref": "preference-9-abcdef"}}')
     got = actions.network_body("s1", rid)
     assert "COOKIE-VALUE" not in got["text"] and "preference-9" not in got["text"]
     tail = fed.capture.tail("ws", "console")
-    fed.capture.ingest("ws", "s1", *log("cookie is preference-9"))
+    fed.capture.ingest("ws", "s1", *log("cookie is preference-9-abcdef"))
     assert tail._queue.get_nowait()["text"] == f"cookie is {MASK}"
     tail.close()
     assert fed.capture.console("ws")["entries"][-1]["text"] == f"cookie is {MASK}"

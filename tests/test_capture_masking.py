@@ -238,65 +238,73 @@ def test_a_masked_credential_is_masked_wherever_it_is_echoed():
 
 def test_each_cookie_of_a_cookie_header_is_masked_on_its_own():
     m = Masker()
-    kept([{"name": "Cookie", "value": {"type": "string", "value": "sid=session-0123; theme=dark-mode-on"}}], m)
-    kept([{"name": "set-cookie", "value": {"type": "string", "value": "tok=set-cookie-77; Path=/; HttpOnly"}}], m)
-    echoed = '{"cookies": {"sid": "session-0123", "theme": "dark-mode-on", "tok": "set-cookie-77"}}'
+    kept([{"name": "Cookie", "value": {"type": "string", "value": "sid=session-0123-abcdef; theme=dark-mode-on-please"}}], m)
+    kept([{"name": "set-cookie", "value": {"type": "string", "value": "tok=set-cookie-77-xyz12; Path=/; HttpOnly"}}], m)
+    echoed = ('{"cookies": {"sid": "session-0123-abcdef", "theme": "dark-mode-on-please", '
+              '"tok": "set-cookie-77-xyz12"}}')
     assert m.text(echoed) == f'{{"cookies": {{"sid": "{MASK}", "theme": "{MASK}", "tok": "{MASK}"}}}}'
     assert m.text("Path=/; HttpOnly") == "Path=/; HttpOnly"      # attributes are not credentials
 
 
+def cookie(m, value):
+    m.cookies([{"name": "c", "value": {"type": "string", "value": value}}])
+
+
 def test_a_request_cookie_value_is_masked():
     m = Masker()
-    m.cookies([{"name": "sid", "value": {"type": "string", "value": "COOKIE-VALUE"}}])
-    assert m.text("saw COOKIE-VALUE") == f"saw {MASK}"
+    cookie(m, "COOKIE-VALUE-0123")
+    assert m.text("saw COOKIE-VALUE-0123") == f"saw {MASK}"
 
 
 def test_a_short_credential_masks_nothing():
     """A value like ``1`` would mask every digit of a page."""
     m = Masker()
     kept([{"name": "Cookie", "value": {"type": "string", "value": "a=1; b=short"}}], m)
-    m.cookies([{"name": "c", "value": {"type": "string", "value": "7"}}])
+    cookie(m, "7")
     assert m.text("1 short 7 a=1") == "1 short 7 a=1"
 
 
-def test_credentials_are_capped_per_session_and_the_newest_kept():
-    from kubed.selenium_flow.capture import CREDENTIALS
+def test_the_forms_are_capped_per_session_and_the_newest_kept():
+    """R1-1, R1-2: what a session masks is a forms budget, not a count of
+    values: each form costs every text a scan, whatever value it came from."""
+    from kubed.selenium_flow.capture import COOKIE_FORMS
 
     m = Masker()
-    values = [f"cookie-value-{i:04}" for i in range(CREDENTIALS + 10)]
+    values = [f"cookie-value-{i:04}" for i in range(COOKIE_FORMS + 10)]
     for value in values:
-        m.cookies([{"name": "c", "value": {"type": "string", "value": value}}])
+        cookie(m, value)
+    assert len(m.secrets) <= COOKIE_FORMS
     assert m.text(values[0]) == values[0]                     # the oldest went
     assert m.text(values[-1]) == MASK
-    assert m.text(values[10]) == MASK                         # the oldest kept
-    m.cookies([{"name": "c", "value": {"type": "string", "value": values[10]}}])
-    m.cookies([{"name": "c", "value": {"type": "string", "value": "cookie-value-new"}}])
-    assert m.text(values[10]) == MASK                         # seen again: newest again
-    assert m.text(values[11]) == values[11]
+    kept_from = next(i for i, v in enumerate(values) if m.text(v) == MASK)
+    cookie(m, values[kept_from])                              # seen again: newest again
+    cookie(m, "cookie-value-new-0")
+    assert m.text(values[kept_from]) == MASK
+    assert m.text(values[kept_from + 1]) == values[kept_from + 1]
 
 
 def test_a_bound_secret_is_never_crowded_out_by_credentials():
-    from kubed.selenium_flow.capture import CREDENTIALS
+    from kubed.selenium_flow.capture import COOKIE_FORMS
 
     m = Masker(["hunter2"])
-    for i in range(CREDENTIALS + 1):
-        m.cookies([{"name": "c", "value": {"type": "string", "value": f"cookie-value-{i:04}"}}])
+    for i in range(COOKIE_FORMS + 1):
+        cookie(m, f"cookie-value-{i:04}")
     assert m.text("hunter2") == MASK
 
 
 def test_a_carried_credential_stays_a_credential():
     """The session a reopen replaces hands its credentials on, still under the
     cap: carried over and over, they would otherwise grow without bound."""
-    from kubed.selenium_flow.capture import CREDENTIALS
+    from kubed.selenium_flow.capture import COOKIE_FORMS
 
     old = Masker(["hunter2"])
-    old.cookies([{"name": "c", "value": {"type": "string", "value": "carried-cookie"}}])
+    cookie(old, "carried-cookie-0123")
     new = Masker()
     new.carry(old)
-    assert new.text("carried-cookie hunter2") == f"{MASK} {MASK}"
-    for i in range(CREDENTIALS):
-        new.cookies([{"name": "c", "value": {"type": "string", "value": f"cookie-value-{i:04}"}}])
-    assert new.text("carried-cookie hunter2") == f"carried-cookie {MASK}"
+    assert new.text("carried-cookie-0123 hunter2") == f"{MASK} {MASK}"
+    for i in range(COOKIE_FORMS):
+        cookie(new, f"cookie-value-{i:04}")
+    assert new.text("carried-cookie-0123 hunter2") == f"carried-cookie-0123 {MASK}"
 
 
 # ---- fix round 1 ------------------------------------------------------------------
@@ -324,3 +332,83 @@ def test_a_text_masked_while_credentials_change_masks_with_one_state(monkeypatch
 
     monkeypatch.setattr(masking.bisect, "bisect_left", meanwhile)
     assert m.text(f"auth {token}") == f"auth {MASK}"
+
+
+def bearer(m, value):
+    kept([{"name": "Authorization", "value": {"type": "string", "value": value}}], m)
+
+
+def test_cookie_churn_never_evicts_an_authorization_value():
+    """R1-2: network_body masks at fetch time, so a token evicted by a page's
+    cookies would come back in clear in an earlier body that echoed it."""
+    from kubed.selenium_flow.capture import COOKIE_FORMS
+
+    m = Masker()
+    bearer(m, "Bearer eyJhbGciOi.token-0123456789")
+    for i in range(COOKIE_FORMS * 4):
+        cookie(m, f"churning-cookie-{i:05}")
+    assert m.text("eyJhbGciOi.token-0123456789") == MASK
+
+
+def test_a_huge_credential_is_not_learned_and_is_counted():
+    """R1-2: each learned value is kept with four or five spellings; a page
+    choosing huge distinct values would grow memory without bound."""
+    from kubed.selenium_flow.capture import CREDENTIAL_MAX
+
+    m = Masker()
+    huge = "Zz9-" * (CREDENTIAL_MAX // 4 + 1)
+    cookie(m, huge)
+    bearer(m, "Bearer " + huge)
+    assert m.secrets == () and m.skipped == 2        # the cookie, and the token with its header
+
+
+def test_learned_forms_are_bounded_in_characters_too():
+    from kubed.selenium_flow.capture import CREDENTIAL_MAX, FORM_CHARS
+
+    m = Masker()
+    for i in range(50):
+        bearer(m, f"Bearer {i:04}-" + "a1" * (CREDENTIAL_MAX // 2 - 8))
+        cookie(m, f"{i:04}-" + "b2" * (CREDENTIAL_MAX // 2 - 8))
+    # Two tiers, each within its budget but for the newest value it keeps.
+    assert sum(map(len, m.secrets)) <= 2 * (FORM_CHARS + 8 * CREDENTIAL_MAX)
+
+
+def test_a_credential_holding_a_nul_is_not_learned():
+    """A row's header values are scanned joined on NUL (R1-1)."""
+    m = Masker()
+    cookie(m, "abc\x00def-0123456789-xyz")
+    assert m.secrets == ()
+
+
+PROBE_COOKIES = "consent=accepted; ab=undefined; ts=1728600000; sid=s%3Aa8F2kQ9xZ1mP0rT7vW3yB5"
+
+
+def test_the_probes_console_stays_readable_and_its_session_token_is_masked():
+    """R1-5: with an 8-character minimum these cookies masked "undefined",
+    a timestamp and "accepted" across the whole page's console."""
+    m = Masker()
+    kept([{"name": "Cookie", "value": {"type": "string", "value": PROBE_COOKIES}}], m)
+    said = ("TypeError: Cannot read properties of undefined (reading 'x') "
+            "at 1728600000; cookies accepted NaN null true false")
+    assert m.text(said) == said
+    assert m.text("sid s%3Aa8F2kQ9xZ1mP0rT7vW3yB5") == f"sid {MASK}"
+
+
+@pytest.mark.parametrize("value", ["acceptedcookiesyes", "1728600000123456", "undefinedundefined"])
+def test_a_cookie_of_only_letters_or_only_digits_is_not_learned(value):
+    m = Masker()
+    cookie(m, value)
+    assert m.secrets == ()
+
+
+def test_a_cookie_under_sixteen_characters_is_not_learned():
+    m = Masker()
+    cookie(m, "abc-123-xyz-99")                        # 14, mixed
+    assert m.secrets == ()
+
+
+@pytest.mark.parametrize("value", ["Negotiate", "Bearer", "Basic ", "Bearer undefined"])
+def test_an_authorization_without_a_token_learns_nothing(value):
+    m = Masker()
+    bearer(m, value)
+    assert m.secrets == ()

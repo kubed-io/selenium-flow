@@ -571,8 +571,11 @@ or the leak `caller_key` existed to prevent comes straight back.
   `goog:postData`, every bound secret, a URL's userinfo password (in URLs and the `referer` /
   `location` / `content-location` headers), every free-text row field and a fetched body's text;
   query strings only on the newest navigation. The values those headers and the request's
-  cookies carried are masked wherever a page echoes them, like a bound secret: at most
-  `CREDENTIALS` (256) a session, newest kept, none under 8 characters.
+  cookies carried are masked wherever a page echoes them, like a bound secret, within a
+  budget of forms and characters per session (`capture/__init__.py`): an Authorization
+  token's tier that cookie churn cannot evict, and the cookies'. Only a value that can be a
+  secret is learned — a token after a scheme, a cookie of 16 or more, never only letters or
+  only digits, never over 4 096 (counted instead).
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
   page keeps 2 000. What the capture listener's own queue drops is counted, never hidden:
   `dropped` on every view, present only when non-zero.

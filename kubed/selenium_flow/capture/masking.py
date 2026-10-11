@@ -19,8 +19,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 from ..flows.redact import hidden_forms
 from . import (
+    AUTH_FORMS,
+    COOKIE_FORMS,
+    COOKIE_MIN,
+    CREDENTIAL_MAX,
     CREDENTIAL_MIN,
-    CREDENTIALS,
+    FORM_CHARS,
     HEADER_BYTES,
     HEADER_LIMIT,
     HEADER_NAME_CAP,
@@ -54,19 +58,50 @@ def strip_query(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
+class _Tier:
+    """Learned credentials of one kind: value -> its forms, least recently
+    seen first, within a budget of forms and of their characters. The newest
+    value is always kept, so a tier is over its character budget by at most
+    one value's forms."""
+
+    def __init__(self, forms: int, chars: int = FORM_CHARS):
+        self.budget, self.chars_budget = forms, chars
+        self.values: OrderedDict[str, frozenset[str]] = OrderedDict()
+        self.forms = self.chars = 0
+
+    def learn(self, value: str, forms: frozenset[str] | None = None) -> bool:
+        """Keep ``value`` as the newest; True when it was not known."""
+        if value in self.values:
+            self.values.move_to_end(value)
+            return False
+        forms = frozenset(hidden_forms([value])) if forms is None else forms
+        self.values[value] = forms
+        self.forms += len(forms)
+        self.chars += sum(map(len, forms))
+        while len(self.values) > 1 and (
+            self.forms > self.budget or self.chars > self.chars_budget
+        ):
+            _, gone = self.values.popitem(last=False)
+            self.forms -= len(gone)
+            self.chars -= sum(map(len, gone))
+        return True
+
+
 class Masker:
     """The secrets bound in one session, and how a value is shown without them.
 
     Two kinds: the forms the secrets catalogue bound, kept for the session's
-    life; and the credentials its headers and cookies carried, at most
-    `CREDENTIALS` values, the least recently seen going first — a page and its
-    server choose how many cookies there are, and each costs every text a scan.
+    life; and the credentials its headers and cookies carried, learned as they
+    pass within the budgets in `capture` (`_Tier`): an Authorization token's
+    tier, and the cookies'. ``skipped`` counts the values too long to learn;
+    none is ever logged.
     """
 
     def __init__(self, secrets: Iterable[str] = ()):
         self._bound: set[str] = set()
-        # A credential's value -> its forms, least recently seen first.
-        self._credentials: OrderedDict[str, set[str]] = OrderedDict()
+        self._auth = _Tier(AUTH_FORMS)
+        self._cookies = _Tier(COOKIE_FORMS)
+        self.skipped = 0
         # Every form masked, longest first, and their negated lengths: one
         # tuple, replaced whole, because a body is masked on a worker thread
         # while the loop learns and evicts. Read apart, an eviction between
@@ -85,41 +120,72 @@ class Masker:
         self._sort()
 
     def carry(self, other: Masker) -> None:
-        """Mask what ``other`` masks: the session this one replaces."""
+        """Mask what ``other`` masks: the session this one replaces, its
+        credentials still credentials, under the same budgets."""
         self._bound |= other._bound
-        for value, forms in other._credentials.items():
-            self._credentials.pop(value, None)
-            self._credentials[value] = forms
-        while len(self._credentials) > CREDENTIALS:
-            self._credentials.popitem(last=False)
+        tiers = ((self._auth, other._auth), (self._cookies, other._cookies))
+        for mine, theirs in tiers:
+            for value, forms in theirs.values.items():
+                mine.learn(value, forms)
         self._sort()
 
     def cookies(self, raw) -> None:
         """Mask the values of a request's BiDi ``cookies`` from now on."""
-        self._learn(
-            _header_value(c.get("value"))
-            for c in (raw if isinstance(raw, list) else ())
-            if isinstance(c, dict) and not _binary(c.get("value"))
-        )
-
-    def _learn(self, values: Iterable[str]) -> None:
-        """Mask each credential in ``values`` wherever it appears from now on."""
         changed = False
-        for value in values:
-            if len(value) < CREDENTIAL_MIN:
-                continue
-            if value in self._credentials:
-                self._credentials.move_to_end(value)
-                continue
-            self._credentials[value] = hidden_forms([value])
-            changed = True
+        for c in raw if isinstance(raw, list) else ():
+            if isinstance(c, dict) and not _binary(c.get("value")):
+                value = _header_value(c.get("value"))
+                if self._learnable(value, COOKIE_MIN):
+                    changed = self._cookies.learn(value) or changed
         if changed:
-            while len(self._credentials) > CREDENTIALS:
-                self._credentials.popitem(last=False)
             self._sort()
 
+    def _learn_header(self, name: str, value: str) -> bool:
+        """Learn what a credential header carries; True when anything new."""
+        if name in ("authorization", "proxy-authorization"):
+            # A scheme alone ("Negotiate") is no secret: only a token after
+            # it is learned, with the whole value it came in.
+            scheme_and_token = value.split(None, 1)
+            if len(scheme_and_token) < 2:
+                return False
+            token = scheme_and_token[1].strip()
+            if not self._learnable(token, CREDENTIAL_MIN):
+                return False
+            changed = self._auth.learn(token)
+            if len(value) <= CREDENTIAL_MAX:
+                changed = self._auth.learn(value) or changed
+            return changed
+        if name == "cookie":
+            pairs = value.split(";")
+        elif name == "set-cookie":  # one per line where a browser folds several
+            pairs = [line.split(";", 1)[0] for line in value.splitlines()]
+        else:
+            return False
+        changed = False
+        for pair in pairs:
+            if "=" in pair:
+                cookie = pair.split("=", 1)[1].strip().strip('"')
+                if self._learnable(cookie, COOKIE_MIN):
+                    changed = self._cookies.learn(cookie) or changed
+        return changed
+
+    def _learnable(self, value: str, minimum: int) -> bool:
+        """Whether ``value`` can be a secret worth masking (see `capture`). One
+        too long to learn is counted in ``skipped``."""
+        if len(value) > CREDENTIAL_MAX:
+            self.skipped += 1
+            return False
+        return not (
+            len(value) < minimum
+            or value.isalpha()
+            or value.isdigit()
+            or "\x00" in value
+        )
+
     def _sort(self) -> None:
-        known = self._bound.union(*self._credentials.values())
+        known = self._bound.union(
+            *self._auth.values.values(), *self._cookies.values.values()
+        )
         # Longest first, so a secret containing another is masked whole.
         secrets = tuple(sorted(known, key=len, reverse=True))
         self._state = (secrets, tuple(-len(f) for f in secrets))  # ascending
@@ -197,15 +263,14 @@ class Masker:
         name to ``HEADER_NAME_CAP``."""
         given = [h for h in (raw or ()) if isinstance(h, dict)]
         # Learned before any value is shown, so one header cannot echo another.
-        self._learn(
-            credential
-            for header in given[:HEADER_LIMIT]
-            if not _binary(header.get("value"))
-            for credential in _credentials(
-                str(header.get("name") or "").lower(),
-                _header_value(header.get("value")),
-            )
-        )
+        learned = False
+        for header in given[:HEADER_LIMIT]:
+            name = str(header.get("name") or "").lower()
+            if name in MASKED_HEADERS and not _binary(header.get("value")):
+                value = _header_value(header.get("value"))
+                learned = self._learn_header(name, value) or learned
+        if learned:
+            self._sort()
         kept: list[dict] = []
         spent = 0
         for header in given[:HEADER_LIMIT]:
@@ -238,21 +303,6 @@ def _password(url: str) -> tuple[int, int] | None:
     at = url.rfind("@", start, end)
     colon = url.find(":", start, at) if at != -1 else -1
     return None if colon == -1 else (colon + 1, at)
-
-
-def _credentials(name: str, value: str) -> list[str]:
-    """The secrets a credential header ``name`` carries in ``value``: an
-    ``Authorization`` whole and without its scheme, each cookie's value."""
-    if name in ("authorization", "proxy-authorization"):
-        scheme_and_token = value.split(None, 1)
-        return [value, *scheme_and_token[1:]]
-    if name == "cookie":
-        pairs = value.split(";")
-    elif name == "set-cookie":  # one per line where a browser folds several
-        pairs = [line.split(";", 1)[0] for line in value.splitlines()]
-    else:
-        return []
-    return [p.split("=", 1)[1].strip().strip('"') for p in pairs if "=" in p]
 
 
 def _binary(value) -> bool:
