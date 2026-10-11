@@ -131,6 +131,7 @@ _SESSION = re.compile(
 
 
 STRENGTH_READ = 64  # characters: a rank costs the same for a 4 kB cookie
+SKIPS_HELD = 256  # values too long to learn, remembered so each counts once
 
 
 def _rank(name: str, value: str) -> tuple:
@@ -248,7 +249,8 @@ class Masker:
     life; and the credentials its headers and cookies carried, learned as they
     pass within the budgets in `capture`: an Authorization token's tier
     (`_Tier`), and the cookies' (`_Ranked`). ``skipped`` counts the values
-    too long to learn; none is ever logged.
+    too long to learn, each once however often it is sent (the first
+    ``SKIPS_HELD`` remembered, by hash); none is ever logged.
     """
 
     def __init__(self, secrets: Iterable[str] = ()):
@@ -256,6 +258,7 @@ class Masker:
         self._auth = _Tier(AUTH_FORMS)
         self._cookies = _Ranked(COOKIE_FORMS)
         self.skipped = 0
+        self._skips: set[int] = set()
         # Every form masked, longest first, and their negated lengths: one
         # tuple, replaced whole, because a body is masked on a worker thread
         # while the loop learns and evicts. Read apart, an eviction between
@@ -360,7 +363,10 @@ class Masker:
         """Whether ``value`` can be a secret worth masking (see `capture`). One
         too long to learn is counted in ``skipped``, unless ``count`` is off."""
         if len(value) > CREDENTIAL_MAX:
-            self.skipped += count
+            if count and hash(value) not in self._skips:
+                self.skipped += 1
+                if len(self._skips) < SKIPS_HELD:
+                    self._skips.add(hash(value))
             return False
         return not (
             len(value) < minimum

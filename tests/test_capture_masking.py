@@ -353,7 +353,7 @@ def test_a_huge_credential_is_not_learned_and_is_counted():
     m = Masker()
     huge = "Zz9-" * (CREDENTIAL_MAX // 4 + 1)
     cookie(m, huge)
-    bearer(m, "Bearer " + huge)
+    bearer(m, "Bearer " + huge[::-1])
     assert m.secrets == () and m.skipped == 2        # the cookie, and the token with its header
 
 
@@ -779,3 +779,26 @@ def test_a_rails_session_named_like_a_tracker_is_masked_among_neutral_cookies():
     for _ in range(3):
         send(m, [("_gateway_session", value), *FILLER])
     assert m.text(value) == MASK
+
+
+def test_a_value_too_long_to_learn_is_counted_once_however_often_it_is_sent():
+    """R5-4: ``skipped`` counts values, not the events that carried them."""
+    from kubed.selenium_flow.capture import CREDENTIAL_MAX
+
+    m = Masker()
+    big, other = b64(CREDENTIAL_MAX + 1, 1), b64(CREDENTIAL_MAX + 1, 2)
+    for _ in range(5):
+        send(m, [("big", big)], auth=big)                # a cookie, and a token
+    assert m.skipped == 1                                # one value, however carried
+    send(m, [("big", big), ("other", other)])
+    assert m.skipped == 2
+
+
+def test_what_counts_a_skip_once_is_bounded():
+    from kubed.selenium_flow.capture import CREDENTIAL_MAX
+    from kubed.selenium_flow.capture.masking import SKIPS_HELD
+
+    m = Masker()
+    for i in range(SKIPS_HELD + 10):
+        cookie(m, f"{i:05}-" + "x1" * (CREDENTIAL_MAX // 2))
+    assert m.skipped == SKIPS_HELD + 10 and len(m._skips) == SKIPS_HELD
