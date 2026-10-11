@@ -742,6 +742,18 @@ def test_a_full_tier_takes_a_new_cookie_once_the_old_ones_go_stale():
     assert m.text(weak) == MASK
 
 
+def test_of_two_large_credentials_in_one_request_the_authorization_is_kept():
+    """Each fills the tier's characters alone, so one event cannot keep both.
+    A proxy strips Proxy-Authorization before the origin sees it, so no page
+    can echo it: Authorization is the one kept, whichever comes first."""
+    a, p = b64(4000, 1), b64(4000, 2)
+    m = Masker()
+    for _ in range(2):
+        kept([{"name": "Proxy-Authorization", "value": {"type": "string", "value": "Bearer " + p}},
+              {"name": "Authorization", "value": {"type": "string", "value": "Bearer " + a}}], m)
+    assert m.text(a) == MASK
+
+
 def test_a_whole_authorization_value_past_the_limit_is_not_a_skip_when_its_token_was_learned():
     """R3-3: the token was learned; only the whole value was too long."""
     m = Masker()

@@ -580,7 +580,9 @@ or the leak `caller_key` existed to prevent comes straight back.
   (`sid`, `token`, `csrf`…) over any other, a tracker's (`_ga`, `_fbp`, `_hj`…) under all,
   then distinct characters, length, the value — and one not sent for `COOKIE_STALE` events
   under every one that was: a session cookie set after login is masked at once, the set
-  does not depend on header order, and a full page settles instead of re-learning.
+  does not depend on header order, and a full page settles instead of re-learning. The
+  token tier keeps the most recently sent; of one request's two that will not both fit, the
+  Authorization, learned first because a proxy strips Proxy-Authorization before any page.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
   page keeps 2 000. What the capture listener's own queue drops is counted, never hidden:
   `dropped` on every view, present only when non-zero.

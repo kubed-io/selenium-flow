@@ -68,7 +68,8 @@ class _Tier:
     unless the tier is full of what this event already sent: then the first
     one the event sent is kept and the rest are not learned. A value alone
     over the budget is still kept, so a tier is over its budget by at most
-    one value's forms."""
+    one value's forms. A request carries at most two, and `Masker.headers`
+    learns its Authorization before its Proxy-Authorization (see there)."""
 
     def __init__(self, forms: int, chars: int = FORM_CHARS):
         self.budget, self.chars_budget = forms, chars
@@ -426,12 +427,17 @@ class Masker:
         self._auth.begin()
         self._cookies.begin()
         # Learned before any value is shown, so one header cannot echo another.
-        learned = False
+        # Proxy-Authorization last: when the two will not both fit, the one
+        # kept is the one an origin can echo, since a proxy strips the other.
+        credentials = []
         for header in given[:HEADER_LIMIT]:
             name = str(header.get("name") or "").lower()
             if name in MASKED_HEADERS and not _binary(header.get("value")):
-                value = _header_value(header.get("value"))
-                learned = self._learn_header(name, value) or learned
+                credentials.append((name, _header_value(header.get("value"))))
+        credentials.sort(key=lambda c: c[0] == "proxy-authorization")
+        learned = False
+        for name, value in credentials:
+            learned = self._learn_header(name, value) or learned
         if learned:
             self._sort()
         state = self._state  # once, after the learning: see `__init__`
