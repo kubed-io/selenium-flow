@@ -93,6 +93,15 @@ SHOWABLE = tuple(view.form for view in VIEWS)
 # Claude drops a tool result over ~150k characters, and the app then never gets
 # its data: a flow may be 1 MiB of YAML and a listing is unbounded.
 MAX_SHOWN = 100_000
+# A console or network view draws at most this many rows, newest first, and
+# fewer when they would not fit `MAX_SHOWN`: a chatty page logs a thousand, and
+# `show` must never refuse its own drill-down. `count` still says how many
+# there are, so the view can say what it left out.
+SHOWN_ROWS = 200
+ROWS = {"console": "entries", "network": "requests"}
+# What the result spends besides its rows: the envelope and the model's line.
+ENVELOPE = 1_000
+
 # What a listing's `count` counts, for the model's line.
 NOUNS = {
     "files": "kept file",
@@ -174,6 +183,22 @@ async def _content(uri: str):
         return _preformatted(content)
 
 
+def newest(data, key: str):
+    """``data`` with only the newest of its ``key`` rows that fit, at most
+    `SHOWN_ROWS`; the rows come newest first. Sized as `show` sizes them."""
+    rows = data.get(key) if isinstance(data, dict) else None
+    if not isinstance(rows, list):
+        return data
+    spent = ENVELOPE + len(json.dumps({**data, key: []}))
+    kept = []
+    for row in rows[:SHOWN_ROWS]:
+        spent += len(json.dumps(row)) + 2  # its comma and space
+        if spent > MAX_SHOWN:
+            break
+        kept.append(row)
+    return data if len(kept) == len(rows) else {**data, key: kept}
+
+
 async def _entry(uri: str) -> dict:
     """One file, as its folder's listing describes it: never its bytes. The
     listing never opens a browser, and a download's costs the Grid call the
@@ -201,6 +226,8 @@ def register(mcp, app_config) -> set[str]:
         view = row_for(uri)
         component = view.component
         data = await (_entry(uri) if view.entry else _content(uri))
+        if component in ROWS:
+            data = newest(data, ROWS[component])
         payload = {"component": component, "uri": uri, "data": data}
         # Sent once, as structured content: a plain dict would go out as a JSON
         # text block too, doubling it. The model reads resources to think

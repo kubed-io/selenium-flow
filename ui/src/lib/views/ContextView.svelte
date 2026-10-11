@@ -31,7 +31,9 @@
     <div class="chips">
       {#if data.capture}
         {#each [
-          { name: 'Console', uri: 'workspace://console', text: `${data.captured?.errors ?? 0} errors` },
+          /* With errors it opens on them: they are why anyone clicks, and a
+             chatty page's whole console is more than show draws. */
+          { name: 'Console', uri: (data.captured?.errors ?? 0) > 0 ? 'workspace://console?level=error' : 'workspace://console', text: `${data.captured?.errors ?? 0} errors` },
           { name: 'Network', uri: 'workspace://network', text: `${data.captured?.failed_requests ?? 0} failed` },
         ] as c (c.uri)}
           {#if onshow}

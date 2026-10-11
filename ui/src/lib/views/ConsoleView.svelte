@@ -9,6 +9,8 @@
   const errors = $derived(entries.filter(isError).length)
   const warnings = $derived(entries.filter((e) => e.level === 'warn' || e.level === 'warning').length)
   const rows = $derived(entries.slice(0, SHOWN))
+  /* show sends at most the newest 200; `count` is how many there are. */
+  const cut = $derived('count' in data && data.count > entries.length ? data.count : 0)
 </script>
 
 <div class="card">
@@ -34,6 +36,9 @@
     </ul>
     {#if entries.length > SHOWN}
       <p class="small muted">+{entries.length - SHOWN} more · since the last navigation</p>
+    {/if}
+    {#if cut}
+      <p class="small muted">showing the newest {entries.length} of {cut.toLocaleString('en-US')}</p>
     {/if}
   {/if}
 </div>

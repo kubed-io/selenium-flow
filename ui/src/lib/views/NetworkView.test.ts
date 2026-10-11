@@ -24,6 +24,11 @@ test('a network row drills into its request', async () => {
   expect(screen.getByText('19 successful static requests not shown · since the last navigation')).toBeInTheDocument()
 })
 
+test('a view show cut to its newest requests says so', () => {
+  render(NetworkView, { props: { data: { ...networkData, count: 600, total: 600 } } })
+  expect(screen.getByText('showing the newest 3 of 600')).toBeInTheDocument()
+})
+
 test('chips count failures and xhr/fetch; rows show status and time', () => {
   render(NetworkView, { props: { data: networkData } })
   expect(screen.getByText('Failed').nextElementSibling).toHaveTextContent('2')
