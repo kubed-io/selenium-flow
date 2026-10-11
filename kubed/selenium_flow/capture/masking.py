@@ -116,9 +116,15 @@ class _Tier:
         return True
 
 
-# A cookie's name says what it is worth masking. A tracker's is matched first,
-# from the start, so Hotjar's `_hjSessionUser` and `AMP_TOKEN` are trackers.
-_TRACKER = re.compile(r"_ga|_gid|_fbp|_gcl|__utm|_hj|ajs_|amp_|_pk_|mp_", re.I)
+# A cookie's name says what it is worth masking. A tracker's is matched whole,
+# as its vendor spells it, so Rails' `_gateway_session` or a `mp_session` is a
+# session's, not Google's or Mixpanel's; one matched wins over a session-like
+# word in it, so Hotjar's `_hjSessionUser_1` and `AMP_TOKEN` are trackers.
+_TRACKER = re.compile(
+    r"_ga(_.*)?|_gat(_.*)?|_gac_.*|_gid|_fbp|_fbc|_gcl_.*|__utm[a-z](_.*)?"
+    r"|_hj(?-i:id|[A-Z].*)|AMP_TOKEN|ajs_.*|_pk_.*|mp_.+_mixpanel|_uet[sv]id",
+    re.I,
+)
 _SESSION = re.compile(
     r"sess|sid|token|auth|jwt|csrf|xsrf|access|refresh|id_token", re.I
 )
@@ -132,7 +138,7 @@ def _rank(name: str, value: str) -> tuple:
     tracker's, any other, a session's), then the value's strength (the
     distinct characters of its first ``STRENGTH_READ``, then its length),
     then the value itself, so no two rank alike."""
-    hint = 0 if _TRACKER.match(name) else 2 if _SESSION.search(name) else 1
+    hint = 0 if _TRACKER.fullmatch(name) else 2 if _SESSION.search(name) else 1
     return (hint, len(set(value[:STRENGTH_READ])), len(value), value)
 
 

@@ -699,6 +699,12 @@ FILLER = [(f"pref{i}", b64(40, 200 + i)) for i in range(20)]
         ("__Host-next-auth.session-token", True), ("refresh_jwt", True),
         ("_ga", False), ("_gid", False), ("_fbp", False), ("__utmz", False),
         ("_hjSessionUser_1", False), ("AMP_TOKEN", False), ("ajs_user_id", False),
+        # R5-1: a tracker's spelling is matched whole, so an app's own session
+        # cookie that merely begins like one is a session's.
+        ("_gateway_session", True), ("_gallery_session", True), ("mp_session", True),
+        ("_ga_ABC123", False), ("_gcl_au", False), ("__utma", False),
+        ("_hjSessionUser_123", False), ("_pk_id.1.abcd", False), ("mp_abc_mixpanel", False),
+        ("_fbc", False), ("_uetsid", False), ("_gat_UA-1", False), ("_hjelp_session", True),
     ],
 )
 def test_a_cookies_name_ranks_it_when_the_budget_is_full(name, masked):
@@ -760,3 +766,16 @@ def test_a_whole_authorization_value_past_the_limit_is_not_a_skip_when_its_token
     token = b64(4090, 3)
     bearer(m, f"Bearer {token}")
     assert m.text(token) == MASK and m.skipped == 0
+
+
+# ---- fix round 5 ------------------------------------------------------------------
+
+
+def test_a_rails_session_named_like_a_tracker_is_masked_among_neutral_cookies():
+    """R5-1, the reviewer's probe: Rails names its cookie ``_<app>_session``,
+    and an app called ``gateway`` began like ``_ga``."""
+    value = b64(200, 5)
+    m = Masker()
+    for _ in range(3):
+        send(m, [("_gateway_session", value), *FILLER])
+    assert m.text(value) == MASK
