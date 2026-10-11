@@ -574,7 +574,8 @@ or the leak `caller_key` existed to prevent comes straight back.
   cookies carried are masked wherever a page echoes them, like a bound secret: at most
   `CREDENTIALS` (256) a session, newest kept, none under 8 characters.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
-  page keeps 2 000.
+  page keeps 2 000. What the capture listener's own queue drops is counted, never hidden:
+  `dropped` on every view, present only when non-zero.
 - Each subscriber's queue is bounded by count (1 000) **and** bytes (`QUEUE_BYTES`, 32 MiB). A
   scoped `Channel.listen(contexts=...)` filters locally, because Firefox fans events out to
   every socket.
@@ -715,12 +716,16 @@ only be made when someone asks. The handshake's instructions vary the same way (
 place a session's settings can be chosen. Do not reintroduce it. A refresh after
 the Grid reaps a session is the *only* other open, and it replays the
 workspace's stored settings so the browser cannot change shape underneath a task.
+An open that fails once the Grid made its browser — a hook, the window, the
+first page — quits it and raises the failure; `session.ended` is announced only
+once that quit is done.
 
 There used to be two modes — **saved**, where the server held your browser, and
 **stateless**, where you passed an id — with a middleware rewriting every tool
 schema per request so a caller could see which rules applied. All of it is gone
-(§F2.12). There is no `session_id` on any tool, in any body, or in any result;
-`SAVED_SESSIONS` is gone. **Sharing is by
+(§F2.12). There is no `session_id` on any tool, in any body, in any result, or
+in any log line (`test_no_log_line_formats_a_grid_id`; a failure that may quote
+the Grid's URL is logged by its type); `SAVED_SESSIONS` is gone. **Sharing is by
 workspace name**, which is then the single way to do it — and worth writing
 down, because a name is an address and guards nothing: whoever holds the bearer
 token (or a valid JWT) and knows the name drives that workspace's browser.
