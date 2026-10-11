@@ -137,6 +137,7 @@ _SESSION = re.compile(
 _B64TOKEN = re.compile(r"[A-Za-z0-9\-._~+/]+=*")
 
 STRENGTH_READ = 64  # characters: a rank costs the same for a 4 kB cookie
+SERVED_HELD = 1024  # cookie domains remembered by when they last had a take
 SKIPS_HELD = 256  # values too long to learn, remembered so each counts once
 
 
@@ -190,6 +191,7 @@ class _Ranked:
         self._stale_set: frozenset[str] = frozenset()
         self._refused: set[str] = set()
         self._refused_chars = 0
+        self._served: dict[str, int] = {}  # domain -> the event it last had a take
 
     def begin(self) -> None:
         """An event starts: freshness moves on."""
@@ -294,9 +296,11 @@ class _Ranked:
         their ``forms`` only then. True when what is held changed.
 
         The takes go round the domains, one each a turn, the domain holding
-        least first (then by name), each giving its highest-ranked: a domain
-        rotating strong cookies every event cannot starve another's of the
-        takes, and which are taken still does not depend on arrival order."""
+        least first, then the one served longest ago, then by name, each
+        giving its highest-ranked: a domain rotating strong cookies every
+        event cannot starve another's of the takes, past ``takes`` domains
+        each waits a round of events at most, and which are taken still does
+        not depend on arrival order."""
         best: dict[str, tuple] = {}
         for name, value, domain in offers:
             ranked = (_rank(name, value), domain)
@@ -316,7 +320,10 @@ class _Ranked:
             size = held.setdefault(domain, [0, 0])
             size[0] += self._size[value][0]
             size[1] += self._size[value][1]
-        turns = sorted(by_domain, key=lambda d: (held.get(d, [0, 0]), d))
+        served = self._served
+        turns = sorted(
+            by_domain, key=lambda d: (held.get(d, [0, 0]), served.get(d, -1), d)
+        )
         for domain in turns:
             by_domain[domain].sort(reverse=True)
         taken: list[tuple] = []
@@ -325,6 +332,10 @@ class _Ranked:
                 if turn < len(by_domain[domain]) and len(taken) < takes:
                     rank, value = by_domain[domain][turn]
                     taken.append((value, domain, rank, forms(value)))
+                    served[domain] = self.event
+        if len(served) > SERVED_HELD:  # the longest ago go: they would go first
+            for domain in sorted(served, key=served.__getitem__)[: -SERVED_HELD]:
+                del served[domain]
         return self._hold(taken)
 
     def adopt(self, other: _Ranked) -> bool:

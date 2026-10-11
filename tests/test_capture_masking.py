@@ -1191,3 +1191,40 @@ def test_a_token_that_can_be_a_bearer_token_is_still_learned(token):
     m = Masker()
     bearer(m, "Bearer " + token)
     assert m.text(f"echo {token}") == f"echo {MASK}" and m.skipped == 0
+
+
+@pytest.mark.parametrize("domains", [9, 20, 100])
+def test_past_eight_domains_each_waits_at_most_a_round_of_takes(domains):
+    """T-3: past COOKIE_TAKES domains in one event, the takes go to the
+    domains served least recently. Ordered by name alone, siblings whose
+    values were dropped sorted before the first party every event, and its
+    session was never learned. Its value outranks theirs here, so only the
+    takes can keep it out."""
+    from kubed.selenium_flow.capture import COOKIE_TAKES
+
+    alphabet = string.ascii_letters + string.digits
+    own = "".join(sorted(set(alphabet + "-_")))           # 64 distinct: outranks them
+    m = Masker()
+    masked_at = None
+    for event in range(domains // COOKIE_TAKES + 2):
+        raw = [{"name": "sid", "value": {"type": "string", "value": own},
+                "domain": "app.example.com"}]
+        raw += [{"name": f"sid{i}", "domain": f"a{d:03}.example.com", "value": {
+            "type": "string",
+            "value": (alphabet + f"{event * 100000 + d * 100 + i:012d}").ljust(80, "a")}}
+            for d in range(domains) for i in range(8)]
+        m.cookies(raw, "https://app.example.com/")
+        if masked_at is None and m.text(own) == MASK:
+            masked_at = event
+    assert masked_at is not None
+
+
+def test_when_each_domain_was_served_is_remembered_within_a_bound():
+    from kubed.selenium_flow.capture.masking import SERVED_HELD
+
+    m = Masker()
+    for event in range(SERVED_HELD // 8 + 20):
+        m.cookies([{"name": "c", "domain": f"d{event}-{i}.example",
+                    "value": {"type": "string", "value": f"v-{event:05}-{i:03}-0123456789"}}
+                   for i in range(8)], "https://app.example/")
+    assert len(m._cookies._served) <= SERVED_HELD
