@@ -107,8 +107,12 @@ async def test_a_reason_added_later_subscribes_what_it_adds(running_monitor):
     assert FakeConnection.made[0].subscribed[-1] == ["browsingContext.load"]
 
 
-async def test_reconnects_back_off_one_two_four_to_thirty(running_monitor, clock):
+async def test_reconnects_back_off_one_two_four_to_thirty(running_monitor, clock, monkeypatch):
+    """The schedule of this test's own looks: the monitor's own loop is kept
+    out, or its look's hold, failing after the clock moved, backs off from
+    then and shifts the schedule (`test_a_looks_failed_hold_backs_off_from_when_it_failed`)."""
     monitor, _ = running_monitor
+    monkeypatch.setattr(monitor, "_ensure", lambda: None)  # no background look
     monitor.watch(GID, "ws1", "capture")
     FakeConnection.refuse = True
     tries = []
