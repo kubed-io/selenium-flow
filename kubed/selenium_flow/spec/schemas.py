@@ -93,8 +93,9 @@ RESPONSES = {
                         "type": "integer",
                         "description": (
                             "Credentials a request carried that were too long"
-                            " to mask (a cookie over 4 096 characters, a token"
-                            " over 16 384), each counted once since the"
+                            " to mask (a cookie over 4 096 characters, a bearer"
+                            " token over 16 384, any other token over 4 096),"
+                            " each counted once since the"
                             " workspace's capture began: a page echoing one"
                             " shows it. Present only when there were some."
                         ),

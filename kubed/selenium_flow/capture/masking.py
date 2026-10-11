@@ -133,6 +133,9 @@ _SESSION = re.compile(
 )
 
 
+# RFC 6750 §2.1: what a bearer token is spelt with.
+_B64TOKEN = re.compile(r"[A-Za-z0-9\-._~+/]+=*")
+
 STRENGTH_READ = 64  # characters: a rank costs the same for a 4 kB cookie
 SKIPS_HELD = 256  # values too long to learn, remembered so each counts once
 
@@ -459,12 +462,16 @@ class Masker:
             if len(scheme_and_token) < 2:
                 return False
             token = scheme_and_token[1].strip()
-            if self._auth.knows(token) or not self._learnable(
-                token, CREDENTIAL_MIN, AUTH_MAX
-            ):
+            if self._auth.knows(token):
+                return False
+            # Past a cookie's limit, only a token spelt as one (RFC 6750's
+            # b64token, as a JWT is) up to AUTH_MAX: one whose characters
+            # every spelling escapes differently costs a megabyte of forms.
+            limit = AUTH_MAX if _B64TOKEN.fullmatch(token) else CREDENTIAL_MAX
+            if not self._learnable(token, CREDENTIAL_MIN, limit):
                 return False
             # The token is learned: a whole value too long is no skip.
-            whole = self._learnable(value, CREDENTIAL_MIN, AUTH_MAX, count=False)
+            whole = self._learnable(value, CREDENTIAL_MIN, limit, count=False)
             spellings = [token, value] if whole else [token]
             return self._auth.learn(token, lambda: _forms(spellings))
         if name == "cookie":

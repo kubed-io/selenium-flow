@@ -1144,3 +1144,29 @@ def test_a_cookie_header_pair_keeps_the_domain_its_bidi_cookie_named():
     held = [v for _, v in sibling if v in m._cookies.values]
     assert len(held) > 8
     assert {m._cookies._domain[v] for v in held} == {"example.com"}
+
+
+def test_a_long_token_that_is_not_b64token_is_counted_not_learned(monkeypatch):
+    """L-2: past a cookie's 4 096 a token is learned only when it is RFC 6750
+    ``b64token`` characters, as real JWTs are: one full of characters every
+    spelling escapes differently cost 3 ms and a megabyte of forms each time
+    a page rotated it."""
+    from kubed.selenium_flow.capture import masking
+
+    built, real = [], masking.hidden_forms
+    monkeypatch.setattr(masking, "hidden_forms", lambda v: built.append(1) or real(v))
+    m = Masker()
+    hostile = ("000001" + "/+&'<x>\"é" * 1800)[:16_000]
+    bearer(m, "Bearer " + hostile)
+    assert built == [] and forms_of(m) == () and m.skipped == 1
+
+
+@pytest.mark.parametrize("token", [
+    jwt(10_000),                                         # b64token, past 4 096
+    "a1~b2.c3_d4-e5+f6/" * 500 + "==",                   # every b64token character
+    ("000001" + "/+&'<x>\"é" * 500)[:4_000],             # anything, up to 4 096
+], ids=["jwt", "b64token", "short"])
+def test_a_token_that_can_be_a_bearer_token_is_still_learned(token):
+    m = Masker()
+    bearer(m, "Bearer " + token)
+    assert m.text(f"echo {token}") == f"echo {MASK}" and m.skipped == 0
