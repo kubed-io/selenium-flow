@@ -66,7 +66,8 @@ MASKED_HEADERS = frozenset(
 # Authorization token's, which cookies cannot evict, the least recently seen
 # going first; and the cookies', which past the budget holds the cookies that
 # rank highest (`masking._Ranked`), one not sent for COOKIE_STALE events
-# ranking below every one that was. A value is learned only when it can be a secret:
+# ranking below every one that was, each cookie domain sure of 1/COOKIE_SHARE
+# of it against the others. A value is learned only when it can be a secret:
 # an Authorization token of CREDENTIAL_MIN or more, a cookie of COOKIE_MIN or
 # more, neither only letters nor only digits ("accepted", "undefined", a
 # timestamp), none over CREDENTIAL_MAX (counted instead), none holding a NUL.
@@ -77,6 +78,7 @@ CREDENTIAL_MIN = 8
 COOKIE_MIN = 16
 CREDENTIAL_MAX = 4096
 COOKIE_STALE = 64  # events: a request is two or three (cookies, headers, response)
+COOKIE_SHARE = 2  # each cookie domain is sure of 1/2 of the cookie tier
 
 # Counted, not kept, when they succeed (ruling 3); counted in the hint when they
 # fail (ruling 12).

@@ -541,14 +541,15 @@ class Capture:
         buffer.counter += 1
         buffer.seq += 1
         nav = buffer.nav
-        held.masker.cookies(request.get("cookies"))  # learned, never shown
-        headers, dropped = held.masker.headers(request.get("headers"))
+        url = str(request.get("url") or "")  # whose cookies they are
+        held.masker.cookies(request.get("cookies"), url)  # learned, never shown
+        headers, dropped = held.masker.headers(request.get("headers"), url)
         row = {
             "id": f"{nav}.{buffer.counter}",
             "seq": buffer.seq,
             "at": seconds(params.get("timestamp")),
             "method": held.masker.text(str(request.get("method") or "")),
-            "url": held.masker.url(str(request.get("url") or ""), keep_query=True),
+            "url": held.masker.url(url, keep_query=True),
             "status": None,
             "status_text": "",
             "type": resource_type(kind, "", navigation),
@@ -601,7 +602,9 @@ class Capture:
         row["status_text"] = mask(str(response.get("statusText") or ""))
         row["mime"] = mask(str(response.get("mimeType") or ""))
         row["size"] = size if number(size) else None
-        row["response_headers"], dropped = held.masker.headers(response.get("headers"))
+        row["response_headers"], dropped = held.masker.headers(
+            response.get("headers"), str((params.get("request") or {}).get("url") or "")
+        )
         row["headers_dropped"] += dropped
         row["took_ms"] = took_ms(params, flight.begin)
         if row["type"] == "other":

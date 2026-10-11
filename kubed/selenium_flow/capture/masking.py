@@ -22,6 +22,7 @@ from . import (
     AUTH_FORMS,
     COOKIE_FORMS,
     COOKIE_MIN,
+    COOKIE_SHARE,
     COOKIE_STALE,
     CREDENTIAL_MAX,
     CREDENTIAL_MIN,
@@ -149,43 +150,80 @@ class _Ranked:
     sent for ``stale`` events ranks below every one that was, so a cookie no
     longer sent gives way, and one that rotates is replaced.
 
-    The order is total and does not depend on the order cookies arrive in,
-    so a page sending more than the budget holds settles on one set, the
-    same whatever its header order, and stops building forms. A new value is
-    refused, before its forms are built, when the tier is full and it ranks
-    below the lowest it holds; the refusal is remembered (within the
-    characters budget) until that lowest changes, so a settled page costs a
-    lookup per cookie. What is held is a prefix of the ranking: all of it but
-    the lowest value fits the budget, so the tier is over budget by at most
-    that value's forms."""
+    Each cookie domain has a share, 1 / ``COOKIE_SHARE`` of each budget. Its
+    **core** is the values it ranks highest, up to its share; the rest it
+    holds is **overflow**. A core value always displaces overflow, whatever
+    either ranks, and overflow competes only with overflow; cores compete
+    with each other by rank only when no overflow is left. So a domain
+    alone may use the whole tier, but a third party's cookies, however they
+    are named, cannot evict a first party's session from its share.
+
+    What is held depends on the cookies sent, not the order they arrive in:
+    a page sending more than the budget holds settles on one set and stops
+    building forms. A new value is refused, before its forms are built,
+    when the tier is full and it would displace nothing; the refusal is
+    remembered (within the characters budget) until something is taken or
+    a value's freshness changes, so a settled page costs a lookup per
+    cookie. The tier is over budget by less than the value next to give
+    way."""
 
     def __init__(self, forms: int, chars: int = FORM_CHARS, stale: int = COOKIE_STALE):
         self.budget, self.chars_budget, self.stale = forms, chars, stale
+        self.share = (forms // COOKIE_SHARE, chars // COOKIE_SHARE)
         self.values: dict[str, frozenset[str]] = {}
         self._rank: dict[str, tuple] = {}
         self._seen: dict[str, int] = {}
+        self._domain: dict[str, str] = {}
+        self._size: dict[str, tuple[int, int]] = {}  # forms, characters
         self.forms = self.chars = 0
         self.event = 0
-        self._lowest: tuple | None = None  # (key, value), this event's
-        self._refused: set[str] = set()  # ranked below ``_floor``
+        self._view: tuple | None = None  # this event's: see `view`
+        self._stale_set: frozenset[str] = frozenset()
+        self._refused: set[str] = set()
         self._refused_chars = 0
-        self._floor: tuple | None = None
 
     def begin(self) -> None:
         """An event starts: freshness moves on."""
         self.event += 1
-        self._lowest = None
+        self._view = None
 
     def _key(self, value: str) -> tuple:
         return (self.event - self._seen[value] <= self.stale, *self._rank[value])
 
-    def lowest(self) -> tuple:
-        if self._lowest is None:
-            self._lowest = min((self._key(v), v) for v in self.values)
-            if self._lowest[0] != self._floor:
+    def view(self) -> tuple[dict[str, tuple], tuple | None, tuple | None]:
+        """This event's order, as (key, value) pairs: each domain whose core
+        is full and its lowest core value, the lowest core value of all,
+        and the lowest overflow, if any. A change in which values are stale
+        forgets the refusals made against the last one."""
+        if self._view is None:
+            by_domain: dict[str, list[tuple]] = {}
+            stale = set()
+            for value in self.values:
+                key = self._key(value)
+                if not key[0]:
+                    stale.add(value)
+                by_domain.setdefault(self._domain[value], []).append((key, value))
+            full: dict[str, tuple] = {}
+            lowest_core = lowest_over = None
+            for domain, held in by_domain.items():
+                held.sort(reverse=True)  # highest first
+                core, forms, chars = len(held), 0, 0
+                for at, (_, value) in enumerate(held):
+                    forms += self._size[value][0]
+                    chars += self._size[value][1]
+                    if forms >= self.share[0] or chars >= self.share[1]:
+                        core = at + 1  # the smallest prefix that reaches the share
+                        full[domain] = held[at]
+                        break
+                if lowest_core is None or held[core - 1] < lowest_core:
+                    lowest_core = held[core - 1]
+                if core < len(held) and (lowest_over is None or held[-1] < lowest_over):
+                    lowest_over = held[-1]
+            if stale != self._stale_set:
                 self._forget_refusals()
-                self._floor = self._lowest[0]
-        return self._lowest
+                self._stale_set = frozenset(stale)
+            self._view = (full, lowest_core, lowest_over)
+        return self._view
 
     def _forget_refusals(self) -> None:
         self._refused, self._refused_chars = set(), 0
@@ -194,51 +232,67 @@ class _Ranked:
         """Whether ``value`` was refused and nothing since lets it in."""
         if value not in self._refused:
             return False
-        self.lowest()  # a new event may have moved it, forgetting them
+        self.view()  # a new event may have staled a value, forgetting them
         return value in self._refused
 
     def knows(self, value: str) -> bool:
         """Whether ``value`` is held; if so it was sent this event."""
-        if value not in self.values:
+        seen = self._seen.get(value)
+        if seen is None:
             return False
+        if self.event - seen > self.stale:
+            self._view = None  # fresh again, so it ranks higher
         self._seen[value] = self.event
-        if self._lowest is not None and self._lowest[1] == value:
-            self._lowest = None  # fresher now
         return True
 
     def full(self) -> bool:
         return self.forms >= self.budget or self.chars >= self.chars_budget
 
+    def _admits(self, domain: str, key: tuple) -> bool:
+        """Whether a full tier takes a new value: into its domain's core,
+        displacing overflow or a lower core value; or as overflow, displacing
+        lower overflow."""
+        full, lowest_core, lowest_over = self.view()
+        if domain not in full or key > full[domain][0]:  # core
+            return lowest_over is not None or key > lowest_core[0]
+        return lowest_over is not None and key > lowest_over[0]
+
     def learn(
-        self, value: str, rank: tuple, forms: Callable[[], frozenset[str]]
+        self,
+        value: str,
+        domain: str,
+        rank: tuple,
+        forms: Callable[[], frozenset[str]],
     ) -> bool:
         """Hold ``value`` if it ranks high enough, building its forms only
         then; True when it was learned."""
         if self.knows(value):
             return False
-        if self.values and self.full() and (True, *rank) < self.lowest()[0]:
+        if self.values and self.full() and not self._admits(domain, (True, *rank)):
             if self._refused_chars + len(value) <= self.chars_budget:
                 self._refused.add(value)
                 self._refused_chars += len(value)
             return False  # it would displace nothing
         self._forget_refusals()
         built = forms()
-        self.values[value], self._rank[value] = built, rank
-        self._seen[value] = self.event
-        self.forms += len(built)
-        self.chars += sum(map(len, built))
-        self._lowest = None
+        size = (len(built), sum(map(len, built)))
+        self.values[value], self._rank[value], self._size[value] = built, rank, size
+        self._seen[value], self._domain[value] = self.event, domain
+        self.forms += size[0]
+        self.chars += size[1]
+        self._view = None
         while len(self.values) > 1:
-            gone = self.lowest()[1]
-            size = self.values[gone]
-            chars = sum(map(len, size))
-            rest = (self.forms - len(size), self.chars - chars)
+            _, lowest_core, lowest_over = self.view()
+            gone = (lowest_over or lowest_core)[1]
+            size = self._size[gone]
+            rest = (self.forms - size[0], self.chars - size[1])
             if rest[0] < self.budget and rest[1] < self.chars_budget:
-                break  # the rest would not be full: the lowest stays
-            del self.values[gone], self._rank[gone], self._seen[gone]
-            self.forms -= len(size)
-            self.chars -= chars
-            self._lowest = None
+                break  # the rest would not be full: it stays
+            for held in (self.values, self._rank, self._seen, self._domain, self._size):
+                del held[gone]
+            self.forms -= size[0]
+            self.chars -= size[1]
+            self._view = None
         return True
 
 
@@ -289,24 +343,31 @@ class Masker:
         theirs = other._cookies
         for value in sorted(theirs.values, key=theirs._rank.__getitem__, reverse=True):
             forms = theirs.values[value]
-            self._cookies.learn(value, theirs._rank[value], lambda forms=forms: forms)
+            domain, rank = theirs._domain[value], theirs._rank[value]
+            self._cookies.learn(value, domain, rank, lambda forms=forms: forms)
         self._sort()
 
-    def cookies(self, raw) -> None:
-        """Mask the values of a request's BiDi ``cookies`` from now on."""
+    def cookies(self, raw, url: str = "") -> None:
+        """Mask the values of a request's BiDi ``cookies`` from now on: each
+        of its own ``domain``, else the host of the request's ``url``."""
         self._cookies.begin()
+        host = _host(url)
         changed = False
         for c in raw if isinstance(raw, list) else ():
             if isinstance(c, dict) and not _binary(c.get("value")):
                 name = c.get("name")
                 name = name if isinstance(name, str) else ""
+                domain = c.get("domain")  # ".example.com" is example.com's
+                domain = domain.strip().lstrip(".") if isinstance(domain, str) else ""
+                domain = domain.lower()
                 value = _header_value(c.get("value"))
-                changed = self._cookie(name, value) or changed
+                changed = self._cookie(name, value, domain or host) or changed
         if changed:
             self._sort()
 
-    def _learn_header(self, name: str, value: str) -> bool:
-        """Learn what a credential header carries; True when anything new."""
+    def _learn_header(self, name: str, value: str, host: str) -> bool:
+        """Learn what a credential header carries, a cookie as ``host``'s;
+        True when anything new."""
         if name in ("authorization", "proxy-authorization"):
             # A scheme alone ("Negotiate") is no secret: only a token after
             # it is learned, with the whole value it came in — as **one**
@@ -333,14 +394,15 @@ class Masker:
             if "=" in pair:
                 name, cookie = pair.split("=", 1)
                 cookie = cookie.strip().strip('"')
-                changed = self._cookie(name.strip(), cookie) or changed
+                changed = self._cookie(name.strip(), cookie, host) or changed
         return changed
 
-    def _cookie(self, name: str, value: str) -> bool:
+    def _cookie(self, name: str, value: str, domain: str) -> bool:
         """Learn a cookie's value, and its percent-decoded spelling when that
         differs and can be a secret: a server echoes the cookie it parsed
         (``s:a8F2…``), not the one on the wire (``s%3Aa8F2…``). One entry, so
-        the two go together. Its name ranks it (`_rank`)."""
+        the two go together. Its name ranks it (`_rank`), within its
+        ``domain``'s share."""
         tier = self._cookies
         if tier.knows(value) or tier.refuses(value):
             return False
@@ -357,7 +419,7 @@ class Masker:
                 spellings.append(decoded)
             return _forms(spellings)
 
-        return tier.learn(value, _rank(name, value), forms)
+        return tier.learn(value, domain, _rank(name, value), forms)
 
     def _learnable(self, value: str, minimum: int, *, count: bool = True) -> bool:
         """Whether ``value`` can be a secret worth masking (see `capture`). One
@@ -427,8 +489,9 @@ class Masker:
             masked = strip_query(masked)
         return masked[:TEXT_CAP]
 
-    def headers(self, raw: list) -> tuple[list[dict], int]:
+    def headers(self, raw: list, url: str = "") -> tuple[list[dict], int]:
         """BiDi headers as ``[{"name", "value"}]``, and how many were not kept.
+        The cookies they carry are learned as the host of ``url``'s.
 
         At most ``HEADER_LIMIT``, and only while their names and values fit
         ``HEADER_BYTES``: past it, that header and every later one is dropped
@@ -447,9 +510,9 @@ class Masker:
             if name in MASKED_HEADERS and not _binary(header.get("value")):
                 credentials.append((name, _header_value(header.get("value"))))
         credentials.sort(key=lambda c: c[0] == "proxy-authorization")
-        learned = False
+        learned, host = False, _host(url)
         for name, value in credentials:
-            learned = self._learn_header(name, value) or learned
+            learned = self._learn_header(name, value, host) or learned
         if learned:
             self._sort()
         state = self._state  # once, after the learning: see `__init__`
@@ -575,6 +638,15 @@ def _password(url: str) -> tuple[int, int] | None:
     at = url.rfind("@", start, end)
     colon = url.find(":", start, at) if at != -1 else -1
     return None if colon == -1 else (colon + 1, at)
+
+
+def _host(url: str) -> str:
+    """The host a request went to: a cookie with no domain of its own is
+    counted against it."""
+    try:
+        return (urlsplit(url).hostname or "") if url else ""
+    except ValueError:  # an unparseable netloc
+        return ""
 
 
 def _binary(value) -> bool:

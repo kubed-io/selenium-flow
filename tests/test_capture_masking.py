@@ -550,19 +550,24 @@ def b64(n, seed):
     return base64.b64encode(bytes((i * 151 + seed) % 256 for i in range(n))).decode()[:n]
 
 
-def send(m, pairs, auth=None):
+def send(m, pairs, auth=None, host=None):
     """What one request event asks of a masker: its BiDi cookies, then its
-    headers, for ``(name, value)`` cookie pairs. Returns how long it took."""
+    headers, for ``(name, value)`` cookie pairs, to ``host`` when one is
+    given (each cookie's BiDi ``domain`` is then ``.<host>``). Returns how
+    long it took."""
     import time as clock
 
     raw = [{"name": n, "value": {"type": "string", "value": v}} for n, v in pairs]
+    if host:
+        raw = [{**c, "domain": "." + host} for c in raw]
     sent = "; ".join(f"{n}={v}" for n, v in pairs)
     headers = [{"name": "Cookie", "value": {"type": "string", "value": sent}}]
     if auth:
         headers.append({"name": "Authorization", "value": {"type": "string", "value": "Bearer " + auth}})
+    url = f"https://{host}/" if host else ""
     started = clock.perf_counter()
-    m.cookies(raw)
-    m.headers(headers)
+    m.cookies(raw, url)
+    m.headers(headers, url)
     return clock.perf_counter() - started
 
 
@@ -802,3 +807,179 @@ def test_what_counts_a_skip_once_is_bounded():
     for i in range(SKIPS_HELD + 10):
         cookie(m, f"{i:05}-" + "x1" * (CREDENTIAL_MAX // 2))
     assert m.skipped == SKIPS_HELD + 10 and len(m._skips) == SKIPS_HELD
+
+
+
+def boosted(n, length):
+    """A hostile page's cookies: session-like names, values of 64 distinct
+    characters, so each outranks any real session cookie."""
+    import random
+
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    return [(f"token{i}", "".join(random.Random(i).sample(alphabet, 64)) * (length // 64))
+            for i in range(n)]
+
+
+REAL_SID = ("sid", "Q7vX_2mK9pL4wR8tZ1nB6yH3cJ5fD0gS-aEuWiOqT")    # token_urlsafe(32)-like
+
+
+@pytest.mark.parametrize(("n", "length"), [(8, 4096), (48, 128)], ids=["8x4kB", "48x128"])
+def test_another_domains_cookies_cannot_evict_a_first_party_session(n, length):
+    """R5-3: ranking alone let one request of strong, session-named cookies
+    evict a held ``sid``, and keep it out while re-sent. A domain past its
+    share of the tier competes only with what it holds itself."""
+    m = Masker()
+    for _ in range(3):
+        send(m, [REAL_SID], host="app.example")
+    for _ in range(40):                                     # past COOKIE_STALE events
+        send(m, boosted(n, length), host="tracker.example")
+        send(m, [REAL_SID], host="app.example")
+        assert m.text(REAL_SID[1]) == MASK
+
+
+def test_a_domain_alone_still_has_the_whole_budget():
+    from kubed.selenium_flow.capture import COOKIE_FORMS
+
+    m = Masker()
+    for _ in range(3):
+        request_event_to(m, MANY_COOKIES, "app.example")
+    assert m._cookies.forms >= COOKIE_FORMS
+
+
+def test_a_domain_over_its_share_gives_way_to_another_down_to_its_share():
+    """Its overflow, not its share: the first party keeps the half of the
+    tier it ranks highest in, the session among it."""
+    from kubed.selenium_flow.capture import COOKIE_FORMS
+
+    m = Masker()
+    first = [(f"c{i}", v) for i, v in enumerate(MANY_COOKIES)] + [REAL_SID]
+    for _ in range(3):
+        send(m, first, host="app.example")
+    for _ in range(3):
+        send(m, boosted(48, 128), host="tracker.example")
+        send(m, first, host="app.example")
+    held = sum(len(m._cookies.values[v]) for _, v in first if v in m._cookies.values)
+    assert m.text(REAL_SID[1]) == MASK and held >= COOKIE_FORMS // 2
+
+
+def request_event_to(m, cookies, host):
+    return send(m, [(f"c{i}", v) for i, v in enumerate(cookies)], host=host)
+
+
+# Three domains' requests, each past its share and together past the budget.
+DOMAINS = {
+    "app.example": [(f"a{i}", ("%2F" + b64(61, i))[:64]) for i in range(30)] + [REAL_SID],
+    "cdn.example": [(f"c{i}", b64(40, 300 + i)) for i in range(30)],
+    "tracker.example": boosted(20, 128),
+}
+
+
+def test_the_same_cookies_from_several_domains_in_any_order_hold_the_same_set():
+    import random
+
+    held = []
+    for seed in range(8):
+        rng = random.Random(seed)
+        m = Masker()
+        for _ in range(4):
+            hosts = list(DOMAINS)
+            rng.shuffle(hosts)
+            for host in hosts:
+                pairs = list(DOMAINS[host])
+                rng.shuffle(pairs)
+                send(m, pairs, host=host)
+        held.append(frozenset(v for pairs in DOMAINS.values() for _, v in pairs
+                              if m.text(v) == MASK))
+    assert held[0] and all(h == held[0] for h in held)
+
+
+def test_several_domains_past_their_shares_settle(monkeypatch):
+    from kubed.selenium_flow.capture import masking
+
+    m = Masker()
+    for _ in range(3):
+        for host, pairs in DOMAINS.items():
+            send(m, pairs, host=host)
+    built, real = [], masking.hidden_forms
+    monkeypatch.setattr(masking, "hidden_forms", lambda v: built.append(1) or real(v))
+    for _ in range(5):
+        for host, pairs in DOMAINS.items():
+            send(m, pairs, host=host)
+    assert built == [] and m.text(REAL_SID[1]) == MASK
+
+
+def canonical(domains):
+    """What a settled cookie tier should hold for ``{host: [(name, value)]}``:
+    each domain's highest values up to its share (its core), the cores by
+    rank, then the rest by rank, each taken while the tier is not full."""
+    from kubed.selenium_flow.capture import COOKIE_FORMS, COOKIE_SHARE, FORM_CHARS
+    from kubed.selenium_flow.capture.masking import _rank
+
+    share = (COOKIE_FORMS // COOKIE_SHARE, FORM_CHARS // COOKIE_SHARE)
+    ranked = []
+    for host, pairs in domains.items():
+        for name, value in pairs:
+            m = Masker()
+            m.cookies([{"name": name, "value": {"type": "string", "value": value}}])
+            forms = m._cookies.values.get(value)
+            if forms:
+                ranked.append((_rank(name, value), value, host, len(forms), sum(map(len, forms))))
+    ranked.sort(reverse=True)
+    core, rest, held = [], [], {}
+    for entry in ranked:
+        forms, chars = held.setdefault(entry[2], [0, 0])
+        (core if forms < share[0] and chars < share[1] else rest).append(entry)
+        held[entry[2]] = [forms + entry[3], chars + entry[4]]
+    kept, forms, chars = set(), 0, 0
+    for entry in core + rest:
+        if forms < COOKIE_FORMS and chars < FORM_CHARS:
+            kept.add(entry[1])
+            forms, chars = forms + entry[3], chars + entry[4]
+    return kept
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_a_full_tier_holds_the_same_set_whatever_the_order(monkeypatch, seed):
+    """Random pages of one to four domains, each sent in two random orders:
+    both settle on the canonical set and then build nothing."""
+    import random
+    import string
+
+    from kubed.selenium_flow.capture import masking
+
+    rng = random.Random(seed)
+    alphabets = [string.hexdigits, string.ascii_letters + string.digits + "%/+=",
+                 string.ascii_letters + "!#$%&'("]
+    names = ["sid", "token{}", "pref{}", "_ga_{}", "c{}", "_gateway_session"]
+    domains = {
+        f"d{d}.example": [
+            (rng.choice(names).format(i),
+             f"{d}{i:03}-" + "".join(rng.choice(alphabet) for _ in range(length)))
+            for i in range(rng.randint(1, 40))
+            for alphabet, length in [(rng.choice(alphabets), rng.choice([16, 40, 300, 4000]))]
+        ]
+        for d in range(rng.randint(1, 4))
+    }
+    want = canonical(domains)
+    for order in (1, 2):
+        shuffle = random.Random(seed * 10 + order).shuffle
+        m = Masker()
+
+        def one_round(m=m, shuffle=shuffle):
+            hosts = list(domains)
+            shuffle(hosts)
+            for host in hosts:
+                pairs = list(domains[host])
+                shuffle(pairs)
+                send(m, pairs, host=host)
+
+        for _ in range(6):
+            one_round()
+        assert set(m._cookies.values) == want
+        built, real = [], masking.hidden_forms
+        monkeypatch.setattr(
+            masking, "hidden_forms", lambda v, built=built, real=real: built.append(1) or real(v)
+        )
+        one_round()
+        monkeypatch.setattr(masking, "hidden_forms", real)
+        assert built == []

@@ -720,3 +720,24 @@ async def test_a_tail_waits_for_a_row(capture):
 def test_a_tail_of_an_unknown_kind_is_refused(capture):
     with pytest.raises(ValueError, match="console or network"):
         capture.tail("ws", "all")
+
+
+def test_a_third_partys_cookie_headers_cannot_evict_the_first_partys_session(capture):
+    """R5-3: a cookie with no BiDi domain counts against its request's host,
+    so a tracker's 48 session-named cookies are its own share, not the app's."""
+    import random
+
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    hostile = "; ".join(f"token{i}=" + "".join(random.Random(i).sample(alphabet, 64)) * 2
+                        for i in range(48))
+    sid = "Q7vX_2mK9pL4wR8tZ1nB6yH3cJ5fD0gS-aEuWiOqT"
+    attach(capture)
+    feed(capture, nav_started("https://app.example/"),
+         req("r1", "https://app.example/api", headers=[("Cookie", f"sid={sid}")]))
+    for i in range(3):
+        feed(capture,
+             req(f"t{i}", "https://tracker.example/p", headers=[("Cookie", hostile)]),
+             done(f"t{i}", 200, url="https://tracker.example/p",
+                  headers=[("Set-Cookie", hostile.split("; ")[i])]))
+    feed(capture, log(f"echo {sid}"))
+    assert texts(capture)[-1] == f"echo {MASK}"

@@ -575,14 +575,20 @@ or the leak `caller_key` existed to prevent comes straight back.
   budget of forms and characters per session (`capture/__init__.py`): an Authorization
   token's tier that cookie churn cannot evict, and the cookies'. Only a value that can be a
   secret is learned — a token after a scheme, a cookie of 16 or more, never only letters or
-  only digits, never over 4 096 (counted instead). A known value costs a lookup. Past the
-  budget the cookie tier holds the cookies that rank highest — a session-like name
-  (`sid`, `token`, `csrf`…) over any other, a tracker's (`_ga`, `_fbp`, `_hj`…) under all,
-  then distinct characters, length, the value — and one not sent for `COOKIE_STALE` events
-  under every one that was: a session cookie set after login is masked at once, the set
-  does not depend on header order, and a full page settles instead of re-learning. The
-  token tier keeps the most recently sent; of one request's two that will not both fit, the
-  Authorization, learned first because a proxy strips Proxy-Authorization before any page.
+  only digits, never over 4 096 (counted instead, once per value). A known value costs a
+  lookup. Past the budget the cookie tier holds the cookies that rank highest — a
+  session-like name (`sid`, `token`, `csrf`…) over any other, a tracker's spelt whole as
+  its vendor spells it (`_ga`, `_fbp`, `_hjSessionUser_1`…) under all, then distinct
+  characters, length, the value — and one not sent for `COOKIE_STALE` events under every
+  one that was. Each cookie domain (its BiDi `domain`, else the request's host) is sure of
+  half the tier: what it holds past its half gives way first to a domain under its half,
+  so one third party cannot evict a first party's session (two that fill their halves
+  compete with it by rank). A session cookie set after login is masked at once when it
+  outranks the lowest held, by a session-like name or a stronger value; one with neither
+  waits, past the budget, until the held stop being sent. The set does not depend on
+  header order, and a full page settles instead of re-learning. The token tier keeps the
+  most recently sent; of one request's two that will not both fit, the Authorization,
+  learned first because a proxy strips Proxy-Authorization before any page.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
   page keeps 2 000. What the capture listener's own queue drops is counted, never hidden:
   `dropped` on every view, present only when non-zero.
