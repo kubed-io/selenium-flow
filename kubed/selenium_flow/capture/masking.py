@@ -287,25 +287,42 @@ class _Ranked:
         takes: int = COOKIE_TAKES,
     ) -> bool:
         """One event's new cookies, (name, value, domain), none of them held
-        or refused: hold the ``takes`` highest-ranked that the tier would
-        take, building their ``forms`` only then. True when what is held
-        changed."""
+        or refused: hold ``takes`` of those the tier would take, building
+        their ``forms`` only then. True when what is held changed.
+
+        The takes go round the domains, one each a turn, the domain holding
+        least first (then by name), each giving its highest-ranked: a domain
+        rotating strong cookies every event cannot starve another's of the
+        takes, and which are taken still does not depend on arrival order."""
         best: dict[str, tuple] = {}
         for name, value, domain in offers:
             ranked = (_rank(name, value), domain)
             if value not in best or ranked > best[value]:
                 best[value] = ranked
         full = bool(self.values) and self.full()
-        taken = []
+        by_domain: dict[str, list[tuple]] = {}
         for value, (rank, domain) in best.items():
             if full and not self._admits(domain, (True, *rank)):
                 if self._refused_chars + len(value) <= self.chars_budget:
                     self._refused.add(value)
                     self._refused_chars += len(value)
             else:
-                taken.append((rank, domain, value))
-        taken.sort(reverse=True)
-        return self._hold([(v, d, r, forms(v)) for r, d, v in taken[:takes]])
+                by_domain.setdefault(domain, []).append((rank, value))
+        held: dict[str, list[int]] = {}
+        for value, domain in self._domain.items():
+            size = held.setdefault(domain, [0, 0])
+            size[0] += self._size[value][0]
+            size[1] += self._size[value][1]
+        turns = sorted(by_domain, key=lambda d: (held.get(d, [0, 0]), d))
+        for domain in turns:
+            by_domain[domain].sort(reverse=True)
+        taken: list[tuple] = []
+        for turn in range(max(map(len, by_domain.values()), default=0)):
+            for domain in turns:
+                if turn < len(by_domain[domain]) and len(taken) < takes:
+                    rank, value = by_domain[domain][turn]
+                    taken.append((value, domain, rank, forms(value)))
+        return self._hold(taken)
 
     def adopt(self, other: _Ranked) -> bool:
         """Hold what ``other`` holds, under this tier's budgets: forms built
@@ -377,6 +394,10 @@ class Masker:
         self._cookies = _Ranked(COOKIE_FORMS)
         self.skipped = 0
         self._skips: set[int] = set()
+        # The domains the last request's BiDi cookies named, by value: its
+        # Cookie header names none, and a pair the BiDi cookies named is that
+        # domain's, not the request host's.
+        self._named: dict[str, str] = {}
         # Every form masked, longest first, and their negated lengths: one
         # tuple, replaced whole, because a body is masked on a worker thread
         # while the loop learns and evicts. Read apart, an eviction between
@@ -411,6 +432,7 @@ class Masker:
         self._cookies.begin()
         host = _host(url)
         offers: list[tuple[str, str, str]] = []
+        self._named = {}
         for c in raw if isinstance(raw, list) else ():
             if isinstance(c, dict) and not _binary(c.get("value")):
                 name = c.get("name")
@@ -419,6 +441,8 @@ class Masker:
                 domain = domain.strip().lstrip(".") if isinstance(domain, str) else ""
                 domain = domain.lower()
                 value = _header_value(c.get("value"))
+                if domain:
+                    self._named[value] = domain
                 self._offer(name, value, domain or host, offers)
         if self._cookies.offer(offers, self._cookie_forms):
             self._sort()
@@ -453,7 +477,8 @@ class Masker:
             if "=" in pair:
                 cookie_name, cookie = pair.split("=", 1)
                 cookie = cookie.strip().strip('"')
-                self._offer(cookie_name.strip(), cookie, host, offers)
+                domain = self._named.get(cookie, host)
+                self._offer(cookie_name.strip(), cookie, domain, offers)
         return False
 
     def _offer(self, name: str, value: str, domain: str, offers: list) -> None:

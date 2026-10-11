@@ -1103,3 +1103,44 @@ def test_a_credential_past_the_headers_a_row_keeps_is_still_learned():
     shown, dropped = m.headers(raw)
     assert len(shown) == HEADER_LIMIT and dropped == 4
     assert m.text("echo late-session-0123456789") == f"echo {MASK}"
+
+
+# ---- last round -----------------------------------------------------------------------
+
+
+def sibling_event(m, hostile, own=("sid", "Qx7-pL2mN9vR4tK8wZ3yB6cD"), header=True):
+    """One request to app.example.com: its own cookie, and a sibling's
+    rotating ones set on the parent domain, by BiDi and (unless not
+    ``header``) by Cookie header."""
+    pairs = [(own, "app.example.com")] + [(h, ".example.com") for h in hostile]
+    raw = [{"name": n, "value": {"type": "string", "value": v}, "domain": d}
+           for (n, v), d in pairs]
+    header = header and "; ".join(f"{n}={v}" for (n, v), _ in pairs)
+    m.cookies(raw, "https://app.example.com/")
+    if header:
+        m.headers([{"name": "Cookie", "value": {"type": "string", "value": header}}],
+                  "https://app.example.com/")
+    return own[1]
+
+
+@pytest.mark.parametrize("header", [False, True], ids=["bidi", "bidi+header"])
+@pytest.mark.parametrize("n", [8, 180])
+def test_a_sibling_rotating_cookies_cannot_starve_a_first_partys_new_session(n, header):
+    """L-1: an event's takes went to the top eight by rank across every
+    domain, so a sibling rotating eight stronger cookies on the parent domain
+    kept the first party's session from ever being learned."""
+    m = Masker()
+    for event in range(12):
+        own = sibling_event(m, rotating(n, 80, event * 1000), header=header)
+        assert m.text(own) == MASK, f"event {event}"
+
+
+def test_a_cookie_header_pair_keeps_the_domain_its_bidi_cookie_named():
+    """L-1: the Cookie header names no domain; a value the same request's
+    BiDi cookies named is that domain's, not the request host's."""
+    m = Masker()
+    sibling = rotating(20, 80, 0)                         # past what cookies() takes
+    sibling_event(m, sibling)
+    held = [v for _, v in sibling if v in m._cookies.values]
+    assert len(held) > 8
+    assert {m._cookies._domain[v] for v in held} == {"example.com"}
