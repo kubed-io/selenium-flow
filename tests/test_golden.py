@@ -267,6 +267,8 @@ def raised():
             out["requests.ConnectionError"] = cls("refused http://u:p@grid:4444/")
         elif cls is requests.Timeout:
             out["requests.Timeout"] = cls("slow")
+        elif cls is faults.Unresolved:
+            out[cls.__name__] = cls("nonexistent.invalid")
         else:
             out[cls.__name__] = cls("it went wrong")
     out["NotFound"] = faults.NotFound("no such thing")
