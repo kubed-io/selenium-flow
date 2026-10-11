@@ -257,6 +257,35 @@ async def test_two_calls_in_flight_hold_until_the_last_ends(running_monitor, clo
     assert not monitor.capturing(GID)
 
 
+async def until(condition, turns=2000):
+    for _ in range(turns):
+        if condition():
+            return
+        await asyncio.sleep(0.001)
+    raise AssertionError("never happened")
+
+
+async def test_a_resume_waiting_on_a_hold_that_fails_does_not_try_again(running_monitor, clock):
+    """The flaky back-off test's race, forced: a call's resume decides to hold
+    while a look's hold is in flight, waits for it, and that hold fails. The
+    back-off it set answers the call too: no second open."""
+    monitor, _ = running_monitor
+    calls = calls_for(monitor, clock)
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+    clock.now += 301
+    await monitor.look()  # the deadline let it go
+    FakeConnection.refuse, FakeConnection.hang_on_open = True, True
+    FakeConnection.gate = asyncio.Event()
+    monitor.calling(GID)  # a touch: the woken look holds again, and hangs
+    await until(lambda: len(FakeConnection.made) == 2)
+    begun = asyncio.ensure_future(asyncio.to_thread(calls.begin, "ws1", GID))
+    await until(lambda: monitor._attaching)  # the resume waits on the hold
+    FakeConnection.gate.set()  # the look's hold fails, and backs off
+    await begun
+    assert len(FakeConnection.made) == 2 and monitor.backing_off(GID)
+    monitor.called(GID)
+
+
 async def test_a_failed_resume_backs_off_instead_of_costing_every_call(running_monitor, clock):
     """A hanging /se/bidi would cost each call ATTACH_TIMEOUT under the
     session's lock; past one failure, the calls skip it until the back-off ends."""

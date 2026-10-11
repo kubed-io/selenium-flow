@@ -271,18 +271,23 @@ class Monitor:
         *,
         browser: str = "",
         grid_timeout: int | None = None,
+        resume: bool = False,
     ) -> None:
         """Owe ``reason`` and hold its connection before returning: opened,
         subscribed and collecting, so nothing the next page does is missed.
 
         From a worker thread, never the loop's own. `BidiUnavailable` when the
         connection cannot be held within ``ATTACH_TIMEOUT``; the reason is then
-        owed no more."""
+        owed no more. A call's ``resume`` returns without trying when, once it
+        has the watch, a back-off is pending: the call decided to hold on its
+        own thread, and a look's hold that was in flight then may have failed
+        since (`backing_off`)."""
         loop = self._loop
         if loop is None:
             raise RuntimeError("the monitor is not running")
         future = asyncio.run_coroutine_threadsafe(
-            self._attach(workspace, session_id, reason, browser, grid_timeout), loop
+            self._attach(workspace, session_id, reason, browser, grid_timeout, resume),
+            loop,
         )
         try:
             future.result(ATTACH_TIMEOUT)
@@ -494,6 +499,7 @@ class Monitor:
         reason: str,
         browser: str,
         grid_timeout: int | None,
+        resume: bool = False,
     ) -> None:
         """`attach` on the loop: owe the reason, then hold the connection now
         rather than at the next look. On any failure the reason is released."""
@@ -512,6 +518,8 @@ class Monitor:
             try:
                 async with w.busy:
                     self._notice_drop(w)
+                    if resume and w.connection is None and self.backing_off(session_id):
+                        return  # a hold failed while this waited: it answers this too
                     if w.connection is None:
                         await self._hold(w)
                     else:

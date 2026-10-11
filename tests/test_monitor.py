@@ -55,12 +55,13 @@ class FakeConnection:
     """Stands in for `bidi.Connection`: records what the monitor asked of it.
 
     ``refuse`` makes every open raise ConnectionError, ``hang_on_subscribe``
-    makes every subscribe wait until ``gate`` is set (forever without one);
-    all are reset per test (`reset`)."""
+    makes every subscribe and ``hang_on_open`` every open wait until ``gate``
+    is set (forever without one); all are reset per test (`reset`)."""
 
     made: ClassVar[list] = []
     refuse: ClassVar[bool] = False
     hang_on_subscribe: ClassVar[bool] = False
+    hang_on_open: ClassVar[bool] = False
     gate: ClassVar[asyncio.Event | None] = None
 
     def __init__(self, url, *, on_close=None):
@@ -81,9 +82,11 @@ class FakeConnection:
     @classmethod
     def reset(cls):
         cls.made, cls.refuse, cls.hang_on_subscribe = [], False, False
-        cls.gate = None
+        cls.hang_on_open, cls.gate = False, None
 
     async def open(self):
+        if FakeConnection.hang_on_open:
+            await (FakeConnection.gate or asyncio.Event()).wait()
         if FakeConnection.refuse:
             raise ConnectionError("refused")
         self.is_open = True

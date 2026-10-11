@@ -200,7 +200,9 @@ class Calls:
                 and not monitor.backing_off(session_id)
             )
             if lapsed:
-                monitor.attach(workspace, session_id, "capture", browser=browser)
+                monitor.attach(
+                    workspace, session_id, "capture", browser=browser, resume=True
+                )
         except Exception as exc:  # noqa: BLE001 - capture is a fact, not a need
             log.warning("capture did not resume for a call: %s", type(exc).__name__)
 
