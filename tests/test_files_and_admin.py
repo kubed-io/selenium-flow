@@ -678,3 +678,18 @@ def test_a_resized_row_reports_the_new_window(client, server):
 def test_the_window_seen_survives_the_redis_store_and_nothing_else_does(raw, kept):
     assert Workspace.from_json(f'{{"window_seen": {raw}}}').window_seen == kept
     assert Workspace.from_json(Workspace(window_seen="945x1038").to_json()).window_seen == "945x1038"
+
+
+def test_a_grid_that_cannot_be_listed_is_logged_without_its_credentials(client, server, caplog):
+    """R1-9: a `requests` error quotes the Grid URL whole, userinfo included."""
+    import logging
+
+    server.workspaces.store.set("w", Workspace(session_id="s9"))
+    leak = requests.ConnectionError("http://admin:hunter2@grid:4444/status refused")
+    with (
+        caplog.at_level(logging.INFO),
+        patch.object(browser.Grid, "sessions", side_effect=leak),
+    ):
+        client.get("/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert "could not read the grid" in caplog.text
+    assert "hunter2" not in caplog.text
