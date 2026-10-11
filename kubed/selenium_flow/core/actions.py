@@ -381,7 +381,7 @@ class Actions:
 
         current_url, title = "about:blank", ""
         if url:
-            driver.get(url)
+            browser.go(driver, url)
             current_url, title = driver.current_url, driver.title
 
         size = driver.get_window_size()
@@ -461,7 +461,7 @@ class Actions:
         allowed_navigation(url)
 
         def go(at):
-            at.driver.get(url)
+            browser.go(at.driver, url)
             return {}
 
         return self._reattached().run(session_id, go)

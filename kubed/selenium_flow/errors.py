@@ -26,6 +26,8 @@ that has to know Selenium's classes.
 
 from __future__ import annotations
 
+import re
+
 import requests
 import urllib3.exceptions
 from selenium.common.exceptions import (
@@ -43,10 +45,11 @@ from selenium.common.exceptions import (
     SessionNotCreatedException,
     StaleElementReferenceException,
     TimeoutException,
+    WebDriverException,
 )
 
 from .core.cancel import Ended
-from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge
+from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge, Unresolved
 
 # The caller asked for something that cannot happen as asked. Retrying the
 # identical request is guaranteed to fail again, so say 400 and let a workflow
@@ -60,6 +63,7 @@ from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge
 # instead, which is below.
 CALLER = (
     AssertionFailed,
+    Unresolved,
     TimeoutException,
     InvalidSelectorException,
     NoSuchElementException,
@@ -72,6 +76,24 @@ CALLER = (
     MoveTargetOutOfBoundsException,
     StaleElementReferenceException,
 )
+
+# How each browser reports a page whose host has no address in DNS: Chrome's
+# net error, and the error page Firefox says it reached. The host is the one the
+# caller named, so a retry fails the same way and it is theirs to fix
+# (`browser.go` raises `Unresolved` for it). Only this one: a refused
+# connection, a timeout or a bad certificate can be the network's or the
+# site's, and a guess that it is the caller's is the dangerous one.
+_DNS_NOT_FOUND = re.compile(
+    r"\bnet::ERR_NAME_NOT_RESOLVED\b|\babout:neterror\?(?:\S*&)?e=dnsNotFound\b"
+)
+
+
+def unresolved(exc: BaseException) -> bool:
+    """Whether the driver said the page's host did not resolve."""
+    if not isinstance(exc, WebDriverException):
+        return False
+    return bool(_DNS_NOT_FOUND.search(str(exc.msg or "")))
+
 
 # The browser named in the request is not on the Grid — ended, reaped, or never
 # real. Its own status because the fix is specific and a workflow can automate

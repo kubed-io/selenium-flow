@@ -46,6 +46,18 @@ class TooLarge(ValueError):
     refusal that says which cap, as every ValueError does."""
 
 
+class Unresolved(Exception):
+    """A page the caller named, whose host has no address: a 400.
+
+    It carries the host and a fixed reason, never the browser's own text, which
+    quotes the whole URL on Firefox (`errors.unresolved` reads that text)."""
+
+    def __init__(self, host: str | None):
+        self.host = host
+        where = f"the host {host}" if host else "the URL's host"
+        super().__init__(f"{where} did not resolve: check the URL")
+
+
 class BidiUnavailable(ConnectionError):
     """The browser answers WebDriver but its BiDi socket does not: a 503.
 
