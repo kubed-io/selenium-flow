@@ -92,9 +92,12 @@ def test_network_lists_one_request_and_opens_it(admin_client, fed):
     assert one.status_code == 200 and one.json()["id"] == "1.1"
 
 
-def test_a_bad_query_or_unknown_id_is_400(admin_client, fed):
-    assert admin_client.get("/admin/workspaces/ws/console?pages=9", headers=AUTH).status_code == 400
-    assert admin_client.get("/admin/workspaces/ws/network/9.9", headers=AUTH).status_code == 400
+@pytest.mark.parametrize("path", [
+    "console?pages=9", "console?pages=x", "console?level=bogus",
+    "network?pages=0", "network?filter=bogus", "network/9.9",
+])
+def test_a_bad_query_or_unknown_id_is_400(admin_client, fed, path):
+    assert admin_client.get(f"/admin/workspaces/ws/{path}", headers=AUTH).status_code == 400
 
 
 def test_every_captured_route_is_behind_the_admin_door(admin_client, fed):

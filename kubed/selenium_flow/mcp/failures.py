@@ -34,6 +34,8 @@ from fastmcp.exceptions import (
     ValidationError,
 )
 from fastmcp.server.middleware import Middleware
+from mcp.shared.exceptions import MCPError
+from mcp_types import INVALID_PARAMS
 from pydantic import ValidationError as PydanticValidationError
 
 from .. import errors, faults
@@ -97,6 +99,11 @@ class Explained(Middleware):
         'uri': <str(exc)>", and a Grid failure quotes the Grid's own URL in that
         text. `read_resource` reads through this too, so the tool and a client's
         own resource reader get the same sentence (#39's live check).
+
+        A caller's mistake — what `errors` makes a 4xx over HTTP, such as
+        ``?pages=9`` — is invalid params (-32602), as any other bad argument
+        is. Left a `ResourceError`, it went out as an internal error (-32603),
+        which tells a client the server broke.
         """
         try:
             return await call_next(context)
@@ -110,8 +117,10 @@ class Explained(Middleware):
             # The URI is the caller's, and a caller can put credentials in one;
             # it is scrubbed on the same terms as the exception (Copilot, #40).
             uri = without_userinfo(str(getattr(context.message, "uri", "")))
-            said = faults.message(cause)
-            raise ResourceError(f"{FAILED_READ} {uri!r}: {said}") from cause
+            said = f"{FAILED_READ} {uri!r}: {faults.message(cause)}"
+            if errors.status_for(cause) < 500:
+                raise MCPError(code=INVALID_PARAMS, message=said) from cause
+            raise ResourceError(said) from cause
 
 
 class QuietCallerMistakes(logging.Filter):
