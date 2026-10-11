@@ -499,3 +499,48 @@ def test_the_worst_case_request_event_stays_cheap():
         capture.ingest("ws", "s1", *event)
         times.append(clock.perf_counter() - started)
     assert sorted(times)[len(times) // 2] < 0.002
+
+
+# ---- fix round 2 ------------------------------------------------------------------
+
+
+def standard_base64(length):
+    """A token as an OAuth server issues one: standard base64, `+`, `/` and
+    `=` included, so each of its spellings differs (four forms)."""
+    import base64
+
+    raw = bytes((i * 151 + 7) % 256 for i in range(length))
+    return base64.b64encode(raw).decode()[:length - 1] + "="
+
+
+@pytest.mark.parametrize("length", [3600, 3868, 4000, 4096])
+def test_a_large_bearer_token_echoed_alone_is_masked(length):
+    """R2-1: learnt as two entries, the token and then its whole header, a
+    token past about 3.5 kB was evicted by its own header's forms, and an
+    OAuth token response echoing it came back in clear."""
+    token = standard_base64(length)
+    m = Masker()
+    bearer(m, f"Bearer {token}")
+    assert m.text(f'{{"access_token":"{token}"}}', cap=10_000) == f'{{"access_token":"{MASK}"}}'
+    escaped = token.replace("/", "\\/")                       # PHP's json_encode
+    assert m.text(f'"{escaped}"', cap=10_000) == f'"{MASK}"'
+
+
+def test_a_whole_authorization_value_holding_a_nul_is_not_learned():
+    """R2-2: only the token passed the NUL rule; the whole value did not, and
+    one form with a NUL turns the joined header scan off."""
+    m = Masker()
+    bearer(m, "Be\x00arer validtoken-0123456789")
+    assert m.text("validtoken-0123456789") == MASK
+    assert not any("\x00" in form for form in m.secrets) and m._state[2]
+
+
+def test_a_cookie_is_masked_in_its_decoded_spelling_too():
+    """R2-3: a server echoes the cookie it parsed (`s:a8F2…`), not the
+    percent-encoded one the browser sent (`s%3Aa8F2…`)."""
+    m = Masker()
+    kept([{"name": "Cookie", "value": {"type": "string", "value": "sid=s%3Aa8F2kQ9xZ1mP0rT7vW3yB5"}}], m)
+    cookie(m, "v%2Bk3Yq8LmN5pQ7rS9tU1")                        # a request cookie's value
+    assert m.text('{"sid": "s:a8F2kQ9xZ1mP0rT7vW3yB5"}') == f'{{"sid": "{MASK}"}}'
+    assert m.text("s%3Aa8F2kQ9xZ1mP0rT7vW3yB5") == MASK
+    assert m.text("tok=v+k3Yq8LmN5pQ7rS9tU1") == f"tok={MASK}"

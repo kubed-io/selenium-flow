@@ -15,7 +15,7 @@ import bisect
 import re
 from collections import OrderedDict
 from collections.abc import Iterable
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from ..flows.redact import hidden_forms
 from . import (
@@ -136,9 +136,7 @@ class Masker:
         changed = False
         for c in raw if isinstance(raw, list) else ():
             if isinstance(c, dict) and not _binary(c.get("value")):
-                value = _header_value(c.get("value"))
-                if self._learnable(value, COOKIE_MIN):
-                    changed = self._cookies.learn(value) or changed
+                changed = self._cookie(_header_value(c.get("value"))) or changed
         if changed:
             self._sort()
 
@@ -146,17 +144,19 @@ class Masker:
         """Learn what a credential header carries; True when anything new."""
         if name in ("authorization", "proxy-authorization"):
             # A scheme alone ("Negotiate") is no secret: only a token after
-            # it is learned, with the whole value it came in.
+            # it is learned, with the whole value it came in — as **one**
+            # entry, so the newest token is never evicted, whatever the
+            # budget, by the forms of its own header.
             scheme_and_token = value.split(None, 1)
             if len(scheme_and_token) < 2:
                 return False
             token = scheme_and_token[1].strip()
             if not self._learnable(token, CREDENTIAL_MIN):
                 return False
-            changed = self._auth.learn(token)
-            if len(value) <= CREDENTIAL_MAX:
-                changed = self._auth.learn(value) or changed
-            return changed
+            spellings = [token]
+            if self._learnable(value, CREDENTIAL_MIN):
+                spellings.append(value)
+            return self._auth.learn(token, _forms(spellings))
         if name == "cookie":
             pairs = value.split(";")
         elif name == "set-cookie":  # one per line where a browser folds several
@@ -167,9 +167,24 @@ class Masker:
         for pair in pairs:
             if "=" in pair:
                 cookie = pair.split("=", 1)[1].strip().strip('"')
-                if self._learnable(cookie, COOKIE_MIN):
-                    changed = self._cookies.learn(cookie) or changed
+                changed = self._cookie(cookie) or changed
         return changed
+
+    def _cookie(self, value: str) -> bool:
+        """Learn a cookie's value, and its percent-decoded spelling when that
+        differs and can be a secret: a server echoes the cookie it parsed
+        (``s:a8F2…``), not the one on the wire (``s%3Aa8F2…``). One entry, so
+        the two go together."""
+        if not self._learnable(value, COOKIE_MIN):
+            return False
+        spellings = [value]
+        try:
+            decoded = unquote(value, errors="strict")
+        except UnicodeDecodeError:
+            decoded = value
+        if decoded != value and self._learnable(decoded, COOKIE_MIN):
+            spellings.append(decoded)
+        return self._cookies.learn(value, _forms(spellings))
 
     def _learnable(self, value: str, minimum: int) -> bool:
         """Whether ``value`` can be a secret worth masking (see `capture`). One
@@ -284,6 +299,11 @@ class Masker:
 
 
 NUL = "\x00"
+
+
+def _forms(spellings: list[str]) -> frozenset[str]:
+    """Every form of every spelling of one credential, as one entry."""
+    return frozenset(hidden_forms(spellings))
 
 
 def _scan(read: str, secrets, lengths, fit: int) -> list[tuple[int, int]]:
