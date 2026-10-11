@@ -63,17 +63,20 @@ MASKED_HEADERS = frozenset(
 # else it appears — a page can echo it. Each is kept with every spelling an echo
 # gives it (its forms), and every form costs every masked text a scan, so what a
 # session learns is a budget of forms and of their characters, in two tiers: an
-# Authorization token's, which cookies cannot evict, and the cookies', the least
-# recently seen going first. A value is learned only when it can be a secret:
+# Authorization token's, which cookies cannot evict, the least recently seen
+# going first; and the cookies', which past the budget holds the cookies that
+# rank highest (`masking._Ranked`), one not sent for COOKIE_STALE events
+# ranking below every one that was. A value is learned only when it can be a secret:
 # an Authorization token of CREDENTIAL_MIN or more, a cookie of COOKIE_MIN or
 # more, neither only letters nor only digits ("accepted", "undefined", a
 # timestamp), none over CREDENTIAL_MAX (counted instead), none holding a NUL.
 AUTH_FORMS = 16
 COOKIE_FORMS = 48
-FORM_CHARS = 32_768  # per tier, past the newest value it keeps
+FORM_CHARS = 32_768  # per tier, past the one value it may be over by
 CREDENTIAL_MIN = 8
 COOKIE_MIN = 16
 CREDENTIAL_MAX = 4096
+COOKIE_STALE = 64  # events: a request is two or three (cookies, headers, response)
 
 # Counted, not kept, when they succeed (ruling 3); counted in the hint when they
 # fail (ruling 12).

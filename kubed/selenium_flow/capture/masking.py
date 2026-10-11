@@ -22,6 +22,7 @@ from . import (
     AUTH_FORMS,
     COOKIE_FORMS,
     COOKIE_MIN,
+    COOKIE_STALE,
     CREDENTIAL_MAX,
     CREDENTIAL_MIN,
     FORM_CHARS,
@@ -59,16 +60,15 @@ def strip_query(url: str) -> str:
 
 
 class _Tier:
-    """Learned credentials of one kind: value -> its forms, least recently
-    seen first, within a budget of forms and of their characters. The newest
-    value is always kept, so a tier is over its character budget by at most
-    one value's forms.
+    """Authorization tokens: value -> its forms, least recently seen first,
+    within a budget of forms and of their characters.
 
     What one event (a `Masker.cookies` or `Masker.headers` call) sends is
-    ``touched``. A full tier never evicts a value this event touched to take
-    another: a page sending more cookies than the budget holds would
-    otherwise re-learn, evict and re-sort every one on every request. It keeps
-    the ones it holds, and learns no more until one stops being sent."""
+    ``touched``. A new value is learned, evicting the least recently seen,
+    unless the tier is full of what this event already sent: then the first
+    one the event sent is kept and the rest are not learned. A value alone
+    over the budget is still kept, so a tier is over its budget by at most
+    one value's forms."""
 
     def __init__(self, forms: int, chars: int = FORM_CHARS):
         self.budget, self.chars_budget = forms, chars
@@ -115,20 +115,139 @@ class _Tier:
         return True
 
 
+# A cookie's name says what it is worth masking. A tracker's is matched first,
+# from the start, so Hotjar's `_hjSessionUser` and `AMP_TOKEN` are trackers.
+_TRACKER = re.compile(r"_ga|_gid|_fbp|_gcl|__utm|_hj|ajs_|amp_|_pk_|mp_", re.I)
+_SESSION = re.compile(
+    r"sess|sid|token|auth|jwt|csrf|xsrf|access|refresh|id_token", re.I
+)
+
+
+STRENGTH_READ = 64  # characters: a rank costs the same for a 4 kB cookie
+
+
+def _rank(name: str, value: str) -> tuple:
+    """How much masking a cookie is worth, highest last: its name (a
+    tracker's, any other, a session's), then the value's strength (the
+    distinct characters of its first ``STRENGTH_READ``, then its length),
+    then the value itself, so no two rank alike."""
+    hint = 0 if _TRACKER.match(name) else 2 if _SESSION.search(name) else 1
+    return (hint, len(set(value[:STRENGTH_READ])), len(value), value)
+
+
+class _Ranked:
+    """The cookies: value -> its forms, within a budget of forms and of their
+    characters, holding the cookies that rank highest (`_rank`). One not
+    sent for ``stale`` events ranks below every one that was, so a cookie no
+    longer sent gives way, and one that rotates is replaced.
+
+    The order is total and does not depend on the order cookies arrive in,
+    so a page sending more than the budget holds settles on one set, the
+    same whatever its header order, and stops building forms. A new value is
+    refused, before its forms are built, when the tier is full and it ranks
+    below the lowest it holds; the refusal is remembered (within the
+    characters budget) until that lowest changes, so a settled page costs a
+    lookup per cookie. What is held is a prefix of the ranking: all of it but
+    the lowest value fits the budget, so the tier is over budget by at most
+    that value's forms."""
+
+    def __init__(self, forms: int, chars: int = FORM_CHARS, stale: int = COOKIE_STALE):
+        self.budget, self.chars_budget, self.stale = forms, chars, stale
+        self.values: dict[str, frozenset[str]] = {}
+        self._rank: dict[str, tuple] = {}
+        self._seen: dict[str, int] = {}
+        self.forms = self.chars = 0
+        self.event = 0
+        self._lowest: tuple | None = None  # (key, value), this event's
+        self._refused: set[str] = set()  # ranked below ``_floor``
+        self._refused_chars = 0
+        self._floor: tuple | None = None
+
+    def begin(self) -> None:
+        """An event starts: freshness moves on."""
+        self.event += 1
+        self._lowest = None
+
+    def _key(self, value: str) -> tuple:
+        return (self.event - self._seen[value] <= self.stale, *self._rank[value])
+
+    def lowest(self) -> tuple:
+        if self._lowest is None:
+            self._lowest = min((self._key(v), v) for v in self.values)
+            if self._lowest[0] != self._floor:
+                self._forget_refusals()
+                self._floor = self._lowest[0]
+        return self._lowest
+
+    def _forget_refusals(self) -> None:
+        self._refused, self._refused_chars = set(), 0
+
+    def refuses(self, value: str) -> bool:
+        """Whether ``value`` was refused and nothing since lets it in."""
+        if value not in self._refused:
+            return False
+        self.lowest()  # a new event may have moved it, forgetting them
+        return value in self._refused
+
+    def knows(self, value: str) -> bool:
+        """Whether ``value`` is held; if so it was sent this event."""
+        if value not in self.values:
+            return False
+        self._seen[value] = self.event
+        if self._lowest is not None and self._lowest[1] == value:
+            self._lowest = None  # fresher now
+        return True
+
+    def full(self) -> bool:
+        return self.forms >= self.budget or self.chars >= self.chars_budget
+
+    def learn(
+        self, value: str, rank: tuple, forms: Callable[[], frozenset[str]]
+    ) -> bool:
+        """Hold ``value`` if it ranks high enough, building its forms only
+        then; True when it was learned."""
+        if self.knows(value):
+            return False
+        if self.values and self.full() and (True, *rank) < self.lowest()[0]:
+            if self._refused_chars + len(value) <= self.chars_budget:
+                self._refused.add(value)
+                self._refused_chars += len(value)
+            return False  # it would displace nothing
+        self._forget_refusals()
+        built = forms()
+        self.values[value], self._rank[value] = built, rank
+        self._seen[value] = self.event
+        self.forms += len(built)
+        self.chars += sum(map(len, built))
+        self._lowest = None
+        while len(self.values) > 1:
+            gone = self.lowest()[1]
+            size = self.values[gone]
+            chars = sum(map(len, size))
+            rest = (self.forms - len(size), self.chars - chars)
+            if rest[0] < self.budget and rest[1] < self.chars_budget:
+                break  # the rest would not be full: the lowest stays
+            del self.values[gone], self._rank[gone], self._seen[gone]
+            self.forms -= len(size)
+            self.chars -= chars
+            self._lowest = None
+        return True
+
+
 class Masker:
     """The secrets bound in one session, and how a value is shown without them.
 
     Two kinds: the forms the secrets catalogue bound, kept for the session's
     life; and the credentials its headers and cookies carried, learned as they
-    pass within the budgets in `capture` (`_Tier`): an Authorization token's
-    tier, and the cookies'. ``skipped`` counts the values too long to learn;
-    none is ever logged.
+    pass within the budgets in `capture`: an Authorization token's tier
+    (`_Tier`), and the cookies' (`_Ranked`). ``skipped`` counts the values
+    too long to learn; none is ever logged.
     """
 
     def __init__(self, secrets: Iterable[str] = ()):
         self._bound: set[str] = set()
         self._auth = _Tier(AUTH_FORMS)
-        self._cookies = _Tier(COOKIE_FORMS)
+        self._cookies = _Ranked(COOKIE_FORMS)
         self.skipped = 0
         # Every form masked, longest first, and their negated lengths: one
         # tuple, replaced whole, because a body is masked on a worker thread
@@ -153,11 +272,14 @@ class Masker:
         """Mask what ``other`` masks: the session this one replaces, its
         credentials still credentials, under the same budgets."""
         self._bound |= other._bound
-        tiers = ((self._auth, other._auth), (self._cookies, other._cookies))
-        for mine, theirs in tiers:
-            mine.begin()
-            for value, forms in theirs.values.items():
-                mine.learn(value, lambda forms=forms: forms)
+        self._auth.begin()
+        for value, forms in other._auth.values.items():
+            self._auth.learn(value, lambda forms=forms: forms)
+        self._cookies.begin()
+        theirs = other._cookies
+        for value in sorted(theirs.values, key=theirs._rank.__getitem__, reverse=True):
+            forms = theirs.values[value]
+            self._cookies.learn(value, theirs._rank[value], lambda forms=forms: forms)
         self._sort()
 
     def cookies(self, raw) -> None:
@@ -166,7 +288,10 @@ class Masker:
         changed = False
         for c in raw if isinstance(raw, list) else ():
             if isinstance(c, dict) and not _binary(c.get("value")):
-                changed = self._cookie(_header_value(c.get("value"))) or changed
+                name = c.get("name")
+                name = name if isinstance(name, str) else ""
+                value = _header_value(c.get("value"))
+                changed = self._cookie(name, value) or changed
         if changed:
             self._sort()
 
@@ -196,16 +321,20 @@ class Masker:
         changed = False
         for pair in pairs:
             if "=" in pair:
-                cookie = pair.split("=", 1)[1].strip().strip('"')
-                changed = self._cookie(cookie) or changed
+                name, cookie = pair.split("=", 1)
+                cookie = cookie.strip().strip('"')
+                changed = self._cookie(name.strip(), cookie) or changed
         return changed
 
-    def _cookie(self, value: str) -> bool:
+    def _cookie(self, name: str, value: str) -> bool:
         """Learn a cookie's value, and its percent-decoded spelling when that
         differs and can be a secret: a server echoes the cookie it parsed
         (``s:a8F2…``), not the one on the wire (``s%3Aa8F2…``). One entry, so
-        the two go together."""
-        if self._cookies.knows(value) or not self._learnable(value, COOKIE_MIN):
+        the two go together. Its name ranks it (`_rank`)."""
+        tier = self._cookies
+        if tier.knows(value) or tier.refuses(value):
+            return False
+        if not self._learnable(value, COOKIE_MIN):
             return False
 
         def forms() -> frozenset[str]:  # only for a value the tier takes
@@ -218,7 +347,7 @@ class Masker:
                 spellings.append(decoded)
             return _forms(spellings)
 
-        return self._cookies.learn(value, forms)
+        return tier.learn(value, _rank(name, value), forms)
 
     def _learnable(self, value: str, minimum: int, *, count: bool = True) -> bool:
         """Whether ``value`` can be a secret worth masking (see `capture`). One

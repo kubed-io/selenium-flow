@@ -575,9 +575,12 @@ or the leak `caller_key` existed to prevent comes straight back.
   budget of forms and characters per session (`capture/__init__.py`): an Authorization
   token's tier that cookie churn cannot evict, and the cookies'. Only a value that can be a
   secret is learned — a token after a scheme, a cookie of 16 or more, never only letters or
-  only digits, never over 4 096 (counted instead). A known value costs a lookup, and a full
-  tier never evicts what the same request sent to take another, so a page sending more
-  cookies than the budget holds keeps the first ones masked rather than re-learning all.
+  only digits, never over 4 096 (counted instead). A known value costs a lookup. Past the
+  budget the cookie tier holds the cookies that rank highest — a session-like name
+  (`sid`, `token`, `csrf`…) over any other, a tracker's (`_ga`, `_fbp`, `_hj`…) under all,
+  then distinct characters, length, the value — and one not sent for `COOKIE_STALE` events
+  under every one that was: a session cookie set after login is masked at once, the set
+  does not depend on header order, and a full page settles instead of re-learning.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
   page keeps 2 000. What the capture listener's own queue drops is counted, never hidden:
   `dropped` on every view, present only when non-zero.

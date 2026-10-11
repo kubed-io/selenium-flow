@@ -264,23 +264,18 @@ def test_a_short_credential_masks_nothing():
     assert m.text("1 short 7 a=1") == "1 short 7 a=1"
 
 
-def test_the_forms_are_capped_per_session_and_the_newest_kept():
+def test_the_forms_are_capped_per_session():
     """R1-1, R1-2: what a session masks is a forms budget, not a count of
-    values: each form costs every text a scan, whatever value it came from."""
+    values: each form costs every text a scan, whatever value it came from.
+    Which values a full budget holds is round 4's (below)."""
     from kubed.selenium_flow.capture import COOKIE_FORMS
 
     m = Masker()
-    values = [f"cookie-value-{i:04}" for i in range(COOKIE_FORMS + 10)]
+    values = [f"cookie-value-{i:04}" for i in range(COOKIE_FORMS + 10)]  # one form each
     for value in values:
         cookie(m, value)
     assert len(m.secrets) <= COOKIE_FORMS
-    assert m.text(values[0]) == values[0]                     # the oldest went
-    assert m.text(values[-1]) == MASK
-    kept_from = next(i for i, v in enumerate(values) if m.text(v) == MASK)
-    cookie(m, values[kept_from])                              # seen again: newest again
-    cookie(m, "cookie-value-new-0")
-    assert m.text(values[kept_from]) == MASK
-    assert m.text(values[kept_from + 1]) == values[kept_from + 1]
+    assert sum(m.text(v) == MASK for v in values) == COOKIE_FORMS
 
 
 def test_a_bound_secret_is_never_crowded_out_by_credentials():
@@ -298,13 +293,13 @@ def test_a_carried_credential_stays_a_credential():
     from kubed.selenium_flow.capture import COOKIE_FORMS
 
     old = Masker(["hunter2"])
-    cookie(old, "carried-cookie-0123")
+    cookie(old, "carried-cookie-0000")                       # ranks below what follows
     new = Masker()
     new.carry(old)
-    assert new.text("carried-cookie-0123 hunter2") == f"{MASK} {MASK}"
+    assert new.text("carried-cookie-0000 hunter2") == f"{MASK} {MASK}"
     for i in range(COOKIE_FORMS):
         cookie(new, f"cookie-value-{i:04}")
-    assert new.text("carried-cookie-0123 hunter2") == f"carried-cookie-0123 {MASK}"
+    assert new.text("carried-cookie-0000 hunter2") == f"carried-cookie-0000 {MASK}"
 
 
 # ---- fix round 1 ------------------------------------------------------------------
@@ -555,13 +550,13 @@ def b64(n, seed):
     return base64.b64encode(bytes((i * 151 + seed) % 256 for i in range(n))).decode()[:n]
 
 
-def request_event(m, cookies, auth=None):
+def send(m, pairs, auth=None):
     """What one request event asks of a masker: its BiDi cookies, then its
-    headers. Returns how long it took."""
+    headers, for ``(name, value)`` cookie pairs. Returns how long it took."""
     import time as clock
 
-    raw = [{"name": f"c{i}", "value": {"type": "string", "value": v}} for i, v in enumerate(cookies)]
-    sent = "; ".join(f"c{i}={v}" for i, v in enumerate(cookies))
+    raw = [{"name": n, "value": {"type": "string", "value": v}} for n, v in pairs]
+    sent = "; ".join(f"{n}={v}" for n, v in pairs)
     headers = [{"name": "Cookie", "value": {"type": "string", "value": sent}}]
     if auth:
         headers.append({"name": "Authorization", "value": {"type": "string", "value": "Bearer " + auth}})
@@ -571,62 +566,180 @@ def request_event(m, cookies, auth=None):
     return clock.perf_counter() - started
 
 
+def request_event(m, cookies, auth=None):
+    return send(m, [(f"c{i}", v) for i, v in enumerate(cookies)], auth)
+
+
 STEADY = ([b64(120, i) for i in range(6)], b64(3000, 99))   # 6 cookies, a 3 kB JWT
 BIG_COOKIES = [b64(4000, i) for i in range(8)]                # past the characters
 MANY_COOKIES = [("%2F" + b64(61, i))[:64] for i in range(60)]  # past the forms
 
 
-@pytest.mark.parametrize(
-    ("cookies", "auth"),
-    [STEADY, (BIG_COOKIES, None), (MANY_COOKIES, None)],
-    ids=["known", "8x4kB", "60 small"],
+# Two hosts' requests interleaved, each sending its own 25 cookies: 50 values
+# past the forms budget, every event a different half.
+HOST_A = [("%2F" + b64(61, i))[:64] for i in range(25)]
+HOST_B = [("%2F" + b64(61, 100 + i))[:64] for i in range(25)]
+STEADY_CASES = pytest.mark.parametrize(
+    "sets",
+    [[STEADY], [(BIG_COOKIES, None)], [(MANY_COOKIES, None)], [(HOST_A, None), (HOST_B, None)]],
+    ids=["known", "8x4kB", "60 small", "two hosts"],
 )
-def test_once_learned_an_event_builds_no_forms(monkeypatch, cookies, auth):
+
+
+def events(m, sets, rounds):
+    """``rounds`` passes over ``sets``, each one request event; their times."""
+    return [request_event(m, cookies, auth) for _ in range(rounds) for cookies, auth in sets]
+
+
+@STEADY_CASES
+def test_once_learned_an_event_builds_no_forms(monkeypatch, sets):
     """R3: a credential already known costs a lookup, and one a full tier
     will not take this event costs no more; neither spells out its forms
-    again, which is what each request event used to pay."""
+    again, which is what each request event used to pay. Two hosts taking
+    turns settle too: what is held does not depend on which one spoke last."""
+    from kubed.selenium_flow.capture import masking
+
+    m = Masker()
+    events(m, sets, 3)
+    built, real = [], masking.hidden_forms
+    monkeypatch.setattr(masking, "hidden_forms", lambda v: built.append(1) or real(v))
+    sorted_, real_sort = [], m._sort
+    monkeypatch.setattr(m, "_sort", lambda: sorted_.append(1) or real_sort())
+    events(m, sets, 5)
+    assert built == [] and sorted_ == []
+
+
+@pytest.mark.parametrize(
+    ("sets", "bound"),
+    [([STEADY], 0.05), ([(BIG_COOKIES, None)], 0.2), ([(MANY_COOKIES, None)], 0.2),
+     ([(HOST_A, None), (HOST_B, None)], 0.1)],
+    ids=["known", "8x4kB", "60 small", "two hosts"],
+)
+def test_a_learned_or_full_tier_costs_little_per_event(sets, bound):
+    """The pin, the median of 100 events in ms, with a generous bound for a
+    slow runner. Measured on the machine that wrote it: 0.010, 0.027, 0.045
+    and 0.019 ms, where the code each replaced cost 0.27 (known, e3ab0c2),
+    1.70 (8x4kB), 1.74 (60 small) and 0.14 (two hosts, 09f981b). The bound
+    fails all but the last clearly; for two hosts the guard that does is
+    `test_once_learned_an_event_builds_no_forms`. 8x4kB hashes 32 kB of
+    cookies an event, so its bound stays round 3's."""
+    m = Masker()
+    events(m, sets, 3)
+    times = sorted(events(m, sets, 100 // len(sets)))
+    assert times[len(times) // 2] * 1000 < bound
+
+
+# ---- fix round 4: past the budget, the cookies that matter most are held -----------
+
+# A page heavy with analytics: 30 cookies spelt as Google Analytics spells
+# them (one form each) and 8 opaque ones (three each), past the forms budget.
+TRACKERS = [(f"_t{i}", f"GA1.1.{1000000000 + i * 7919}.1728600{i:03d}") for i in range(30)]
+OPAQUE = [(f"_o{i}", b64(40, i)) for i in range(8)]
+PAGE = TRACKERS + OPAQUE
+SID = ("sid", "s%3A" + b64(32, 77))
+
+
+def test_a_session_cookie_set_after_login_is_masked_on_a_tracker_heavy_page(monkeypatch):
+    """R4: a browser sends the oldest cookies first; a tier that kept the
+    first ones it saw held the trackers and never learned the session."""
     from kubed.selenium_flow.capture import masking
 
     m = Masker()
     for _ in range(3):
-        request_event(m, cookies, auth)
+        send(m, PAGE)
+    send(m, [*PAGE, SID])                                   # logged in
+    assert m.text(SID[1]) == MASK
     built, real = [], masking.hidden_forms
     monkeypatch.setattr(masking, "hidden_forms", lambda v: built.append(1) or real(v))
     sorted_, real_sort = [], m._sort
     monkeypatch.setattr(m, "_sort", lambda: sorted_.append(1) or real_sort())
     for _ in range(5):
-        request_event(m, cookies, auth)
-    assert built == [] and sorted_ == []
+        send(m, [*PAGE, SID])
+    assert m.text(SID[1]) == MASK
+    assert built == [] and sorted_ == []                    # settled at once
+
+
+def test_a_rotated_session_cookie_is_masked_at_once_and_the_old_one_ages_out():
+    from kubed.selenium_flow.capture import COOKIE_STALE
+
+    old, new = ("sid", "s%3A" + b64(32, 1)), ("sid", "s%3A" + b64(32, 2))
+    m = Masker()
+    for _ in range(3):
+        send(m, [*PAGE, old])
+    send(m, [*PAGE, new])
+    assert m.text(new[1]) == MASK                           # at once
+    for _ in range(COOKIE_STALE):                           # two events each
+        send(m, [*PAGE, new])
+    assert m.text(new[1]) == MASK
+    assert m.text(old[1]) == old[1]                         # gone once no longer sent
+
+
+def test_the_same_cookies_in_any_order_hold_the_same_set():
+    import random
+
+    held = []
+    for seed in range(5):
+        order = [*PAGE, SID]
+        random.Random(seed).shuffle(order)
+        m = Masker()
+        for _ in range(3):
+            send(m, order)
+        held.append({v for _, v in order if m.text(v) == MASK})
+    assert held[0] and all(h == held[0] for h in held)
+
+
+# Neutral names, strong values (some 30 distinct characters each), past the budget.
+FILLER = [(f"pref{i}", b64(40, 200 + i)) for i in range(20)]
 
 
 @pytest.mark.parametrize(
-    ("cookies", "auth"),
-    [STEADY, (BIG_COOKIES, None), (MANY_COOKIES, None)],
-    ids=["known", "8x4kB", "60 small"],
+    ("name", "masked"),
+    [
+        ("sid", True), ("XSRF-TOKEN", True), ("PHPSESSID", True),
+        ("__Host-next-auth.session-token", True), ("refresh_jwt", True),
+        ("_ga", False), ("_gid", False), ("_fbp", False), ("__utmz", False),
+        ("_hjSessionUser_1", False), ("AMP_TOKEN", False), ("ajs_user_id", False),
+    ],
 )
-def test_a_learned_or_full_tier_costs_little_per_event(cookies, auth):
-    """The pin, with a generous bound for a slow runner. Measured on the
-    machine that wrote it: 0.007, 0.019 and 0.045 ms (0.28, 1.79 and 1.78 ms
-    before), so the bound still fails the costs it replaced."""
+def test_a_cookies_name_ranks_it_when_the_budget_is_full(name, masked):
+    """A session-like name outranks a stronger value; a tracker's name ranks
+    below every other, however strong its value, and wins over a session-like
+    word in it (Hotjar's ``_hjSessionUser``)."""
+    value = "abcdef0123456789" if masked else b64(60, 99)  # weak, or strong
+    # Last in the header when it should win, first when it should lose: the
+    # order a browser sends them in decides nothing.
+    order = [*FILLER, (name, value)] if masked else [(name, value), *FILLER]
     m = Masker()
     for _ in range(3):
-        request_event(m, cookies, auth)
-    times = sorted(request_event(m, cookies, auth) for _ in range(30))
-    assert times[len(times) // 2] < 0.0002
+        send(m, order)
+    assert (m.text(value) == MASK) is masked
 
 
-def test_a_full_tier_keeps_what_it_holds_and_takes_a_new_cookie_once_one_goes():
-    """The coverage this costs: past the budget, the cookies a page sends
-    later in the header are not learned while the earlier ones are still
-    sent. A cookie no longer sent is evicted for a new one."""
+def test_cookie_overflow_leaves_the_authorization_tier_alone():
+    m = Masker()
+    token = b64(3000, 5)
+    for _ in range(3):
+        send(m, [*PAGE, SID], auth=token)
+    held = dict(m._auth.values)
+    for _ in range(5):
+        send(m, PAGE + FILLER + [SID], auth=token)
+    assert m.text(token) == MASK and m._auth.values == held
+
+
+def test_a_full_tier_takes_a_new_cookie_once_the_old_ones_go_stale():
+    """Past the budget the tier holds the highest-ranked cookies. A weaker
+    one the page sends once those stop is taken when they go stale."""
+    from kubed.selenium_flow.capture import COOKIE_STALE
+
     m = Masker()
     for _ in range(3):
         request_event(m, MANY_COOKIES)
-    held = [c for c in MANY_COOKIES if m.text(c) == MASK]
-    assert held and held == MANY_COOKIES[: len(held)]       # the first ones, stably
-    fresh = "fresh-session-cookie-0123456789"
-    request_event(m, [fresh])                               # the page now sends only this
-    assert m.text(fresh) == MASK
+    weak = "fresh-session-cookie-0123456789"                # fewer distinct characters
+    request_event(m, [weak])                                # the page now sends only this
+    assert m.text(weak) == weak                             # the held still rank above it
+    for _ in range(COOKIE_STALE):
+        request_event(m, [weak])
+    assert m.text(weak) == MASK
 
 
 def test_a_whole_authorization_value_past_the_limit_is_not_a_skip_when_its_token_was_learned():
