@@ -213,10 +213,12 @@ export type CaptureOff = { capture: false; how: string }
 export interface ConsoleData {
   capture: true; capturing?: boolean; pages: PageMark[]; entries: ConsoleEntry[]
   count: number; total: number; not_kept: { debug: number }; dropped?: number; tail_url?: string
+  tally?: { errors: number; warnings: number }
 }
 export interface NetworkData {
   capture: true; capturing?: boolean; pages: PageMark[]; requests: RequestRow[]
   count: number; total: number; not_kept: { static: number }; dropped?: number; tail_url?: string
+  tally?: { failed: number; xhr: number }
 }
 export interface BodyResult {
   id: string; uri: string; mime: string; size: number | null; binary: boolean; text: string | null; truncated: boolean

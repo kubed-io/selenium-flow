@@ -134,3 +134,17 @@ def test_a_view_is_a_copy_the_buffer_does_not_change_under(capture):
 def test_no_buffer_reads_as_none(capture):
     assert capture.console("other") is None and capture.network("other") is None
     assert capture.counts("other") is None
+
+
+def test_each_listing_tallies_what_it_lists_for_a_view_cut_to_its_newest(capture):
+    """R1-7: show draws the newest 200, and a chip counting the rows it got
+    would count only those. The listing says the totals itself."""
+    feed(capture, nav_started("https://a.test/"),
+         log("e", level="error"), log("x", type="javascript"), log("w", level="warn"), log("i"),
+         req("r1", "https://a.test/x.png", dest="image"), done("r1", 404, mime="image/png"),
+         req("r2", "https://a.test/f", initiator="fetch"), done("r2", 200),
+         req("r3", "https://a.test/x", initiator="xmlhttprequest"), fail("r3"))
+    assert capture.console("ws")["tally"] == {"errors": 2, "warnings": 1}
+    assert capture.console("ws", level="warn")["tally"] == {"errors": 0, "warnings": 1}
+    assert capture.network("ws")["tally"] == {"failed": 2, "xhr": 2}
+    assert capture.network("ws", filter="failed")["tally"] == {"failed": 2, "xhr": 1}

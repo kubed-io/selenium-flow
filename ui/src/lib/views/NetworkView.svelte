@@ -6,8 +6,10 @@
   const UNAVAILABLE = "Open isn't available in this client"
 
   const requests = $derived('requests' in data ? data.requests : [])
-  const failed = $derived(requests.filter(isFailed).length)
-  const xhr = $derived(requests.filter((r) => ['xhr', 'fetch'].includes(r.type.toLowerCase())).length)
+  /* The listing's own tally: show sends only the newest rows. */
+  const tally = $derived('tally' in data ? data.tally : undefined)
+  const failed = $derived(tally?.failed ?? requests.filter(isFailed).length)
+  const xhr = $derived(tally?.xhr ?? requests.filter((r) => ['xhr', 'fetch'].includes(r.type.toLowerCase())).length)
   const statics = $derived('not_kept' in data ? data.not_kept.static : 0)
   /* show sends at most the newest 200; `count` is how many there are. */
   const cut = $derived('count' in data && data.count > requests.length ? data.count : 0)
