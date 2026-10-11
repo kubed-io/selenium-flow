@@ -1087,3 +1087,14 @@ def test_a_bearer_token_past_its_own_limit_is_counted():
     m = Masker()
     bearer(m, "Bearer " + jwt(AUTH_MAX))
     assert m.secrets == () and m.skipped == 1
+
+
+def test_a_credential_past_the_headers_a_row_keeps_is_still_learned():
+    """F-4: a row keeps 32 headers; a Set-Cookie past them is still learned,
+    or its echo would show until a later request sent it back."""
+    m = Masker()
+    raw = [{"name": f"x-{i}", "value": {"type": "string", "value": "v"}} for i in range(HEADER_LIMIT + 3)]
+    raw.append({"name": "Set-Cookie", "value": {"type": "string", "value": "sid=late-session-0123456789; Path=/"}})
+    shown, dropped = m.headers(raw)
+    assert len(shown) == HEADER_LIMIT and dropped == 4
+    assert m.text("echo late-session-0123456789") == f"echo {MASK}"

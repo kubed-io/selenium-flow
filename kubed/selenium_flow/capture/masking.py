@@ -571,11 +571,13 @@ class Masker:
         given = [h for h in (raw or ()) if isinstance(h, dict)]
         self._auth.begin()
         self._cookies.begin()
-        # Learned before any value is shown, so one header cannot echo another.
-        # Proxy-Authorization last: when the two will not both fit, the one
-        # kept is the one an origin can echo, since a proxy strips the other.
+        # Learned before any value is shown, so one header cannot echo another,
+        # and from every header, kept or not: a Set-Cookie past the ones a row
+        # keeps is still echoed. Proxy-Authorization last: when the two will
+        # not both fit, the one kept is the one an origin can echo, since a
+        # proxy strips the other.
         credentials = []
-        for header in given[:HEADER_LIMIT]:
+        for header in given:
             name = str(header.get("name") or "").lower()
             if name in MASKED_HEADERS and not _binary(header.get("value")):
                 credentials.append((name, _header_value(header.get("value"))))
