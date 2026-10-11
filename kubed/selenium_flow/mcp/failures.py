@@ -46,6 +46,9 @@ from ..urls import without_userinfo
 FASTMCP_LOGGER = "fastmcp.server.server"
 FAILED_CALL = "Error calling tool"
 FAILED_READ = "Error reading resource"
+# MCP's code for a resource that is not there (the spec's "Resource not
+# found"); `mcp_types` names only the JSON-RPC ones.
+RESOURCE_NOT_FOUND = -32002
 
 
 def _pydantic_lines(exc: Exception) -> list[str]:
@@ -102,8 +105,9 @@ class Explained(Middleware):
 
         A caller's mistake — what `errors` makes a 4xx over HTTP, such as
         ``?pages=9`` — is invalid params (-32602), as any other bad argument
-        is. Left a `ResourceError`, it went out as an internal error (-32603),
-        which tells a client the server broke.
+        is; one that names something not there (a 404) is MCP's resource not
+        found (-32002). Left a `ResourceError`, either went out as an internal
+        error (-32603), which tells a client the server broke.
         """
         try:
             return await call_next(context)
@@ -118,7 +122,10 @@ class Explained(Middleware):
             # it is scrubbed on the same terms as the exception (Copilot, #40).
             uri = without_userinfo(str(getattr(context.message, "uri", "")))
             said = f"{FAILED_READ} {uri!r}: {faults.message(cause)}"
-            if errors.status_for(cause) < 500:
+            status = errors.status_for(cause)
+            if status == 404:
+                raise MCPError(code=RESOURCE_NOT_FOUND, message=said) from cause
+            if status < 500:
                 raise MCPError(code=INVALID_PARAMS, message=said) from cause
             raise ResourceError(said) from cause
 
