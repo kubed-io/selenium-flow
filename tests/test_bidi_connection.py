@@ -167,6 +167,25 @@ async def test_a_full_queue_is_logged_once_a_streak(browser, caplog):
     await conn.close()
 
 
+async def test_a_listener_is_told_of_every_event_it_drops(browser):
+    """What capture carries as ``dropped`` (spotless 7): the count a reader
+    sees, not only a log line."""
+    conn = Connection(browser.url)
+    await conn.open()
+    gate, told = asyncio.Event(), []
+
+    async def stuck(_m, _p):
+        await gate.wait()
+
+    subscriber = conn.listen(["log.entryAdded"], stuck, name="stuck", limit=2,
+                             on_drop=lambda: told.append(1))
+    await browser.events(20, "log.entryAdded")
+    await conn.command("browsingContext.getTree")
+    gate.set()
+    assert subscriber.dropped > 0 and len(told) == subscriber.dropped
+    await conn.close()
+
+
 async def test_flush_returns_after_every_earlier_event_was_handled(browser):
     conn = Connection(browser.url)
     await conn.open()

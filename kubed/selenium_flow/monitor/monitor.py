@@ -114,6 +114,8 @@ class Sink(Protocol):
 
     def detached(self, workspace: str, session_id: str) -> None: ...
 
+    def lost(self, workspace: str, session_id: str) -> None: ...
+
 
 class _NoSink:
     """The sink of a monitor given none: hears everything, keeps nothing."""
@@ -128,6 +130,9 @@ class _NoSink:
         pass
 
     def detached(self, workspace, session_id) -> None:
+        pass
+
+    def lost(self, workspace, session_id) -> None:
         pass
 
 
@@ -567,7 +572,9 @@ class Monitor:
                 None,
             )
             self.sink.attached(w.workspace, w.session_id, w.browser, top, again=again)
-            conn.listen(wanted, self._deliverer(w), name="capture")
+            conn.listen(
+                wanted, self._deliverer(w), name="capture", on_drop=self._loser(w)
+            )
             await conn.subscribe(wanted)
             for reason in sorted(w.owed):
                 params = self.collectors_for.get(reason)
@@ -593,7 +600,9 @@ class Monitor:
         added = [e for e in self._wanted(w) if e not in w.subscribed]
         if not added:
             return
-        listener = conn.listen(added, self._deliverer(w), name="capture")
+        listener = conn.listen(
+            added, self._deliverer(w), name="capture", on_drop=self._loser(w)
+        )
         try:
             await conn.subscribe(added)
         except BaseException:
@@ -609,6 +618,11 @@ class Monitor:
         self, workspace: str, session_id: str, method: str, params: dict
     ) -> None:
         self.sink.ingest(workspace, session_id, method, params)
+
+    def _loser(self, w: Watch) -> Callable[[], None]:
+        """Tells the sink of each event the capture listener's queue dropped,
+        so a reader sees the count rather than only a log line."""
+        return functools.partial(self.sink.lost, w.workspace, w.session_id)
 
     def _notice_drop(self, w: Watch) -> None:
         """A connection closed under us: let it go, and look at the session now."""

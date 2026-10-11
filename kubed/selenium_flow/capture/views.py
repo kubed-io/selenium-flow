@@ -84,6 +84,7 @@ def console(buffer: Buffer, level: str, pages: int) -> dict:
         "count": len(shown),
         "total": len(kept),
         "not_kept": {"debug": sum(buffer.debug.get(n, 0) for n in navs)},
+        **lost(buffer),
     }
 
 
@@ -107,6 +108,7 @@ def network(buffer: Buffer, filter: str, pages: int) -> dict:
         "count": len(shown),
         "total": len(kept),
         "not_kept": {"static": sum(buffer.static.get(n, 0) for n in navs)},
+        **lost(buffer),
     }
 
 
@@ -127,7 +129,14 @@ def counts(buffer: Buffer) -> dict:
         "network": buffer.seen.get(nav, 0),
         "errors": buffer.errors.get(nav, 0),
         "failed_requests": buffer.failed.get(nav, 0),
+        **lost(buffer),
     }
+
+
+def lost(buffer: Buffer) -> dict:
+    """``dropped``: the events the browser sent that capture never heard,
+    present only when there were some — any view may be missing them."""
+    return {"dropped": buffer.dropped} if buffer.dropped else {}
 
 
 def without_headers(row: dict) -> dict:

@@ -190,6 +190,14 @@ async def test_a_known_body_after_end_browser_names_why_over_mcp(fed, monkeypatc
     assert BODY_CLOSED in str(caught.value) and "call open_session" not in str(caught.value)
 
 
+def test_the_captured_view_and_the_row_say_how_many_events_were_dropped(admin_client, fed):
+    fed.capture.lost("ws", "s1")
+    for kind in ("console", "network"):
+        assert admin_client.get(f"/admin/workspaces/ws/{kind}", headers=AUTH).json()["dropped"] == 1
+    [row] = admin_client.get("/admin/workspaces", headers=AUTH).json()["workspaces"]
+    assert row["captured"]["dropped"] == 1
+
+
 def test_capture_off_reads_as_off(admin_client, plain):
     assert admin_client.get("/admin/workspaces/plain/network", headers=AUTH).json() == {
         "capture": False, "how": "open_session(capture=true)"}

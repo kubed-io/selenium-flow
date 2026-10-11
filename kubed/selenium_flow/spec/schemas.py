@@ -79,6 +79,14 @@ RESPONSES = {
                     "network": {"type": "integer"},
                     "errors": {"type": "integer"},
                     "failed_requests": {"type": "integer"},
+                    "dropped": {
+                        "type": "integer",
+                        "description": (
+                            "Events the browser sent that capture lost when"
+                            " they came faster than it could keep them; present"
+                            " only when there were some."
+                        ),
+                    },
                 },
             },
             "in_frame": {"type": ["boolean", "null"]},

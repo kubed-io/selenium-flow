@@ -43,8 +43,8 @@ class Listing:
 class FakeSubscriber:
     """What `FakeConnection.listen` returns: a handler for some events."""
 
-    def __init__(self, events, handler):
-        self.events, self.handler = frozenset(events), handler
+    def __init__(self, events, handler, on_drop=None):
+        self.events, self.handler, self.on_drop = frozenset(events), handler, on_drop
         self.cancelled = False
 
     def cancel(self):
@@ -94,8 +94,8 @@ class FakeConnection:
             return {"contexts": [{"context": "top-1"}]}
         return {}
 
-    def listen(self, events, handler, *, name, limit=1000):
-        subscriber = FakeSubscriber(events, handler)
+    def listen(self, events, handler, *, name, limit=1000, on_drop=None):
+        subscriber = FakeSubscriber(events, handler, on_drop)
         self.listeners.append(subscriber)
         return subscriber
 
@@ -152,6 +152,9 @@ class FakeSink:
 
     def detached(self, workspace, session_id):
         self.calls.append(("detached", workspace, session_id))
+
+    def lost(self, workspace, session_id):
+        self.calls.append(("lost", workspace, session_id))
 
 
 @pytest.fixture

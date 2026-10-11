@@ -78,6 +78,13 @@ export class CaptureModel {
     return out
   })
 
+  /* Events lost on the way: Live, what the stream's queue dropped; Captured,
+     what capture itself never heard, which the server counts. */
+  readonly lost = $derived.by(() => {
+    if (this.mode === 'live') return this.dropped
+    return this.data && 'dropped' in this.data ? this.data.dropped ?? 0 : 0
+  })
+
   /* "Live · 12 messages", "Paused · 12 messages · 3 new", or the Captured line. */
   readonly footer = $derived.by(() => {
     const noun = this.kind === 'console' ? 'messages' : 'requests'

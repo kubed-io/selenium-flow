@@ -48,6 +48,6 @@
   {#if none}
     <p class="small muted">{empty}</p>
   {:else}
-    <p class="small muted">{m.footer}{#if m.dropped}<span class="warn"> · {m.dropped} dropped</span>{/if}</p>
+    <p class="small muted">{m.footer}{#if m.lost}<span class="warn"> · {m.lost.toLocaleString('en-US')} dropped</span>{/if}</p>
   {/if}
 {/if}

@@ -134,6 +134,7 @@ class Subscriber:
         limit: int = QUEUE_LIMIT,
         clock: Callable[[], float] = time.monotonic,
         on_cancel: Callable[[Subscriber], None] | None = None,
+        on_drop: Callable[[], None] | None = None,
     ):
         self.events = frozenset(events)
         self.handler = handler
@@ -144,6 +145,7 @@ class Subscriber:
         self.lags: deque[float] = deque(maxlen=LAGS_KEPT)
         self._clock = clock
         self._on_cancel = on_cancel
+        self._on_drop = on_drop
         self.max_bytes = QUEUE_BYTES
         # (method, params, at, size) for an event; a future for a barrier.
         self._queue: deque[tuple[str, dict, float, int] | asyncio.Future] = deque()
@@ -168,6 +170,8 @@ class Subscriber:
             return
         if self._depth >= self.limit or self._bytes + size > self.max_bytes:
             self.dropped += 1
+            if self._on_drop is not None:
+                self._on_drop()
             if not self._full:
                 self._full = True
                 log.warning(
@@ -368,10 +372,12 @@ class Connection:
         *,
         name: str,
         limit: int = QUEUE_LIMIT,
+        on_drop: Callable[[], None] | None = None,
     ) -> Subscriber:
         """Hand ``events`` to ``handler`` on a queue and task of its own, until
         the subscriber is cancelled or the connection closes. Subscribing is a
-        separate call: register the listener first, so nothing is missed."""
+        separate call: register the listener first, so nothing is missed.
+        ``on_drop`` is called, on the loop, for each event the queue drops."""
         subscriber = Subscriber(
             events,
             handler,
@@ -379,6 +385,7 @@ class Connection:
             limit=limit,
             clock=self._clock,
             on_cancel=self._forget,
+            on_drop=on_drop,
         )
         self._subscribers.append(subscriber)
         return subscriber

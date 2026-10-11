@@ -3374,6 +3374,10 @@
               "console": {
                 "type": "integer"
               },
+              "dropped": {
+                "description": "Events the browser sent that capture lost when they came faster than it could keep them; present only when there were some.",
+                "type": "integer"
+              },
               "errors": {
                 "type": "integer"
               },

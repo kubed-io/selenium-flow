@@ -55,6 +55,14 @@ async def test_attach_holds_subscribes_and_collects_before_returning(running_mon
     assert monitor.capturing(GID)
 
 
+async def test_an_event_the_capture_listener_drops_is_told_to_the_sink(running_monitor):
+    monitor, sink = running_monitor
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture")
+    [listener] = FakeConnection.made[0].listeners
+    listener.on_drop()
+    assert sink.calls[-1] == ("lost", "ws1", GID)
+
+
 async def test_a_failed_attach_raises_503_and_holds_nothing(running_monitor):
     monitor, sink = running_monitor
     FakeConnection.refuse = True

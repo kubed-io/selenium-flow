@@ -67,6 +67,28 @@ def texts(capture, **query):
 # ---- the brief's -------------------------------------------------------------
 
 
+def test_dropped_events_are_carried_only_once_there_are_some(capture):
+    """Spotless 7: the capture listener's queue overflowing was a log line and
+    nothing a reader looks at. Every view now says how many were lost."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"), log("kept"))
+    assert "dropped" not in capture.console("ws") and "dropped" not in capture.network("ws")
+    assert "dropped" not in capture.counts("ws")
+    for _ in range(12):
+        capture.lost("ws", "s1")
+    assert capture.console("ws")["dropped"] == 12
+    assert capture.network("ws", filter="failed")["dropped"] == 12
+    assert capture.counts("ws")["dropped"] == 12
+
+
+def test_a_drop_from_a_browser_capture_does_not_hear_is_not_counted(capture):
+    attach(capture)
+    feed(capture, log("kept"))
+    capture.lost("ws", "nobody")
+    capture.lost("other", "s1")
+    assert "dropped" not in capture.console("ws")
+
+
 def test_the_console_buffer_keeps_the_newest_thousand(capture):
     attach(capture)
     feed(capture, nav_started("https://a.test/"), *[log(f"m{i}", ts=1000.0 + i) for i in range(1500)])

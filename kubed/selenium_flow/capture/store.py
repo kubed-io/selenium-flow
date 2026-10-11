@@ -137,6 +137,9 @@ class Buffer:
     failed: dict[int, int] = field(default_factory=dict)
     errors_total: int = 0
     failed_total: int = 0
+    # Events the capture listener's queue dropped, since the buffer began: a
+    # dropped navigation cannot be placed on a page.
+    dropped: int = 0
     in_flight: OrderedDict[tuple[str, int], _Flight] = field(
         default_factory=OrderedDict
     )
@@ -288,6 +291,16 @@ class Capture:
             held.holding = None
             if landed:
                 self._cache[workspace] = buffer
+
+    def lost(self, workspace, session_id) -> None:
+        """An event the browser sent was dropped before it landed: counted."""
+        with self._lock:
+            held = self._sessions.get(session_id)
+            if held is None or held.workspace != workspace:
+                return
+            buffer = self._cache.get(workspace) or Buffer()
+            buffer.dropped += 1
+            self._cache[workspace] = buffer
 
     def detached(self, workspace, session_id) -> None:
         """A hold ended, or failed before it began: anything held is dropped,
