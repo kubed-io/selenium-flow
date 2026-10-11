@@ -386,11 +386,6 @@ class Masker:
         self._state: tuple[tuple[str, ...], tuple[int, ...], bool] = ((), (), True)
         self.add(secrets)
 
-    @property
-    def secrets(self) -> tuple[str, ...]:
-        """Every form masked, longest first."""
-        return self._state[0]
-
     def add(self, forms: Iterable[str]) -> None:
         """Mask ``forms`` from now on: a secret's raw value and its encodings."""
         self._bound |= {f for f in forms if isinstance(f, str) and f}

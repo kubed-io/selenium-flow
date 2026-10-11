@@ -22,6 +22,11 @@ from .capture_events import log
 pytestmark = pytest.mark.unit
 
 
+def forms_of(masker):
+    """Every form a masker masks, longest first."""
+    return masker._state[0]
+
+
 def kept(raw, masker=None):
     """The headers a row keeps, without the count of those it dropped."""
     return (masker or Masker()).headers(raw)[0]
@@ -275,7 +280,7 @@ def test_the_forms_are_capped_per_session():
     values = [f"cookie-value-{i:04}" for i in range(COOKIE_FORMS + 10)]  # one form each
     for value in values:
         cookie(m, value)
-    assert len(m.secrets) <= COOKIE_FORMS
+    assert len(forms_of(m)) <= COOKIE_FORMS
     assert sum(m.text(v) == MASK for v in values) == COOKIE_FORMS
 
 
@@ -355,7 +360,7 @@ def test_a_huge_credential_is_not_learned_and_is_counted():
     huge = "Zz9-" * (CREDENTIAL_MAX // 4 + 1)
     cookie(m, huge)
     bearer(m, "Bearer " + "-9zZ" * (AUTH_MAX // 4 + 1))
-    assert m.secrets == () and m.skipped == 2        # the cookie, and the token with its header
+    assert forms_of(m) == () and m.skipped == 2        # the cookie, and the token with its header
 
 
 def test_learned_forms_are_bounded_in_characters_too():
@@ -366,14 +371,14 @@ def test_learned_forms_are_bounded_in_characters_too():
         bearer(m, f"Bearer {i:04}-" + "a1" * (CREDENTIAL_MAX // 2 - 8))
         cookie(m, f"{i:04}-" + "b2" * (CREDENTIAL_MAX // 2 - 8))
     # Two tiers, each within its budget but for the newest value it keeps.
-    assert sum(map(len, m.secrets)) <= 2 * (FORM_CHARS + 8 * CREDENTIAL_MAX)
+    assert sum(map(len, forms_of(m))) <= 2 * (FORM_CHARS + 8 * CREDENTIAL_MAX)
 
 
 def test_a_credential_holding_a_nul_is_not_learned():
     """A row's header values are scanned joined on NUL (R1-1)."""
     m = Masker()
     cookie(m, "abc\x00def-0123456789-xyz")
-    assert m.secrets == ()
+    assert forms_of(m) == ()
 
 
 PROBE_COOKIES = "consent=accepted; ab=undefined; ts=1728600000; sid=s%3Aa8F2kQ9xZ1mP0rT7vW3yB5"
@@ -394,20 +399,20 @@ def test_the_probes_console_stays_readable_and_its_session_token_is_masked():
 def test_a_cookie_of_only_letters_or_only_digits_is_not_learned(value):
     m = Masker()
     cookie(m, value)
-    assert m.secrets == ()
+    assert forms_of(m) == ()
 
 
 def test_a_cookie_under_sixteen_characters_is_not_learned():
     m = Masker()
     cookie(m, "abc-123-xyz-99")                        # 14, mixed
-    assert m.secrets == ()
+    assert forms_of(m) == ()
 
 
 @pytest.mark.parametrize("value", ["Negotiate", "Bearer", "Basic ", "Bearer undefined"])
 def test_an_authorization_without_a_token_learns_nothing(value):
     m = Masker()
     bearer(m, value)
-    assert m.secrets == ()
+    assert forms_of(m) == ()
 
 
 # ---- what masking costs (R1-1) ----------------------------------------------------
@@ -562,7 +567,7 @@ def test_a_whole_authorization_value_holding_a_nul_is_not_learned():
     m = Masker()
     bearer(m, "Be\x00arer validtoken-0123456789")
     assert m.text("validtoken-0123456789") == MASK
-    assert not any("\x00" in form for form in m.secrets) and m._state[2]
+    assert not any("\x00" in form for form in forms_of(m)) and m._state[2]
 
 
 def test_a_cookie_is_masked_in_its_decoded_spelling_too():
@@ -1086,7 +1091,7 @@ def test_a_bearer_token_past_its_own_limit_is_counted():
 
     m = Masker()
     bearer(m, "Bearer " + jwt(AUTH_MAX))
-    assert m.secrets == () and m.skipped == 1
+    assert forms_of(m) == () and m.skipped == 1
 
 
 def test_a_credential_past_the_headers_a_row_keeps_is_still_learned():
