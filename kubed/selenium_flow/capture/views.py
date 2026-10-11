@@ -72,7 +72,7 @@ def console(buffer: Buffer, level: str, pages: int) -> dict:
     navs = window(buffer, pages)
     kept = [e for e in reversed(buffer.console) if e["nav"] in navs]
     if level == "error":
-        shown = [e for e in kept if e["level"] == "error" or e["type"] == "javascript"]
+        shown = [e for e in kept if _is_error(e)]
     elif level == "warn":
         shown = [e for e in kept if e["level"] == "warn"]
     else:
@@ -83,7 +83,14 @@ def console(buffer: Buffer, level: str, pages: int) -> dict:
         "entries": [dict(e) for e in shown],
         "count": len(shown),
         "total": len(kept),
+        # What the entries hold, counted here: a view cut to the newest rows
+        # (`show`) would otherwise count only those.
+        "tally": {
+            "errors": sum(1 for e in shown if _is_error(e)),
+            "warnings": sum(1 for e in shown if e["level"] == "warn"),
+        },
         "not_kept": {"debug": sum(buffer.debug.get(n, 0) for n in navs)},
+        **lost(buffer),
     }
 
 
@@ -95,9 +102,9 @@ def network(buffer: Buffer, filter: str, pages: int) -> dict:
         reverse=True,
     )
     if filter == "failed":
-        shown = [r for r in kept if r["failed"] or (r["status"] or 0) >= 400]
+        shown = [r for r in kept if _is_failed(r)]
     elif filter == "xhr":
-        shown = [r for r in kept if r["type"] in ("xhr", "fetch")]
+        shown = [r for r in kept if _is_xhr(r)]
     else:
         shown = kept
     return {
@@ -106,8 +113,26 @@ def network(buffer: Buffer, filter: str, pages: int) -> dict:
         "requests": [without_headers(r) for r in shown],
         "count": len(shown),
         "total": len(kept),
+        # As the console's: what the requests hold, whatever a view draws.
+        "tally": {
+            "failed": sum(1 for r in shown if _is_failed(r)),
+            "xhr": sum(1 for r in shown if _is_xhr(r)),
+        },
         "not_kept": {"static": sum(buffer.static.get(n, 0) for n in navs)},
+        **lost(buffer),
     }
+
+
+def _is_error(entry: dict) -> bool:
+    return entry["level"] == "error" or entry["type"] == "javascript"
+
+
+def _is_failed(row: dict) -> bool:
+    return row["failed"] or (row["status"] or 0) >= 400
+
+
+def _is_xhr(row: dict) -> bool:
+    return row["type"] in ("xhr", "fetch")
 
 
 def request(buffer: Buffer, id: str) -> dict | None:
@@ -120,14 +145,26 @@ def request(buffer: Buffer, id: str) -> dict | None:
 
 def counts(buffer: Buffer) -> dict:
     """What was kept since the last navigation (plan ruling 12): console
-    counts kept entries, network every request seen, static included."""
+    counts kept entries, network every request seen, static included. Its
+    ``dropped`` (`lost`) is the exception: since the buffer began."""
     nav = buffer.nav
     return {
         "console": sum(1 for e in buffer.console if e["nav"] == nav),
         "network": buffer.seen.get(nav, 0),
         "errors": buffer.errors.get(nav, 0),
         "failed_requests": buffer.failed.get(nav, 0),
+        **lost(buffer),
     }
+
+
+def lost(buffer: Buffer) -> dict:
+    """``dropped``: the events the browser sent that capture never heard, so
+    any view may be missing them; ``unmasked``: the credentials too long to
+    learn, so any view may show them. Each present only when there were
+    some, and counted since the buffer began, not per navigation, unlike
+    every count beside them: neither can be placed on a page."""
+    counted = {"dropped": buffer.dropped, "unmasked": buffer.unmasked}
+    return {name: n for name, n in counted.items() if n}
 
 
 def without_headers(row: dict) -> dict:

@@ -59,6 +59,30 @@ MASK = "•••"
 MASKED_HEADERS = frozenset(
     {"authorization", "proxy-authorization", "cookie", "set-cookie"}
 )
+# A value one of those headers (or a request cookie) carried is masked wherever
+# else it appears — a page can echo it. Each is kept with every spelling an echo
+# gives it (its forms), and every form costs every masked text a scan, so what a
+# session learns is a budget of forms and of their characters, in two tiers: an
+# Authorization token's, which cookies cannot evict, the least recently seen
+# going first; and the cookies', which past the budget holds the cookies that
+# rank highest (`masking._Ranked`), one not sent for COOKIE_STALE events
+# ranking below every one that was, each cookie domain sure of 1/COOKIE_SHARE
+# of it against the others. A value is learned only when it can be a secret:
+# an Authorization token of CREDENTIAL_MIN or more, a cookie of COOKIE_MIN or
+# more, neither only letters nor only digits ("accepted", "undefined", a
+# timestamp), none holding a NUL, and none over CREDENTIAL_MAX — a token spelt
+# as RFC 6750's b64token, AUTH_MAX — which is counted as ``unmasked`` instead,
+# once per value.
+AUTH_FORMS = 16
+COOKIE_FORMS = 48
+FORM_CHARS = 32_768  # per tier, past the one value it may be over by
+CREDENTIAL_MIN = 8
+COOKIE_MIN = 16
+CREDENTIAL_MAX = 4096  # a cookie: the browser's own limit
+AUTH_MAX = 16_384  # a b64token: Entra ID's, with group claims, run to 5-10 kB
+COOKIE_STALE = 64  # events: a request is two or three (cookies, headers, response)
+COOKIE_SHARE = 2  # each cookie domain is sure of 1/2 of the cookie tier
+COOKIE_TAKES = 8  # new cookies an event learns at most, the highest-ranked
 
 # Counted, not kept, when they succeed (ruling 3); counted in the hint when they
 # fail (ruling 12).

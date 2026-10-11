@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -130,6 +131,12 @@ class Workspace:
     # it, read from its node at the last open (session monitor spec, ruling
     # 10). Kept when the session ends; None when the Grid did not say.
     grid_timeout: int | None = None
+    # The window the held browser has, as ``WxH``: measured when it opened (the
+    # node's default when nothing was asked) and moved by a resize. What the
+    # admin list shows while it is live, since asking the browser on every
+    # poll would be activity that keeps it from ever being reaped; ``window``
+    # is what was asked for.
+    window_seen: str | None = None
 
     @property
     def url(self) -> str:
@@ -179,6 +186,7 @@ class Workspace:
                 reopened=reopened if isinstance(reopened, dict) else {},
                 opened_by=_opener(data.get("opened_by")),
                 grid_timeout=_timeout(data.get("grid_timeout")),
+                window_seen=_size(data.get("window_seen")),
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -228,7 +236,10 @@ class Workspace:
         changed, and the ones it does not mention — the browser, the timeouts —
         have to survive or a reopen would replay a browser nobody asked for.
         """
-        return replace(self, settings={**self.settings, **settings})
+        merged = {**self.settings, **settings}
+        width, height = merged.get("width"), merged.get("height")
+        seen = f"{width}x{height}" if width and height else self.window_seen
+        return replace(self, settings=merged, window_seen=seen)
 
     def with_site_data(self, site_data: dict) -> Workspace:
         """The same record holding this site data."""
@@ -257,6 +268,13 @@ def _opener(value) -> dict | None:
         return None
     name = value.get("username")
     return {"kind": value["kind"], "username": name if isinstance(name, str) else None}
+
+
+def _size(raw) -> str | None:
+    """A stored ``window_seen``: ``WxH`` in whole pixels, or None."""
+    if isinstance(raw, str) and re.fullmatch(r"[1-9][0-9]{0,5}x[1-9][0-9]{0,5}", raw):
+        return raw
+    return None
 
 
 def _timeout(raw) -> int | None:

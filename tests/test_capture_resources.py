@@ -101,6 +101,39 @@ async def test_pages_out_of_range_is_refused_naming_the_range(server):
         await read(server, "workspace://network?pages=9")
 
 
+BAD_READS = [
+    ("workspace://console?pages=9", "1 to 5"),
+    ("workspace://console?pages=x", "1 to 5"),
+    ("workspace://console?level=bogus", "level is one of"),
+    ("workspace://network?pages=0", "1 to 5"),
+    ("workspace://network?filter=bogus", "filter is one of"),
+    ("workspace://network/9.9", "workspace://network lists them"),
+]
+
+
+@pytest.mark.parametrize(("uri", "says"), BAD_READS)
+async def test_a_bad_argument_is_invalid_params_not_an_internal_error(server, uri, says):
+    """The caller's mistake, like every other bad argument: -32602, never
+    -32603, which tells a client the server broke (spotless 3)."""
+    from mcp_types import INVALID_PARAMS
+
+    capturing(server)
+    with pytest.raises(MCPError, match=says) as refused:
+        await read(server, uri)
+    assert refused.value.error.code == INVALID_PARAMS
+
+
+@pytest.mark.parametrize(("uri", "says"), BAD_READS)
+async def test_a_bad_argument_through_read_resource_says_the_same(server, uri, says):
+    from fastmcp.exceptions import ToolError
+
+    capturing(server)
+    async with Client(server.mcp) as c:
+        with pytest.raises(ToolError, match=says) as refused:
+            await c.call_tool("read_resource", {"uri": uri})
+    assert "refused its arguments" not in str(refused.value)
+
+
 async def test_the_network_lists_a_request_and_one_opens(server):
     capturing(server)
     listing = await read(server, "workspace://network?filter=failed")

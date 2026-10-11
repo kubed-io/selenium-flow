@@ -67,6 +67,28 @@ def texts(capture, **query):
 # ---- the brief's -------------------------------------------------------------
 
 
+def test_dropped_events_are_carried_only_once_there_are_some(capture):
+    """Spotless 7: the capture listener's queue overflowing was a log line and
+    nothing a reader looks at. Every view now says how many were lost."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"), log("kept"))
+    assert "dropped" not in capture.console("ws") and "dropped" not in capture.network("ws")
+    assert "dropped" not in capture.counts("ws")
+    for _ in range(12):
+        capture.lost("ws", "s1")
+    assert capture.console("ws")["dropped"] == 12
+    assert capture.network("ws", filter="failed")["dropped"] == 12
+    assert capture.counts("ws")["dropped"] == 12
+
+
+def test_a_drop_from_a_browser_capture_does_not_hear_is_not_counted(capture):
+    attach(capture)
+    feed(capture, log("kept"))
+    capture.lost("ws", "nobody")
+    capture.lost("other", "s1")
+    assert "dropped" not in capture.console("ws")
+
+
 def test_the_console_buffer_keeps_the_newest_thousand(capture):
     attach(capture)
     feed(capture, nav_started("https://a.test/"), *[log(f"m{i}", ts=1000.0 + i) for i in range(1500)])
@@ -465,6 +487,17 @@ def test_a_new_session_in_the_workspace_keeps_its_secrets(capture):
     assert [e["text"] for e in capture.console("other")["entries"]] == ["hunter2"]
 
 
+def test_a_credential_a_header_carried_is_masked_by_the_session_that_replaces_it(capture):
+    """A reopen restores the login, so the next browser can echo the token the
+    last one sent before it sends it itself."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"),
+         req("r1", "https://a.test/api", headers=[("Authorization", "Bearer abcdefgh12345")]))
+    capture.attached("ws", "s2", "chrome", "top-1", again=False)
+    feed(capture, log("token abcdefgh12345"), session_id="s2")
+    assert texts(capture) == [f"token {MASK}"]
+
+
 def test_an_expired_buffer_comes_back_empty_with_the_sessions_secrets(capture, clock):
     attach(capture)
     capture.secret("ws", ["hunter2"])
@@ -687,3 +720,38 @@ async def test_a_tail_waits_for_a_row(capture):
 def test_a_tail_of_an_unknown_kind_is_refused(capture):
     with pytest.raises(ValueError, match="console or network"):
         capture.tail("ws", "all")
+
+
+def test_a_third_partys_cookie_headers_cannot_evict_the_first_partys_session(capture):
+    """R5-3: a cookie with no BiDi domain counts against its request's host,
+    so a tracker's 48 session-named cookies are its own share, not the app's."""
+    import random
+
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    hostile = "; ".join(f"token{i}=" + "".join(random.Random(i).sample(alphabet, 64)) * 2
+                        for i in range(48))
+    sid = "Q7vX_2mK9pL4wR8tZ1nB6yH3cJ5fD0gS-aEuWiOqT"
+    attach(capture)
+    feed(capture, nav_started("https://app.example/"),
+         req("r1", "https://app.example/api", headers=[("Cookie", f"sid={sid}")]))
+    for i in range(3):
+        feed(capture,
+             req(f"t{i}", "https://tracker.example/p", headers=[("Cookie", hostile)]),
+             done(f"t{i}", 200, url="https://tracker.example/p",
+                  headers=[("Set-Cookie", hostile.split("; ")[i])]))
+    feed(capture, log(f"echo {sid}"))
+    assert texts(capture)[-1] == f"echo {MASK}"
+
+
+def test_a_credential_too_long_to_mask_is_counted_where_dropped_is(capture):
+    """F-3: an operator learns that a credential went unmasked; ``unmasked``
+    is present only when there was one, and counts each value once."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"),
+         req("r1", "https://a.test/api", headers=[("Cookie", "sid=ok-value-0123456789")]))
+    assert "unmasked" not in capture.counts("ws") and "unmasked" not in capture.console("ws")
+    huge = "sid=" + "Zz9-" * 1100                            # past a cookie's 4 096
+    for i in range(3):
+        feed(capture, req(f"r{i + 2}", "https://a.test/api", headers=[("Cookie", huge)]))
+    assert capture.counts("ws")["unmasked"] == 1
+    assert capture.console("ws")["unmasked"] == 1 and capture.network("ws")["unmasked"] == 1

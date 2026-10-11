@@ -137,6 +137,12 @@ class Buffer:
     failed: dict[int, int] = field(default_factory=dict)
     errors_total: int = 0
     failed_total: int = 0
+    # Events the capture listener's queue dropped, since the buffer began: a
+    # dropped navigation cannot be placed on a page.
+    dropped: int = 0
+    # Credentials too long to learn, so shown wherever a page echoes them:
+    # each counted once (`Masker.skipped`), since the buffer began.
+    unmasked: int = 0
     in_flight: OrderedDict[tuple[str, int], _Flight] = field(
         default_factory=OrderedDict
     )
@@ -229,16 +235,16 @@ class Capture:
                     else None
                 )
                 return
-            secrets: list[str] = []
+            masker = Masker()
             for sid in [
                 s for s, h in self._sessions.items() if h.workspace == workspace
             ]:
-                secrets += self._sessions.pop(sid).masker.secrets
+                masker.carry(self._sessions.pop(sid).masker)
             parked = self._parked.pop(workspace, None)
             if parked is not None:
-                secrets += parked.masker.secrets
+                masker.carry(parked.masker)
             self._sessions[session_id] = Held(
-                workspace, session_id, browser, top, masker=Masker(secrets)
+                workspace, session_id, browser, top, masker=masker
             )
             self._evict()
             buffer = self._cache.get(workspace)
@@ -288,6 +294,16 @@ class Capture:
             held.holding = None
             if landed:
                 self._cache[workspace] = buffer
+
+    def lost(self, workspace, session_id) -> None:
+        """An event the browser sent was dropped before it landed: counted."""
+        with self._lock:
+            held = self._sessions.get(session_id)
+            if held is None or held.workspace != workspace:
+                return
+            buffer = self._cache.get(workspace) or Buffer()
+            buffer.dropped += 1
+            self._cache[workspace] = buffer
 
     def detached(self, workspace, session_id) -> None:
         """A hold ended, or failed before it began: anything held is dropped,
@@ -381,6 +397,13 @@ class Capture:
         with self._lock:
             buffer = self._cache.get(workspace)
             return None if buffer is None else views.request(buffer, id)
+
+    def known(self, workspace: str, id: str) -> bool:
+        """Whether request ``id`` is kept in ``workspace``'s capture, whatever
+        browser made it."""
+        with self._lock:
+            buffer = self._cache.get(workspace)
+            return buffer is not None and id in buffer.index
 
     def counts(self, workspace: str) -> dict | None:
         with self._lock:
@@ -521,13 +544,17 @@ class Capture:
         buffer.counter += 1
         buffer.seq += 1
         nav = buffer.nav
-        headers, dropped = held.masker.headers(request.get("headers"))
+        url = str(request.get("url") or "")  # whose cookies they are
+        skipped = held.masker.skipped
+        held.masker.cookies(request.get("cookies"), url)  # learned, never shown
+        headers, dropped = held.masker.headers(request.get("headers"), url)
+        buffer.unmasked += held.masker.skipped - skipped
         row = {
             "id": f"{nav}.{buffer.counter}",
             "seq": buffer.seq,
             "at": seconds(params.get("timestamp")),
             "method": held.masker.text(str(request.get("method") or "")),
-            "url": held.masker.url(str(request.get("url") or ""), keep_query=True),
+            "url": held.masker.url(url, keep_query=True),
             "status": None,
             "status_text": "",
             "type": resource_type(kind, "", navigation),
@@ -580,7 +607,11 @@ class Capture:
         row["status_text"] = mask(str(response.get("statusText") or ""))
         row["mime"] = mask(str(response.get("mimeType") or ""))
         row["size"] = size if number(size) else None
-        row["response_headers"], dropped = held.masker.headers(response.get("headers"))
+        skipped = held.masker.skipped
+        row["response_headers"], dropped = held.masker.headers(
+            response.get("headers"), str((params.get("request") or {}).get("url") or "")
+        )
+        buffer.unmasked += held.masker.skipped - skipped
         row["headers_dropped"] += dropped
         row["took_ms"] = took_ms(params, flight.begin)
         if row["type"] == "other":

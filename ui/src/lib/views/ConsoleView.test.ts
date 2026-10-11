@@ -24,6 +24,22 @@ test('newest first, at most four rows, counts and the rest', () => {
   expect(screen.getByText('+1 more · since the last navigation')).toBeInTheDocument()
 })
 
+test('a view show cut to its newest entries says so', () => {
+  render(ConsoleView, { props: { data: { ...data, count: 1000, total: 1000 } } })
+  expect(screen.getByText('showing the newest 5 of 1,000')).toBeInTheDocument()
+})
+
+test('the chips count the listing, not the newest rows show sent (R1-7)', () => {
+  render(ConsoleView, { props: { data: { ...data, count: 1000, total: 1000, tally: { errors: 300, warnings: 7 } } } })
+  expect(screen.getByText('Errors').nextElementSibling).toHaveTextContent('300')
+  expect(screen.getByText('Warnings').nextElementSibling).toHaveTextContent('7')
+})
+
+test('a view that was not cut says nothing about it', () => {
+  render(ConsoleView, { props: { data } })
+  expect(screen.queryByText(/showing the newest/)).toBeNull()
+})
+
 test('captured text is text, never markup', () => {
   const { container } = render(ConsoleView, { props: { data } })
   expect(container.querySelector('b')).toBeNull()

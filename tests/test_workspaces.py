@@ -1294,8 +1294,8 @@ def test_two_reopens_after_a_reap_leave_exactly_one_browser():
 
 def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
     """requests' HTTPError quotes the whole request URL, userinfo included;
-    the cleanup log goes through faults.message like every caller-facing line
-    (Copilot, #50)."""
+    the cleanup log names the failure by its type, so neither the credentials
+    (Copilot, #50) nor the Grid id in that URL reach it."""
     import logging
 
     actions = RecordingActions()
@@ -1311,8 +1311,8 @@ def test_a_failed_quit_never_logs_the_grids_credentials(caplog):
     actions.end_browser = refuse
     with caplog.at_level(logging.INFO):
         workspaces.end_browser(Caller(NAMED))
-    assert "could not end browser" in caplog.text
-    assert "hunter2" not in caplog.text
+    assert "could not end the browser" in caplog.text
+    assert "hunter2" not in caplog.text and "abc" not in caplog.text   # nor its Grid id
 
 
 # ---- how a request names itself, edge by edge (N8-N12) ----------------------
@@ -1713,3 +1713,39 @@ def test_a_reopen_after_a_reap_keeps_who_opened_it():
 def test_opened_by_is_read_back_or_dropped(stored, read):
     raw = json.dumps({"session_id": "s", "opened_by": stored})
     assert Workspace.from_json(raw).opened_by == read
+
+
+# ---- the logs name the workspace, never the browser (spotless 5) ----------------
+
+
+def test_opening_ending_and_reaping_log_no_grid_id(named_caller, caplog):
+    """The open, the end, a reap's reopen and a lost race are each logged, and
+    every line names the workspace; none names the Grid's id for the browser,
+    which is how anyone with the logs could reach it."""
+    import logging
+
+    from kubed.selenium_flow.workspace.workspaces import Caller
+
+    caplog.set_level(logging.DEBUG)
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    caller = Caller.from_request({"workspace": [NAMED]}, {})
+    workspaces.open_browser(caller)
+    workspaces.resolve(NAMED)                                  # recalled
+    actions.grid.alive.clear()                                 # the Grid reaped it
+    workspaces.resolve(NAMED)                                  # reopened
+    workspaces.end_browser(caller)
+    workspaces.open_browser(caller)
+
+    def refuses(session_id):
+        raise ConnectionError(f"http://grid:4444/session/{session_id} is gone")
+
+    actions.end_browser = refuses
+    workspaces.end_browser(caller)                             # could not end it
+    workspaces.remember(NAMED, "generated-9", "", {})          # another open binds first
+    workspaces.remember(NAMED, "generated-10", "", {}, replacing="")   # and loses
+    said = [record.getMessage() for record in caplog.records]
+    for path in ("recalled", "gone from the grid", "ended the browser",
+                 "could not end the browser", "raced", "could not end the losing"):
+        assert any(path in line and NAMED in line for line in said), (path, said)
+    assert not [line for line in said if "generated-" in line], said

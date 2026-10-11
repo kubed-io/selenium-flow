@@ -92,9 +92,12 @@ def test_network_lists_one_request_and_opens_it(admin_client, fed):
     assert one.status_code == 200 and one.json()["id"] == "1.1"
 
 
-def test_a_bad_query_or_unknown_id_is_400(admin_client, fed):
-    assert admin_client.get("/admin/workspaces/ws/console?pages=9", headers=AUTH).status_code == 400
-    assert admin_client.get("/admin/workspaces/ws/network/9.9", headers=AUTH).status_code == 400
+@pytest.mark.parametrize("path", [
+    "console?pages=9", "console?pages=x", "console?level=bogus",
+    "network?pages=0", "network?filter=bogus", "network/9.9",
+])
+def test_a_bad_query_or_unknown_id_is_400(admin_client, fed, path):
+    assert admin_client.get(f"/admin/workspaces/ws/{path}", headers=AUTH).status_code == 400
 
 
 def test_every_captured_route_is_behind_the_admin_door(admin_client, fed):
@@ -151,6 +154,48 @@ def test_an_unknown_body_id_is_400(admin_client, fed, monkeypatch):
     monkeypatch.setattr(fed.workspaces, "browser", lambda key: "s1")
     r = admin_client.post("/admin/workspaces/ws/network/9.9/body", headers=AUTH)
     assert r.status_code == 400 and "s1" not in r.text
+
+
+# ---- the capability, once the browser has ended (spotless 1) -------------------
+
+
+BODY_CLOSED = "no session is open in this workspace; a body lives only as long as its browser"
+
+
+def test_a_known_body_after_end_browser_is_404_over_http(admin_client, fed):
+    """Spec §7 and ruling 11: a body for a browser that has ended is a 404
+    naming why, never the "call open_session first" 400 — opening one cannot
+    bring the body back."""
+    r = admin_client.post("/browser/network-body", json={"id": "1.1"},
+                          headers={**AUTH, "X-Workspace": "ws"})
+    assert r.status_code == 404 and r.json()["error"] == BODY_CLOSED
+
+
+def test_an_unknown_body_id_with_no_session_stays_400_over_http(admin_client, fed):
+    r = admin_client.post("/browser/network-body", json={"id": "9.9"},
+                          headers={**AUTH, "X-Workspace": "ws"})
+    assert r.status_code == 400 and "open_session" in r.json()["error"]
+
+
+async def test_a_known_body_after_end_browser_names_why_over_mcp(fed, monkeypatch):
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+
+    from .conftest import calling_as
+
+    calling_as(monkeypatch, "ws")
+    async with Client(fed.mcp) as client:
+        with pytest.raises(ToolError) as caught:
+            await client.call_tool("network_body", {"id": "1.1"})
+    assert BODY_CLOSED in str(caught.value) and "call open_session" not in str(caught.value)
+
+
+def test_the_captured_view_and_the_row_say_how_many_events_were_dropped(admin_client, fed):
+    fed.capture.lost("ws", "s1")
+    for kind in ("console", "network"):
+        assert admin_client.get(f"/admin/workspaces/ws/{kind}", headers=AUTH).json()["dropped"] == 1
+    [row] = admin_client.get("/admin/workspaces", headers=AUTH).json()["workspaces"]
+    assert row["captured"]["dropped"] == 1
 
 
 def test_capture_off_reads_as_off(admin_client, plain):

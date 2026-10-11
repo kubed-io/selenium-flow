@@ -3,8 +3,8 @@
 Each builder returns ``(method, params)`` in WebDriver BiDi's shape, so a test
 reads as the stream a browser would deliver: ``feed(capture, nav_started(...),
 req(...), done(...))``. Only the fields capture reads are filled in, plus the
-ones it must never read (``cookies``, ``goog:postData``), so a test can show
-they never reach a row.
+ones it must never show (``cookies``, whose values it only learns to mask, and
+``goog:postData``), so a test can show they never reach a row.
 """
 
 from __future__ import annotations

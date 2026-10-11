@@ -637,3 +637,59 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
         stop.set()
         gate.release(1000)
         await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 5)
+
+
+def admin_row(client, server, live):
+    with (
+        patch.object(browser.Grid, "sessions", return_value=[{"session_id": s} for s in live]),
+        patch.object(browser.Grid, "files", return_value=[]),
+    ):
+        body = client.get("/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}).json()
+    return body["workspaces"][0]
+
+
+def test_a_live_row_reports_the_window_its_browser_opened_at(client, server, monkeypatch):
+    """workspace://current asks the live browser; the row must not say null
+    for the same browser (spotless 4). It reports the size the open measured,
+    without a WebDriver command per poll, which would count as activity and
+    keep every listed browser from ever being reaped."""
+    from kubed.selenium_flow.workspace.workspaces import Caller
+
+    opened = {"session_id": "s9", "url": "about:blank", "browser": "chrome",
+              "width": 945, "height": 1038}
+    monkeypatch.setattr(server.workspaces.actions, "open_session", lambda **_: dict(opened))
+    monkeypatch.setattr(server.workspaces, "end_browser", lambda caller: None)
+    server.workspaces.open_browser(Caller.from_request({"workspace": ["w"]}, {}))
+    assert server.workspaces.store.get("w").window is None   # nothing was asked for
+    assert admin_row(client, server, ["s9"])["window"] == "945x1038"
+    # Not live: what the workspace would open with, as workspace://current says.
+    assert admin_row(client, server, [])["window"] is None
+
+
+def test_a_resized_row_reports_the_new_window(client, server):
+    server.workspaces.store.set("w", Workspace(session_id="s9", window_seen="945x1038"))
+    server.workspaces.reshape("w", {"width": 1200, "height": 800}, browser="s9")
+    assert admin_row(client, server, ["s9"])["window"] == "1200x800"
+
+
+@pytest.mark.parametrize(("raw", "kept"), [
+    ('"945x1038"', "945x1038"), ('"0x10"', None), ('"big"', None), ("945", None), ("null", None),
+])
+def test_the_window_seen_survives_the_redis_store_and_nothing_else_does(raw, kept):
+    assert Workspace.from_json(f'{{"window_seen": {raw}}}').window_seen == kept
+    assert Workspace.from_json(Workspace(window_seen="945x1038").to_json()).window_seen == "945x1038"
+
+
+def test_a_grid_that_cannot_be_listed_is_logged_without_its_credentials(client, server, caplog):
+    """R1-9: a `requests` error quotes the Grid URL whole, userinfo included."""
+    import logging
+
+    server.workspaces.store.set("w", Workspace(session_id="s9"))
+    leak = requests.ConnectionError("http://admin:hunter2@grid:4444/status refused")
+    with (
+        caplog.at_level(logging.INFO),
+        patch.object(browser.Grid, "sessions", side_effect=leak),
+    ):
+        client.get("/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert "could not read the grid" in caplog.text
+    assert "hunter2" not in caplog.text

@@ -284,3 +284,29 @@ async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(
     for said in (str(found.value), str(through_tool.value)):
         assert "hunter2" not in said, said
     assert not any("hunter2" in text for _, text in log), log
+
+
+async def test_a_resource_that_is_not_there_is_resource_not_found(server, monkeypatch):
+    """R1-8: MCP's own code for a resource that does not exist is -32002; a
+    read the caller got wrong in any other way is invalid params (-32602)."""
+    from fastmcp import Client
+    from mcp.shared.exceptions import MCPError
+
+    from kubed.selenium_flow.faults import NotFound
+
+    def gone(name: str) -> str:
+        raise NotFound(f"no {name} here")
+
+    def wrong(name: str) -> str:
+        raise ValueError(f"{name} is not a name")
+
+    calling_as(monkeypatch, "reader")
+    server.mcp.resource("gone://{name}")(gone)
+    server.mcp.resource("wrong://{name}")(wrong)
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError, match="no thing here") as missing:
+            await client.read_resource("gone://thing")
+        with pytest.raises(MCPError, match="is not a name") as refused:
+            await client.read_resource("wrong://thing")
+    assert missing.value.error.code == -32002
+    assert refused.value.error.code == -32602

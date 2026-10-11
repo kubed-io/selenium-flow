@@ -118,16 +118,19 @@ CONSOLE_DESCRIPTION = (
     "What the page logged since the last navigation, newest first: errors, "
     "warnings, info, and uncaught exceptions with where they were thrown. "
     "?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back "
-    "over earlier pages. debug entries are counted, not kept. Present only for "
-    "a workspace opened with open_session(capture=true); otherwise it says so. "
-    "Reading this never opens a browser."
+    "over earlier pages. debug entries are counted, not kept. dropped, when "
+    "present, counts events lost in a flood, so some may be missing. Present "
+    "only for a workspace opened with open_session(capture=true); otherwise it "
+    "says so. Reading this never opens a browser."
 )
 
 NETWORK_DESCRIPTION = (
     "Requests the page made since the last navigation, newest first, each with "
     "an id: method, URL, status, type, size and time. ?filter=failed or "
     "?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful "
-    "stylesheets, images, fonts, scripts and media are counted, not kept. "
+    "stylesheets, images, fonts, scripts and media are counted, not kept; "
+    "dropped, when present, counts events lost in a flood; unmasked, "
+    "credentials too long to mask, which an echo may show. "
     "workspace://network/{id} shows one with its headers; network_body(id) "
     "fetches its response body while the browser lives. Credentials are shown "
     "as \u2022\u2022\u2022."

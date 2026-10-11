@@ -14,6 +14,17 @@ test('the footers read as the boards do', async () => {
   expect(screen.getByText('2 of 5 requests · workspace://network')).toBeInTheDocument()
 })
 
+test('events capture dropped show in the Captured footer in amber, only when there were some (spotless 7)', async () => {
+  api.mockResolvedValue({ ...networkData, dropped: 12 })
+  const r = render(CaptureNetworkPane, { props: props() })
+  expect(await screen.findByText(/12 dropped/)).toHaveClass('warn')
+  r.unmount()
+  api.mockResolvedValue(networkData)
+  render(CaptureNetworkPane, { props: props() })
+  await screen.findByText('5 requests · 19 static not kept · workspace://network')
+  expect(screen.queryByText(/dropped/)).toBeNull()
+})
+
 test('a failed row shows its error where the size goes, and a row opens its request', async () => {
   render(CaptureNetworkPane, { props: props() })
   expect(await screen.findByText('net::ERR_FAILED')).toBeInTheDocument()

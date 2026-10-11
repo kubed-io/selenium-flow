@@ -193,7 +193,7 @@ export interface ContextData {
   captured?: Captured
 }
 
-export interface Captured { console: number; network: number; errors: number; failed_requests: number }
+export interface Captured { console: number; network: number; errors: number; failed_requests: number; dropped?: number }
 export interface Header { name: string; value: string }
 export interface PageMark { nav: number; url: string; at: number }
 export interface ConsoleEntry {
@@ -212,11 +212,13 @@ export interface RequestDetail extends RequestRow {
 export type CaptureOff = { capture: false; how: string }
 export interface ConsoleData {
   capture: true; capturing?: boolean; pages: PageMark[]; entries: ConsoleEntry[]
-  count: number; total: number; not_kept: { debug: number }; tail_url?: string
+  count: number; total: number; not_kept: { debug: number }; dropped?: number; tail_url?: string
+  tally?: { errors: number; warnings: number }
 }
 export interface NetworkData {
   capture: true; capturing?: boolean; pages: PageMark[]; requests: RequestRow[]
-  count: number; total: number; not_kept: { static: number }; tail_url?: string
+  count: number; total: number; not_kept: { static: number }; dropped?: number; tail_url?: string
+  tally?: { failed: number; xhr: number }
 }
 export interface BodyResult {
   id: string; uri: string; mime: string; size: number | null; binary: boolean; text: string | null; truncated: boolean

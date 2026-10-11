@@ -53,7 +53,17 @@ test('capture paused and the two chips', async () => {
   expect(screen.getByText('1 failed')).toBeInTheDocument()
   await fireEvent.click(screen.getByRole('button', { name: /Console/ }))
   await fireEvent.click(screen.getByRole('button', { name: /Network/ }))
-  expect(onshow.mock.calls).toEqual([['workspace://console'], ['workspace://network']])
+  // With errors, Console opens on them: a chatty page's whole console is
+  // more than show draws, and the errors are why anyone clicks (spotless 8).
+  expect(onshow.mock.calls).toEqual([['workspace://console?level=error'], ['workspace://network']])
+})
+
+test('without errors the Console chip opens the whole console', async () => {
+  const onshow = vi.fn()
+  render(ContextView, { props: { data: { ...base, capture: true, capturing: true,
+    captured: { console: 4, network: 9, errors: 0, failed_requests: 0 } }, onshow } })
+  await fireEvent.click(screen.getByRole('button', { name: /Console/ }))
+  expect(onshow).toHaveBeenCalledWith('workspace://console')
 })
 
 test('REC and capturing pills; chips are inert without onshow', () => {

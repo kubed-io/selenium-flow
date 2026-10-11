@@ -576,9 +576,11 @@ GONE_BROWSER = (
 )
 NOT_FOUND = {
     "network_body": (
-        "No such body. The browser that made this request has ended, or no "
-        "longer holds its body. A new browser cannot return it, so do not "
-        "retry; and opening one without capture forgets what was captured."
+        "No such body. No session is open in this workspace, or the browser "
+        "that made this request has ended or no longer holds its body: a body "
+        "lives only as long as its browser. A new browser cannot return it, so "
+        "do not retry; and opening one without capture forgets what was "
+        "captured."
     ),
 }
 

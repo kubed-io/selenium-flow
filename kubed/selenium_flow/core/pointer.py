@@ -114,20 +114,20 @@ class RedisPointers:
         # unreachable Redis means "we do not know where the pointer is", which
         # is a state this module already handles.
         except Exception:
-            log.debug("could not read the pointer for %s", session_id, exc_info=True)
+            log.debug("could not read the pointer", exc_info=True)
             return None
 
     def set(self, session_id: str, x: float, y: float) -> None:
         try:
             self._client.set(self._k(session_id), json.dumps([x, y]), ex=self._ttl)
         except Exception:  # see `get`
-            log.debug("could not record the pointer for %s", session_id, exc_info=True)
+            log.debug("could not record the pointer", exc_info=True)
 
     def forget(self, session_id: str) -> None:
         try:
             self._client.delete(self._k(session_id))
         except Exception:  # see `get`
-            log.debug("could not clear the pointer for %s", session_id, exc_info=True)
+            log.debug("could not clear the pointer", exc_info=True)
 
 
 def matching(store):

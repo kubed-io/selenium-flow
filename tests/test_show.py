@@ -496,3 +496,48 @@ def test_the_summary_pluralises_its_noun(component, count, line):
     assert show.summary(uri, component, {"count": count}) == (
         f"Showing {uri} to the person: {line}."
     )
+
+
+# ---- a chatty page is drawn, newest first (spotless 8) ---------------------------
+
+
+def chatty(server, name, entries=1000, text="x" * 300, requests=0, url_tail=""):
+    from .capture_events import done, log, nav_started, req
+
+    server.workspaces.store.set(name, Workspace(settings={"capture": True}))
+    server.capture.attached(name, "s1", "chrome", "top-1", again=False)
+    events = [nav_started("https://a.test/")]
+    events += [log(f"{i} {text}", level="error" if i % 2 else "info", ts=1000.0 + i)
+               for i in range(entries)]
+    for i in range(requests):
+        events += [req(f"r{i}", f"https://a.test/api/{i}?{url_tail}", initiator="fetch"),
+                   done(f"r{i}", 500)]
+    for method, params in events:
+        server.capture.ingest(name, "s1", method, params)
+
+
+@pytest.mark.parametrize("text", ["x" * 300, "y" * 4000])
+async def test_a_chatty_console_is_drawn_from_its_newest_entries(flow_server, named_caller, text):
+    chatty(flow_server, named_caller, text=text)
+    async with Client(flow_server.mcp) as c:
+        shown = (await c.call_tool("show", {"uri": "workspace://console"})).structured_content
+    data = shown["data"]
+    assert data["count"] == 1000 and 0 < len(data["entries"]) <= show.SHOWN_ROWS
+    assert data["entries"][0]["text"].startswith("999 ")          # the newest first
+    assert len(json.dumps(shown)) < show.MAX_SHOWN
+
+
+async def test_a_chatty_network_is_drawn_from_its_newest_requests(flow_server, named_caller):
+    chatty(flow_server, named_caller, entries=0, requests=600, url_tail="q=" + "z" * 3000)
+    async with Client(flow_server.mcp) as c:
+        shown = (await c.call_tool("show", {"uri": "workspace://network"})).structured_content
+    data = shown["data"]
+    assert data["count"] == 600 and 0 < len(data["requests"]) <= show.SHOWN_ROWS
+    assert data["requests"][0]["id"] == "1.600"
+
+
+async def test_its_errors_drill_down_is_drawn_too(flow_server, named_caller):
+    chatty(flow_server, named_caller)
+    async with Client(flow_server.mcp) as c:
+        shown = (await c.call_tool("show", {"uri": "workspace://console?level=error"})).structured_content
+    assert shown["data"]["count"] == 500

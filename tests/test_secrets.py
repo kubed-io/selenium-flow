@@ -380,14 +380,14 @@ async def test_nothing_readable_on_this_server_returns_a_secret_value(secret_ser
 
 
 async def test_with_no_directories_the_catalogue_says_so():
-    from fastmcp.exceptions import ResourceError
+    from mcp.shared.exceptions import MCPError
 
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
     assert server.secrets is None
-    with pytest.raises(ResourceError, match=r"secrets\.dirs"):
+    with pytest.raises(MCPError, match=r"secrets\.dirs"):
         await server.mcp.read_resource(secrets.LIST_URI)
 
 

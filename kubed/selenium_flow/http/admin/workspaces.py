@@ -21,6 +21,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from ... import faults
 from ...core.defaults import DEFAULT_BROWSER
 from ...names import (
     GLOBAL_WORKSPACE,
@@ -180,7 +181,10 @@ async def header(workspaces_payload, key: str, session_id: str) -> dict:
         listing = await run_in_threadpool(workspaces_payload)
         return next((s for s in listing["workspaces"] if s["key"] == key), detail)
     except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
-        log.info("workspace header for %s unavailable: %s", key, exc)
+        # faults.message: a requests error quotes the Grid URL, userinfo and all.
+        log.info(
+            "workspace header for %s unavailable: %s", key, faults.message(exc)
+        )
         return detail
 
 
@@ -309,7 +313,7 @@ class Broadcast:
             except Exception as exc:  # noqa: BLE001 - the Grid can blip
                 # Every page keeps what it has, exactly as a failed poll of its
                 # own used to leave it.
-                log.info("event poll failed: %s", exc)
+                log.info("event poll failed: %s", faults.message(exc))
             else:
                 if started >= self._floor:
                     self._latest = (started, payload, text)
@@ -401,7 +405,7 @@ def mount(
         try:
             running = {s["session_id"]: s for s in actions.grid.sessions()}
         except Exception as exc:  # noqa: BLE001 - the rows are still worth showing
-            log.info("could not read the grid: %s", exc)
+            log.info("could not read the grid: %s", faults.message(exc))
 
         # Once per payload, not once per row: it is the same answer for every
         # workspace, and inside the loop it made each heartbeat walk and stat the
@@ -509,8 +513,12 @@ def mount(
                     "browser": (record.settings or {}).get("browser")
                     or DEFAULT_BROWSER,
                     # Beside the browser because it is the same kind of fact:
-                    # what this session is running, and how big.
-                    "window": record.window,
+                    # what this session is running, and how big. Live, the
+                    # size it has, as workspace://current says; idle, the size
+                    # the next open asks for (None: the node's default).
+                    "window": (record.window_seen or record.window)
+                    if live
+                    else record.window,
                     # How long the Grid lets its session sit idle: kept from
                     # the last open, so an idle card shows it too.
                     "grid_timeout": record.grid_timeout,

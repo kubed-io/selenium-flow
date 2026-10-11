@@ -167,6 +167,25 @@ async def test_a_full_queue_is_logged_once_a_streak(browser, caplog):
     await conn.close()
 
 
+async def test_a_listener_is_told_of_every_event_it_drops(browser):
+    """What capture carries as ``dropped`` (spotless 7): the count a reader
+    sees, not only a log line."""
+    conn = Connection(browser.url)
+    await conn.open()
+    gate, told = asyncio.Event(), []
+
+    async def stuck(_m, _p):
+        await gate.wait()
+
+    subscriber = conn.listen(["log.entryAdded"], stuck, name="stuck", limit=2,
+                             on_drop=lambda: told.append(1))
+    await browser.events(20, "log.entryAdded")
+    await conn.command("browsingContext.getTree")
+    gate.set()
+    assert subscriber.dropped > 0 and len(told) == subscriber.dropped
+    await conn.close()
+
+
 async def test_flush_returns_after_every_earlier_event_was_handled(browser):
     conn = Connection(browser.url)
     await conn.open()
@@ -342,3 +361,25 @@ async def test_a_frame_past_the_limit_fails_waiting_commands_as_message_too_big(
         await conn.command("network.getData" if ours else "too.big", {"request": "r1"})
     assert conn.dropped
     await conn.close()
+
+
+async def test_a_raising_drop_counter_cannot_take_down_the_reader(caplog):
+    """F-5: `deliver` runs on the reader; an ``on_drop`` that raises is logged
+    by its type and the drop is still counted."""
+    gate = asyncio.Event()
+
+    async def stuck(_m, _p):
+        await gate.wait()
+
+    def broken():
+        raise KeyError("a page's data")
+
+    sub = Subscriber(["e"], stuck, name="stuck", limit=1, on_drop=broken)
+    for _ in range(20):
+        sub.deliver("e", {}, 0.0)                    # past the limit: drops
+    assert sub.dropped >= 10
+    failed = [r for r in caplog.records if "on_drop" in r.getMessage()]
+    assert len(failed) == 1 and "KeyError" in failed[0].getMessage()  # once a streak
+    assert "a page's data" not in caplog.text
+    gate.set()
+    sub.cancel()

@@ -570,9 +570,23 @@ or the leak `caller_key` existed to prevent comes straight back.
   `proxy-authorization`, `cookie` and `set-cookie` headers in any case, cookies,
   `goog:postData`, every bound secret, a URL's userinfo password (in URLs and the `referer` /
   `location` / `content-location` headers), every free-text row field and a fetched body's text;
-  query strings only on the newest navigation.
+  query strings only on the newest navigation. The values those headers and the request's
+  cookies carried are learned and masked wherever a page echoes them, within per-session
+  budgets of forms and characters (`capture/__init__.py`); the rules, the budgets and what
+  is parked are ruling 21 of the
+  [capture spec](docs/superpowers/specs/2026-10-10-capture-design.md). What must not
+  break: a known value costs a lookup; an event builds forms for at most `COOKIE_TAKES`
+  (8) new cookies, taken round the domains, so within an event of 8 domains or fewer none
+  starves another, and past that a domain holding no more than the others waits about a
+  round of events, one per 8 domains (one holding more waits longer; only a host 10 labels
+  deep is sent more than 8 cookie domains in one request); a token past 4 096 is learned
+  only when spelt as a `b64token`; cookies cannot evict a token;
+  what a full cookie tier holds does not depend on the order cookies arrive in, and a
+  page that keeps sending them settles; each cookie domain keeps its half; a credential
+  too long to learn is counted as `unmasked`, never logged.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
-  page keeps 2 000.
+  page keeps 2 000. What the capture listener's own queue drops is counted, never hidden:
+  `dropped` on every view, present only when non-zero.
 - Each subscriber's queue is bounded by count (1 000) **and** bytes (`QUEUE_BYTES`, 32 MiB). A
   scoped `Channel.listen(contexts=...)` filters locally, because Firefox fans events out to
   every socket.
@@ -713,12 +727,16 @@ only be made when someone asks. The handshake's instructions vary the same way (
 place a session's settings can be chosen. Do not reintroduce it. A refresh after
 the Grid reaps a session is the *only* other open, and it replays the
 workspace's stored settings so the browser cannot change shape underneath a task.
+An open that fails once the Grid made its browser — a hook, the window, the
+first page — quits it and raises the failure; `session.ended` is announced only
+once that quit is done.
 
 There used to be two modes — **saved**, where the server held your browser, and
 **stateless**, where you passed an id — with a middleware rewriting every tool
 schema per request so a caller could see which rules applied. All of it is gone
-(§F2.12). There is no `session_id` on any tool, in any body, or in any result;
-`SAVED_SESSIONS` is gone. **Sharing is by
+(§F2.12). There is no `session_id` on any tool, in any body, in any result, or
+in any log line (`test_no_log_line_formats_a_grid_id`; a failure that may quote
+the Grid's URL is logged by its type); `SAVED_SESSIONS` is gone. **Sharing is by
 workspace name**, which is then the single way to do it — and worth writing
 down, because a name is an address and guards nothing: whoever holds the bearer
 token (or a valid JWT) and knows the name drives that workspace's browser.

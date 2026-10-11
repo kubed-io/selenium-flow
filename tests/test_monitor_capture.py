@@ -55,6 +55,14 @@ async def test_attach_holds_subscribes_and_collects_before_returning(running_mon
     assert monitor.capturing(GID)
 
 
+async def test_an_event_the_capture_listener_drops_is_told_to_the_sink(running_monitor):
+    monitor, sink = running_monitor
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture")
+    [listener] = FakeConnection.made[0].listeners
+    listener.on_drop()
+    assert sink.calls[-1] == ("lost", "ws1", GID)
+
+
 async def test_a_failed_attach_raises_503_and_holds_nothing(running_monitor):
     monitor, sink = running_monitor
     FakeConnection.refuse = True
@@ -99,8 +107,12 @@ async def test_a_reason_added_later_subscribes_what_it_adds(running_monitor):
     assert FakeConnection.made[0].subscribed[-1] == ["browsingContext.load"]
 
 
-async def test_reconnects_back_off_one_two_four_to_thirty(running_monitor, clock):
+async def test_reconnects_back_off_one_two_four_to_thirty(running_monitor, clock, monkeypatch):
+    """The schedule of this test's own looks: the monitor's own loop is kept
+    out, or its look's hold, failing after the clock moved, backs off from
+    then and shifts the schedule (`test_a_looks_failed_hold_backs_off_from_when_it_failed`)."""
     monitor, _ = running_monitor
+    monkeypatch.setattr(monitor, "_ensure", lambda: None)  # no background look
     monitor.watch(GID, "ws1", "capture")
     FakeConnection.refuse = True
     tries = []
@@ -247,6 +259,71 @@ async def test_two_calls_in_flight_hold_until_the_last_ends(running_monitor, clo
     clock.now += 301
     await monitor.look()
     assert not monitor.capturing(GID)
+
+
+async def until(condition, turns=2000):
+    for _ in range(turns):
+        if condition():
+            return
+        await asyncio.sleep(0.001)
+    raise AssertionError("never happened")
+
+
+async def test_a_resume_waiting_on_a_hold_that_fails_does_not_try_again(running_monitor, clock):
+    """The flaky back-off test's race, forced: a call's resume decides to hold
+    while a look's hold is in flight, waits for it, and that hold fails. The
+    back-off it set answers the call too: no second open."""
+    monitor, _ = running_monitor
+    calls = calls_for(monitor, clock)
+    await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+    clock.now += 301
+    await monitor.look()  # the deadline let it go
+    FakeConnection.refuse, FakeConnection.hang_on_open = True, True
+    FakeConnection.gate = asyncio.Event()
+    monitor.calling(GID)  # a touch: the woken look holds again, and hangs
+    await until(lambda: len(FakeConnection.made) == 2)
+    begun = asyncio.ensure_future(asyncio.to_thread(calls.begin, "ws1", GID))
+    await until(lambda: monitor._attaching)  # the resume waits on the hold
+    FakeConnection.gate.set()  # the look's hold fails, and backs off
+    await begun
+    assert len(FakeConnection.made) == 2 and monitor.backing_off(GID)
+    monitor.called(GID)
+
+
+async def test_a_looks_failed_hold_backs_off_from_when_it_failed(clock):
+    """The flaky back-off test's cause: a look reads the clock, then waits on
+    the Grid's status; a hold it tries after that and fails was backed off
+    from the look's start, so a slow listing spent the back-off before it
+    began, and the next call held again at once."""
+    import threading
+
+    FakeConnection.reset()
+    began, answer = threading.Event(), threading.Event()
+
+    def listing():
+        began.set()
+        answer.wait(5)
+        return 1, {GID: 300}
+
+    monitor = Monitor(LocalBus(), listing=listing, socket_url=lambda s: f"ws://x/{s}",
+                      events_for={"capture": EVENTS}, collectors_for={"capture": COLLECTOR},
+                      connect=FakeConnection, sink=FakeSink(), clock=clock)
+    monitor.bus.start()
+    await monitor.start()
+    try:
+        await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
+        await asyncio.to_thread(began.wait, 5)       # a look began, and asks the Grid
+        FakeConnection.made[0].dropped = True        # meanwhile the connection drops
+        FakeConnection.refuse = True
+        clock.now += 60                              # and the Grid takes a minute
+        answer.set()
+        await until(lambda: monitor.watches[GID].failures)
+        assert monitor.backing_off(GID)
+    finally:
+        answer.set()
+        await monitor.stop()
+        await monitor.bus.stop()
+        FakeConnection.reset()
 
 
 async def test_a_failed_resume_backs_off_instead_of_costing_every_call(running_monitor, clock):

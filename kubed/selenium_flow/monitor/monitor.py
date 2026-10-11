@@ -114,6 +114,8 @@ class Sink(Protocol):
 
     def detached(self, workspace: str, session_id: str) -> None: ...
 
+    def lost(self, workspace: str, session_id: str) -> None: ...
+
 
 class _NoSink:
     """The sink of a monitor given none: hears everything, keeps nothing."""
@@ -128,6 +130,9 @@ class _NoSink:
         pass
 
     def detached(self, workspace, session_id) -> None:
+        pass
+
+    def lost(self, workspace, session_id) -> None:
         pass
 
 
@@ -266,18 +271,23 @@ class Monitor:
         *,
         browser: str = "",
         grid_timeout: int | None = None,
+        resume: bool = False,
     ) -> None:
         """Owe ``reason`` and hold its connection before returning: opened,
         subscribed and collecting, so nothing the next page does is missed.
 
         From a worker thread, never the loop's own. `BidiUnavailable` when the
         connection cannot be held within ``ATTACH_TIMEOUT``; the reason is then
-        owed no more."""
+        owed no more. A call's ``resume`` returns without trying when, once it
+        has the watch, a back-off is pending: the call decided to hold on its
+        own thread, and a look's hold that was in flight then may have failed
+        since (`backing_off`)."""
         loop = self._loop
         if loop is None:
             raise RuntimeError("the monitor is not running")
         future = asyncio.run_coroutine_threadsafe(
-            self._attach(workspace, session_id, reason, browser, grid_timeout), loop
+            self._attach(workspace, session_id, reason, browser, grid_timeout, resume),
+            loop,
         )
         try:
             future.result(ATTACH_TIMEOUT)
@@ -489,6 +499,7 @@ class Monitor:
         reason: str,
         browser: str,
         grid_timeout: int | None,
+        resume: bool = False,
     ) -> None:
         """`attach` on the loop: owe the reason, then hold the connection now
         rather than at the next look. On any failure the reason is released."""
@@ -507,6 +518,8 @@ class Monitor:
             try:
                 async with w.busy:
                     self._notice_drop(w)
+                    if resume and w.connection is None and self.backing_off(session_id):
+                        return  # a hold failed while this waited: it answers this too
                     if w.connection is None:
                         await self._hold(w)
                     else:
@@ -544,7 +557,10 @@ class Monitor:
                     await self._extend(w, w.connection)
         except Exception as exc:  # noqa: BLE001 - tried again after a back-off
             if self.watches.get(w.session_id) is w:  # an ended watch owes nothing
-                self._failed(w, now, exc)
+                # From when it failed, not the look's ``now``: that was read
+                # before the Grid's status, and a slow one spent the back-off
+                # before it began.
+                self._failed(w, self.clock(), exc)
 
     async def _hold(self, w: Watch) -> None:
         """Open a connection, learn the top context, listen, subscribe and add
@@ -567,7 +583,9 @@ class Monitor:
                 None,
             )
             self.sink.attached(w.workspace, w.session_id, w.browser, top, again=again)
-            conn.listen(wanted, self._deliverer(w), name="capture")
+            conn.listen(
+                wanted, self._deliverer(w), name="capture", on_drop=self._loser(w)
+            )
             await conn.subscribe(wanted)
             for reason in sorted(w.owed):
                 params = self.collectors_for.get(reason)
@@ -593,7 +611,9 @@ class Monitor:
         added = [e for e in self._wanted(w) if e not in w.subscribed]
         if not added:
             return
-        listener = conn.listen(added, self._deliverer(w), name="capture")
+        listener = conn.listen(
+            added, self._deliverer(w), name="capture", on_drop=self._loser(w)
+        )
         try:
             await conn.subscribe(added)
         except BaseException:
@@ -609,6 +629,11 @@ class Monitor:
         self, workspace: str, session_id: str, method: str, params: dict
     ) -> None:
         self.sink.ingest(workspace, session_id, method, params)
+
+    def _loser(self, w: Watch) -> Callable[[], None]:
+        """Tells the sink of each event the capture listener's queue dropped,
+        so a reader sees the count rather than only a log line."""
+        return functools.partial(self.sink.lost, w.workspace, w.session_id)
 
     def _notice_drop(self, w: Watch) -> None:
         """A connection closed under us: let it go, and look at the session now."""

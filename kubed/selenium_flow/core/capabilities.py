@@ -55,6 +55,9 @@ class Capability:
     library_arg: str | None = None
     # MCP Apps audiences for the tool (`model`, `app`); () is the default.
     visibility: tuple[str, ...] = ()
+    # The ``Actions`` method asked, with the workspace's name and the call's
+    # arguments, when no session is open (`Workspaces.act`'s ``closed``).
+    closed: str | None = None
 
 
 # ---- what each one answers -------------------------------------------------
@@ -613,6 +616,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         annotations=reads("Fetch a response body"),
         response=BODY_RESPONSE,
         visibility=("model", "app"),
+        closed="network_body_closed",
     ),
     Capability(
         name="end_browser",

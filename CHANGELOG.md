@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Capture masks the `Authorization` and cookie values it has seen when a page echoes them; one too long to mask is counted as `unmasked`.
+- Fixed: a browser whose first page fails to load is quit; a body after `end_browser` is a 404; a bad capture query is invalid params; the admin list shows a live browser's window and how many capture events were dropped.
 - **BREAKING:** Python 3.11 or newer is required.
 - `open_session(capture=true)` keeps the page's console and network (`workspace://console`, `workspace://network`), and a call that caused a page error says so.
 - `network_body(id)` fetches a captured response body while the browser lives.

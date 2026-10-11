@@ -49,7 +49,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Literal
 
@@ -244,6 +244,12 @@ class Caller:
     def defaults(self) -> dict:
         """The setting defaults this client set in its connection config."""
         return settings_module.from_client(*self.said)
+
+
+def _measured(opened: dict) -> str | None:
+    """The window an open measured its browser at, as ``WxH``, or None."""
+    width, height = opened.get("width"), opened.get("height")
+    return f"{width}x{height}" if width and height else None
 
 
 def _two_names(names: list[str]) -> str:
@@ -484,25 +490,21 @@ class Workspaces:
             # Detached reads the same as absent on purpose. A caller is told it
             # has no browser and calls open_session, which is the one path that
             # opens one — and which now inherits this record's browser and page.
-            raise ValueError(
+            raise faults.NoSession(
                 f"no session is open in workspace {name!r} yet: call open_session "
                 "first. It takes the window size and timeouts this session "
                 "should use, which is why it is not done implicitly."
             )
 
         if self.actions.grid.is_alive(record.session_id):
-            log.debug("session %s recalled for %s", record.session_id, name)
+            log.debug("browser recalled for workspace %s", name)
             return record.session_id, (
                 (record.settings or {}).get("browser") or DEFAULT_BROWSER
             )
 
         # The Grid reaped it. Reopen where the caller left off, with the same
         # settings, so a refresh does not silently change the browser's shape.
-        log.info(
-            "browser %s is gone from the grid, reopening for workspace %s",
-            record.session_id,
-            name,
-        )
+        log.info("the browser is gone from the grid, reopening for workspace %s", name)
         self._ended(name, record.session_id, "lost")
         saved = self._restorable(record)
         replay = dict(record.settings or {})
@@ -534,6 +536,7 @@ class Workspaces:
             replacing=record.session_id,
             report=opened.get("site_data"),
             grid_timeout=timeout,
+            window_seen=_measured(opened),
         )
         if kept == opened["session_id"]:
             self._told(
@@ -597,34 +600,39 @@ class Workspaces:
         """``actions.open_session``, attaching capture first when ``settings``
         ask for it.
 
-        Its failure is the open's, as a 503: the open quits the browser, and the
-        monitor is told the session ended so a hold that completed just as the
-        attach gave up is dropped. So is a failure *after* the attach (the first
-        page timing out): no watch is left on a browser nobody was handed. A
-        monitor that was never started is the same refusal, never a 500."""
+        A failed attach is the open's failure, as a 503; so is a monitor that
+        was never started, never a 500. Whatever fails once the browser exists
+        — the attach, or the first page timing out after it — the open quits
+        the browser, and the capture hold is released, a hold that completed
+        just as the attach gave up included: no watch is left on a browser
+        nobody was handed. The session is announced ended only once its quit
+        is done (``on_quit``); after a quit that failed it may still run."""
         if not settings.get("capture"):
             return self.actions.open_session(**kwargs)
         browser = settings.get("browser") or DEFAULT_BROWSER
-        attached: list[str] = []
+        tried: list[str] = []
 
         def ready(session_id: str) -> None:
+            tried.append(session_id)
             try:
                 self.monitor.attach(name, session_id, "capture", browser=browser)
             except Exception as exc:
-                self._ended(name, session_id, "ended")
                 if isinstance(exc, faults.BidiUnavailable):
                     raise
                 log.info(
                     "capture did not attach for %s: %s", name, type(exc).__name__
                 )
                 raise faults.BidiUnavailable(ATTACH_FAILED) from exc
-            attached.append(session_id)
 
         try:
-            return self.actions.open_session(on_ready=ready, **kwargs)
+            return self.actions.open_session(
+                on_ready=ready,
+                on_quit=lambda session_id: self._ended(name, session_id, "ended"),
+                **kwargs,
+            )
         except Exception:
-            for session_id in attached:
-                self._ended(name, session_id, "ended")
+            for session_id in tried:
+                self._told("release", session_id, "capture")
             raise
 
     def _told(self, what: str, *args, **kwargs):
@@ -645,6 +653,7 @@ class Workspaces:
         reshapes: bool = False,
         tool: str = "",
         surface: str = "mcp",
+        closed: Callable[[str], None] | None = None,
     ) -> dict:
         """Resolve this workspace's browser, act on it, remember where it ended up.
 
@@ -666,9 +675,18 @@ class Workspaces:
         (the lock is reentrant), so what the page reported in between is this
         call's alone, and comes back as ``page`` — or, when it raised, as a
         sentence on its error (plan rulings 7, 8).
+
+        ``closed`` is asked first when no session is open, with the workspace's
+        name: a call whose answer went with the browser raises its own refusal
+        there (`network_body`'s 404), since opening one cannot bring it back.
         """
         name = caller.name
-        resolved, kind = self.resolved(name)
+        try:
+            resolved, kind = self.resolved(name)
+        except faults.NoSession:
+            if closed is not None:
+                closed(name)
+            raise
         turn = (
             locks.driving(resolved)
             if self.calls.wanted(name)
@@ -874,6 +892,7 @@ class Workspaces:
             replacing=ended, forget_site_data=forgotten is not None,
             opened_by=caller.principal.opener() if caller.principal else None,
             grid_timeout=timeout,
+            window_seen=_measured(opened),
         )
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
@@ -946,6 +965,7 @@ class Workspaces:
         report: dict | None = None,
         opened_by: dict | object | None = KEEP,
         grid_timeout: int | None = None,
+        window_seen: str | None = None,
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
@@ -988,6 +1008,7 @@ class Workspaces:
                 reopened={"browser": session_id, "report": report} if report else {},
                 **({} if opened_by is KEEP else {"opened_by": opened_by}),
                 grid_timeout=grid_timeout,
+                window_seen=window_seen,
             )
             return fresh.visited(url, ttl=ttl), None
 
@@ -996,15 +1017,16 @@ class Workspaces:
         _, kept = self.store.change(name, bound, create=True)
         if not kept:
             return session_id
-        log.info(
-            "two opens raced for workspace %s: quitting browser %s", name, session_id
-        )
+        log.info("two opens raced for workspace %s: quitting the loser's browser", name)
         try:
             self.actions.end_browser(session_id)
         except Exception as exc:  # noqa: BLE001 - it may be gone already
-            # faults.message strips the Grid URL's credentials, which a
-            # requests HTTPError quotes whole (Copilot, #50).
-            log.info("could not end browser %s: %s", session_id, faults.message(exc))
+            # By type: an HTTPError quotes the Grid URL, Grid id and all.
+            log.info(
+                "could not end the losing browser for workspace %s: %s",
+                name,
+                type(exc).__name__,
+            )
         else:
             self._ended(name, session_id, "ended")
         return kept
@@ -1121,7 +1143,12 @@ class Workspaces:
             # Already gone, or the Grid is unreachable. Detach regardless: a
             # record naming a browser that cannot be ended is worse than one
             # naming nothing, because the next call would try to use it.
-            log.info("could not end browser %s: %s", target, faults.message(exc))
+            # By type: an HTTPError quotes the Grid URL, Grid id and all.
+            log.info(
+                "could not end the browser for workspace %s: %s",
+                name,
+                type(exc).__name__,
+            )
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.
         self.store.update(
@@ -1133,5 +1160,5 @@ class Workspaces:
         # the monitor's listing finds it later if it is watched.
         if quit_ok:
             self._ended(name, target, "ended")
-        log.info("ended browser %s for workspace %s", target, name)
+        log.info("ended the browser for workspace %s", name)
         return target

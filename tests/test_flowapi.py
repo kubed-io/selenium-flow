@@ -312,9 +312,10 @@ async def test_with_no_data_directory_the_tools_say_so(monkeypatch):
     server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
     acting_as(monkeypatch, server, NAMED)
     assert server.flows is None
-    from fastmcp.exceptions import ResourceError
+    from mcp.shared.exceptions import MCPError
 
-    with pytest.raises(ResourceError, match="DATA_DIR"):
+    # Refused like any argument of the caller's (a 400 over HTTP): invalid params.
+    with pytest.raises(MCPError, match="DATA_DIR"):
         await resource(server, flowapi.LIST_URI)
 
 
