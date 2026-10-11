@@ -89,6 +89,16 @@ RESPONSES = {
                             " page. Present only when there were some."
                         ),
                     },
+                    "unmasked": {
+                        "type": "integer",
+                        "description": (
+                            "Credentials a request carried that were too long"
+                            " to mask (a cookie over 4 096 characters, a token"
+                            " over 16 384), each counted once since the"
+                            " workspace's capture began: a page echoing one"
+                            " shows it. Present only when there were some."
+                        ),
+                    },
                 },
             },
             "in_frame": {"type": ["boolean", "null"]},

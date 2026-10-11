@@ -741,3 +741,17 @@ def test_a_third_partys_cookie_headers_cannot_evict_the_first_partys_session(cap
                   headers=[("Set-Cookie", hostile.split("; ")[i])]))
     feed(capture, log(f"echo {sid}"))
     assert texts(capture)[-1] == f"echo {MASK}"
+
+
+def test_a_credential_too_long_to_mask_is_counted_where_dropped_is(capture):
+    """F-3: an operator learns that a credential went unmasked; ``unmasked``
+    is present only when there was one, and counts each value once."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"),
+         req("r1", "https://a.test/api", headers=[("Cookie", "sid=ok-value-0123456789")]))
+    assert "unmasked" not in capture.counts("ws") and "unmasked" not in capture.console("ws")
+    huge = "sid=" + "Zz9-" * 1100                            # past a cookie's 4 096
+    for i in range(3):
+        feed(capture, req(f"r{i + 2}", "https://a.test/api", headers=[("Cookie", huge)]))
+    assert capture.counts("ws")["unmasked"] == 1
+    assert capture.console("ws")["unmasked"] == 1 and capture.network("ws")["unmasked"] == 1

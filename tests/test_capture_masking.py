@@ -349,12 +349,12 @@ def test_cookie_churn_never_evicts_an_authorization_value():
 def test_a_huge_credential_is_not_learned_and_is_counted():
     """R1-2: each learned value is kept with four or five spellings; a page
     choosing huge distinct values would grow memory without bound."""
-    from kubed.selenium_flow.capture import CREDENTIAL_MAX
+    from kubed.selenium_flow.capture import AUTH_MAX, CREDENTIAL_MAX
 
     m = Masker()
     huge = "Zz9-" * (CREDENTIAL_MAX // 4 + 1)
     cookie(m, huge)
-    bearer(m, "Bearer " + huge[::-1])
+    bearer(m, "Bearer " + "-9zZ" * (AUTH_MAX // 4 + 1))
     assert m.secrets == () and m.skipped == 2        # the cookie, and the token with its header
 
 
@@ -1062,3 +1062,28 @@ def test_an_events_cookies_past_what_it_takes_are_chosen_by_rank_not_order():
         m.cookies([{"name": n, "value": {"type": "string", "value": v}} for n, v in order])
         held.append(set(m._cookies.values))
     assert len(held[0]) == COOKIE_TAKES and all(h == held[0] for h in held)
+
+
+def jwt(length):
+    """An Entra ID access token with group claims: base64url segments."""
+    body = b64(length, 9).replace("+", "-").replace("/", "_")
+    return f"eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.{body}.c2lnbmF0dXJl"
+
+
+@pytest.mark.parametrize("length", [5_353, 10_000])
+def test_a_bearer_token_past_a_cookies_limit_is_still_masked(length):
+    """F-3: tokens carrying group claims are commonly 5-10 kB; a cookie's
+    4 096 let them through in clear."""
+    m = Masker()
+    token = jwt(length)
+    bearer(m, f"Bearer {token}")
+    assert m.text(f'{{"access_token": "{token}"}}') == f'{{"access_token": "{MASK}"}}'
+    assert m.skipped == 0
+
+
+def test_a_bearer_token_past_its_own_limit_is_counted():
+    from kubed.selenium_flow.capture import AUTH_MAX
+
+    m = Masker()
+    bearer(m, "Bearer " + jwt(AUTH_MAX))
+    assert m.secrets == () and m.skipped == 1

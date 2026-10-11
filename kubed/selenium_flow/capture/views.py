@@ -158,11 +158,13 @@ def counts(buffer: Buffer) -> dict:
 
 
 def lost(buffer: Buffer) -> dict:
-    """``dropped``: the events the browser sent that capture never heard,
-    present only when there were some — any view may be missing them. Counted
-    since the buffer began, not per navigation, unlike every count beside it:
-    a dropped event cannot be placed on a page."""
-    return {"dropped": buffer.dropped} if buffer.dropped else {}
+    """``dropped``: the events the browser sent that capture never heard, so
+    any view may be missing them; ``unmasked``: the credentials too long to
+    learn, so any view may show them. Each present only when there were
+    some, and counted since the buffer began, not per navigation, unlike
+    every count beside them: neither can be placed on a page."""
+    counted = {"dropped": buffer.dropped, "unmasked": buffer.unmasked}
+    return {name: n for name, n in counted.items() if n}
 
 
 def without_headers(row: dict) -> dict:

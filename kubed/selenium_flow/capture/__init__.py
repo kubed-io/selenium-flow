@@ -70,13 +70,15 @@ MASKED_HEADERS = frozenset(
 # of it against the others. A value is learned only when it can be a secret:
 # an Authorization token of CREDENTIAL_MIN or more, a cookie of COOKIE_MIN or
 # more, neither only letters nor only digits ("accepted", "undefined", a
-# timestamp), none over CREDENTIAL_MAX (counted instead), none holding a NUL.
+# timestamp), none holding a NUL, and none over CREDENTIAL_MAX — a token
+# AUTH_MAX — which is counted as ``unmasked`` instead, once per value.
 AUTH_FORMS = 16
 COOKIE_FORMS = 48
 FORM_CHARS = 32_768  # per tier, past the one value it may be over by
 CREDENTIAL_MIN = 8
 COOKIE_MIN = 16
-CREDENTIAL_MAX = 4096
+CREDENTIAL_MAX = 4096  # a cookie: the browser's own limit
+AUTH_MAX = 16_384  # a token: Entra ID's, with group claims, run to 5-10 kB
 COOKIE_STALE = 64  # events: a request is two or three (cookies, headers, response)
 COOKIE_SHARE = 2  # each cookie domain is sure of 1/2 of the cookie tier
 COOKIE_TAKES = 8  # new cookies an event learns at most, the highest-ranked

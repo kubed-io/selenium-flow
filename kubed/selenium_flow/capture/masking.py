@@ -20,6 +20,7 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 from ..flows.redact import hidden_forms
 from . import (
     AUTH_FORMS,
+    AUTH_MAX,
     COOKIE_FORMS,
     COOKIE_MIN,
     COOKIE_SHARE,
@@ -399,6 +400,9 @@ class Masker:
         """Mask what ``other`` masks: the session this one replaces, its
         credentials still credentials, under the same budgets."""
         self._bound |= other._bound
+        for skip in other._skips:  # counted once, across the reopen too
+            if len(self._skips) < SKIPS_HELD:
+                self._skips.add(skip)
         self._auth.begin()
         for value, forms in other._auth.values.items():
             self._auth.learn(value, lambda forms=forms: forms)
@@ -436,10 +440,12 @@ class Masker:
             if len(scheme_and_token) < 2:
                 return False
             token = scheme_and_token[1].strip()
-            if self._auth.knows(token) or not self._learnable(token, CREDENTIAL_MIN):
+            if self._auth.knows(token) or not self._learnable(
+                token, CREDENTIAL_MIN, AUTH_MAX
+            ):
                 return False
             # The token is learned: a whole value too long is no skip.
-            whole = self._learnable(value, CREDENTIAL_MIN, count=False)
+            whole = self._learnable(value, CREDENTIAL_MIN, AUTH_MAX, count=False)
             spellings = [token, value] if whole else [token]
             return self._auth.learn(token, lambda: _forms(spellings))
         if name == "cookie":
@@ -478,10 +484,17 @@ class Masker:
             spellings.append(decoded)
         return _forms(spellings)
 
-    def _learnable(self, value: str, minimum: int, *, count: bool = True) -> bool:
+    def _learnable(
+        self,
+        value: str,
+        minimum: int,
+        maximum: int = CREDENTIAL_MAX,
+        *,
+        count: bool = True,
+    ) -> bool:
         """Whether ``value`` can be a secret worth masking (see `capture`). One
         too long to learn is counted in ``skipped``, unless ``count`` is off."""
-        if len(value) > CREDENTIAL_MAX:
+        if len(value) > maximum:
             if count and hash(value) not in self._skips:
                 self.skipped += 1
                 if len(self._skips) < SKIPS_HELD:

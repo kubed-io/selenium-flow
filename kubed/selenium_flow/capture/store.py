@@ -140,6 +140,9 @@ class Buffer:
     # Events the capture listener's queue dropped, since the buffer began: a
     # dropped navigation cannot be placed on a page.
     dropped: int = 0
+    # Credentials too long to learn, so shown wherever a page echoes them:
+    # each counted once (`Masker.skipped`), since the buffer began.
+    unmasked: int = 0
     in_flight: OrderedDict[tuple[str, int], _Flight] = field(
         default_factory=OrderedDict
     )
@@ -542,8 +545,10 @@ class Capture:
         buffer.seq += 1
         nav = buffer.nav
         url = str(request.get("url") or "")  # whose cookies they are
+        skipped = held.masker.skipped
         held.masker.cookies(request.get("cookies"), url)  # learned, never shown
         headers, dropped = held.masker.headers(request.get("headers"), url)
+        buffer.unmasked += held.masker.skipped - skipped
         row = {
             "id": f"{nav}.{buffer.counter}",
             "seq": buffer.seq,
@@ -602,9 +607,11 @@ class Capture:
         row["status_text"] = mask(str(response.get("statusText") or ""))
         row["mime"] = mask(str(response.get("mimeType") or ""))
         row["size"] = size if number(size) else None
+        skipped = held.masker.skipped
         row["response_headers"], dropped = held.masker.headers(
             response.get("headers"), str((params.get("request") or {}).get("url") or "")
         )
+        buffer.unmasked += held.masker.skipped - skipped
         row["headers_dropped"] += dropped
         row["took_ms"] = took_ms(params, flight.begin)
         if row["type"] == "other":
