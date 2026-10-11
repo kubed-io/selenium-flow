@@ -1,5 +1,6 @@
 """Masking happens once, at capture, for the buffer and the tail (ruling 13)."""
 
+import string
 import time
 import tracemalloc
 
@@ -1017,3 +1018,47 @@ def test_a_full_tier_holds_the_same_set_whatever_the_order(monkeypatch, seed):
         one_round()
         monkeypatch.setattr(masking, "hidden_forms", real)
         assert built == []
+
+
+# ---- final fix wave -----------------------------------------------------------------
+
+
+def rotating(n, length, start):
+    """A hostile page's cookies, new every event, each outranking the last:
+    the same distinct characters and length, a value that only grows."""
+    alphabet = string.ascii_letters + string.digits
+    return [(f"sid{i}", (alphabet + f"{start + i:012d}").ljust(length, "a")) for i in range(n)]
+
+
+def test_cookies_that_rotate_every_event_cost_a_few_builds_each(monkeypatch):
+    """F-2: each event's new cookies are ranked first, and only the top
+    COOKIE_TAKES have their forms built; what is held is ordered once."""
+    from kubed.selenium_flow.capture import COOKIE_TAKES, masking
+
+    m = Masker()
+    built, ordered = [], []
+    real_forms, real_order = masking.hidden_forms, masking._Ranked._order
+    monkeypatch.setattr(masking, "hidden_forms", lambda v: built.append(1) or real_forms(v))
+    monkeypatch.setattr(masking._Ranked, "_order", lambda t: ordered.append(1) or real_order(t))
+    for event in range(10):
+        built.clear()
+        ordered.clear()
+        m.cookies([{"name": n, "value": {"type": "string", "value": v}, "domain": "evil.test"}
+                   for n, v in rotating(180, 80, event * 1000)], "https://evil.test/")
+        assert len(built) <= COOKIE_TAKES and len(ordered) <= 2
+
+
+def test_an_events_cookies_past_what_it_takes_are_chosen_by_rank_not_order():
+    from kubed.selenium_flow.capture import COOKIE_TAKES
+
+    pairs = [(f"c{i}", b64(40, 500 + i)) for i in range(3 * COOKIE_TAKES)]
+    held = []
+    for seed in range(4):
+        import random
+
+        order = list(pairs)
+        random.Random(seed).shuffle(order)
+        m = Masker()
+        m.cookies([{"name": n, "value": {"type": "string", "value": v}} for n, v in order])
+        held.append(set(m._cookies.values))
+    assert len(held[0]) == COOKIE_TAKES and all(h == held[0] for h in held)

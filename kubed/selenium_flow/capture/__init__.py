@@ -79,6 +79,7 @@ COOKIE_MIN = 16
 CREDENTIAL_MAX = 4096
 COOKIE_STALE = 64  # events: a request is two or three (cookies, headers, response)
 COOKIE_SHARE = 2  # each cookie domain is sure of 1/2 of the cookie tier
+COOKIE_TAKES = 8  # new cookies an event learns at most, the highest-ranked
 
 # Counted, not kept, when they succeed (ruling 3); counted in the hint when they
 # fail (ruling 12).
