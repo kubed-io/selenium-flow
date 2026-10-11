@@ -412,6 +412,40 @@ def test_an_authorization_without_a_token_learns_nothing(value):
 # ---- what masking costs (R1-1) ----------------------------------------------------
 
 
+def traced() -> bool:
+    """Whether a tracer is timing this process too: coverage (CI runs every
+    interpreter with ``--cov``), a debugger, a profiler. A wall-clock pin
+    measures the tracer then, not the masking."""
+    import sys
+
+    if sys.gettrace() is not None:
+        return True
+    monitoring = getattr(sys, "monitoring", None)  # 3.12+: coverage's sysmon core
+    if monitoring is not None and any(monitoring.get_tool(i) for i in range(6)):
+        return True
+    coverage = sys.modules.get("coverage")
+    return bool(coverage and coverage.Coverage.current())
+
+
+@pytest.fixture
+def untraced():
+    """For a wall-clock pin: skipped under a tracer. The form-build and scan
+    counts are the guards that hold everywhere."""
+    if traced():
+        pytest.skip("a wall-clock pin: a tracer is running")
+
+
+def test_a_wall_clock_pin_knows_when_it_is_traced():
+    import sys
+
+    before = sys.gettrace()
+    sys.settrace(lambda *a: None)
+    try:
+        assert traced()
+    finally:
+        sys.settrace(before)
+
+
 def worst_masker():
     """A session at its budgets, every value spelt as many ways as an echo can
     (eleven) and every spelling ASCII: a form with a character the text cannot
@@ -468,7 +502,7 @@ def test_a_bound_secret_holding_a_nul_is_still_masked_in_a_header():
     assert header["value"] == f"1 {MASK} 2"
 
 
-def test_the_worst_case_request_event_stays_cheap():
+def test_the_worst_case_request_event_stays_cheap(untraced):
     """The pin: a request event at the forms budget, its 32 headers of 600
     characters and a 2 kB URL, runs on the server's main loop. Measured at
     about 0.6 ms on the machine that set the budget (16 + 48 forms); the
@@ -620,7 +654,7 @@ def test_once_learned_an_event_builds_no_forms(monkeypatch, sets):
      ([(HOST_A, None), (HOST_B, None)], 0.1)],
     ids=["known", "8x4kB", "60 small", "two hosts"],
 )
-def test_a_learned_or_full_tier_costs_little_per_event(sets, bound):
+def test_a_learned_or_full_tier_costs_little_per_event(untraced, sets, bound):
     """The pin, the median of 100 events in ms, with a generous bound for a
     slow runner. Measured on the machine that wrote it: 0.010, 0.027, 0.045
     and 0.019 ms, where the code each replaced cost 0.27 (known, e3ab0c2),
