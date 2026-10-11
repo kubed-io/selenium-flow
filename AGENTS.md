@@ -576,11 +576,13 @@ or the leak `caller_key` existed to prevent comes straight back.
   is parked are ruling 21 of the
   [capture spec](docs/superpowers/specs/2026-10-10-capture-design.md). What must not
   break: a known value costs a lookup; an event builds forms for at most `COOKIE_TAKES`
-  new cookies, taken round the domains so none starves another; a token past 4 096 is
-  learned only when spelt as a `b64token`; cookies cannot evict a token; what a full cookie tier holds does not depend
-  on the order cookies arrive in, and a page that keeps sending them settles; each cookie
-  domain keeps its half; a credential too long to learn is counted as `unmasked`, never
-  logged.
+  (8) new cookies, taken round the domains, so within an event of 8 domains or fewer none
+  starves another, and past that each waits about a round of events (one per 8 domains;
+  only a host 10 labels deep is sent more than 8 cookie domains in one request); a token
+  past 4 096 is learned only when spelt as a `b64token`; cookies cannot evict a token;
+  what a full cookie tier holds does not depend on the order cookies arrive in, and a
+  page that keeps sending them settles; each cookie domain keeps its half; a credential
+  too long to learn is counted as `unmasked`, never logged.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
   page keeps 2 000. What the capture listener's own queue drops is counted, never hidden:
   `dropped` on every view, present only when non-zero.
