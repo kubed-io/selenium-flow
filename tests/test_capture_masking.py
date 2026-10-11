@@ -544,3 +544,94 @@ def test_a_cookie_is_masked_in_its_decoded_spelling_too():
     assert m.text('{"sid": "s:a8F2kQ9xZ1mP0rT7vW3yB5"}') == f'{{"sid": "{MASK}"}}'
     assert m.text("s%3Aa8F2kQ9xZ1mP0rT7vW3yB5") == MASK
     assert m.text("tok=v+k3Yq8LmN5pQ7rS9tU1") == f"tok={MASK}"
+
+
+# ---- fix round 3: what learning costs once it has learned ---------------------------
+
+
+def b64(n, seed):
+    import base64
+
+    return base64.b64encode(bytes((i * 151 + seed) % 256 for i in range(n))).decode()[:n]
+
+
+def request_event(m, cookies, auth=None):
+    """What one request event asks of a masker: its BiDi cookies, then its
+    headers. Returns how long it took."""
+    import time as clock
+
+    raw = [{"name": f"c{i}", "value": {"type": "string", "value": v}} for i, v in enumerate(cookies)]
+    sent = "; ".join(f"c{i}={v}" for i, v in enumerate(cookies))
+    headers = [{"name": "Cookie", "value": {"type": "string", "value": sent}}]
+    if auth:
+        headers.append({"name": "Authorization", "value": {"type": "string", "value": "Bearer " + auth}})
+    started = clock.perf_counter()
+    m.cookies(raw)
+    m.headers(headers)
+    return clock.perf_counter() - started
+
+
+STEADY = ([b64(120, i) for i in range(6)], b64(3000, 99))   # 6 cookies, a 3 kB JWT
+BIG_COOKIES = [b64(4000, i) for i in range(8)]                # past the characters
+MANY_COOKIES = [("%2F" + b64(61, i))[:64] for i in range(60)]  # past the forms
+
+
+@pytest.mark.parametrize(
+    ("cookies", "auth"),
+    [STEADY, (BIG_COOKIES, None), (MANY_COOKIES, None)],
+    ids=["known", "8x4kB", "60 small"],
+)
+def test_once_learned_an_event_builds_no_forms(monkeypatch, cookies, auth):
+    """R3: a credential already known costs a lookup, and one a full tier
+    will not take this event costs no more; neither spells out its forms
+    again, which is what each request event used to pay."""
+    from kubed.selenium_flow.capture import masking
+
+    m = Masker()
+    for _ in range(3):
+        request_event(m, cookies, auth)
+    built, real = [], masking.hidden_forms
+    monkeypatch.setattr(masking, "hidden_forms", lambda v: built.append(1) or real(v))
+    sorted_, real_sort = [], m._sort
+    monkeypatch.setattr(m, "_sort", lambda: sorted_.append(1) or real_sort())
+    for _ in range(5):
+        request_event(m, cookies, auth)
+    assert built == [] and sorted_ == []
+
+
+@pytest.mark.parametrize(
+    ("cookies", "auth"),
+    [STEADY, (BIG_COOKIES, None), (MANY_COOKIES, None)],
+    ids=["known", "8x4kB", "60 small"],
+)
+def test_a_learned_or_full_tier_costs_little_per_event(cookies, auth):
+    """The pin, with a generous bound for a slow runner. Measured on the
+    machine that wrote it: 0.007, 0.019 and 0.045 ms (0.28, 1.79 and 1.78 ms
+    before), so the bound still fails the costs it replaced."""
+    m = Masker()
+    for _ in range(3):
+        request_event(m, cookies, auth)
+    times = sorted(request_event(m, cookies, auth) for _ in range(30))
+    assert times[len(times) // 2] < 0.0002
+
+
+def test_a_full_tier_keeps_what_it_holds_and_takes_a_new_cookie_once_one_goes():
+    """The coverage this costs: past the budget, the cookies a page sends
+    later in the header are not learned while the earlier ones are still
+    sent. A cookie no longer sent is evicted for a new one."""
+    m = Masker()
+    for _ in range(3):
+        request_event(m, MANY_COOKIES)
+    held = [c for c in MANY_COOKIES if m.text(c) == MASK]
+    assert held and held == MANY_COOKIES[: len(held)]       # the first ones, stably
+    fresh = "fresh-session-cookie-0123456789"
+    request_event(m, [fresh])                               # the page now sends only this
+    assert m.text(fresh) == MASK
+
+
+def test_a_whole_authorization_value_past_the_limit_is_not_a_skip_when_its_token_was_learned():
+    """R3-3: the token was learned; only the whole value was too long."""
+    m = Masker()
+    token = b64(4090, 3)
+    bearer(m, f"Bearer {token}")
+    assert m.text(token) == MASK and m.skipped == 0

@@ -14,7 +14,7 @@ from __future__ import annotations
 import bisect
 import re
 from collections import OrderedDict
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from ..flows.redact import hidden_forms
@@ -62,25 +62,53 @@ class _Tier:
     """Learned credentials of one kind: value -> its forms, least recently
     seen first, within a budget of forms and of their characters. The newest
     value is always kept, so a tier is over its character budget by at most
-    one value's forms."""
+    one value's forms.
+
+    What one event (a `Masker.cookies` or `Masker.headers` call) sends is
+    ``touched``. A full tier never evicts a value this event touched to take
+    another: a page sending more cookies than the budget holds would
+    otherwise re-learn, evict and re-sort every one on every request. It keeps
+    the ones it holds, and learns no more until one stops being sent."""
 
     def __init__(self, forms: int, chars: int = FORM_CHARS):
         self.budget, self.chars_budget = forms, chars
         self.values: OrderedDict[str, frozenset[str]] = OrderedDict()
         self.forms = self.chars = 0
+        self._touched: set[str] = set()
 
-    def learn(self, value: str, forms: frozenset[str] | None = None) -> bool:
-        """Keep ``value`` as the newest; True when it was not known."""
-        if value in self.values:
-            self.values.move_to_end(value)
+    def begin(self) -> None:
+        """An event starts: nothing is touched yet."""
+        self._touched = set()
+
+    def knows(self, value: str) -> bool:
+        """Whether ``value`` is learned; if so it is now the newest."""
+        if value not in self.values:
             return False
-        forms = frozenset(hidden_forms([value])) if forms is None else forms
-        self.values[value] = forms
-        self.forms += len(forms)
-        self.chars += sum(map(len, forms))
+        self.values.move_to_end(value)
+        self._touched.add(value)
+        return True
+
+    def learn(
+        self, value: str, forms: Callable[[], frozenset[str]]
+    ) -> bool:
+        """Keep ``value`` as the newest, building its forms only when it is
+        new and there is room; True when it was learned."""
+        if self.knows(value):
+            return False
+        full = self.forms >= self.budget or self.chars >= self.chars_budget
+        if full and self.values and next(iter(self.values)) in self._touched:
+            return False  # it would evict what this event sent
+        built = forms()
+        self.values[value] = built
+        self._touched.add(value)
+        self.forms += len(built)
+        self.chars += sum(map(len, built))
         while len(self.values) > 1 and (
             self.forms > self.budget or self.chars > self.chars_budget
         ):
+            oldest = next(iter(self.values))
+            if oldest in self._touched and oldest != value:
+                break  # this event's; over by this one value at most
             _, gone = self.values.popitem(last=False)
             self.forms -= len(gone)
             self.chars -= sum(map(len, gone))
@@ -127,12 +155,14 @@ class Masker:
         self._bound |= other._bound
         tiers = ((self._auth, other._auth), (self._cookies, other._cookies))
         for mine, theirs in tiers:
+            mine.begin()
             for value, forms in theirs.values.items():
-                mine.learn(value, forms)
+                mine.learn(value, lambda forms=forms: forms)
         self._sort()
 
     def cookies(self, raw) -> None:
         """Mask the values of a request's BiDi ``cookies`` from now on."""
+        self._cookies.begin()
         changed = False
         for c in raw if isinstance(raw, list) else ():
             if isinstance(c, dict) and not _binary(c.get("value")):
@@ -151,12 +181,12 @@ class Masker:
             if len(scheme_and_token) < 2:
                 return False
             token = scheme_and_token[1].strip()
-            if not self._learnable(token, CREDENTIAL_MIN):
+            if self._auth.knows(token) or not self._learnable(token, CREDENTIAL_MIN):
                 return False
-            spellings = [token]
-            if self._learnable(value, CREDENTIAL_MIN):
-                spellings.append(value)
-            return self._auth.learn(token, _forms(spellings))
+            # The token is learned: a whole value too long is no skip.
+            whole = self._learnable(value, CREDENTIAL_MIN, count=False)
+            spellings = [token, value] if whole else [token]
+            return self._auth.learn(token, lambda: _forms(spellings))
         if name == "cookie":
             pairs = value.split(";")
         elif name == "set-cookie":  # one per line where a browser folds several
@@ -175,22 +205,26 @@ class Masker:
         differs and can be a secret: a server echoes the cookie it parsed
         (``s:a8F2…``), not the one on the wire (``s%3Aa8F2…``). One entry, so
         the two go together."""
-        if not self._learnable(value, COOKIE_MIN):
+        if self._cookies.knows(value) or not self._learnable(value, COOKIE_MIN):
             return False
-        spellings = [value]
-        try:
-            decoded = unquote(value, errors="strict")
-        except UnicodeDecodeError:
-            decoded = value
-        if decoded != value and self._learnable(decoded, COOKIE_MIN):
-            spellings.append(decoded)
-        return self._cookies.learn(value, _forms(spellings))
 
-    def _learnable(self, value: str, minimum: int) -> bool:
+        def forms() -> frozenset[str]:  # only for a value the tier takes
+            spellings = [value]
+            try:
+                decoded = unquote(value, errors="strict")
+            except UnicodeDecodeError:
+                decoded = value
+            if decoded != value and self._learnable(decoded, COOKIE_MIN):
+                spellings.append(decoded)
+            return _forms(spellings)
+
+        return self._cookies.learn(value, forms)
+
+    def _learnable(self, value: str, minimum: int, *, count: bool = True) -> bool:
         """Whether ``value`` can be a secret worth masking (see `capture`). One
-        too long to learn is counted in ``skipped``."""
+        too long to learn is counted in ``skipped``, unless ``count`` is off."""
         if len(value) > CREDENTIAL_MAX:
-            self.skipped += 1
+            self.skipped += count
             return False
         return not (
             len(value) < minimum
@@ -260,6 +294,8 @@ class Masker:
         URL-bearing one's password too) and cut to ``HEADER_VALUE_CAP``, every
         name to ``HEADER_NAME_CAP``."""
         given = [h for h in (raw or ()) if isinstance(h, dict)]
+        self._auth.begin()
+        self._cookies.begin()
         # Learned before any value is shown, so one header cannot echo another.
         learned = False
         for header in given[:HEADER_LIMIT]:
