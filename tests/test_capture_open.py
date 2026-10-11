@@ -25,12 +25,15 @@ class StubDriver:
     session_id = "gridstub"
     current_url = "about:blank"
     title = ""
+    fails = None  # what the first page raises
 
     def __init__(self, order):
         self.order = order
 
     def get(self, url):
         self.order.append(f"get {url}")
+        if self.fails is not None and url != "about:blank":
+            raise self.fails
         self.current_url = url
 
     def get_window_size(self):
@@ -84,6 +87,47 @@ def test_a_quit_that_fails_does_not_hide_the_refusal(stub_grid):
 
     with pytest.raises(BidiUnavailable, match="no route"):
         Actions(stub_grid).open_session(on_ready=refuse)
+
+
+def test_a_first_page_that_fails_quits_the_browser_and_raises_its_error(stub_grid, monkeypatch):
+    """Spotless 6: the browser exists once the Grid made it, and an open that
+    fails after that hands it to nobody - left running, it held a Grid slot
+    until the idle timeout. The error is the page's, not the quit's."""
+    from selenium.common.exceptions import TimeoutException
+
+    monkeypatch.setattr(StubDriver, "fails", TimeoutException("page load"))
+    quit = []
+    with pytest.raises(TimeoutException, match="page load"):
+        Actions(stub_grid).open_session(
+            url="https://typo.test/", on_ready=lambda sid: None, on_quit=quit.append
+        )
+    assert stub_grid.quit_ids == [stub_grid.last_id] and quit == [stub_grid.last_id]
+
+
+def test_a_first_page_that_fails_without_capture_quits_the_browser_too(stub_grid, monkeypatch):
+    monkeypatch.setattr(StubDriver, "fails", ConnectionError("refused"))
+    with pytest.raises(ConnectionError):
+        Actions(stub_grid).open_session(url="https://typo.test/")
+    assert stub_grid.quit_ids == [stub_grid.last_id]
+
+
+def test_a_quit_that_fails_after_the_first_page_keeps_the_pages_error(stub_grid, monkeypatch):
+    """And says nothing was quit: the browser may still be running."""
+    monkeypatch.setattr(StubDriver, "fails", TimeoutError("page load"))
+    stub_grid.quit_fails = True
+    quit = []
+    with pytest.raises(TimeoutError, match="page load"):
+        Actions(stub_grid).open_session(url="https://typo.test/", on_quit=quit.append)
+    assert quit == []
+
+
+def test_a_failed_on_created_quits_the_browser(stub_grid):
+    def refuse(_sid):
+        raise OSError("note")
+
+    with pytest.raises(OSError):
+        Actions(stub_grid).open_session(on_created=refuse)
+    assert stub_grid.quit_ids == [stub_grid.last_id]
 
 
 def test_a_restores_stand_in_reset_happens_before_on_ready(stub_grid, monkeypatch):
@@ -150,8 +194,9 @@ class FakeActions:
         self.n = 0
         self.opened = []
         self.fail_after_ready = None  # the first page failing, say
+        self.quit_fails = False
 
-    def open_session(self, *, on_created=None, on_ready=None, **kwargs):
+    def open_session(self, *, on_created=None, on_ready=None, on_quit=None, **kwargs):
         self.n += 1
         sid = f"grid{self.n:04d}"
         self.grid.alive.add(sid)
@@ -159,11 +204,15 @@ class FakeActions:
         try:
             if on_ready is not None:
                 on_ready(sid)
+            if self.fail_after_ready is not None:
+                raise self.fail_after_ready
         except Exception:
-            self.grid.alive.discard(sid)  # the real one quits the browser
+            # As the real one: quit, and say so only when the quit worked.
+            if not self.quit_fails:
+                self.grid.alive.discard(sid)
+                if on_quit is not None:
+                    on_quit(sid)
             raise
-        if self.fail_after_ready is not None:
-            raise self.fail_after_ready
         return {
             "session_id": sid,
             "browser": kwargs.get("browser") or "chrome",
@@ -182,6 +231,10 @@ class FakeMonitor:
     def __init__(self):
         self.attached, self.order, self.refuse = [], [], False
         self.held, self.ended_calls, self.opened_calls = set(), [], []
+        self.released = []
+
+    def release(self, sid, reason):
+        self.released.append((sid, reason))
 
     def attach(self, workspace, sid, reason, **kwargs):
         self.order.append("attach")
@@ -249,6 +302,23 @@ def test_a_failure_after_the_attach_ends_the_watch(ws):
     assert [c[1] for c in ws.monitor.ended_calls] == ["grid0001"]
     record = ws.workspaces.store.get("bot")
     assert record is None or not record.attached
+
+
+def test_a_failure_after_the_attach_releases_the_hold_whether_or_not_the_quit_worked(ws):
+    ws.actions.fail_after_ready = TimeoutError("page load")
+    ws.actions.quit_fails = True
+    with pytest.raises(TimeoutError):
+        ws.workspaces.open_browser(caller(), url="https://typo.test/", capture=True)
+    assert ws.monitor.released == [("grid0001", "capture")]
+    # The browser may still be running: it is not announced as ended (spotless 6).
+    assert ws.monitor.ended_calls == []
+
+
+def test_a_failed_attach_releases_whatever_hold_completed_as_it_gave_up(ws):
+    ws.monitor.refuse = True
+    with pytest.raises(BidiUnavailable):
+        ws.workspaces.open_browser(caller(), capture=True)
+    assert ws.monitor.released == [("grid0001", "capture")]
 
 
 def test_a_failure_after_a_reopens_attach_ends_the_watch(ws):

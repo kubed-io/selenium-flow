@@ -233,6 +233,7 @@ class Actions:
         *,
         on_created=None,
         on_ready=None,
+        on_quit=None,
     ) -> dict:
         """Start a browser session with the settings it should run under.
 
@@ -255,9 +256,14 @@ class Actions:
         ``on_ready`` is called with the Grid's id once everything but the first
         page is done — the window, the timeouts, the restore — and before
         ``url`` loads, so a listener it starts hears that page from its first
-        request. One that raises fails the open: the browser is quit, and its
-        failure is the caller's. ``capture`` only says the browser is being
-        captured; what listens is ``on_ready``'s.
+        request. ``capture`` only says the browser is being captured; what
+        listens is ``on_ready``'s.
+
+        **A browser this open made is never left behind.** Anything that fails
+        once it exists — a hook, the window, the first page — quits it, and
+        the open fails with that failure, not the quit's. ``on_quit`` is
+        called with the Grid's id once the quit is done; a quit that failed
+        leaves the browser possibly running, so it is not called.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
@@ -266,6 +272,57 @@ class Actions:
         driver = self.grid.open(
             name, insecure=insecure, record=record, video_name=video_name
         )
+        session_id = driver.session_id
+        try:
+            return self._set_up(
+                driver,
+                name,
+                url=url,
+                width=width,
+                height=height,
+                page_load_timeout=page_load_timeout,
+                script_timeout=script_timeout,
+                insecure=insecure,
+                record=record,
+                capture=capture,
+                site_data=site_data,
+                on_created=on_created,
+                on_ready=on_ready,
+            )
+        except BaseException:
+            # Nobody was handed it: quit it rather than hold a Grid slot until
+            # the idle timeout. The id stays out of the log; the failure is
+            # what propagates.
+            try:
+                self.grid.quit(session_id)
+            except Exception as exc:  # noqa: BLE001 - the failure matters more
+                log.warning(
+                    "could not quit a browser whose open failed: %s",
+                    type(exc).__name__,
+                )
+            else:
+                if on_quit is not None:
+                    on_quit(session_id)
+            raise
+
+    def _set_up(
+        self,
+        driver,
+        name: str,
+        *,
+        url,
+        width,
+        height,
+        page_load_timeout,
+        script_timeout,
+        insecure: bool,
+        record: bool,
+        capture: bool,
+        site_data,
+        on_created,
+        on_ready,
+    ) -> dict:
+        """Everything `open_session` does once the browser exists."""
         session_id = driver.session_id
         if on_created is not None:
             on_created(session_id)
@@ -320,20 +377,7 @@ class Actions:
             driver.get("about:blank")
 
         if on_ready is not None:
-            try:
-                on_ready(session_id)
-            except BaseException:
-                # No page was loaded, so nothing is lost: quit it rather than
-                # hold a Grid slot for a browser nobody was told about. The
-                # id stays out of the log; the refusal is what propagates.
-                try:
-                    self.grid.quit(session_id)
-                except Exception as exc:  # noqa: BLE001 - the refusal matters more
-                    log.warning(
-                        "could not quit a browser whose setup failed: %s",
-                        type(exc).__name__,
-                    )
-                raise
+            on_ready(session_id)
 
         current_url, title = "about:blank", ""
         if url:

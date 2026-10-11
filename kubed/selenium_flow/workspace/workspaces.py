@@ -600,34 +600,39 @@ class Workspaces:
         """``actions.open_session``, attaching capture first when ``settings``
         ask for it.
 
-        Its failure is the open's, as a 503: the open quits the browser, and the
-        monitor is told the session ended so a hold that completed just as the
-        attach gave up is dropped. So is a failure *after* the attach (the first
-        page timing out): no watch is left on a browser nobody was handed. A
-        monitor that was never started is the same refusal, never a 500."""
+        A failed attach is the open's failure, as a 503; so is a monitor that
+        was never started, never a 500. Whatever fails once the browser exists
+        — the attach, or the first page timing out after it — the open quits
+        the browser, and the capture hold is released, a hold that completed
+        just as the attach gave up included: no watch is left on a browser
+        nobody was handed. The session is announced ended only once its quit
+        is done (``on_quit``); after a quit that failed it may still run."""
         if not settings.get("capture"):
             return self.actions.open_session(**kwargs)
         browser = settings.get("browser") or DEFAULT_BROWSER
-        attached: list[str] = []
+        tried: list[str] = []
 
         def ready(session_id: str) -> None:
+            tried.append(session_id)
             try:
                 self.monitor.attach(name, session_id, "capture", browser=browser)
             except Exception as exc:
-                self._ended(name, session_id, "ended")
                 if isinstance(exc, faults.BidiUnavailable):
                     raise
                 log.info(
                     "capture did not attach for %s: %s", name, type(exc).__name__
                 )
                 raise faults.BidiUnavailable(ATTACH_FAILED) from exc
-            attached.append(session_id)
 
         try:
-            return self.actions.open_session(on_ready=ready, **kwargs)
+            return self.actions.open_session(
+                on_ready=ready,
+                on_quit=lambda session_id: self._ended(name, session_id, "ended"),
+                **kwargs,
+            )
         except Exception:
-            for session_id in attached:
-                self._ended(name, session_id, "ended")
+            for session_id in tried:
+                self._told("release", session_id, "capture")
             raise
 
     def _told(self, what: str, *args, **kwargs):
