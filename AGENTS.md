@@ -571,24 +571,15 @@ or the leak `caller_key` existed to prevent comes straight back.
   `goog:postData`, every bound secret, a URL's userinfo password (in URLs and the `referer` /
   `location` / `content-location` headers), every free-text row field and a fetched body's text;
   query strings only on the newest navigation. The values those headers and the request's
-  cookies carried are masked wherever a page echoes them, like a bound secret, within a
-  budget of forms and characters per session (`capture/__init__.py`): an Authorization
-  token's tier that cookie churn cannot evict, and the cookies'. Only a value that can be a
-  secret is learned — a token after a scheme, a cookie of 16 or more, never only letters or
-  only digits, never over 4 096 (counted instead, once per value). A known value costs a
-  lookup. Past the budget the cookie tier holds the cookies that rank highest — a
-  session-like name (`sid`, `token`, `csrf`…) over any other, a tracker's spelt whole as
-  its vendor spells it (`_ga`, `_fbp`, `_hjSessionUser_1`…) under all, then distinct
-  characters, length, the value — and one not sent for `COOKIE_STALE` events under every
-  one that was. Each cookie domain (its BiDi `domain`, else the request's host) is sure of
-  half the tier: what it holds past its half gives way first to a domain under its half,
-  so one third party cannot evict a first party's session (two that fill their halves
-  compete with it by rank). A session cookie set after login is masked at once when it
-  outranks the lowest held, by a session-like name or a stronger value; one with neither
-  waits, past the budget, until the held stop being sent. The set does not depend on
-  header order, and a full page settles instead of re-learning. The token tier keeps the
-  most recently sent; of one request's two that will not both fit, the Authorization,
-  learned first because a proxy strips Proxy-Authorization before any page.
+  cookies carried are learned and masked wherever a page echoes them, within per-session
+  budgets of forms and characters (`capture/__init__.py`); the rules, the budgets and what
+  is parked are ruling 21 of the
+  [capture spec](docs/superpowers/specs/2026-10-10-capture-design.md). What must not
+  break: a known value costs a lookup; an event builds forms for at most `COOKIE_TAKES`
+  new cookies; cookies cannot evict a token; what a full cookie tier holds does not depend
+  on the order cookies arrive in, and a page that keeps sending them settles; each cookie
+  domain keeps its half; a credential too long to learn is counted as `unmasked`, never
+  logged.
 - The tail is capture's own fan-out to a page that asks, never kept: 500 per listener, and the
   page keeps 2 000. What the capture listener's own queue drops is counted, never hidden:
   `dropped` on every view, present only when non-zero.
