@@ -16,8 +16,10 @@ the mapping has to be explicit. **The default stays 500**, deliberately: for a
 failure we do not recognise, "it is the caller's fault" is the dangerous guess,
 because it tells a client to stop retrying something that may well be ours.
 
-The MCP surface is unaffected — a tool raises and FastMCP reports the message.
-Only HTTP has status codes to get right.
+Both surfaces ask this module. HTTP answers with the status. Over MCP, where a
+failed tool call is an error result with no status, `mcp/failures.py` logs a
+4xx as one warning line and keeps the traceback for the rest, and answers a
+failed resource read with invalid params (a 4xx) or resource not found (a 404).
 
 What a failure *says* (`message`, `formatted`) and the package's own exception
 types live in `faults.py`, which imports no driver: this module is the half
@@ -46,7 +48,7 @@ from selenium.common.exceptions import (
 )
 
 from .core.cancel import Ended
-from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge
+from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge, Unresolved
 
 # The caller asked for something that cannot happen as asked. Retrying the
 # identical request is guaranteed to fail again, so say 400 and let a workflow
@@ -60,6 +62,9 @@ from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge
 # instead, which is below.
 CALLER = (
     AssertionFailed,
+    # A page whose host has no address (`faults.unresolved`): the same request
+    # fails the same way, wherever the lookup that failed was.
+    Unresolved,
     TimeoutException,
     InvalidSelectorException,
     NoSuchElementException,

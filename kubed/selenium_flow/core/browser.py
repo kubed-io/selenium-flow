@@ -26,6 +26,7 @@ from selenium import webdriver
 from selenium.common.exceptions import (
     TimeoutException,
     UnexpectedAlertPresentException,
+    WebDriverException,
 )
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.client_config import ClientConfig
@@ -36,6 +37,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from urllib3.connection import HTTPConnection
 from urllib3.exceptions import ProtocolError
 
+from ..faults import Unresolved, unresolved
 from ..urls import normalize_url
 from . import probe
 from .defaults import (
@@ -785,6 +787,33 @@ def accept_local_files(driver) -> None:
 
 
 
+def go(driver, url: str) -> None:
+    """``driver.get(url)``, with a host that does not resolve said as the caller's.
+
+    Every page a caller names is loaded through here. The browser reports an
+    unresolvable host in its own words, which `errors` would call ours (a 500)
+    and which quote the URL on Firefox; `Unresolved` names the host and nothing
+    else, and the browser's exception is dropped so no traceback carries it.
+    Any other failure is raised as it was.
+    """
+    try:
+        driver.get(url)
+    except WebDriverException as exc:
+        if not unresolved(exc):
+            raise
+    else:
+        return
+    raise Unresolved(_host(url)) from None
+
+
+def _host(url: str) -> str | None:
+    """The URL's host, or None when it has none or does not parse."""
+    try:
+        return urlsplit(url).hostname
+    except ValueError:
+        return None
+
+
 def ensure_url(driver, url: str) -> bool:
     """Navigate to ``url`` unless the browser is already there.
 
@@ -794,7 +823,7 @@ def ensure_url(driver, url: str) -> bool:
     """
     if normalize_url(driver.current_url) == normalize_url(url):
         return False
-    driver.get(url)
+    go(driver, url)
     return True
 
 
