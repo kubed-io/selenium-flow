@@ -18,6 +18,8 @@ on:
     paths:
     - .github/workflows/copilot-setup-steps.yml
   pull_request:
+    # a draft runs nothing; marking it ready starts the checks
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
     paths:
     - .github/workflows/copilot-setup-steps.yml
@@ -28,6 +30,7 @@ permissions:
 jobs:
 
   copilot-setup-steps:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read

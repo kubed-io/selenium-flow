@@ -12,6 +12,8 @@ name: 🔌 Integration
 
 on:
   pull_request:
+    # a draft runs nothing; marking it ready starts the checks
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
   push:
     branches: [main]
@@ -37,6 +39,7 @@ jobs:
 
   integration:
     name: Integration
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read
