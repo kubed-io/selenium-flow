@@ -3,6 +3,8 @@ name: 🎨 UI
 # No `paths` filter on pull_request, deliberately: this job is REQUIRED.
 on:
   pull_request:
+    # a draft runs nothing; marking it ready starts the checks
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
@@ -14,6 +16,7 @@ permissions:
 jobs:
   ui:
     name: UI
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-26.04
     permissions:
       contents: read

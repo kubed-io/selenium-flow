@@ -43,9 +43,11 @@ jobs:
       number: ${{ steps.route.outputs.number }}
       head: ${{ steps.route.outputs.head }}
       approve: ${{ steps.route.outputs.approve }}
+      takeover: ${{ steps.route.outputs.takeover }}
     steps:
 
-    # plan before `plan approved`, code after; a Copilot review before it does nothing
+    # plan before `plan approved`, code after; a Copilot review before it does nothing.
+    # Only the label's own run codes before the plan is committed: it commits it first.
     - name: Route
       id: route
       uses: actions/github-script@v9
@@ -62,12 +64,17 @@ jobs:
           const ours = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
           if (pr.state !== 'open' || !ours || !pr.head.ref.startsWith('issue-')) return;
           const approved = pr.labels.some((l) => l.name === 'plan approved');
+          const labelled = context.eventName === 'pull_request_target';
+          const committed = /<!-- issue-agent:plan -->[\s\S]*?<!-- issue-agent-state [^\n]*"approved":true/.test(pr.body || '');
           const byOwner = String((run ? run.triggering_actor : e.sender).id) === process.env.OWNER_ID;
-          const stage = approved ? 'code' : byOwner ? 'plan' : 'none';
+          let stage = byOwner ? 'plan' : 'none';
+          if (approved) stage = labelled || committed ? 'code' : 'none';
           core.setOutput('stage', stage);
           core.setOutput('number', String(number));
           core.setOutput('head', pr.head.ref);
-          core.setOutput('approve', String(context.eventName === 'pull_request_target'));
+          core.setOutput('approve', String(labelled));
+          // the approval label takes the PR over; anything else waits its turn
+          core.setOutput('takeover', String(labelled));
 
   approve:
     name: Approve the Plan
@@ -75,6 +82,10 @@ jobs:
     if: needs.route.outputs.stage == 'code' && needs.route.outputs.approve == 'true'
     runs-on: claude
     environment: claude
+    # one agent job per PR at a time; the approval label cancels the one running
+    concurrency:
+      group: agent-pr-${{ needs.route.outputs.number }}
+      cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
     timeout-minutes: 10
     permissions:
       actions: read
@@ -104,6 +115,10 @@ jobs:
     if: needs.route.outputs.stage == 'plan'
     runs-on: claude
     environment: claude
+    # one agent job per PR at a time; the approval label cancels the one running
+    concurrency:
+      group: agent-pr-${{ needs.route.outputs.number }}
+      cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -163,6 +178,10 @@ jobs:
     if: always() && needs.route.outputs.stage == 'code' && needs.approve.result != 'failure'
     runs-on: claude
     environment: claude
+    # one agent job per PR at a time; the approval label cancels the one running
+    concurrency:
+      group: agent-pr-${{ needs.route.outputs.number }}
+      cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
     timeout-minutes: 120
     permissions:
       contents: read

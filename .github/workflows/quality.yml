@@ -21,6 +21,8 @@ name: 🛡️ Quality
 
 on:
   pull_request:
+    # a draft runs nothing; marking it ready starts the checks
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
   push:
     branches: [main]
@@ -38,6 +40,7 @@ jobs:
   # ---------------------------------------------------------------------------
   codeql:
     name: CodeQL
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -70,6 +73,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deps:
     name: Dependency Audit
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -123,6 +127,7 @@ jobs:
   # ---------------------------------------------------------------------------
   actions:
     name: Workflow Audit
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -151,6 +156,7 @@ jobs:
   # ---------------------------------------------------------------------------
   docker:
     name: Dockerfile Lint
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -176,6 +182,7 @@ jobs:
   # ---------------------------------------------------------------------------
   spec:
     name: OpenAPI Spec
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     permissions:
       contents: read

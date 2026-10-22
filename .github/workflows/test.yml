@@ -30,6 +30,8 @@ on:
   # misses the filter — GitHub then waits for it forever and the PR can never
   # merge. The push filter below is fine: nothing gates on it.
   pull_request:
+    # a draft runs nothing; marking it ready starts the checks
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
   push:
     branches: [main]
@@ -49,6 +51,7 @@ jobs:
 
   test:
     name: Test
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-26.04
     permissions:
       contents: read
