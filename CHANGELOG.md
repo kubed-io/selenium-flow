@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Reading a file from a workspace returns its real media type, so a client shows an image as one.
 - Capture masks the `Authorization` and cookie values it has seen when a page echoes them; one too long to mask is counted as `unmasked`.
 - Fixed: a browser whose first page fails to load is quit; a body after `end_browser` is a 404; a bad capture query is invalid params; the admin list shows a live browser's window and how many capture events were dropped.
 - **BREAKING:** Python 3.11 or newer is required.

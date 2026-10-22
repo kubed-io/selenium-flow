@@ -1,6 +1,7 @@
 """What an agent and an HTTP caller can do with a workspace's files (§F4.6, §F4.7)."""
 
 import asyncio
+import base64
 
 import pytest
 from fastmcp import Client
@@ -98,3 +99,32 @@ def test_reading_a_screenshot_resource_returns_its_bytes(srv):
             return await c.read_resource("workspace://files/screenshots/shot.png")
     got = _run(go())
     assert got[0].blob or got[0].text
+
+
+@pytest.mark.parametrize("folder", ["files", "screenshots", "downloads"])
+@pytest.mark.parametrize(
+    "name,expected",
+    [("shot.png", "image/png"), ("dump.zzz", "application/octet-stream")],
+)
+def test_a_file_read_carries_its_own_media_type(srv, folder, name, expected):
+    from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
+
+    data = b"\x89PNG-ish"
+    if folder == "files":
+        srv.flows.create_file(STDIO_NAME, name, data)
+        uri = f"workspace://files/{name}"
+    elif folder == "screenshots":
+        srv.flows.create_file(STDIO_NAME, name, data, SCREENSHOTS_DIR)
+        uri = f"workspace://files/screenshots/{name}"
+    else:
+        srv.workspaces.browser = lambda _: "abc"
+        srv.actions.grid.read_file = lambda _session, _leaf: data
+        uri = f"workspace://files/downloads/{name}"
+
+    async def go():
+        async with Client(srv.mcp) as c:
+            return await c.read_resource(uri)
+
+    got = _run(go())
+    assert got[0].mimeType == expected
+    assert base64.b64decode(got[0].blob) == data
