@@ -101,13 +101,35 @@ jobs:
         permission-pull-requests: write
         permission-issues: write
 
-    - name: Commit the Plan
+    # docs/ is the wiki submodule: the checkout hands the App's token to both remotes,
+    # so the wiki commit and the branch push authenticate
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.route.outputs.head }}
+        submodules: true
+        token: ${{ steps.app.outputs.token }}
+        persist-credentials: true
+
+    # the plan lands in docs/, which the commit API cannot write: written here, committed below
+    - name: Write the Plan
+      id: plan
       uses: kubed-io/actions/issue-agent/commit@main
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         document: plan
+        commit: false
         trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+
+    - name: Commit the Plan
+      uses: ./.github/actions/wiki-commit
+      with:
+        files: ${{ steps.plan.outputs.files }}
+        branch: ${{ steps.plan.outputs.branch }}
+        message: "plan: ${{ steps.plan.outputs.path }}"
+        token: ${{ steps.app.outputs.token }}
+        app_slug: ${{ steps.app.outputs.app-slug }}
 
   plan:
     name: Plan
@@ -131,6 +153,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         ref: ${{ needs.route.outputs.head }}
+        submodules: true
         persist-credentials: false
 
     - name: Roles Token

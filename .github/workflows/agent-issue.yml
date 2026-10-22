@@ -120,7 +120,18 @@ jobs:
         permission-pull-requests: write
         permission-issues: write
 
-    - name: Commit the Spec
+    # docs/ is the wiki submodule: the checkout hands the App's token to both remotes,
+    # so the wiki commit and the branch push authenticate
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: true
+        token: ${{ steps.app.outputs.token }}
+        persist-credentials: true
+
+    # a draft spec lands in docs/, which the commit API cannot write: written here, and
+    # committed below once the branch and PR exist
+    - name: Hand Off
       id: commit
       uses: kubed-io/actions/issue-agent/commit@main
       with:
@@ -128,7 +139,17 @@ jobs:
         number: ${{ github.event.issue.number }}
         document: spec
         pull_request: draft
+        commit: false
         trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+
+    - name: Commit the Spec
+      uses: ./.github/actions/wiki-commit
+      with:
+        files: ${{ steps.commit.outputs.files }}
+        branch: ${{ steps.commit.outputs.branch }}
+        message: "spec: ${{ steps.commit.outputs.path }}"
+        token: ${{ steps.app.outputs.token }}
+        app_slug: ${{ steps.app.outputs.app-slug }}
 
   plan:
     name: Plan
@@ -152,6 +173,7 @@ jobs:
       uses: actions/checkout@v7
       with:
         ref: ${{ needs.approve.outputs.branch }}
+        submodules: true
         persist-credentials: false
 
     - name: Roles Token
