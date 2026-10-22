@@ -45,9 +45,15 @@ rules:
   # the tag through the git remote that checkout configured. Turning this off
   # would leave the job unable to do the only thing it exists for. It uploads no
   # artifact, so the credential has nowhere to leak to.
+  #
+  # The agent workflows' approve jobs keep theirs too: an approved spec or plan lands in
+  # docs/, the wiki submodule, which only a git push can write (the wiki-commit action).
+  # Those jobs run no agent and upload no artifact.
   artipacked:
     ignore:
     - publish.yml
+    - agent-issue.yml
+    - agent-pr.yml
 
   # `gh release create` in a script step would work, but softprops/action-gh-release
   # is the house standard across every kubed-io repo's publish.yml, and a release

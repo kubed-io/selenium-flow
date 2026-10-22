@@ -1,0 +1,58 @@
+name: Wiki Commit
+description: >
+  Commits files written under docs/ (the wiki submodule) to the wiki's master, then
+  points the branch's docs/ at that commit. For an agent document the commit API cannot
+  write, because docs/ is a submodule (issue-agent/commit with commit: false). Needs a
+  checkout with submodules and persisted credentials that may push both repositories.
+
+inputs:
+  files:
+    description: JSON list of the written paths, each under docs/ (issue-agent/commit's `files`).
+    required: true
+  branch:
+    description: The branch whose docs/ moves to the new wiki commit.
+    required: true
+  message:
+    description: The commit message, in both repositories.
+    required: true
+  token:
+    description: The App's token, to name its bot as the author.
+    required: true
+  app_slug:
+    description: The App's slug.
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Commit to the Wiki, Then Point docs/ at It
+    shell: bash
+    env:
+      FILES: ${{ inputs.files }}
+      BRANCH: ${{ inputs.branch }}
+      MESSAGE: ${{ inputs.message }}
+      GH_TOKEN: ${{ inputs.token }}
+      SLUG: ${{ inputs.app_slug }}
+    run: |
+      set -euo pipefail
+      id=$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)
+      export GIT_AUTHOR_NAME="${SLUG}[bot]" GIT_COMMITTER_NAME="${SLUG}[bot]"
+      export GIT_AUTHOR_EMAIL="${id}+${SLUG}[bot]@users.noreply.github.com" GIT_COMMITTER_EMAIL="${id}+${SLUG}[bot]@users.noreply.github.com"
+      mapfile -t paths < <(jq -r '.[]' <<<"$FILES")
+      [ "${#paths[@]}" -gt 0 ] || exit 0
+      # on the branch's head, which the written files survive: the step before may
+      # have made the branch after this checkout
+      git fetch --no-tags origin "$BRANCH"
+      git checkout -B "$BRANCH" FETCH_HEAD
+      git submodule update --init docs
+      # on top of the wiki's master, which a browser edit may have moved past the pin
+      git -C docs fetch --no-tags origin master
+      git -C docs checkout -B master FETCH_HEAD
+      for p in "${paths[@]}"; do
+        case "$p" in docs/*) git -C docs add -- "${p#docs/}" ;; *) echo "::error::$p is not under docs/"; exit 1 ;; esac
+      done
+      git -C docs commit -m "$MESSAGE"
+      git -C docs push origin master
+      git add docs
+      git commit -m "$MESSAGE"
+      git push origin "HEAD:refs/heads/${BRANCH}"
