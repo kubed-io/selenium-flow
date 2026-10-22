@@ -150,7 +150,7 @@ jobs:
     # so a main-branch sweep does not post five of them.
     - name: Publish Test Results
       if: always() && matrix.python-version == '3.14'
-      uses: EnricoMi/publish-unit-test-result-action@v2.24.0
+      uses: EnricoMi/publish-unit-test-result-action@v2.25.0
       with:
         check_name: Unit test results
         files: dist/test-results.xml
