@@ -36,6 +36,8 @@
   let draft = $state('')
 
   const data = $derived(m.flows ?? { enabled: true, flows: [] })
+  const rows = $derived(data.flows || [])
+  const at = $derived(Math.max(rows.findIndex((x) => x.name === flowName), 0) + 1)
   const f = $derived(m.flowDoc && m.flowDoc.name === flowName ? m.flowDoc : null)
   const docError = $derived(m.flowDocError && m.flowDocError.name === flowName ? m.flowDocError.message : null)
   const declared = $derived(f ? mapping(mapping(f.parameters).properties) : {})
@@ -130,12 +132,12 @@
 <div id="flows" onclick={pick}>{#if m.flowsError}<div class="empty error">{m.flowsError}</div>{:else if !m.flows}<div
   class="empty">Loading…</div>{:else if !data.enabled}<div
   class="empty">Flows are off: this server was started with no DATA_DIR.</div>{:else if !(data.flows || []).length}<div
-  class="empty">No flows yet.</div>{:else}<div class="flows"><div class="flowlist" id="flowlist">{#each data.flows || [] as item (item.name)}<!--
+  class="empty">No flows yet.</div>{:else}<div class="flows" style:--n={rows.length}><div class="flowlist" id="flowlist">{#each rows as item (item.name)}<!--
     svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (today's list items are mouse-only)
     --><div class="item" aria-selected={item.name === flowName} onclick={() => choose(item.name)}><div
         class="grow"><div class="nm">{item.name}</div><div class="ct">{item.step_count} step{item.step_count === 1 ? '' : 's'}</div></div>{#if item.shared}<span
         class="globe" role="img" aria-label="global" title="In the shared global library">🌐</span>{/if}</div>{/each}</div><div
-    id="flowpanel">{#if !flowName}<div class="empty">Pick a flow.</div>{:else if docError}<div
+    id="flowpanel" style:--at={at}>{#if !flowName}<div class="empty">Pick a flow.</div>{:else if docError}<div
       class="empty error">{docError}</div>{:else if !f}<div class="empty">Loading…</div>{:else}<div class="panel"><div
         class="head"><span class="nm">{f.name}</span>{#if f.shared}<span class="pill">🌐 global</span>{/if}<span
           class="grow"></span><div class="acts"><button type="button" data-edit title="Edit YAML" aria-label="Edit YAML"

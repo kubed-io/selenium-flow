@@ -441,3 +441,26 @@ test('moving from workspace A to B with a flow in the hash never acts on A for B
   expect(location.hash).toBe('#/workspaces/b/flows/shared-one')
   sessionStorage.clear()
 })
+
+test('the panel starts on the picked flow’s row, and at the top with none picked (#80)', async () => {
+  const { container, rerender } = setup({
+    'GET /admin/workspaces/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
+  })
+  await vi.waitFor(() => found(container, '.panel'))
+  const panel = () => container.querySelector<HTMLElement>('#flowpanel')!
+  expect(container.querySelector<HTMLElement>('.flows')!.style.getPropertyValue('--n')).toBe('2')
+  expect(panel().style.getPropertyValue('--at')).toBe('1')
+  await rerender({ flow: 'shared-one' })
+  await vi.waitFor(() => expect(panel().style.getPropertyValue('--at')).toBe('2'))
+  // Loading… sits at the row too: the placed box is #flowpanel, whatever it holds.
+  await fireEvent.click(container.querySelectorAll('.flowlist .item')[0])
+  expect(panel()).toHaveTextContent('Loading…')
+  expect(panel().style.getPropertyValue('--at')).toBe('1')
+})
+
+test('a deep link the listing lacks leaves the panel at the top (#80)', async () => {
+  history.replaceState(null, '', '/#/workspaces/k/flows/ghost')
+  const { container } = setup({}, 'ghost')
+  await vi.waitFor(() => expect(container.querySelectorAll('.flowlist .item')).toHaveLength(2))
+  expect(container.querySelector<HTMLElement>('#flowpanel')!.style.getPropertyValue('--at')).toBe('1')
+})
