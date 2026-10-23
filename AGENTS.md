@@ -82,6 +82,21 @@ Run Publish once with `push=false` first. It computes the version and builds the
 without pushing anything, which is the cheap way to find out the build is broken before a
 tag exists. A failed build after a successful tag strands a tag on a nonexistent image.
 
+## Agents working here
+
+The issue and pull request agents (`.github/workflows/agent-*.yml`) read this file like
+anyone else. On top of it:
+
+- **The checks** are CI's: `ruff check .` and `pytest` (the integration tests need a
+  Grid and run in CI, not on the runner), `npm --prefix ui ci && npm --prefix ui run
+  build` plus `test`, `check` and `lint` when `ui/` changed, and a new entry under
+  `## [Unreleased]` in `CHANGELOG.md`. Copilot reviews against
+  `.github/copilot-instructions.md` and `.github/instructions/`, so write to them.
+- **Specs and plans** go under `docs/superpowers/`, which is the wiki submodule: the
+  workflow commits them to the wiki and moves the branch's `docs/` pointer. Write like the
+  specs already there; `docs/saga/` is history, cited, never extended.
+- **You never commit.** What you leave changed is committed after you answer.
+
 ## Rules
 
 - **Every browser action is both a tool and an endpoint. One to one, no exceptions.**
