@@ -1,12 +1,14 @@
 name: Agent Relay
 
-# A pull request review runs the PR's own copy of a workflow, so nothing privileged
-# listens to it directly. This one does nothing; its completion fires agent-pr.yml's
-# workflow_run, which is read from main.
+# A pull request review, or a push to a pull request, runs the PR's own copy of a
+# workflow, so nothing privileged listens to it directly. This one does nothing; its
+# completion fires agent-pr.yml's workflow_run, which is read from main and decides.
 
 on:
   pull_request_review:
     types: [submitted]
+  pull_request:
+    types: [synchronize]
 
 permissions: {}
 
@@ -18,6 +20,7 @@ jobs:
 
     - name: Relay
       env:
-        REVIEWER: ${{ github.event.review.user.login }}
+        EVENT: ${{ github.event_name }}
+        ACTOR: ${{ github.triggering_actor }}
         NUMBER: ${{ github.event.pull_request.number }}
-      run: echo "review by $REVIEWER on PR $NUMBER"
+      run: echo "$EVENT by $ACTOR on PR $NUMBER"

@@ -1,14 +1,12 @@
 name: Wiki Commit
 description: >
-  Commits files written under docs/ (the wiki submodule) to the wiki's master, then
-  points the branch's docs/ at that commit. For an agent document the commit API cannot
-  write, because docs/ is a submodule (issue-agent/commit with commit: false). Needs a
-  checkout with submodules and persisted credentials that may push both repositories.
+  Commits what changed under docs/ (the wiki submodule) to the wiki's master, then points
+  the branch's docs/ at that commit. For an agent's spec or plan, which the commit API
+  (kubed-io/actions/git/commit) cannot write, because docs/ is a submodule. Needs a
+  checkout with submodules; it authenticates with `token` itself, so the checkout keeps no
+  credentials an agent could read.
 
 inputs:
-  files:
-    description: JSON list of the written paths, each under docs/ (issue-agent/commit's `files`).
-    required: true
   branch:
     description: The branch whose docs/ moves to the new wiki commit.
     required: true
@@ -16,43 +14,49 @@ inputs:
     description: The commit message, in both repositories.
     required: true
   token:
-    description: The App's token, to name its bot as the author.
+    description: The App's token. It pushes both repositories, and names its bot as the author.
     required: true
   app_slug:
     description: The App's slug.
     required: true
+outputs:
+  committed:
+    description: true when there was something under docs/ to commit.
+    value: ${{ steps.wiki.outputs.committed }}
 
 runs:
   using: composite
   steps:
   - name: Commit to the Wiki, Then Point docs/ at It
+    id: wiki
     shell: bash
     env:
-      FILES: ${{ inputs.files }}
       BRANCH: ${{ inputs.branch }}
       MESSAGE: ${{ inputs.message }}
       GH_TOKEN: ${{ inputs.token }}
       SLUG: ${{ inputs.app_slug }}
     run: |
       set -euo pipefail
+      echo "committed=false" >> "$GITHUB_OUTPUT"
+      [ -n "$(git -C docs status --porcelain)" ] || { echo "nothing changed under docs/"; exit 0; }
       id=$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)
       export GIT_AUTHOR_NAME="${SLUG}[bot]" GIT_COMMITTER_NAME="${SLUG}[bot]"
       export GIT_AUTHOR_EMAIL="${id}+${SLUG}[bot]@users.noreply.github.com" GIT_COMMITTER_EMAIL="${id}+${SLUG}[bot]@users.noreply.github.com"
-      mapfile -t paths < <(jq -r '.[]' <<<"$FILES")
-      [ "${#paths[@]}" -gt 0 ] || exit 0
-      # on the branch's head, which the written files survive: the step before may
-      # have made the branch after this checkout
+      # the token reaches git through its env config, never a command line or .git/config
+      header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+      echo "::add-mask::${header}"
+      export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="$header"
+      # on the branch's head, which the docs/ changes survive: a step before may have
+      # committed to the branch since this checkout
       git fetch --no-tags origin "$BRANCH"
       git checkout -B "$BRANCH" FETCH_HEAD
-      git submodule update --init docs
       # on top of the wiki's master, which a browser edit may have moved past the pin
       git -C docs fetch --no-tags origin master
       git -C docs checkout -B master FETCH_HEAD
-      for p in "${paths[@]}"; do
-        case "$p" in docs/*) git -C docs add -- "${p#docs/}" ;; *) echo "::error::$p is not under docs/"; exit 1 ;; esac
-      done
+      git -C docs add -A
       git -C docs commit -m "$MESSAGE"
       git -C docs push origin master
       git add docs
       git commit -m "$MESSAGE"
       git push origin "HEAD:refs/heads/${BRANCH}"
+      echo "committed=true" >> "$GITHUB_OUTPUT"

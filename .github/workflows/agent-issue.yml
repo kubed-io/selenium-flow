@@ -1,9 +1,11 @@
 name: 🧭 Agent · Issue
 
-# Spec on an issue, then the hand-off. On an `enhancement` issue, Dr K's `agent` label
-# opts it in, and every comment from Dr K is the next brainstorming turn; each spec round
-# is an artifact and a job summary. `spec approved` commits the last round on a new
-# branch, opens the draft PR, and starts the plan on it.
+# The issue is where the spec is made. On an `enhancement` issue, Dr K's `agent` label opts
+# it in, and every comment from Dr K is the next turn: the agent researches, brainstorms,
+# and keeps its notes at the bottom of the issue. With the `spec` label it also gets the
+# branch issue-<N>, writes its draft spec there (docs/, the wiki) and it is committed every
+# turn. `spec approved` opens the draft PR from that branch, or from a new one with an
+# empty commit, and starts the plan on it.
 #
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K. Who else
@@ -28,10 +30,10 @@ jobs:
       contains(github.event.issue.labels.*.name, 'enhancement') &&
       contains(github.event.issue.labels.*.name, 'agent') &&
       !contains(github.event.issue.labels.*.name, 'spec approved') &&
-      (github.event_name == 'issue_comment' || github.event.label.name == 'agent')
+      (github.event_name == 'issue_comment' || github.event.label.name == 'agent' || github.event.label.name == 'spec')
     runs-on: claude
     environment: claude
-    # Dr K's comments wait their turn; the `agent` label takes the issue over
+    # Dr K's comments wait their turn; a label takes the issue over
     concurrency:
       group: agent-issue-${{ github.event.issue.number }}
       cancel-in-progress: ${{ github.event_name == 'issues' }}
@@ -39,57 +41,75 @@ jobs:
     permissions:
       contents: read
       issues: write
-      actions: read
+    env:
+      # the `spec` label gives the agent a branch, and files that are committed
+      WRITES: ${{ contains(github.event.issue.labels.*.name, 'spec') }}
+      BRANCH: issue-${{ github.event.issue.number }}
     steps:
 
-    - name: Checkout
-      uses: actions/checkout@v7
-      with:
-        persist-credentials: false
-
-    - name: Roles Token
-      id: roles
+    - name: App Token
+      id: app
       uses: actions/create-github-app-token@v3
       with:
         client-id: ${{ vars.GH_CLIENT_ID }}
         private-key: ${{ secrets.GH_APP_KEY }}
-        repositories: .github-private
-        permission-contents: read
+        permission-contents: write
+        permission-issues: write
+        repositories: |
+          selenium-flow
+          .github-private
 
-    # the org's base roles; after the repo's checkout, which would clean them away
-    - name: Checkout the Roles
+    - name: Branch
+      if: env.WRITES == 'true'
+      uses: kubed-io/actions/git/branch@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ env.BRANCH }}
+        issue: ${{ github.event.issue.number }}
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ env.WRITES == 'true' && env.BRANCH || '' }}
+        submodules: true
+        persist-credentials: false
+
+    # the org's agents; after the repo's checkout, which would clean them away
+    - name: Checkout the Agents
       uses: actions/checkout@v7
       with:
         repository: kubed-io/.github-private
-        token: ${{ steps.roles.outputs.token }}
+        token: ${{ steps.app.outputs.token }}
         path: .issue/roles
         sparse-checkout: claude
         persist-credentials: false
 
     - name: Spec Agent
+      id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
-        github_token: ${{ github.token }}
-        instructions: |
-          .issue/roles/claude/spec.md
-          .github/claude/spec.md
-        schema: .issue/roles/claude/spec.schema.json
-        document: spec
-        document_path: docs/superpowers/specs/{date}-{slug}-design.md
+        github_token: ${{ steps.app.outputs.token }}
+        agent: .issue/roles/claude/agents/spec.md
+        schema: .issue/roles/claude/agents/spec.schema.json
         opt_in_label: agent
-        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
+        prompt: ${{ github.event_name == 'issues' && github.event.label.name == 'spec' && 'Write the draft spec on the branch now.' || '' }}
         session_key: issue-${{ github.event.issue.number }}
-        session_title: "selenium-flow#${{ github.event.issue.number }} spec: ${{ github.event.issue.title }}"
-        model: opus
-        max_turns: 60
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
-        allowed_tools: Read,Glob,Grep
-        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
-        show_full_output: false
+        allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
+        disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
         claude_args: --strict-mcp-config
 
-  approve:
-    name: Approve the Spec
+    - name: Commit the Spec
+      if: env.WRITES == 'true' && fromJSON(steps.agent.outputs.output || '{}').commit_message
+      uses: ./.github/actions/wiki-commit
+      with:
+        branch: ${{ env.BRANCH }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        token: ${{ steps.app.outputs.token }}
+        app_slug: ${{ steps.app.outputs.app-slug }}
+
+  handoff:
+    name: Hand Off
     if: >-
       github.event_name == 'issues' &&
       github.event.label.name == 'spec approved' &&
@@ -104,10 +124,12 @@ jobs:
       cancel-in-progress: true
     timeout-minutes: 10
     permissions:
-      actions: read
+      contents: read
+    env:
+      BRANCH: issue-${{ github.event.issue.number }}
     outputs:
-      pull_request: ${{ steps.commit.outputs.pull_request }}
-      branch: ${{ steps.commit.outputs.branch }}
+      pull_request: ${{ steps.pr.outputs.number }}
+      branch: ${{ env.BRANCH }}
     steps:
 
     - name: App Token
@@ -120,98 +142,116 @@ jobs:
         permission-pull-requests: write
         permission-issues: write
 
-    # docs/ is the wiki submodule: the checkout hands the App's token to both remotes,
-    # so the wiki commit and the branch push authenticate
+    # found when the `spec` label made it; made, linked to the issue, when not
+    - name: Branch
+      uses: kubed-io/actions/git/branch@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ env.BRANCH }}
+        issue: ${{ github.event.issue.number }}
+
+    # GitHub opens no PR on a branch with nothing beyond main
+    - name: Ahead of Main
+      id: ahead
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+      run: echo "by=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${BRANCH}" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
+
     - name: Checkout
+      if: steps.ahead.outputs.by == '0'
       uses: actions/checkout@v7
       with:
-        submodules: true
-        token: ${{ steps.app.outputs.token }}
-        persist-credentials: true
+        ref: ${{ env.BRANCH }}
+        persist-credentials: false
 
-    # a draft spec lands in docs/, which the commit API cannot write: written here, and
-    # committed below once the branch and PR exist
-    - name: Hand Off
-      id: commit
-      uses: kubed-io/actions/issue-agent/commit@main
+    - name: Empty Commit
+      if: steps.ahead.outputs.by == '0'
+      uses: kubed-io/actions/git/commit@main
       with:
-        github_token: ${{ steps.app.outputs.token }}
-        number: ${{ github.event.issue.number }}
-        document: spec
-        pull_request: draft
-        commit: false
-        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
-
-    - name: Commit the Spec
-      uses: ./.github/actions/wiki-commit
-      with:
-        files: ${{ steps.commit.outputs.files }}
-        branch: ${{ steps.commit.outputs.branch }}
-        message: "spec: ${{ steps.commit.outputs.path }}"
         token: ${{ steps.app.outputs.token }}
-        app_slug: ${{ steps.app.outputs.app-slug }}
+        branch: ${{ env.BRANCH }}
+        message: "Start #${{ github.event.issue.number }}"
+        allow_empty: true
+
+    - name: Pull Request
+      id: pr
+      uses: kubed-io/actions/git/pr@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ env.BRANCH }}
+        title: ${{ github.event.issue.title }}
+        body: |
+          Closes #${{ github.event.issue.number }}
+
+          Starts from #${{ github.event.issue.number }}'s notes.
 
   plan:
     name: Plan
-    needs: approve
-    if: needs.approve.outputs.pull_request != ''
+    needs: handoff
+    if: needs.handoff.outputs.pull_request != ''
     runs-on: claude
     environment: claude
     # the PR's group, shared with agent-pr.yml
     concurrency:
-      group: agent-pr-${{ needs.approve.outputs.pull_request }}
+      group: agent-pr-${{ needs.handoff.outputs.pull_request }}
       cancel-in-progress: true
     timeout-minutes: 30
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
-      actions: read
     steps:
 
-    - name: Checkout
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ needs.approve.outputs.branch }}
-        submodules: true
-        persist-credentials: false
-
-    - name: Roles Token
-      id: roles
+    - name: App Token
+      id: app
       uses: actions/create-github-app-token@v3
       with:
         client-id: ${{ vars.GH_CLIENT_ID }}
         private-key: ${{ secrets.GH_APP_KEY }}
-        repositories: .github-private
-        permission-contents: read
+        permission-contents: write
+        permission-pull-requests: write
+        permission-issues: write
+        repositories: |
+          selenium-flow
+          .github-private
 
-    # the org's base roles; after the repo's checkout, which would clean them away
-    - name: Checkout the Roles
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.handoff.outputs.branch }}
+        submodules: true
+        persist-credentials: false
+
+    # the org's agents; after the repo's checkout, which would clean them away
+    - name: Checkout the Agents
       uses: actions/checkout@v7
       with:
         repository: kubed-io/.github-private
-        token: ${{ steps.roles.outputs.token }}
+        token: ${{ steps.app.outputs.token }}
         path: .issue/roles
         sparse-checkout: claude
         persist-credentials: false
 
     - name: Plan Agent
+      id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
-        github_token: ${{ github.token }}
-        number: ${{ needs.approve.outputs.pull_request }}
-        instructions: .issue/roles/claude/plan.md
-        schema: .issue/roles/claude/plan.schema.json
-        document: plan
-        document_path: docs/superpowers/plans/{date}-{slug}.md
-        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
-        trusted_bots: ${{ env.CLAUDE_TRUSTED_BOTS }}
-        session_key: pr-${{ needs.approve.outputs.pull_request }}
-        session_title: "selenium-flow#${{ needs.approve.outputs.pull_request }} plan: ${{ github.event.issue.title }}"
-        model: opus
-        max_turns: 80
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.handoff.outputs.pull_request }}
+        agent: .issue/roles/claude/agents/plan.md
+        schema: .issue/roles/claude/agents/plan.schema.json
+        prompt: The spec is approved. Write the spec and plan of record.
+        header: "📄 Plan · [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }})"
+        session_key: pr-${{ needs.handoff.outputs.pull_request }}
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
-        allowed_tools: Read,Glob,Grep
-        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
-        show_full_output: false
+        allowed_tools: Read,Glob,Grep,Write,Edit
+        disallowed_tools: Bash,NotebookEdit
         claude_args: --strict-mcp-config
+
+    # the plan and spec live under docs/, the wiki
+    - name: Commit the Plan
+      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      uses: ./.github/actions/wiki-commit
+      with:
+        branch: ${{ needs.handoff.outputs.branch }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        token: ${{ steps.app.outputs.token }}
+        app_slug: ${{ steps.app.outputs.app-slug }}

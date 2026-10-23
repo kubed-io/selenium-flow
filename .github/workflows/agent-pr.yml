@@ -1,13 +1,15 @@
 name: 🛠️ Agent · Pull Request
 
-# Plan, then code, on a PR opened from an approved spec (head `issue-*`). Until
-# `plan approved`, Dr K's comments are plan turns; the label commits the last plan round
-# and starts the code. Each code run answers open review threads, does one plan task,
-# and pushes; Copilot's review of that push (relayed by agent-relay.yml) wakes the next.
+# Plan, then code, on a PR opened from an issue (head `issue-*`). Until `plan approved`,
+# Dr K's comments and reviews are plan turns, and each turn's spec and plan are committed
+# to the branch (docs/, the wiki). The label starts the code. While the PR is a draft,
+# each code run does one plan task and its changes are committed; that push, relayed by
+# agent-relay.yml, wakes the next run. A review relayed the same way wakes it too.
 #
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 175728472
-# Copilot's reviewer. Who else counts inside a run comes from the claude runner's env.
+# Copilot's reviewer, 235398881 the kubed-io App's bot (the agent's pushes). Who else
+# counts inside a run comes from the claude runner's env.
 
 on:
   issue_comment:
@@ -34,7 +36,8 @@ jobs:
       (github.event_name == 'workflow_run' &&
         github.event.workflow_run.head_repository.full_name == github.repository &&
         (github.event.workflow_run.triggering_actor.id == 4399427 ||
-          github.event.workflow_run.triggering_actor.id == 175728472))
+          github.event.workflow_run.triggering_actor.id == 175728472 ||
+          github.event.workflow_run.triggering_actor.id == 235398881))
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -42,17 +45,19 @@ jobs:
       stage: ${{ steps.route.outputs.stage }}
       number: ${{ steps.route.outputs.number }}
       head: ${{ steps.route.outputs.head }}
-      approve: ${{ steps.route.outputs.approve }}
+      prompt: ${{ steps.route.outputs.prompt }}
       takeover: ${{ steps.route.outputs.takeover }}
     steps:
 
-    # plan before `plan approved`, code after; a Copilot review before it does nothing.
-    # Only the label's own run codes before the plan is committed: it commits it first.
+    # Before `plan approved`: Dr K's comments and reviews are plan turns. After it: his
+    # comments and reviews, the label, a review by Copilot, and a push to the draft by the
+    # agent or Dr K are code turns. Anything else is nothing.
     - name: Route
       id: route
       uses: actions/github-script@v9
       env:
         OWNER_ID: "4399427"
+        APP_ID: "235398881"
       with:
         script: |
           const e = context.payload;
@@ -65,71 +70,23 @@ jobs:
           if (pr.state !== 'open' || !ours || !pr.head.ref.startsWith('issue-')) return;
           const approved = pr.labels.some((l) => l.name === 'plan approved');
           const labelled = context.eventName === 'pull_request_target';
-          const committed = /<!-- issue-agent:plan -->[\s\S]*?<!-- issue-agent-state [^\n]*"approved":true/.test(pr.body || '');
-          const byOwner = String((run ? run.triggering_actor : e.sender).id) === process.env.OWNER_ID;
-          let stage = byOwner ? 'plan' : 'none';
-          if (approved) stage = labelled || committed ? 'code' : 'none';
+          const actor = String((run ? run.triggering_actor : e.sender).id);
+          const byOwner = actor === process.env.OWNER_ID;
+          const byApp = actor === process.env.APP_ID;
+          const pushed = run?.event === 'pull_request';
+          let stage = 'none';
+          if (!approved) stage = byOwner && !pushed ? 'plan' : 'none';
+          else if (!pushed) stage = 'code';
+          else stage = pr.draft && (byOwner || byApp) ? 'code' : 'none';
+          let prompt = '';
+          if (labelled) prompt = 'The plan is approved. Start the first task.';
+          else if (pushed) prompt = 'Your last push landed. Take the next task.';
           core.setOutput('stage', stage);
           core.setOutput('number', String(number));
           core.setOutput('head', pr.head.ref);
-          core.setOutput('approve', String(labelled));
+          core.setOutput('prompt', prompt);
           // the approval label takes the PR over; anything else waits its turn
           core.setOutput('takeover', String(labelled));
-
-  approve:
-    name: Approve the Plan
-    needs: route
-    if: needs.route.outputs.stage == 'code' && needs.route.outputs.approve == 'true'
-    runs-on: claude
-    environment: claude
-    # one agent job per PR at a time; the approval label cancels the one running
-    concurrency:
-      group: agent-pr-${{ needs.route.outputs.number }}
-      cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
-    timeout-minutes: 10
-    permissions:
-      actions: read
-    steps:
-
-    - name: App Token
-      id: app
-      uses: actions/create-github-app-token@v3
-      with:
-        client-id: ${{ vars.GH_CLIENT_ID }}
-        private-key: ${{ secrets.GH_APP_KEY }}
-        permission-contents: write
-        permission-pull-requests: write
-        permission-issues: write
-
-    # docs/ is the wiki submodule: the checkout hands the App's token to both remotes,
-    # so the wiki commit and the branch push authenticate
-    - name: Checkout
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ needs.route.outputs.head }}
-        submodules: true
-        token: ${{ steps.app.outputs.token }}
-        persist-credentials: true
-
-    # the plan lands in docs/, which the commit API cannot write: written here, committed below
-    - name: Write the Plan
-      id: plan
-      uses: kubed-io/actions/issue-agent/commit@main
-      with:
-        github_token: ${{ steps.app.outputs.token }}
-        number: ${{ needs.route.outputs.number }}
-        document: plan
-        commit: false
-        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
-
-    - name: Commit the Plan
-      uses: ./.github/actions/wiki-commit
-      with:
-        files: ${{ steps.plan.outputs.files }}
-        branch: ${{ steps.plan.outputs.branch }}
-        message: "plan: ${{ steps.plan.outputs.path }}"
-        token: ${{ steps.app.outputs.token }}
-        app_slug: ${{ steps.app.outputs.app-slug }}
 
   plan:
     name: Plan
@@ -144,73 +101,6 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      issues: write
-      pull-requests: write
-      actions: read
-    steps:
-
-    - name: Checkout
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ needs.route.outputs.head }}
-        submodules: true
-        persist-credentials: false
-
-    - name: Roles Token
-      id: roles
-      uses: actions/create-github-app-token@v3
-      with:
-        client-id: ${{ vars.GH_CLIENT_ID }}
-        private-key: ${{ secrets.GH_APP_KEY }}
-        repositories: .github-private
-        permission-contents: read
-
-    # the org's base roles; after the repo's checkout, which would clean them away
-    - name: Checkout the Roles
-      uses: actions/checkout@v7
-      with:
-        repository: kubed-io/.github-private
-        token: ${{ steps.roles.outputs.token }}
-        path: .issue/roles
-        sparse-checkout: claude
-        persist-credentials: false
-
-    - name: Plan Agent
-      uses: kubed-io/actions/issue-agent@main
-      with:
-        github_token: ${{ github.token }}
-        number: ${{ needs.route.outputs.number }}
-        instructions: .issue/roles/claude/plan.md
-        schema: .issue/roles/claude/plan.schema.json
-        document: plan
-        document_path: docs/superpowers/plans/{date}-{slug}.md
-        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
-        trusted_bots: ${{ env.CLAUDE_TRUSTED_BOTS }}
-        session_key: pr-${{ needs.route.outputs.number }}
-        model: opus
-        max_turns: 80
-        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
-        allowed_tools: Read,Glob,Grep
-        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
-        show_full_output: false
-        claude_args: --strict-mcp-config
-
-  code:
-    name: Code
-    needs: [route, approve]
-    if: always() && needs.route.outputs.stage == 'code' && needs.approve.result != 'failure'
-    runs-on: claude
-    environment: claude
-    # one agent job per PR at a time; the approval label cancels the one running
-    concurrency:
-      group: agent-pr-${{ needs.route.outputs.number }}
-      cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
-    timeout-minutes: 120
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-      actions: read
     steps:
 
     - name: App Token
@@ -221,16 +111,88 @@ jobs:
         private-key: ${{ secrets.GH_APP_KEY }}
         permission-contents: write
         permission-pull-requests: write
+        permission-issues: write
+        repositories: |
+          selenium-flow
+          .github-private
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.route.outputs.head }}
+        submodules: true
+        persist-credentials: false
+
+    # the org's agents; after the repo's checkout, which would clean them away
+    - name: Checkout the Agents
+      uses: actions/checkout@v7
+      with:
+        repository: kubed-io/.github-private
+        token: ${{ steps.app.outputs.token }}
+        path: .issue/roles
+        sparse-checkout: claude
+        persist-credentials: false
+
+    - name: Plan Agent
+      id: agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        agent: .issue/roles/claude/agents/plan.md
+        schema: .issue/roles/claude/agents/plan.schema.json
+        header: "📄 Plan · [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }})"
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
+        session_key: pr-${{ needs.route.outputs.number }}
+        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+        allowed_tools: Read,Glob,Grep,Write,Edit
+        disallowed_tools: Bash,NotebookEdit
+        claude_args: --strict-mcp-config
+
+    # the spec and plan live under docs/, the wiki
+    - name: Commit the Plan
+      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      uses: ./.github/actions/wiki-commit
+      with:
+        branch: ${{ needs.route.outputs.head }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        token: ${{ steps.app.outputs.token }}
+        app_slug: ${{ steps.app.outputs.app-slug }}
+
+  code:
+    name: Code
+    needs: route
+    if: needs.route.outputs.stage == 'code'
+    runs-on: claude
+    environment: claude
+    concurrency:
+      group: agent-pr-${{ needs.route.outputs.number }}
+      cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+
+    - name: App Token
+      id: app
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-issues: write
+        repositories: |
+          selenium-flow
+          .github-private
 
     - name: Checkout
       uses: actions/checkout@v7
       with:
         ref: ${{ needs.route.outputs.head }}
         fetch-depth: 0
+        submodules: true
         persist-credentials: false
-
-    - name: Checkout the Wiki
-      run: git submodule update --init --depth 1
 
     - name: Setup Python
       uses: actions/setup-python@v7
@@ -248,53 +210,47 @@ jobs:
     - name: Install UI Dependencies
       run: npm --prefix ui ci
 
-    - name: Roles Token
-      id: roles
-      uses: actions/create-github-app-token@v3
-      with:
-        client-id: ${{ vars.GH_CLIENT_ID }}
-        private-key: ${{ secrets.GH_APP_KEY }}
-        repositories: .github-private
-        permission-contents: read
-
-    # the org's base roles; after the repo's checkout, which would clean them away
-    - name: Checkout the Roles
+    # the org's agents; after the repo's checkout, which would clean them away
+    - name: Checkout the Agents
       uses: actions/checkout@v7
       with:
         repository: kubed-io/.github-private
-        token: ${{ steps.roles.outputs.token }}
+        token: ${{ steps.app.outputs.token }}
         path: .issue/roles
         sparse-checkout: claude
         persist-credentials: false
 
-    # the agent's commits are the App's
-    - name: Git Identity
-      env:
-        GH_TOKEN: ${{ steps.app.outputs.token }}
-        SLUG: ${{ steps.app.outputs.app-slug }}
-      run: |
-        id=$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)
-        git config user.name "${SLUG}[bot]"
-        git config user.email "${id}+${SLUG}[bot]@users.noreply.github.com"
-
     - name: Code Agent
+      id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
-        github_token: ${{ github.token }}
+        github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        instructions: |
-          .issue/roles/claude/code.md
-          .github/claude/code.md
-        schema: .issue/roles/claude/code.schema.json
-        push_token: ${{ steps.app.outputs.token }}
+        agent: .issue/roles/claude/agents/code.md
+        schema: .issue/roles/claude/agents/code.schema.json
+        prompt: ${{ needs.route.outputs.prompt }}
+        ready: "true"
         max_runs: 40
-        trusted_ids: ${{ env.CLAUDE_OWNER_ID }}
-        trusted_bots: ${{ env.CLAUDE_TRUSTED_BOTS }}
-        allowed_bots: ${{ env.CLAUDE_ALLOWED_BOTS }}
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
         session_key: pr-${{ needs.route.outputs.number }}
-        model: opus
-        max_turns: 200
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
         allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
-        show_full_output: false
-        claude_args: --permission-mode acceptEdits --strict-mcp-config
+        claude_args: --strict-mcp-config
+
+    # code through the API, signed; docs/ (the wiki) with its own step
+    - name: Commit the Code
+      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      uses: kubed-io/actions/git/commit@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ needs.route.outputs.head }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+
+    - name: Commit the Docs
+      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      uses: ./.github/actions/wiki-commit
+      with:
+        branch: ${{ needs.route.outputs.head }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        token: ${{ steps.app.outputs.token }}
+        app_slug: ${{ steps.app.outputs.app-slug }}
