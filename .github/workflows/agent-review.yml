@@ -1,0 +1,217 @@
+name: 🔍 Agent · Review
+
+# The review agent, and the `Agent review` check it answers to. A PR the agents built
+# (head `issue-*`, plan approved) is reviewed when it is marked ready, on every push while
+# it is out of draft, and when an `agent-review` dispatch asks again. It posts one review:
+# its summary, with line comments and suggestions under it, on the built-in token, so it
+# is github-actions[bot]'s and not the code agent's. Its verdict decides what follows:
+# `changes requested` dispatches `agent-code`, and the code agent's fix is a push that
+# brings the next review; `looks good` and `needs a human` end the round.
+#
+# The check is a commit status on the PR's head, never this job's own check run: runs on
+# pull_request_target and repository_dispatch belong to main's commit, so they could not
+# be the PR's required check. The status is also the loop's memory: a head the review
+# agent already passed is never reviewed again, and every new commit starts without one.
+# PRs the agents did not build get a passing status straight away, so the required check
+# never blocks them.
+#
+# The gates name ids, not variables: a job's `if` is decided before any runner, so only
+# GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
+# kubed-io App's bot (the code agent), 41898282 github-actions[bot].
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  repository_dispatch:
+    types: [agent-review]
+
+permissions: {}
+
+env:
+  CHECK: Agent review
+  # reviews by the review agent on one PR before it hands the PR to Dr K
+  MAX_REVIEWS: 3
+
+jobs:
+
+  route:
+    name: Route
+    # any sender's PR gets a status; only Dr K, the App and the review agent itself ask
+    # for a review by dispatch
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.action == 'agent-review' &&
+        (github.event.sender.id == 4399427 ||
+          github.event.sender.id == 41898282 ||
+          github.event.sender.id == 235398881))
+    runs-on: ubuntu-26.04
+    permissions:
+      pull-requests: read
+      statuses: write
+    outputs:
+      number: ${{ steps.route.outputs.number }}
+      sha: ${{ steps.route.outputs.sha }}
+      last: ${{ steps.route.outputs.last }}
+    steps:
+
+    # reads the PR and sets statuses; nothing of the PR is checked out or run
+    - name: Route
+      id: route
+      uses: actions/github-script@v9
+      env:
+        TRUSTED: 4399427,41898282,235398881
+        AGENT: "41898282"
+        OWNER: "4399427"
+      with:
+        script: |
+          const e = context.payload;
+          const dispatched = context.eventName === 'repository_dispatch';
+          const number = Number(dispatched ? e.client_payload?.pull_request : e.pull_request?.number) || 0;
+          for (const k of ['number', 'sha', 'last']) core.setOutput(k, '');
+          if (!number) return;
+          const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
+          if (pr.state !== 'open' || pr.draft) return;
+          const sha = pr.head.sha;
+          const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          const status = (state, description, target_url = run) => github.rest.repos.createCommitStatus({
+            ...context.repo, sha, state, description, target_url, context: process.env.CHECK,
+          });
+
+          const ours = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
+          const approved = pr.labels.some((l) => l.name === 'plan approved');
+          if (!ours || !pr.head.ref.startsWith('issue-') || !approved) {
+            await status('success', 'not built by the agents');
+            return;
+          }
+
+          // the review agent's own status on this head is the memory
+          const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({ ...context.repo, ref: sha, per_page: 100 });
+          const mine = statuses.find((s) => s.context === process.env.CHECK && String(s.creator?.id) === process.env.AGENT);
+          if (mine?.state === 'success') return core.info(`${sha} already passed`);
+          // a push or a ready toggle never reviews a head twice; a dispatch asks again
+          if (mine && !dispatched) return core.info(`${sha} already ${mine.state}`);
+          if (!process.env.TRUSTED.split(',').includes(String(e.sender?.id))) return core.info(`sender ${e.sender?.login} cannot ask for a review`);
+
+          const reviews = await github.paginate(github.rest.pulls.listReviews, { ...context.repo, pull_number: number, per_page: 100 });
+          const done = reviews.filter((r) => String(r.user?.id) === process.env.AGENT).length;
+          const max = Number(process.env.MAX_REVIEWS);
+          // Dr K's own dispatch is never capped
+          const capped = !(dispatched && String(e.sender?.id) === process.env.OWNER);
+          if (capped && done >= max) {
+            await status('failure', `needs a human: ${done} reviews without a pass`);
+            return;
+          }
+          await status('pending', `reviewing (${done + 1} of ${max})`);
+          core.setOutput('number', String(number));
+          core.setOutput('sha', sha);
+          core.setOutput('last', String(capped && done + 1 >= max));
+
+  review:
+    name: Review
+    needs: route
+    if: needs.route.outputs.number != ''
+    runs-on: claude
+    environment: claude
+    # one agent job per PR at a time, shared with agent-pr.yml
+    concurrency:
+      group: agent-pr-${{ needs.route.outputs.number }}
+    timeout-minutes: 45
+    permissions:
+      # contents write is the dispatch's; the review, its comments, the notes and the
+      # check are github-actions[bot]'s
+      contents: write
+      pull-requests: write
+      issues: write
+      statuses: write
+    steps:
+
+    # only to read the org's agents; the review itself goes on the built-in token
+    - name: Agents Token
+      id: roles
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        repositories: .github-private
+        permission-contents: read
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        # the commit the check is for, even when the branch moves on meanwhile
+        ref: ${{ needs.route.outputs.sha }}
+        submodules: true
+        persist-credentials: false
+
+    # the org's agents; after the repo's checkout, which would clean them away
+    - name: Checkout the Agents
+      uses: actions/checkout@v7
+      with:
+        repository: kubed-io/.github-private
+        token: ${{ steps.roles.outputs.token }}
+        path: .issue/roles
+        sparse-checkout: claude
+        persist-credentials: false
+
+    - name: Review Agent
+      id: agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ needs.route.outputs.number }}
+        agent: .issue/roles/claude/agents/review.md
+        schema: .issue/roles/claude/agents/review.schema.json
+        prompt: Review this pull request.
+        prompt_when: always
+        header: "**Verdict: {{ output.verdict }}**"
+        review: "true"
+        threads: "false"
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
+        session_key: review-${{ needs.route.outputs.number }}
+        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+        allowed_tools: Read,Glob,Grep
+        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
+        claude_args: --strict-mcp-config
+
+    # the verdict is the check: only `looks good` passes it
+    - name: Set the Check
+      if: always()
+      uses: actions/github-script@v9
+      env:
+        NUMBER: ${{ needs.route.outputs.number }}
+        SHA: ${{ needs.route.outputs.sha }}
+        LAST: ${{ needs.route.outputs.last }}
+        OUTPUT: ${{ steps.agent.outputs.output }}
+        REVIEW_ID: ${{ steps.agent.outputs.review_id }}
+        COMMENT_ID: ${{ steps.agent.outputs.comment_id }}
+      with:
+        script: |
+          const { NUMBER, SHA, LAST, OUTPUT, REVIEW_ID, COMMENT_ID } = process.env;
+          let verdict = '';
+          try { verdict = JSON.parse(OUTPUT || '{}').verdict || ''; } catch {}
+          const pr = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/pull/${NUMBER}`;
+          const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+          const target_url = REVIEW_ID ? `${pr}#pullrequestreview-${REVIEW_ID}`
+            : COMMENT_ID ? `${pr}#issuecomment-${COMMENT_ID}` : run;
+          const [state, description] =
+            verdict === 'looks good' ? ['success', 'looks good']
+            : verdict === 'changes requested' && LAST === 'true' ? ['failure', 'changes requested, last review: over to Dr K']
+            : verdict ? ['failure', verdict]
+            : ['error', 'the review did not finish'];
+          await github.rest.repos.createCommitStatus({
+            ...context.repo, sha: SHA, state, description, target_url, context: process.env.CHECK,
+          });
+
+    # a pointer, never the review: the code agent reads it from the PR
+    - name: Wake the Code Agent
+      if: >-
+        needs.route.outputs.last != 'true' &&
+        fromJSON(steps.agent.outputs.output || '{}').verdict == 'changes requested'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUMBER: ${{ needs.route.outputs.number }}
+        REVIEW_ID: ${{ steps.agent.outputs.review_id }}
+      run: |
+        gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=agent-code \
+          -F "client_payload[pull_request]=${NUMBER}" -f "client_payload[reason]=review" \
+          -f "client_payload[review_id]=${REVIEW_ID}"
