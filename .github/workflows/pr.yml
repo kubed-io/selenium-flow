@@ -36,7 +36,7 @@ jobs:
   pr-tasks:
     name: PR Tasks
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
     - name: Checkout
       uses: actions/checkout@v7

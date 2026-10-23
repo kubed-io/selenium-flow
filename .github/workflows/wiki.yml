@@ -75,7 +75,7 @@ jobs:
   wiki:
     name: Publish Wiki
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write   # the wiki repo lives under this repository's permissions
     env:

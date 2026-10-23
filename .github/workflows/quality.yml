@@ -41,7 +41,7 @@ jobs:
   codeql:
     name: CodeQL
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       # Publish findings to Security → Code scanning, and onto the PR.
@@ -74,7 +74,7 @@ jobs:
   deps:
     name: Dependency Audit
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -128,7 +128,7 @@ jobs:
   actions:
     name: Workflow Audit
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       security-events: write
@@ -157,7 +157,7 @@ jobs:
   docker:
     name: Dockerfile Lint
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -183,7 +183,7 @@ jobs:
   spec:
     name: OpenAPI Spec
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:

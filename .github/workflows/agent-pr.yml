@@ -38,7 +38,7 @@ jobs:
         (github.event.workflow_run.triggering_actor.id == 4399427 ||
           github.event.workflow_run.triggering_actor.id == 175728472 ||
           github.event.workflow_run.triggering_actor.id == 235398881))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       pull-requests: read
     outputs:

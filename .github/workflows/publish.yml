@@ -85,7 +85,7 @@ jobs:
     needs:
     - test
     - ui
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write   # commit the rolled CHANGELOG + push the tag to main
     # Deliberately NO release-notes output. GitHub refuses to set a job output
@@ -225,7 +225,7 @@ jobs:
     - image
     - package
     if: inputs.push
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write   # create the GitHub Release on the existing tag
     steps:
