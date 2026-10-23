@@ -6,8 +6,9 @@ name: 🛠️ Agent · Pull Request
 # each code run does one plan task and its changes are committed; that push, relayed by
 # agent-relay.yml, wakes the next run. The run that finishes the plan says `done`: its
 # commit carries `Agent: done`, which wakes nothing, and the PR is marked ready, which
-# starts agent-review.yml. A review asking for changes comes back as the `agent-code`
-# dispatch, the code agent's one event interface: {pull_request, reason}.
+# starts the checks and, after them, agent-review.yml. Failed checks and a review asking
+# for changes both come back as the `agent-code` dispatch, the code agent's one event
+# interface: {pull_request, reason, run_id or review_id}.
 #
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 175728472
@@ -58,6 +59,7 @@ jobs:
       head: ${{ steps.route.outputs.head }}
       prompt: ${{ steps.route.outputs.prompt }}
       takeover: ${{ steps.route.outputs.takeover }}
+      run_id: ${{ steps.route.outputs.run_id }}
     steps:
 
     # Before `plan approved`: Dr K's comments and reviews are plan turns. After it: his
@@ -103,6 +105,7 @@ jobs:
           // what an event with no words means: the code agent's turn
           const reasons = {
             review: 'A review came in. Apply receiving-code-review to every unresolved thread in reviews.md: fix it, or decline it with evidence, and answer each one in `threads`.',
+            ci: 'The checks failed on your last commit. `.issue/checks/report.md` has each failing job: its failed steps, annotations and the end of its log. Find the cause, fix it, run that check here, and commit.',
           };
           let prompt = '';
           if (dispatched) prompt = reasons[e.client_payload?.reason] || `Woken by ${e.client_payload?.reason || 'a dispatch'}: see what needs doing.`;
@@ -112,6 +115,9 @@ jobs:
           core.setOutput('number', String(number));
           core.setOutput('head', pr.head.ref);
           core.setOutput('prompt', prompt);
+          // the checks run whose report the code job downloads
+          const runId = dispatched && e.client_payload?.reason === 'ci' ? Number(e.client_payload?.run_id) || 0 : 0;
+          core.setOutput('run_id', runId ? String(runId) : '');
           // the approval label takes the PR over; anything else waits its turn
           core.setOutput('takeover', String(labelled));
 
@@ -198,6 +204,8 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+      # the checks report, an artifact of pr.yml's run
+      actions: read
     steps:
 
     - name: App Token
@@ -246,6 +254,16 @@ jobs:
         path: .issue/roles
         sparse-checkout: claude
         persist-credentials: false
+
+    # after the agents' checkout, into the gitignored scratch dir the agent reads
+    - name: Checks Report
+      if: needs.route.outputs.run_id != ''
+      uses: actions/download-artifact@v8
+      with:
+        name: checks-report
+        run-id: ${{ needs.route.outputs.run_id }}
+        github-token: ${{ github.token }}
+        path: .issue/checks
 
     - name: Code Agent
       id: agent

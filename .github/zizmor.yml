@@ -39,6 +39,7 @@ rules:
   self-repository:
     ignore:
     - publish.yml
+    - pr.yml
 
   # publish.yml's `version` job is the one checkout that MUST keep its
   # credentials: duplocloud/version-bump commits the rolled changelog and pushes
@@ -55,6 +56,14 @@ rules:
     - agent-issue.yml
     - agent-pr.yml
 
+  # pr.yml calls this repository's own check workflows, and each gets the secrets it would
+  # have had on its own `pull_request` trigger: `inherit` passes the same set, so a check
+  # that starts using a secret needs no second edit in the caller. A fork's pull_request
+  # run gets no secrets either way.
+  secrets-inherit:
+    ignore:
+    - pr.yml
+
   # `gh release create` in a script step would work, but softprops/action-gh-release
   # is the house standard across every kubed-io repo's publish.yml, and a release
   # body this long is far more legible as a YAML block than as a heredoc inside a
@@ -70,10 +79,11 @@ rules:
   # PR head must be a branch of this repository, and no step runs the PR's code before
   # that gate. The code job checks out the PR head to change it, and its install steps
   # run the head's build and npm scripts; only Dr K and the App can push branches here.
-  # agent-review.yml reads the same way. Its route runs for every PR, on a hosted runner,
-  # and only reads the PR and sets the `Agent review` status; the review job runs for Dr K
-  # or the App on a head of this repository, nothing of the PR is run, and the review
-  # agent reads the checkout and cannot write it.
+  # agent-review.yml reads the same way. Its route wakes on workflow_run of pr.yml for every
+  # PR, on a hosted runner: it reads the PR and the run, sets the `Agent review` status and
+  # dispatches `agent-code`, and runs nothing of the PR. The review job runs for Dr K or the
+  # App on a head of this repository, and the review agent reads the checkout and cannot
+  # write it.
   dangerous-triggers:
     ignore:
     - agent-pr.yml
