@@ -1,5 +1,5 @@
 import { fireEvent, render, within } from '@testing-library/svelte'
-import { beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { deferred, FakeEventSource, fakeFetch } from '../test/helpers'
 import Admin from './Admin.svelte'
 import { createApi } from './api'
@@ -32,7 +32,15 @@ function setup(routes = {}, flow: string | undefined = 'login') {
   const r = render(WorkspaceDetail, { key: 'k', tab: 'flows', flow, api, live, root: '' })
   return { ...r, ...net, live }
 }
-beforeEach(() => { history.replaceState(null, '', '/#/workspaces/k/flows/login'); vi.stubGlobal('alert', vi.fn()) })
+// jsdom has no scrollIntoView; every test gets a spy.
+let scrolled: ReturnType<typeof vi.fn>
+beforeEach(() => {
+  history.replaceState(null, '', '/#/workspaces/k/flows/login')
+  vi.stubGlobal('alert', vi.fn())
+  scrolled = vi.fn()
+  Element.prototype.scrollIntoView = scrolled as unknown as Element['scrollIntoView']
+})
+afterEach(() => { delete (Element.prototype as Partial<Element>).scrollIntoView })
 
 const tick = () => new Promise((r) => setTimeout(r, 0))
 /* `vi.waitFor` retries only on a throw; a null return would pass at once. */
@@ -463,4 +471,54 @@ test('a deep link the listing lacks leaves the panel at the top (#80)', async ()
   const { container } = setup({}, 'ghost')
   await vi.waitFor(() => expect(container.querySelectorAll('.flowlist .item')).toHaveLength(2))
   expect(container.querySelector<HTMLElement>('#flowpanel')!.style.getPropertyValue('--at')).toBe('1')
+})
+
+test('arriving by link scrolls the picked row into view, once (#80)', async () => {
+  const { container, live } = setup()
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(1))
+  expect(scrolled).toHaveBeenCalledWith({ block: 'start' })
+  expect(scrolled.mock.contexts[0]).toBe(container.querySelectorAll('.flowlist .item')[0])
+  live.data = { workspaces: [{ key: 'k', flows_rev: 2 }] }
+  await vi.waitFor(() => found(container, '.panel'))
+  await tick()
+  expect(scrolled).toHaveBeenCalledTimes(1)
+})
+
+test('a hash that names another flow scrolls to it; a click never scrolls (#80)', async () => {
+  const { container, rerender } = setup({
+    'GET /admin/workspaces/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
+  })
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(1))
+  await fireEvent.click(container.querySelectorAll('.flowlist .item')[1])
+  await vi.waitFor(() => found(container, '.panel'))
+  await tick()
+  expect(scrolled).toHaveBeenCalledTimes(1)
+  await rerender({ flow: 'login' })
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(2))
+  expect(scrolled.mock.contexts[1]).toBe(container.querySelectorAll('.flowlist .item')[0])
+})
+
+test('a click on the open flow does not swallow the next link to it once it closes (#80)', async () => {
+  const { container, rerender } = setup({ 'DELETE /admin/workspaces/k/flows/login': { body: {} } })
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(1))
+  await fireEvent.click(container.querySelectorAll('.flowlist .item')[0])
+  await vi.waitFor(() => found(container, '[data-drop]'))
+  await fireEvent.click(container.querySelector('[data-drop]')!)
+  await fireEvent.click(within(document.querySelector('.modal') as HTMLElement).getByText('Delete'))
+  await vi.waitFor(() => expect(container.querySelector('#flowpanel')).toHaveTextContent('Pick a flow.'))
+  await rerender({ flow: undefined })
+  await rerender({ flow: 'login' })
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(2))
+})
+
+test('a click on the open flow leaves nothing behind to swallow a later link (#80)', async () => {
+  const { container, rerender } = setup({
+    'GET /admin/workspaces/k/flows/shared-one': { body: { name: 'shared-one', shared: true, steps: [] } },
+  })
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(1))
+  await fireEvent.click(container.querySelectorAll('.flowlist .item')[0])
+  await rerender({ flow: 'shared-one' })
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(2))
+  await rerender({ flow: 'login' })
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(3))
 })

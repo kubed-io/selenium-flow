@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte'
   import { workspacePath, type Api } from './api'
   import { listed, mapping } from './flow'
   import type { ModalSpec } from './modal'
@@ -62,9 +63,22 @@
   }
   const isPicked = (kind: 'param' | 'step', key: string | number) => !!picked && picked.kind === kind && picked.key === key
 
+  // A link to a flow brings it into view, once per link; a click is not a link.
+  let linked: string | null = null
+  let clicked: string | null = null
+  $effect.pre(() => {
+    // No flow open: the next link, even to the same flow, is a new one.
+    if (!flowName) { linked = clicked = null; return }
+    if (!rows.some((x) => x.name === flowName) || flowName === linked) return
+    linked = flowName
+    if (flowName === clicked) { clicked = null; return }
+    void tick().then(() => document.querySelector('#flowlist > .item[aria-selected=true]')?.scrollIntoView?.({ block: 'start' }))
+  })
+
   // A click, even on the flow already open: you asked for the document again.
   function choose(name: string) {
     picked = null
+    if (name !== flowName) clicked = name
     onpick(name)
   }
 
