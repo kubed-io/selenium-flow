@@ -17,8 +17,8 @@ name: 🧪 Test
 # on main. That sweep stayed red on the floor from #59 to #70 and nobody
 # looked: tests patching `os.stat` that pathlib there never called. The floor is
 # where pathlib and friends differ most, so it catches most of what 3.11-3.13 would.
-# Only `Test (3.14)` is a required check; `Test (3.11)` is advisory until the
-# ruleset on main requires it too.
+# `Test results` is the required check, and it fails when any leg fails: 3.11 gates a
+# pull request as much as 3.14 does.
 #
 # pyproject declares requires-python >=3.11, the floor. Testing only the newest
 # interpreter would leave three of those four claims unverified, and a release is exactly the
@@ -65,9 +65,9 @@ jobs:
       fail-fast: false
       matrix:
         # A pull request pays for the floor and the newest; everything else
-        # sweeps the supported range. Keep 3.14 last-listed and present in BOTH
-        # arms: `Test (3.14)` is the required status check, so it has to report
-        # on every pull request.
+        # sweeps the supported range. The required status check is `Test results`
+        # below, which every leg feeds: a skipped matrix reports only as `Test`,
+        # never under a leg's name, so no leg can be the required one.
         python-version: ${{ github.event_name == 'pull_request' && fromJSON('["3.11", "3.14"]') || fromJSON('["3.11", "3.12", "3.13", "3.14"]') }}
     steps:
 
@@ -148,17 +148,6 @@ jobs:
         path: dist/test-results.xml
         if-no-files-found: error
 
-    # A sticky comment on the pull request and a check run that annotates a
-    # failing test where it fails. The 3.14 leg only, which every event runs,
-    # so a main-branch sweep does not post five of them.
-    - name: Publish Test Results
-      if: always() && matrix.python-version == '3.14'
-      uses: EnricoMi/publish-unit-test-result-action@v2.25.0
-      with:
-        check_name: Unit test results
-        files: dist/test-results.xml
-        comment_mode: always
-
     # Coverage of the files the pull request touches, as a comment. No
     # thresholds: it informs a review, it does not gate one.
     - name: Coverage Report
@@ -167,3 +156,49 @@ jobs:
       with:
         coverageFile: dist/coverage.xml
         token: ${{ github.token }}
+
+  # Every leg's results as one: the sticky comment, the check run that annotates a
+  # failing test where it fails, and the required status check. It runs whatever the
+  # legs did, so a failing leg still publishes, then fails here; on a draft it is
+  # skipped, which a required check counts as passed.
+  results:
+    name: Test results
+    needs: test
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    steps:
+
+    # No merge-multiple: every leg's file is named test-results.xml, so merged they
+    # would overwrite each other; each artifact lands in its own directory instead.
+    - name: Download Every Leg's Results
+      uses: actions/download-artifact@v8
+      with:
+        path: results
+        pattern: test-results-*
+
+    - name: One Report per Leg
+      env:
+        LEGS: ${{ github.event_name == 'pull_request' && 2 || 4 }}
+      run: |
+        found=$(find results -name '*.xml' | wc -l)
+        echo "$found reports for $LEGS legs"
+        [ "$found" -eq "$LEGS" ] || { echo "::error::$LEGS legs, $found reports"; exit 1; }
+
+    - name: Publish Test Results
+      uses: EnricoMi/publish-unit-test-result-action@v2.25.0
+      with:
+        check_name: Unit test results
+        files: results/**/*.xml
+        comment_mode: always
+
+    - name: Every Leg Passed
+      if: needs.test.result != 'success'
+      env:
+        RESULT: ${{ needs.test.result }}
+      run: |
+        echo "::error::the test matrix ended $RESULT"
+        exit 1
