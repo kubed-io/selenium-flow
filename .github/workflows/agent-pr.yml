@@ -70,6 +70,7 @@ jobs:
       env:
         OWNER_ID: "4399427"
         APP_ID: "235398881"
+        COPILOT_ID: "175728472"
       with:
         script: |
           const e = context.payload;
@@ -94,6 +95,9 @@ jobs:
           let stage = 'none';
           if (dispatched) stage = approved ? 'code' : 'none';
           else if (!approved) stage = byOwner && !pushed ? 'plan' : 'none';
+          // a review wakes the code agent when it is Dr K's or Copilot's: the agent's own
+          // thread replies arrive as reviews too, by the App, and must not wake it again
+          else if (run?.event === 'pull_request_review') stage = byOwner || actor === process.env.COPILOT_ID ? 'code' : 'none';
           else if (!pushed) stage = 'code';
           else stage = pr.draft && (byOwner || byApp) && !finished ? 'code' : 'none';
           // what an event with no words means: the code agent's turn
