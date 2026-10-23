@@ -4,12 +4,16 @@ name: 🛠️ Agent · Pull Request
 # Dr K's comments and reviews are plan turns, and each turn's spec and plan are committed
 # to the branch (docs/, the wiki). The label starts the code. While the PR is a draft,
 # each code run does one plan task and its changes are committed; that push, relayed by
-# agent-relay.yml, wakes the next run. A review relayed the same way wakes it too.
+# agent-relay.yml, wakes the next run. The run that finishes the plan says `done`: its
+# commit carries `Agent: done`, which wakes nothing, and the PR is marked ready, which
+# starts agent-review.yml. A review asking for changes comes back as the `agent-code`
+# dispatch, the code agent's one event interface: {pull_request, reason}.
 #
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 175728472
-# Copilot's reviewer, 235398881 the kubed-io App's bot (the agent's pushes). Who else
-# counts inside a run comes from the claude runner's env.
+# Copilot's reviewer, 235398881 the kubed-io App's bot (the agent's pushes), 41898282
+# github-actions[bot] (the review agent's dispatch). Who else counts inside a run comes
+# from the claude runner's env.
 
 on:
   issue_comment:
@@ -19,6 +23,8 @@ on:
   workflow_run:
     workflows: [Agent Relay]
     types: [completed]
+  repository_dispatch:
+    types: [agent-code]
 
 permissions: {}
 
@@ -37,9 +43,14 @@ jobs:
         github.event.workflow_run.head_repository.full_name == github.repository &&
         (github.event.workflow_run.triggering_actor.id == 4399427 ||
           github.event.workflow_run.triggering_actor.id == 175728472 ||
-          github.event.workflow_run.triggering_actor.id == 235398881))
+          github.event.workflow_run.triggering_actor.id == 235398881)) ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'agent-code' &&
+        (github.event.sender.id == 4399427 ||
+          github.event.sender.id == 41898282 ||
+          github.event.sender.id == 235398881))
     runs-on: ubuntu-26.04
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       stage: ${{ steps.route.outputs.stage }}
@@ -50,8 +61,9 @@ jobs:
     steps:
 
     # Before `plan approved`: Dr K's comments and reviews are plan turns. After it: his
-    # comments and reviews, the label, a review by Copilot, and a push to the draft by the
-    # agent or Dr K are code turns. Anything else is nothing.
+    # comments and reviews, the label, a review by Copilot, an `agent-code` dispatch, and a
+    # push to the draft by the agent or Dr K are code turns; a push whose commit says
+    # `Agent: done` is not. Anything else is nothing.
     - name: Route
       id: route
       uses: actions/github-script@v9
@@ -62,7 +74,9 @@ jobs:
         script: |
           const e = context.payload;
           const run = e.workflow_run;
-          const number = run ? (run.pull_requests[0]?.number || 0) : (e.issue?.number || e.pull_request?.number || 0);
+          const dispatched = context.eventName === 'repository_dispatch';
+          const number = run ? (run.pull_requests[0]?.number || 0)
+            : Number(dispatched ? e.client_payload?.pull_request : (e.issue?.number || e.pull_request?.number)) || 0;
           core.setOutput('stage', 'none');
           if (!number) return;
           const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
@@ -74,12 +88,21 @@ jobs:
           const byOwner = actor === process.env.OWNER_ID;
           const byApp = actor === process.env.APP_ID;
           const pushed = run?.event === 'pull_request';
+          // the run that finished the plan said so on its commit: its push wakes nothing
+          const { data: head } = await github.rest.repos.getCommit({ ...context.repo, ref: pr.head.sha });
+          const finished = /^Agent: done$/m.test(head.commit.message);
           let stage = 'none';
-          if (!approved) stage = byOwner && !pushed ? 'plan' : 'none';
+          if (dispatched) stage = approved ? 'code' : 'none';
+          else if (!approved) stage = byOwner && !pushed ? 'plan' : 'none';
           else if (!pushed) stage = 'code';
-          else stage = pr.draft && (byOwner || byApp) ? 'code' : 'none';
+          else stage = pr.draft && (byOwner || byApp) && !finished ? 'code' : 'none';
+          // what an event with no words means: the code agent's turn
+          const reasons = {
+            review: 'A review came in. Apply receiving-code-review to every unresolved thread in reviews.md: fix it, or decline it with evidence, and answer each one in `threads`.',
+          };
           let prompt = '';
-          if (labelled) prompt = 'The plan is approved. Start the first task.';
+          if (dispatched) prompt = reasons[e.client_payload?.reason] || `Woken by ${e.client_payload?.reason || 'a dispatch'}: see what needs doing.`;
+          else if (labelled) prompt = 'The plan is approved. Start the first task.';
           else if (pushed) prompt = 'Your last push landed. Take the next task.';
           core.setOutput('stage', stage);
           core.setOutput('number', String(number));
@@ -229,28 +252,54 @@ jobs:
         agent: .issue/roles/claude/agents/code.md
         schema: .issue/roles/claude/agents/code.schema.json
         prompt: ${{ needs.route.outputs.prompt }}
-        ready: "true"
         max_runs: 40
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
+        # the review agent posts as github-actions[bot]: its threads count
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282
         session_key: pr-${{ needs.route.outputs.number }}
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
         allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
         claude_args: --strict-mcp-config
 
+    # the run that finishes the plan marks its commit, so the push wakes nothing
+    - name: Commit Message
+      id: msg
+      env:
+        OUTPUT: ${{ steps.agent.outputs.output }}
+      run: |
+        json="${OUTPUT:-}"
+        [ -n "$json" ] || json='{}'
+        message=$(jq -r '.commit_message // ""' <<<"$json")
+        done=$(jq -r '.done // false' <<<"$json")
+        if [ "$done" = true ] && [ -n "$message" ]; then message="$message"$'\n\nAgent: done'; fi
+        { echo 'message<<COMMIT_MESSAGE'; echo "$message"; echo 'COMMIT_MESSAGE'; } >> "$GITHUB_OUTPUT"
+        echo "done=$done" >> "$GITHUB_OUTPUT"
+
     # code through the API, signed; docs/ (the wiki) with its own step
     - name: Commit the Code
-      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      if: steps.msg.outputs.message != ''
       uses: kubed-io/actions/git/commit@main
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ needs.route.outputs.head }}
-        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        message: ${{ steps.msg.outputs.message }}
 
     - name: Commit the Docs
-      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      if: steps.msg.outputs.message != ''
       uses: ./.github/actions/wiki-commit
       with:
         branch: ${{ needs.route.outputs.head }}
-        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        message: ${{ steps.msg.outputs.message }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
+
+    # after the commit, so the checks and the review start once, on the final commit; on
+    # the App's token, so ready_for_review wakes agent-review.yml
+    - name: Mark Ready
+      if: steps.msg.outputs.done == 'true'
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+        NUMBER: ${{ needs.route.outputs.number }}
+      run: |
+        if [ "$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true ]; then
+          gh pr ready "$NUMBER" --repo "$GITHUB_REPOSITORY"
+        fi

@@ -1,0 +1,133 @@
+name: 🔍 Agent · Review
+
+# The review agent. A PR the agents built (head `issue-*`, plan approved) is reviewed when
+# it is marked ready for review, by Dr K or by the code agent saying `done`, or when an
+# `agent-review` dispatch asks for a review again. It posts one review: its summary, with
+# line comments and suggestions under it, on the built-in token, so it is
+# github-actions[bot]'s and not the code agent's. Its verdict decides what follows:
+# `changes requested` dispatches `agent-code`, and the code agent answers the review;
+# `looks good` and `needs a human` end the round.
+#
+# The job gates name ids, not variables: a job's `if` is decided before any runner, so
+# only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
+# kubed-io App's bot (the code agent), 41898282 github-actions[bot].
+
+on:
+  pull_request_target:
+    types: [ready_for_review]
+  repository_dispatch:
+    types: [agent-review]
+
+permissions: {}
+
+jobs:
+
+  route:
+    name: Route
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+        (github.event.sender.id == 4399427 || github.event.sender.id == 235398881)) ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'agent-review' &&
+        (github.event.sender.id == 4399427 ||
+          github.event.sender.id == 41898282 ||
+          github.event.sender.id == 235398881))
+    runs-on: ubuntu-26.04
+    permissions:
+      pull-requests: read
+    outputs:
+      number: ${{ steps.route.outputs.number }}
+      head: ${{ steps.route.outputs.head }}
+    steps:
+
+    - name: Route
+      id: route
+      uses: actions/github-script@v9
+      with:
+        script: |
+          const e = context.payload;
+          const number = Number(context.eventName === 'repository_dispatch' ? e.client_payload?.pull_request : e.pull_request?.number) || 0;
+          core.setOutput('number', '');
+          if (!number) return;
+          const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
+          const ours = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
+          const approved = pr.labels.some((l) => l.name === 'plan approved');
+          if (pr.state !== 'open' || pr.draft || !ours || !pr.head.ref.startsWith('issue-') || !approved) return;
+          core.setOutput('number', String(number));
+          core.setOutput('head', pr.head.ref);
+
+  review:
+    name: Review
+    needs: route
+    if: needs.route.outputs.number != ''
+    runs-on: claude
+    environment: claude
+    # one agent job per PR at a time, shared with agent-pr.yml
+    concurrency:
+      group: agent-pr-${{ needs.route.outputs.number }}
+    timeout-minutes: 45
+    permissions:
+      # contents write is the dispatch's; the review, its comments and the notes are
+      # github-actions[bot]'s
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+
+    # only to read the org's agents; the review itself goes on the built-in token
+    - name: Agents Token
+      id: roles
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        repositories: .github-private
+        permission-contents: read
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.route.outputs.head }}
+        submodules: true
+        persist-credentials: false
+
+    # the org's agents; after the repo's checkout, which would clean them away
+    - name: Checkout the Agents
+      uses: actions/checkout@v7
+      with:
+        repository: kubed-io/.github-private
+        token: ${{ steps.roles.outputs.token }}
+        path: .issue/roles
+        sparse-checkout: claude
+        persist-credentials: false
+
+    - name: Review Agent
+      id: agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ needs.route.outputs.number }}
+        agent: .issue/roles/claude/agents/review.md
+        schema: .issue/roles/claude/agents/review.schema.json
+        prompt: Review this pull request.
+        prompt_when: always
+        header: "**Verdict: {{ output.verdict }}**"
+        review: "true"
+        threads: "false"
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
+        session_key: review-${{ needs.route.outputs.number }}
+        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+        allowed_tools: Read,Glob,Grep
+        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
+        claude_args: --strict-mcp-config
+
+    # a pointer, never the review: the code agent reads it from the PR
+    - name: Wake the Code Agent
+      if: fromJSON(steps.agent.outputs.output || '{}').verdict == 'changes requested'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUMBER: ${{ needs.route.outputs.number }}
+        REVIEW_ID: ${{ steps.agent.outputs.review_id }}
+      run: |
+        gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=agent-code \
+          -F "client_payload[pull_request]=${NUMBER}" -f "client_payload[reason]=review" \
+          -f "client_payload[review_id]=${REVIEW_ID}"

@@ -70,6 +70,10 @@ rules:
   # PR head must be a branch of this repository, and no step runs the PR's code before
   # that gate. The code job checks out the PR head to change it, and its install steps
   # run the head's build and npm scripts; only Dr K and the App can push branches here.
+  # agent-review.yml reads the same way: pull_request_target only for `ready_for_review`
+  # from Dr K or the App, a head of this repository, and nothing of the PR is run; the
+  # review agent reads the checkout and cannot write it.
   dangerous-triggers:
     ignore:
     - agent-pr.yml
+    - agent-review.yml
