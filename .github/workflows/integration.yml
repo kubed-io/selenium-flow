@@ -11,13 +11,11 @@ name: 🔌 Integration
 # should be visible without blocking a merge until it has a track record.
 
 on:
-  pull_request:
-    # a draft runs nothing; marking it ready starts the checks
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main]
+  # pull requests: pr.yml calls this, with every other check, so one collector sees them all
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call: {}
 
 permissions:
   contents: read

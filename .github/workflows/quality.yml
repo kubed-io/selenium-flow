@@ -20,13 +20,11 @@ name: 🛡️ Quality
 # direct push is gated the same way a PR is.
 
 on:
-  pull_request:
-    # a draft runs nothing; marking it ready starts the checks
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [main]
+  # pull requests: pr.yml calls this, with every other check, so one collector sees them all
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call: {}
 
 permissions:
   contents: read

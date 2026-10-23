@@ -2,9 +2,7 @@ name: 🎨 UI
 # The Svelte admin UI and MCP App: lint, types, tests, the build and its size.
 # No `paths` filter on pull_request, deliberately: this job is REQUIRED.
 on:
-  pull_request:
-    # a draft runs nothing; marking it ready starts the checks
-    types: [opened, synchronize, reopened, ready_for_review]
+  # pull requests: pr.yml calls this, with every other check, so one collector sees them all
   push:
     branches: [main]
   workflow_dispatch:
