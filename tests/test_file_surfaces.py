@@ -126,5 +126,5 @@ def test_a_file_read_carries_its_own_media_type(srv, folder, name, expected):
             return await c.read_resource(uri)
 
     got = _run(go())
-    assert got[0].mimeType == expected
+    assert got[0].mime_type == expected
     assert base64.b64decode(got[0].blob) == data
