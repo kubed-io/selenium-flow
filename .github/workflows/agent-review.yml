@@ -11,7 +11,8 @@ name: 🔍 Agent · Review
 # The check is a commit status on the PR's head, never this job's own check run: runs on
 # pull_request_target and repository_dispatch belong to main's commit, so they could not
 # be the PR's required check. The status is also the loop's memory: a head the review
-# agent already passed is never reviewed again, and every new commit starts without one.
+# agent already passed is never reviewed again, and every new commit starts without one;
+# a commit that changes nothing of the PR's own (Update branch) keeps the last verdict.
 # PRs the agents did not build get a passing status straight away, so the required check
 # never blocks them.
 #
@@ -84,16 +85,47 @@ jobs:
             return;
           }
 
-          // the review agent's own status on this head is the memory
-          const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({ ...context.repo, ref: sha, per_page: 100 });
-          const mine = statuses.find((s) => s.context === process.env.CHECK && String(s.creator?.id) === process.env.AGENT);
+          // the review agent's own statuses are the memory: one per commit it judged
+          const mineOn = async (ref) => {
+            const { data } = await github.rest.repos.listCommitStatusesForRef({ ...context.repo, ref, per_page: 100 });
+            return data.find((s) => s.context === process.env.CHECK && String(s.creator?.id) === process.env.AGENT);
+          };
+          const mine = await mineOn(sha);
           if (mine?.state === 'success') return core.info(`${sha} already passed`);
           // a push or a ready toggle never reviews a head twice; a dispatch asks again
           if (mine && !dispatched) return core.info(`${sha} already ${mine.state}`);
           if (!process.env.TRUSTED.split(',').includes(String(e.sender?.id))) return core.info(`sender ${e.sender?.login} cannot ask for a review`);
 
-          const reviews = await github.paginate(github.rest.pulls.listReviews, { ...context.repo, pull_number: number, per_page: 100 });
-          const done = reviews.filter((r) => String(r.user?.id) === process.env.AGENT).length;
+          // the earlier commits, newest first, with the review agent's verdict on each
+          const commits = (await github.paginate(github.rest.pulls.listCommits, { ...context.repo, pull_number: number, per_page: 100 }))
+            .map((c) => c.sha).filter((c) => c !== sha).reverse();
+          const judged = [];
+          for (const ref of commits) {
+            const s = await mineOn(ref);
+            if (s && (s.state === 'success' || s.state === 'failure')) judged.push({ ref, ...s });
+          }
+
+          // what the PR itself changes at a commit, blind to line numbers, so merging main
+          // in leaves it as it was; null when GitHub's compare is cut off at 300 files
+          const changes = async (ref) => {
+            const { data } = await github.rest.repos.compareCommitsWithBasehead({ ...context.repo, basehead: `${pr.base.ref}...${ref}` });
+            if ((data.files?.length || 0) >= 300) return null;
+            return data.files.map((f) => `${f.status} ${f.filename} ${f.previous_filename || ''}\n${
+              f.patch == null ? `blob ${f.sha}` : f.patch.replace(/^@@[^@]*@@/gm, '@@')}`).sort().join('\n');
+          };
+          // a commit that only brings main in (Update branch) keeps the last verdict
+          const prior = judged[0];
+          if (prior && !dispatched) {
+            const [now, then] = await Promise.all([changes(sha), changes(prior.ref)]);
+            if (now !== null && now === then) {
+              const verdict = prior.description.replace(/^no changes since \w+: /, '');
+              await status(prior.state, `no changes since ${prior.ref.slice(0, 7)}: ${verdict}`, prior.target_url);
+              return core.info(`${sha} changes nothing of the PR's since ${prior.ref}`);
+            }
+          }
+
+          // reviews so far: commits with a verdict of the review agent's own, not a carried one
+          const done = judged.filter((s) => /^(looks good|changes requested|needs a human)$|^changes requested, last review/.test(s.description)).length;
           const max = Number(process.env.MAX_REVIEWS);
           // Dr K's own dispatch is never capped
           const capped = !(dispatched && String(e.sender?.id) === process.env.OWNER);
