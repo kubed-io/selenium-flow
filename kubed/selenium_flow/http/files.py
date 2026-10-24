@@ -685,11 +685,9 @@ FOLDER_DESCRIPTION = {
 
 ITEM_DESCRIPTION = {
     FILES: (
-        "One file from Files, as bytes. The name comes from the "
-        f"{ROOT_URI} listing, which also carries each file's real media type — "
-        "a template declares one type for every file it serves, so this is "
-        "deliberately the generic one. A video (a kept recording) answers its "
-        "entry instead, as JSON: its url plays it."
+        "One file from Files, as bytes, carrying its own media type. The name "
+        f"comes from the {ROOT_URI} listing. A video (a kept recording) answers "
+        "its entry instead, as JSON: its url plays it."
     ),
     SCREENSHOTS: (
         f"One screenshot, as bytes, from {FOLDER_URI[SCREENSHOTS]}. It answers "
@@ -758,7 +756,7 @@ def register(
         return next((f for f in listing["files"] if f["name"] == unquote(name)), None)
 
     def _item_resource(which: str):
-        def read(name: str) -> bytes | ResourceResult:
+        def read(name: str) -> ResourceResult:
             # The caller is named last: with Files off, or a URI that is not
             # one, naming the workspace would not fix the call, so those say so
             # first, as they did before the caller was read at the edge.
@@ -776,9 +774,10 @@ def register(
                 return ResourceResult(
                     [ResourceContent(json.dumps(entry), mime_type="application/json")]
                 )
-            return read_file(
+            leaf, data = read_file(
                 actions, workspaces, store, uri_of(which, name), clients.caller().name
-            )[1]
+            )
+            return ResourceResult([ResourceContent(data, mime_type=content_type(leaf))])
 
         return read
 

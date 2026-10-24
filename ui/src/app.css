@@ -368,16 +368,25 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 
    Nothing here scrolls on its own. A long flow makes the panel taller, which
    is what the page's own scrollbar is for — an inner scroll region would hide
-   the end of a list inside a box that is already inside a box. */
+   the end of a list inside a box that is already inside a box.
 
-.flows { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; gap: var(--gap); align-items: start; }
-@media (max-width: 680px) { .flows { grid-template-columns: 1fr; } }
+   Each flow is a row of this grid, because the list is `display: contents`.
+   The panel spans from the picked row to a last `1fr` track; that track takes
+   the panel's height past the list, so no flow row stretches. Under 680px the
+   panel goes back below the list. */
+
+.flows { display: grid; grid-template-columns: minmax(180px, 240px) 1fr; grid-template-rows: repeat(var(--n, 1), auto) 1fr; column-gap: var(--gap); row-gap: 2px; align-items: start; }
+#flowpanel { grid-column: 2; grid-row: var(--at, 1) / -1; }
+@media (max-width: 680px) {
+  .flows { grid-template-columns: 1fr; grid-template-rows: none; }
+  #flowpanel { grid-column: 1; grid-row: auto; margin-top: calc(var(--gap) - 2px); }
+}
 
 /* Rows, not a boxed list: the panel beside it is the bordered thing, and two
    nested borders make the sidebar look like a second panel rather than a set
    of choices. */
-.flowlist { display: flex; flex-direction: column; gap: 2px; }
-.flowlist .item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+.flowlist { display: contents; }
+.flowlist .item { grid-column: 1; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
 .flowlist .item:hover { background: color-mix(in srgb, var(--ink) 3%, transparent); }
 .flowlist .item[aria-selected=true] { background: color-mix(in srgb, var(--ink) 5%, transparent); }
 .flowlist .item .nm { font-size: 14px; word-break: break-all; }
