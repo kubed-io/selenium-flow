@@ -206,6 +206,10 @@ jobs:
       contents: read
       # the checks report, an artifact of pr.yml's run
       actions: read
+      # pr-checks: the alerts and the annotations
+      pull-requests: read
+      checks: read
+      security-events: read
     steps:
 
     - name: App Token
@@ -264,6 +268,12 @@ jobs:
         run-id: ${{ needs.route.outputs.run_id }}
         github-token: ${{ github.token }}
         path: .issue/checks
+
+    # what the checks found: the PR's code scanning alerts and the head's annotations
+    - name: PR Checks
+      uses: kubed-io/actions/pr-checks@main
+      with:
+        number: ${{ needs.route.outputs.number }}
 
     - name: Code Agent
       id: agent

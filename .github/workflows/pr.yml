@@ -1,10 +1,11 @@
 name: 🔀 PR
 
-# Every check a pull request gets, in one run: PR Tasks here, the rest called from their
-# own workflows, and the `Checks` collector after them all. The collector gathers what
-# failed (steps, annotations, the end of the logs) into the `checks-report` artifact;
+# Every gate a pull request must pass, in one run: PR Tasks here, the rest called from
+# their own workflows, and the `Checks` collector after them all. The collector gathers
+# what failed (steps, annotations, the end of the logs) into the `checks-report` artifact;
 # agent-review.yml, from main, reads it when this run ends and hands a failure to the code
-# agent or the PR to the review agent. wiki.yml stays on its own trigger.
+# agent or the PR to the review agent. The scanners (quality.yml), whose findings are
+# alerts and never a failure, and wiki.yml run on their own triggers.
 #
 # PR Tasks: every PR must contribute a CHANGELOG entry, because that [Unreleased] section
 # becomes the release notes at publish time. A PR with no new entry fails here.
@@ -83,14 +84,13 @@ jobs:
       checks: write
       pull-requests: write
 
-  quality:
-    name: Quality
+  lint:
+    name: Lint
     if: ${{ !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) }}
-    uses: ./.github/workflows/quality.yml
+    uses: ./.github/workflows/lint.yml
     secrets: inherit
     permissions:
       contents: read
-      security-events: write
 
   ui:
     name: UI
@@ -131,7 +131,7 @@ jobs:
   # copy of the workflow. It always succeeds; the checks themselves are what gate.
   checks:
     name: Checks
-    needs: [pr-tasks, test, quality, ui, integration, bench, package]
+    needs: [pr-tasks, test, lint, ui, integration, bench, package]
     if: >-
       always() && !github.event.pull_request.draft &&
       !contains(fromJSON('["labeled","unlabeled"]'), github.event.action)
