@@ -199,6 +199,9 @@ jobs:
       pull-requests: write
       issues: write
       statuses: write
+      # pr-checks: the alerts and the annotations
+      checks: read
+      security-events: read
     steps:
 
     # only to read the org's agents; the review itself goes on the built-in token
@@ -228,6 +231,12 @@ jobs:
         path: .issue/roles
         sparse-checkout: claude
         persist-credentials: false
+
+    # what the checks found: the PR's code scanning alerts and the head's annotations
+    - name: PR Checks
+      uses: kubed-io/actions/pr-checks@main
+      with:
+        number: ${{ needs.route.outputs.number }}
 
     - name: Review Agent
       id: agent
