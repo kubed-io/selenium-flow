@@ -86,7 +86,7 @@ jobs:
     # token, so its SARIF upload would 403; there zizmor prints to the log instead,
     # and a finding fails the job.
     - name: Audit Workflows
-      uses: zizmorcore/zizmor-action@v0.6.4
+      uses: zizmorcore/zizmor-action@v0.7.1
       with:
         inputs: .github/
         persona: regular
