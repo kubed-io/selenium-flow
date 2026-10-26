@@ -182,15 +182,23 @@ jobs:
         disallowed_tools: Bash,NotebookEdit
         claude_args: --strict-mcp-config
 
-    # the spec and plan live under docs/, the wiki
-    - name: Commit the Plan
+    # the spec and plan live under docs/: the wiki first, with git; then its pointer in one signed commit
+    - name: Push the Wiki
       if: fromJSON(steps.agent.outputs.output || '{}').commit_message
-      uses: ./.github/actions/wiki-commit
+      uses: kubed-io/actions/git/submodule@main
       with:
-        branch: ${{ needs.route.outputs.head }}
         message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
+
+    - name: Commit the Plan
+      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      uses: kubed-io/actions/git/commit@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ needs.route.outputs.head }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        files: docs
 
   code:
     name: Code
@@ -306,23 +314,23 @@ jobs:
         { echo 'message<<COMMIT_MESSAGE'; echo "$message"; echo 'COMMIT_MESSAGE'; } >> "$GITHUB_OUTPUT"
         echo "done=$done" >> "$GITHUB_OUTPUT"
 
-    # code through the API, signed; docs/ (the wiki) with its own step
-    - name: Commit the Code
+    # docs/ is the wiki: it is pushed first, with git, and then the code and the wiki's
+    # pointer go in one commit through the API, signed
+    - name: Push the Wiki
+      if: steps.msg.outputs.message != ''
+      uses: kubed-io/actions/git/submodule@main
+      with:
+        message: ${{ steps.msg.outputs.message }}
+        token: ${{ steps.app.outputs.token }}
+        app_slug: ${{ steps.app.outputs.app-slug }}
+
+    - name: Commit
       if: steps.msg.outputs.message != ''
       uses: kubed-io/actions/git/commit@main
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ needs.route.outputs.head }}
         message: ${{ steps.msg.outputs.message }}
-
-    - name: Commit the Docs
-      if: steps.msg.outputs.message != ''
-      uses: ./.github/actions/wiki-commit
-      with:
-        branch: ${{ needs.route.outputs.head }}
-        message: ${{ steps.msg.outputs.message }}
-        token: ${{ steps.app.outputs.token }}
-        app_slug: ${{ steps.app.outputs.app-slug }}
 
     # after the commit, so the checks and the review start once, on the final commit; on
     # the App's token, so ready_for_review wakes agent-review.yml
