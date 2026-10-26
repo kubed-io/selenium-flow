@@ -177,6 +177,10 @@ class Actions:
         # browsing context. Wired by the server once capture exists, so a
         # save's spare tab never reaches a caller's console or network log.
         self.hide = None
+        # The operator's `session.capabilities`, sent under the caller's at
+        # every open (spec 2026-10-26-session-capabilities): its own source,
+        # never a layer of the cascade. Wired by the server.
+        self.config_capabilities: dict = {}
         # The kept console and network (`capture.Capture`), wired by the server:
         # the capture resources read it. None when capture is not set up.
         self.capture = None
@@ -221,6 +225,7 @@ class Actions:
         self,
         url=None,
         browser=None,
+        version=None,
         width=None,
         height=None,
         page_load_timeout=None,
@@ -230,6 +235,7 @@ class Actions:
         capture=None,
         video_name=None,
         site_data=None,
+        capabilities=None,
         *,
         on_created=None,
         on_ready=None,
@@ -272,7 +278,13 @@ class Actions:
         # What is sent is decided once, in `session_caps`.
         driver = self.grid.open(
             session_caps.build(
-                name, insecure=insecure, record=record, video_name=video_name
+                name,
+                version=version,
+                insecure=insecure,
+                record=record,
+                video_name=video_name,
+                config=self.config_capabilities,
+                raw=capabilities,
             )
         )
         session_id = driver.session_id

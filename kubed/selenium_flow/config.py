@@ -12,6 +12,7 @@ command line.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 from collections.abc import Mapping
@@ -24,6 +25,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     SecretStr,
     ValidationError,
     field_validator,
@@ -32,6 +34,7 @@ from pydantic.fields import FieldInfo
 from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.defaults import DEFAULT_GRID_URL, normalize_browser
+from .core.session_caps import check as check_capabilities
 from .names import INBOX_DIR, WORKSPACES_DIR, valid_name
 from .urls import without_userinfo
 
@@ -184,11 +187,48 @@ class SessionSettings(Section):
         None, description="Seconds a page may take to load."
     )
     script_timeout: int | None = Field(None, description="Seconds a script may run.")
+    version: str | None = Field(
+        None, description="The browser version new sessions ask for, such as 152."
+    )
+    # NoDecode, like `secrets.dirs`: env and the command line hand over a
+    # string, read as JSON below, so the error names this setting.
+    capabilities: Annotated[dict[str, JsonValue], NoDecode] = Field(
+        default_factory=dict,
+        description="W3C capabilities every new session sends, under the "
+        "caller's, as a JSON object.",
+    )
 
     @field_validator("browser", mode="before")
     @classmethod
     def _browser(cls, value):
         return normalize_browser(value) if value not in (None, "") else None
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _version(cls, value):
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def _capabilities_json(cls, value):
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                raise ValueError("must be a JSON object") from None
+        if not isinstance(value, dict):
+            raise ValueError("must be a JSON object")
+        return value
+
+    @field_validator("capabilities")
+    @classmethod
+    def _capabilities_owned(cls, value):
+        # An owned key is the operator's mistake, so the boot stops on it
+        # naming the option, rather than every open being refused.
+        check_capabilities(value, where="session.capabilities")
+        return value
 
 
 class RedisSettings(Section):
@@ -547,7 +587,7 @@ def parser() -> argparse.ArgumentParser:
         allow_abbrev=False,
     )
     for leaf in leaves():
-        shown = "unset" if leaf.default in (None, "", []) else leaf.default
+        shown = "unset" if leaf.default in (None, "", [], {}) else leaf.default
         help_text = (
             f"{leaf.description} (env: {leaf.env} · config: {leaf.path}"
             f" · default: {shown})"

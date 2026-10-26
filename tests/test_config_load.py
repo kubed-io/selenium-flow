@@ -450,3 +450,50 @@ def test_a_session_file_section_with_only_browser_settings_loads(tmp_path):
     path.write_text("session:\n  browser: firefox\n")
     loaded = config.load(["--config-file", str(path)], {})
     assert loaded.settings.session.browser == "firefox"
+
+
+# ---- session.version and session.capabilities (spec 2026-10-26) -------------
+
+
+def test_session_capabilities_and_version_come_from_env_as_json():
+    loaded = load([], {
+        "SESSION_CAPABILITIES": '{"kubed:pool": "default", "x:y": [1, {"z": null}]}',
+        "SESSION_VERSION": " 152 ",
+    })
+    session = loaded.settings.session
+    assert session.capabilities == {"kubed:pool": "default", "x:y": [1, {"z": None}]}
+    assert session.version == "152"
+    assert loaded.sources["session.capabilities"] == "env"
+
+
+def test_session_capabilities_default_to_none_and_come_from_the_file(tmp_path):
+    assert load([], {}).settings.session.capabilities == {}
+    assert load([], {}).settings.session.version is None
+    path = _file(tmp_path, "session:\n  capabilities:\n    kubed:pool: default\n")
+    loaded = load(["--config-file", path], {})
+    assert loaded.settings.session.capabilities == {"kubed:pool": "default"}
+    assert loaded.sources["session.capabilities"] == "config"
+
+
+def test_session_capabilities_come_from_the_command_line():
+    loaded = load(["--session-capabilities", '{"kubed:pool": "a"}'], {})
+    assert loaded.settings.session.capabilities == {"kubed:pool": "a"}
+
+
+def test_an_owned_key_in_session_capabilities_stops_the_boot():
+    with pytest.raises(ConfigError) as refused:
+        load([], {"SESSION_CAPABILITIES": '{"browserName": "x"}'})
+    assert (
+        "browserName cannot be sent in session.capabilities: use browser= instead"
+        in str(refused.value)
+    )
+
+
+@pytest.mark.parametrize("value", ["not json", "[1, 2]", '"a string"'])
+def test_session_capabilities_that_are_not_an_object_stop_the_boot(value):
+    with pytest.raises(ConfigError, match=r"session\.capabilities"):
+        load([], {"SESSION_CAPABILITIES": value})
+
+
+def test_a_blank_session_version_is_unset():
+    assert load([], {"SESSION_VERSION": "   "}).settings.session.version is None

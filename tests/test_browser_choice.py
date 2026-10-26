@@ -193,6 +193,55 @@ def test_a_download_in_flight_is_not_offered_to_the_caller(name, partial):
     assert is_partial(name) is partial
 
 
+class TestVersionAndCapabilities:
+    """`version` is `browser`'s twin; raw `capabilities` has no client layer
+    (spec 2026-10-26-session-capabilities, rulings 10, 13 and 19)."""
+
+    def test_version_comes_from_the_client_and_latest_is_kept(self):
+        assert settings_module.from_client({"version": "152"}, {})["version"] == "152"
+        assert settings_module.from_client({}, {"x-version": " 9 "})["version"] == "9"
+        assert "version" not in settings_module.from_client({"version": "  "}, {})
+        resolved = settings_module.resolve(
+            {"version": "Latest"}, previous={"version": "152"}
+        )
+        assert resolved["version"] == "latest"
+
+    def test_capabilities_have_no_client_layer_and_an_empty_object_clears(self):
+        said = settings_module.from_client(
+            {"capabilities": "{}"}, {"x-capabilities": "{}"}
+        )
+        assert "capabilities" not in said
+        resolved = settings_module.resolve(
+            {"capabilities": {}}, previous={"capabilities": {"a:b": 1}}
+        )
+        assert resolved["capabilities"] == {}
+        kept = settings_module.resolve({}, previous={"capabilities": {"a:b": 1}})
+        assert kept["capabilities"] == {"a:b": 1}
+
+    def test_capabilities_as_a_json_string_are_read_and_anything_else_refused(self):
+        resolved = settings_module.resolve({"capabilities": '{"a:b": 1}'})
+        assert resolved["capabilities"] == {"a:b": 1}
+        for bad in ("[1]", "nope", 5, ["a"]):
+            with pytest.raises(ValueError, match="capabilities must be an object"):
+                settings_module.resolve({"capabilities": bad})
+
+    def test_the_config_version_is_the_floor(self):
+        assert settings_module.from_settings(SessionSettings(version="152")) == {
+            "version": "152"
+        }
+        # The config's capabilities are their own source, never the cascade's.
+        floor = settings_module.from_settings(
+            SessionSettings(capabilities={"kubed:pool": "d"})
+        )
+        assert floor == {}
+
+    def test_a_resolved_object_is_a_copy(self):
+        given = {"a:b": {"c": 1}}
+        resolved = settings_module.resolve({"capabilities": given})
+        resolved["capabilities"]["a:b"]["c"] = 2
+        assert given == {"a:b": {"c": 1}}
+
+
 class TestTheSettingsCascade:
     """`browser` rides the same cascade as the window size, deliberately.
 

@@ -27,6 +27,18 @@ const body = {
 
 const row = (c: HTMLElement, key: string) => c.querySelector(`.setting[data-key="${key}"]`) as HTMLElement
 
+test('an object setting reads as its JSON, and an empty one as unset', async () => {
+  const objects = { sections: [{ name: 'session', description: 'How a session opens a browser.', settings: [
+    { key: 'session.capabilities', name: 'capabilities', description: 'W3C capabilities.', value: { 'kubed:pool': 'default' }, source: 'env' },
+    { key: 'session.other', name: 'other', description: 'Nothing set.', value: {}, source: 'default' },
+  ] }] }
+  fakeFetch({ 'GET /admin/settings': { body: objects } })
+  const { container } = render(SettingsPane, { api })
+  await vi.waitFor(() => expect(container.querySelector('.settings-card')).toBeTruthy())
+  expect(row(container, 'session.capabilities').querySelector('.value')?.textContent).toBe('{"kubed:pool":"default"}')
+  expect(row(container, 'session.other').querySelector('.value')?.textContent).toBe('—')
+})
+
 test('a card per section, a row per setting, a pill per source', async () => {
   fakeFetch({ 'GET /admin/settings': { body } })
   const { container } = render(SettingsPane, { api })

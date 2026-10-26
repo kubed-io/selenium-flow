@@ -24,6 +24,8 @@
     if (row.sensitive) return row.set ? '●●●●' : ''
     if (Array.isArray(row.value)) return row.value.length ? row.value.join(', ') : '—'
     if (row.value === null || row.value === undefined || row.value === '') return '—'
+    // An object setting (session.capabilities) reads as the JSON it was given.
+    if (typeof row.value === 'object') return Object.keys(row.value).length ? JSON.stringify(row.value) : '—'
     return String(row.value)
   }
 </script>

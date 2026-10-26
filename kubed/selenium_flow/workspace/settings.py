@@ -1,9 +1,10 @@
 """Session settings, and where a value for one comes from.
 
-Six things can be set when a browser opens: which browser it is, its window
-size, the two timeouts WebDriver lets you change after creation, and whether it
-accepts an insecure site. Each but the last can come from three places, and the
-useful part is the order:
+These can be set when a browser opens: which browser it is and which version,
+its window size, the two timeouts WebDriver lets you change after creation,
+whether it accepts an insecure site, whether it is recorded or captured, and
+the raw capabilities nothing else covers. Most can come from three places, and
+the useful part is the order:
 
     server default (config: session.*)  <  client default (param/header)  <
     this workspace's last values  <  explicit
@@ -28,11 +29,15 @@ same class of silent shape change the stored settings exist to prevent.
 
 from __future__ import annotations
 
+import copy
+import json
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 from ..core.coerce import as_bool
 from ..core.defaults import normalize_browser
+from ..core.session_caps import LATEST
 
 if TYPE_CHECKING:
     from ..config import SessionSettings
@@ -78,9 +83,51 @@ def _as_client_browser(value) -> str | None:
         return None
 
 
+def _as_version(value) -> str | None:
+    """A browser version, stripped, or None when blank.
+
+    Any casing of `latest` is kept as `latest`: it is a value, so an explicit
+    one beats a remembered version (spec 2026-10-26-session-capabilities,
+    ruling 19). Lenient in one way only: a client's version is any string,
+    since what the Grid serves is the Grid's to say.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return LATEST if text.lower() == LATEST else text
+
+
+CAPABILITIES_NOT_AN_OBJECT = "capabilities must be an object"
+
+
+def _as_capabilities(value) -> dict | None:
+    """The caller's raw capabilities, as a fresh dict, or None when not given.
+
+    `{}` is kept: it clears a remembered object, the way `insecure=false`
+    beats a remembered true (ruling 13). A JSON string is read, for a caller
+    that could only send text; anything that is not an object is refused,
+    since sending it would be guessing.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise ValueError(CAPABILITIES_NOT_AN_OBJECT) from None
+    if not isinstance(value, Mapping):
+        raise ValueError(CAPABILITIES_NOT_AN_OBJECT)
+    return copy.deepcopy(dict(value))
+
+
 # name -> (query parameter, header, coercion)
 SETTINGS = {
     "browser": ("browser", "x-browser", _as_client_browser),
+    # `browser`'s twin (ruling 10): a client may pin a version as it pins a
+    # browser. `latest` clears a remembered one.
+    "version": ("version", "x-version", _as_version),
     "width": ("width", "x-window-width", _as_int),
     "height": ("height", "x-window-height", _as_int),
     "page_load_timeout": ("page_load_timeout", "x-page-load-timeout", _as_int),
@@ -94,11 +141,22 @@ SETTINGS = {
     # Explicit only, like record: stored so a reap replays it, never inherited
     # by an explicit open (capture spec, ruling 3): ask again for the next one.
     "capture": (None, None, _as_flag),
+    # Explicit only: no parameter and no header (ruling 10). Remembered whole,
+    # and `{}` clears it (ruling 13). The config's `session.capabilities` is
+    # not its floor but a source of its own, merged under it at every open.
+    "capabilities": (None, None, _as_capabilities),
 }
 
-# The config's session section, as the operator's floor. `store` and `ttl` are
-# about keeping workspaces, not about the browser a session opens.
-FROM_CONFIG = ("browser", "width", "height", "page_load_timeout", "script_timeout")
+# The config's session section, as the operator's floor. `capabilities` is not
+# here: it is its own source, beside the cascade (`Actions.config_capabilities`).
+FROM_CONFIG = (
+    "browser",
+    "version",
+    "width",
+    "height",
+    "page_load_timeout",
+    "script_timeout",
+)
 
 
 def from_settings(session: SessionSettings) -> dict:
