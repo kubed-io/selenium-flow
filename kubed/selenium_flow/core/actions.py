@@ -33,7 +33,7 @@ from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
 from ..urls import allowed_navigation
-from . import browser, pointer, probe
+from . import browser, pointer, probe, session_caps
 from .assertion import Assertion, window
 from .browser import Grid
 from .coerce import as_bool, as_int
@@ -269,8 +269,11 @@ class Actions:
         insecure = as_bool(insecure, False)
         record = as_bool(record, False)
         capture = as_bool(capture, False)
+        # What is sent is decided once, in `session_caps`.
         driver = self.grid.open(
-            name, insecure=insecure, record=record, video_name=video_name
+            session_caps.build(
+                name, insecure=insecure, record=record, video_name=video_name
+            )
         )
         session_id = driver.session_id
         try:

@@ -13,6 +13,7 @@ losing a browser.
 from __future__ import annotations
 
 import base64
+import copy
 import io
 import json
 import socket
@@ -43,8 +44,8 @@ from . import probe
 from .defaults import (
     DEFAULT_GRID_URL,
     FIREFOX,
-    normalize_browser,
 )
+from .session_caps import Built, build
 
 # Seconds any one request to the Grid's own HTTP endpoints may take.
 GRID_TIMEOUT = 30
@@ -167,6 +168,32 @@ def _listed(status: dict) -> tuple[int, dict[str, int | None]]:
     return len(nodes), running
 
 
+# What `reconnect` builds its inert driver with, on every call: built once.
+# Never mutated: `_Sent.to_capabilities` hands out a copy.
+_INERT = build(None)
+
+
+class _Sent:
+    """Options whose capabilities are exactly a built set (`Grid._options`)."""
+
+    def __init__(self, built: Built):
+        super().__init__()
+        self._built = built
+        # What `enable_bidi` reads back, for anything that asks the object.
+        self.enable_bidi = True
+
+    def to_capabilities(self) -> dict:
+        return copy.deepcopy(self._built.send)
+
+
+class _ChromeSent(_Sent, webdriver.ChromeOptions):
+    pass
+
+
+class _FirefoxSent(_Sent, webdriver.FirefoxOptions):
+    pass
+
+
 class Grid:
     """A Selenium Grid endpoint, and the operations this server needs from it.
 
@@ -212,113 +239,28 @@ class Grid:
                 raise
         return send(url, timeout=timeout, **kwargs)
 
-    def _options(
-        self,
-        browser: str | None = None,
-        insecure: bool = False,
-        record: bool = False,
-        video_name: str | None = None,
-    ):
-        """Capabilities for a new session of ``browser``.
+    def _options(self, built: Built | None = None):
+        """The Options object an open sends: exactly ``built.send``.
 
-        The two capabilities that matter are W3C standard and identical for
-        every browser; only the vendor-specific noise below them differs, which
-        is why supporting a second browser is a branch rather than a subclass.
+        What is sent is decided in `core.session_caps`, never here (spec
+        2026-10-26-session-capabilities, ruling 23). Selenium's Options
+        objects add keys of their own — ``pageLoadStrategy``, and on Firefox
+        ``acceptInsecureCerts: true`` and ``moz:debuggerAddress`` — and
+        rebuild a vendor block from their own fields, so the one sent here
+        answers ``to_capabilities()`` with the built set and nothing else.
+        The class still follows the browser, because Selenium picks the
+        connection it opens from it.
+
+        None is what `reconnect` passes: the default browser's set, cheap and
+        valid, and never sent (``ReattachDriver`` skips ``start_session``).
         """
-        name = normalize_browser(browser)
-        options = (
-            webdriver.FirefoxOptions() if name == FIREFOX else webdriver.ChromeOptions()
-        )
-        # Never let the browser answer a dialog on the caller's behalf. The
-        # default, "dismiss and notify", silently clicks Cancel on a confirm and
-        # only reports it as an error on whatever command happened to notice —
-        # so a destructive prompt gets answered by accident and the dialog is
-        # gone before anyone can decide. "ignore" leaves it open for `dialog`.
-        options.set_capability("unhandledPromptBehavior", "ignore")
-        # Ask the Grid to manage this session's downloads. The node then keeps a
-        # per-session directory and exposes it at /session/<id>/se/files, which
-        # is the whole file store — listed, read and reaped by the Grid itself.
-        # Without this the browser downloads into a directory nothing can reach.
-        options.set_capability("se:downloadsEnabled", True)
-        # Every browser speaks BiDi so a saved site can be restored into it;
-        # every other tool still uses classic WebDriver.
-        options.enable_bidi = True
-        # `open_session(insecure=true)`: the caller knows this site's
-        # certificate is self-signed, and says so for this one browser. Chosen
-        # per browser and never server-wide, because only the caller knows which
-        # site it is about to drive.
-        if insecure:
-            options.accept_insecure_certs = True
-        # `open_session(record=true)`: the Grid's own recorder films this
-        # browser's whole life (recordings spec). The name only makes the
-        # operator's inbox readable; nothing matches on it, because the
-        # recorder strips `.` from names and two workspace names could collide.
-        if record:
-            options.set_capability("se:recordVideo", True)
-            if video_name:
-                options.set_capability("se:videoName", video_name)
+        built = _INERT if built is None else built
+        kind = _FirefoxSent if built.browser == FIREFOX else _ChromeSent
+        return kind(built)
 
-        if name == FIREFOX:
-            # 2 = the directory the Grid node set for this session. Firefox
-            # otherwise saves to its own default and se:downloadsEnabled has
-            # nothing to collect.
-            options.set_preference("browser.download.folderList", 2)
-            options.set_preference("browser.download.useDownloadDir", True)
-            # Firefox's equivalent of Chrome's automatic-downloads prompt: it
-            # asks what to do with a type it does not recognise, and nobody is
-            # there to answer. A PDF a site serves would hang without this,
-            # since Firefox opens PDFs in its own viewer by default.
-            options.set_preference(
-                "browser.helperApps.neverAsk.saveToDisk",
-                "application/pdf,image/png,application/octet-stream",
-            )
-            options.set_preference("pdfjs.disabled", True)
-            # See the Chrome block below: the password-save prompt is a browser
-            # popup, and the browser is the only thing that can answer it.
-            options.set_preference("signon.rememberSignons", False)
-            return options
-
-        options.add_argument("--no-sandbox")
-        # Chrome's default /dev/shm is 64MB and it crashes under it.
-        options.add_argument("--disable-dev-shm-usage")
-        # Chrome asks permission before a page's *second* automatic download and
-        # denies it silently when nobody can answer. The first file of a session
-        # would arrive and every one after it would vanish with no error, which
-        # is a miserable thing to debug. 1 = allow.
-        options.add_experimental_option(
-            "prefs",
-            {
-                "profile.default_content_setting_values.automatic_downloads": 1,
-                # Submitting a password offers to save it, and that offer is a
-                # *browser* popup rather than anything in the page. It takes the
-                # input focus and never gives it back, so every later click and
-                # keystroke is delivered to the bubble instead of the document —
-                # silently: the element is found, the command succeeds, and
-                # nothing happens. A flow that logs in would leave the browser
-                # looking fine and unable to do anything, which is the worst
-                # shape a failure can take. Nobody is here to answer the offer,
-                # so do not let it be made.
-                "credentials_enable_service": False,
-                "profile.password_manager_enabled": False,
-                # Same popup, different trigger: Chrome warns about a password it
-                # believes was breached.
-                "profile.password_manager_leak_detection": False,
-            },
-        )
-        return options
-
-    def open(
-        self,
-        browser: str | None = None,
-        insecure: bool = False,
-        record: bool = False,
-        video_name: str | None = None,
-    ) -> RemoteWebDriver:
-        """Create a session on ``browser`` and return its driver."""
-        return webdriver.Remote(
-            command_executor=self.url,
-            options=self._options(browser, insecure, record, video_name),
-        )
+    def open(self, built: Built) -> RemoteWebDriver:
+        """Create a session sending ``built`` and return its driver."""
+        return webdriver.Remote(command_executor=self.url, options=self._options(built))
 
     def reconnect(self, session_id: str) -> RemoteWebDriver:
         """Bind to a session that is already running on the Grid.
