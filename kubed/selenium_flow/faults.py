@@ -91,6 +91,28 @@ class BidiUnavailable(ConnectionError):
     socket's URL."""
 
 
+class NoNodeTook(ConnectionError):
+    """No Grid node took a new browser before the Grid's queue gave up: a 503.
+
+    Raised in place of the Grid's own ``SessionNotCreatedException``, which
+    says only that the request timed out; this says what was asked for and
+    where to look (spec 2026-10-26-session-capabilities, ruling 12). Worth
+    retrying: a node class scaled to zero may come up meanwhile."""
+
+
+class NodeRefused(Exception):
+    """A Grid node took the request and could not start the browser.
+
+    ``blamed`` says the open asked for something the caller chose — a raw
+    capability or a version — which is then the usual cause, so the answer
+    is a 400. Without either, the node's own trouble (a starved node, a
+    browser that will not start) is a 503 a retry can act on (ruling 16)."""
+
+    def __init__(self, text: str, *, blamed: bool):
+        super().__init__(text)
+        self.blamed = blamed
+
+
 def formatted(exc: BaseException) -> str:
     """The traceback, with any credential stripped out of it.
 

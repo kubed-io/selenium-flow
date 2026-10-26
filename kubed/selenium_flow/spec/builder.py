@@ -91,6 +91,34 @@ RESOURCE_SUMMARIES = {
 }
 
 
+# What a 400 and a 503 on the browser resource mean, per capability: opening a
+# browser can fail in ways ending one cannot (spec
+# 2026-10-26-session-capabilities, *Errors*). "" is every other row's.
+RESOURCE_400 = {
+    "": (
+        "The request cannot succeed as sent — no workspace named, two "
+        "names given, or a setting that was rejected."
+    ),
+    "open_session": (
+        "The request cannot succeed as sent — no workspace named, two names "
+        "given, a setting that was rejected, a capability selenium-flow "
+        "controls, a vendor block of the wrong shape, or a browser a Grid "
+        "node refused for a capability or version you asked for."
+    ),
+}
+RESOURCE_503 = {
+    "": (
+        "The Grid could not serve this — unreachable, or no free "
+        "slot for a new browser. Worth retrying after a wait."
+    ),
+    "open_session": (
+        "The Grid could not serve this — unreachable, no node took the "
+        "browser before the Grid's queue timed out, or a node could not "
+        "start it. Worth retrying after a wait."
+    ),
+}
+
+
 def _version() -> str:
     try:
         return version("kubed-selenium-flow")
@@ -252,16 +280,10 @@ async def build_spec(
                         }
                     },
                 },
-                "400": _error(
-                    "The request cannot succeed as sent — no workspace named, two "
-                    "names given, or a setting that was rejected."
-                ),
+                "400": _error(RESOURCE_400.get(action, RESOURCE_400[""])),
                 "401": _error("Missing or wrong bearer token."),
                 "413": _error(TOO_LARGE),
-                "503": _error(
-                    "The Grid could not serve this — unreachable, or no free "
-                    "slot for a new browser. Worth retrying after a wait."
-                ),
+                "503": _error(RESOURCE_503.get(action, RESOURCE_503[""])),
             },
         }
 

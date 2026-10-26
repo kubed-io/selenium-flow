@@ -48,7 +48,15 @@ from selenium.common.exceptions import (
 )
 
 from .core.cancel import Ended
-from .faults import AssertionFailed, BidiUnavailable, NotFound, TooLarge, Unresolved
+from .faults import (
+    AssertionFailed,
+    BidiUnavailable,
+    NodeRefused,
+    NoNodeTook,
+    NotFound,
+    TooLarge,
+    Unresolved,
+)
 
 # The caller asked for something that cannot happen as asked. Retrying the
 # identical request is guaranteed to fail again, so say 400 and let a workflow
@@ -98,8 +106,13 @@ GONE = (InvalidSessionIdException, NoSuchDriverException, Ended)
 # HTTP calls (`quit`, `files`, `status`) raise `requests.ConnectionError`. Only
 # the second was classified at first, so the same unreachable Grid answered 503
 # on two endpoints and 500 on the other twelve.
+#
+# `SessionNotCreatedException` stays here for the Grid's own failures (spec
+# 2026-10-26-session-capabilities, ruling 24); `open_session` turns a queue
+# timeout into `NoNodeTook` and a node's refusal into `NodeRefused`, below.
 UNAVAILABLE = (
     BidiUnavailable,
+    NoNodeTook,
     SessionNotCreatedException,
     requests.ConnectionError,
     requests.Timeout,
@@ -113,6 +126,10 @@ def status_for(exc: BaseException) -> int:
         return 404
     if isinstance(exc, TooLarge):
         return 413
+    if isinstance(exc, NodeRefused):
+        # The caller's when it asked for a raw capability or a version, the
+        # node's when it did not (ruling 16).
+        return 400 if exc.blamed else 503
     if isinstance(exc, requests.HTTPError):
         # The Grid answered, and its answer was no. Every plain HTTP call to it
         # — `files`, `read_file`, `status` — reports that through

@@ -12,12 +12,17 @@ import re
 import pytest
 
 from kubed.selenium_flow.core.session_caps import (
+    GRID_SIDE,
     OWNED,
+    QUEUE_TIMEOUT,
     SOURCES,
     VENDOR,
+    asked,
     build,
     check,
+    not_created,
 )
+from kubed.selenium_flow.faults import NodeRefused, NoNodeTook
 
 pytestmark = pytest.mark.unit
 
@@ -333,3 +338,105 @@ def test_build_never_mutates_its_inputs():
     first.send["goog:chromeOptions"]["args"].append("--later")
     first.send["k:v"].append(2)
     assert config == config_before and raw == raw_before
+
+
+# ---- what a refused session means (ruling 16, 24, 25) -----------------------
+
+
+def test_the_grid_strings_are_pinned():
+    """Selenium Grid 4.48.0's own words, from `LocalNewSessionQueue` and
+    `LocalDistributor`. A Grid that rewords one moves a failure between 503
+    and 400, so a change here has to be a decision."""
+    assert QUEUE_TIMEOUT == (
+        "New session request timed out",
+        "Timed out creating session",
+    )
+    assert GRID_SIDE == (
+        "Unable to find owning node for slot",
+        "Interrupted when creating the session",
+        "An error occurred creating the session",
+        "No capabilities found in session request payload",
+        "Client has gone away",
+    )
+
+
+@pytest.mark.parametrize("said", QUEUE_TIMEOUT)
+def test_a_queue_timeout_is_no_node_took_with_what_was_asked(said):
+    built = build("chrome", version="152", config={"kubed:pool": "headless"})
+    fault = not_created(f"Could not start a new session. {said}", built)
+    assert isinstance(fault, NoNodeTook)
+    assert str(fault) == (
+        "no Grid node took this browser before the Grid gave up waiting: it "
+        "asked for chrome 152, kubed:pool=headless. The Grid may have no node "
+        "with these capabilities, or none free; see "
+        "skill://selenium-flow/references/TROUBLESHOOTING.md"
+    )
+
+
+@pytest.mark.parametrize("said", GRID_SIDE)
+def test_a_grid_side_failure_is_left_alone(said):
+    assert not_created(f"Could not start a new session. {said}", build("chrome")) is None
+
+
+def test_asked_quotes_only_what_the_grid_matches_on():  # ruling 25
+    built = build(
+        "firefox",
+        config={"platformName": "linux", "kubed:pool": "a", "kubed:big": True},
+        raw={
+            "kubed:tags": ["x"],
+            "se:name": "n",
+            "goog:chromeOptions": {"args": []},
+            "ms:edgeOptions": {},
+            "safari:x": 1,
+            "proxy": {"proxyType": "manual"},
+            "pageLoadStrategy": "eager",
+        },
+    )
+    assert asked(built) == "firefox, platformName=linux, kubed:pool=a, kubed:big=true, kubed:tags"
+
+
+def test_a_refusal_with_raw_keys_or_a_version_is_blamed():
+    raw = not_created("session not created: x", build("chrome", raw={"x:y": 1}))
+    assert isinstance(raw, NodeRefused) and raw.blamed
+    assert str(raw) == (
+        "the Grid node refused this browser: session not created: x. The usual "
+        "cause is what this open asked for: capabilities x:y; see "
+        "skill://selenium-flow/references/TROUBLESHOOTING.md"
+    )
+    version = not_created("no", build("chrome", version="152", raw={"a:b": 1, "c:d": 2}))
+    assert version.blamed
+    assert "capabilities a:b, c:d and version 152" in str(version)
+
+
+def test_a_refusal_with_only_config_is_not_blamed():
+    fault = not_created("chrome failed to start", build("chrome", config={"kubed:pool": "d"}))
+    assert isinstance(fault, NodeRefused) and not fault.blamed
+    assert str(fault) == (
+        "the Grid node could not start this browser: chrome failed to start. "
+        "Nothing this open asked for is unusual, so trying again may succeed"
+    )
+
+
+def test_a_refusal_drops_the_grids_host_furniture():
+    said = (
+        "Could not start a new session. Chrome failed to start. Host info: "
+        "host: 'node-1', ip: '10.0.0.4' Build info: version: '4.48.0' "
+        "System info: os.name: 'Linux' Driver info: driver.version: unknown"
+    )
+    fault = not_created(said, build("chrome"))
+    assert "10.0.0.4" not in str(fault) and "Build info" not in str(fault)
+    assert "Chrome failed to start" in str(fault)
+
+
+def test_no_message_quotes_a_vendor_block_or_a_proxy():  # Review Focus 2
+    built = build(
+        "chrome",
+        version="1",
+        raw={
+            "proxy": {"httpProxy": "u:SECRET@h"},
+            "bstack:options": {"accessKey": "SECRET"},
+            "goog:chromeOptions": {"args": ["--SECRET"]},
+        },
+    )
+    for said in ("New session request timed out", "session not created: no"):
+        assert "SECRET" not in str(not_created(said, built))

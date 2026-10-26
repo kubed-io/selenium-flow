@@ -26,11 +26,15 @@ operator's capabilities with :func:`check` at load.
 from __future__ import annotations
 
 import copy
+import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..faults import NodeRefused, NoNodeTook
 from .defaults import CHROME, FIREFOX, normalize_browser
+from .guidance import pointer
 
 SOURCES = ("flow", "option", "config", "raw")
 
@@ -314,4 +318,99 @@ def build(
         ignored=ignored,
         raw_keys=tuple(raw),
         version=sent_version,
+    )
+
+
+# ---- what a refused session means -------------------------------------------
+
+# How Selenium Grid (4.48.0, `LocalNewSessionQueue`) says a request sat in its
+# queue until `sessionRequestTimeout`: no node took it. Pinned by a test.
+QUEUE_TIMEOUT = ("New session request timed out", "Timed out creating session")
+
+# The Grid's own failures, from its router and queue rather than a node: they
+# stay the plain 503 they always were (ruling 24). Pinned by a test.
+GRID_SIDE = (
+    "Unable to find owning node for slot",
+    "Interrupted when creating the session",
+    "An error occurred creating the session",
+    "No capabilities found in session request payload",
+    "Client has gone away",
+)
+
+# Extension capabilities the Grid never matches on (`DefaultSlotMatcher`).
+_UNMATCHED = ("goog:", "moz:", "ms:", "safari:", "se:")
+
+# The furniture the Grid appends to a node's message: hosts, IPs and builds of
+# the cluster, nothing a caller can act on.
+_FURNITURE = re.compile(r"\s*\b(?:Host|Build|System|Driver) info:.*", re.DOTALL)
+
+_SKILL = pointer("TROUBLESHOOTING.md")
+
+
+def asked(built: Built) -> str:
+    """What an open asked the Grid for, in the words it matches on.
+
+    ``browserName`` and ``browserVersion``, then ``platformName`` and every
+    extension the Grid matches (ruling 25): a scalar as ``key=value``,
+    anything else as the key alone. Never a vendor block, ``proxy`` or a key
+    the Grid ignores: those are where credentials live, and they cannot
+    explain a miss anyway.
+    """
+    head = " ".join(
+        str(built.send[key]) for key in ("browserName", "browserVersion")
+        if key in built.send
+    )
+    parts = [head]
+    for key, value in built.send.items():
+        matched = key == "platformName" or (
+            ":" in key and not key.startswith(_UNMATCHED)
+        )
+        if not matched:
+            continue
+        if isinstance(value, str):
+            parts.append(f"{key}={value}")
+        elif value is None or isinstance(value, (bool, int, float)):
+            parts.append(f"{key}={json.dumps(value)}")
+        else:
+            parts.append(key)
+    return ", ".join(parts)
+
+
+def _reason(said: str) -> str:
+    """A node's message without the Grid's furniture or a closing stop."""
+    return _FURNITURE.sub("", said).strip().rstrip(".") or "no reason given"
+
+
+def not_created(said: str, built: Built) -> Exception | None:
+    """What a ``SessionNotCreatedException`` saying ``said`` means for ``built``.
+
+    A queue timeout is `NoNodeTook`; a node's refusal is `NodeRefused`, blamed
+    on the caller only when it asked for raw keys or a version (ruling 16);
+    the Grid's own failures are None, and the caller re-raises the original.
+    Config capabilities are the operator's, so they never blame the caller.
+    """
+    if any(text in said for text in QUEUE_TIMEOUT):
+        return NoNodeTook(
+            "no Grid node took this browser before the Grid gave up waiting: "
+            f"it asked for {asked(built)}. The Grid may have no node with these "
+            f"capabilities, or none free; see {_SKILL}"
+        )
+    if any(text in said for text in GRID_SIDE):
+        return None
+    reason = _reason(said)
+    causes = []
+    if built.raw_keys:
+        causes.append(f"capabilities {', '.join(built.raw_keys)}")
+    if built.version is not None:
+        causes.append(f"version {built.version}")
+    if causes:
+        return NodeRefused(
+            f"the Grid node refused this browser: {reason}. The usual cause is "
+            f"what this open asked for: {' and '.join(causes)}; see {_SKILL}",
+            blamed=True,
+        )
+    return NodeRefused(
+        f"the Grid node could not start this browser: {reason}. Nothing this "
+        "open asked for is unusual, so trying again may succeed",
+        blamed=False,
     )

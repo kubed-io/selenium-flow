@@ -3888,7 +3888,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — no workspace named, two names given, or a setting that was rejected."
+            "description": "The request cannot succeed as sent — no workspace named, two names given, a setting that was rejected, a capability selenium-flow controls, a vendor block of the wrong shape, or a browser a Grid node refused for a capability or version you asked for."
           },
           "401": {
             "content": {
@@ -3918,7 +3918,7 @@
                 }
               }
             },
-            "description": "The Grid could not serve this — unreachable, or no free slot for a new browser. Worth retrying after a wait."
+            "description": "The Grid could not serve this — unreachable, no node took the browser before the Grid's queue timed out, or a node could not start it. Worth retrying after a wait."
           }
         },
         "summary": "Open a session in this workspace, or pick up the one it was using.",

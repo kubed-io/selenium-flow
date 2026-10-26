@@ -65,6 +65,12 @@
     },
     "status": 400
   },
+  "NoNodeTook": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 503
+  },
   "NoSuchDriverException": {
     "body": {
       "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors/driver_location"
@@ -82,6 +88,18 @@
       "error": "it went wrong"
     },
     "status": 400
+  },
+  "NodeRefused(blamed)": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
+  "NodeRefused(not blamed)": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 503
   },
   "NotFound": {
     "body": {

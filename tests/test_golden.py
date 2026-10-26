@@ -271,6 +271,8 @@ def raised():
             out[cls.__name__] = cls("nonexistent.invalid")
         else:
             out[cls.__name__] = cls("it went wrong")
+    out["NodeRefused(blamed)"] = faults.NodeRefused("it went wrong", blamed=True)
+    out["NodeRefused(not blamed)"] = faults.NodeRefused("it went wrong", blamed=False)
     out["NotFound"] = faults.NotFound("no such thing")
     out["requests.HTTPError(no response)"] = http
     out["requests.HTTPError(404)"] = http_404
