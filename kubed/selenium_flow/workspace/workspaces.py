@@ -59,7 +59,7 @@ from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
 from ..capture.store import Buffer
 from ..core import guidance
-from ..core.actions import Actions
+from ..core.actions import OPEN_PRIVATE, Actions
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
@@ -927,8 +927,9 @@ class Workspaces:
         if forgotten is not None:
             opened["site_data"] = {"forgotten": forgotten}
         # The Grid's id is dropped here rather than never fetched: it is how the
-        # browser is reached, and it is not part of what a caller is told.
-        told = {k: v for k, v in opened.items() if k != "session_id"}
+        # browser is reached, and it is not part of what a caller is told. So
+        # are what was sent and what ran, which are the admin's.
+        told = {k: v for k, v in opened.items() if k not in OPEN_PRIVATE}
         told["recording"] = bool(resolved.get("record"))
         told["capture"] = bool(resolved.get("capture"))
         if noted:

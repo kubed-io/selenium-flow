@@ -340,9 +340,14 @@ GRID_SIDE = (
 # Extension capabilities the Grid never matches on (`DefaultSlotMatcher`).
 _UNMATCHED = ("goog:", "moz:", "ms:", "safari:", "se:")
 
-# The furniture the Grid appends to a node's message: hosts, IPs and builds of
-# the cluster, nothing a caller can act on.
-_FURNITURE = re.compile(r"\s*\b(?:Host|Build|System|Driver) info:.*", re.DOTALL)
+# The furniture appended to a node's message: the Grid's hosts, IPs and builds
+# of the cluster, and Selenium's link to its own troubleshooting page — nothing
+# a caller can act on.
+_FURNITURE = re.compile(
+    r"\s*(?:\b(?:Host|Build|System|Driver) info:"
+    r"|;\s*For documentation on this error).*",
+    re.DOTALL,
+)
 
 _SKILL = pointer("TROUBLESHOOTING.md")
 

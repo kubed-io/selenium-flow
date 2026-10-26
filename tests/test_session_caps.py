@@ -428,6 +428,16 @@ def test_a_refusal_drops_the_grids_host_furniture():
     assert "Chrome failed to start" in str(fault)
 
 
+def test_a_refusal_drops_seleniums_documentation_link():
+    said = (
+        "session not created: bad flag; For documentation on this error, please "
+        "visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors"
+    )
+    fault = not_created(said, build("chrome"))
+    assert "selenium.dev" not in str(fault)
+    assert "the Grid node could not start this browser: session not created: bad flag." in str(fault)
+
+
 def test_no_message_quotes_a_vendor_block_or_a_proxy():  # Review Focus 2
     built = build(
         "chrome",
