@@ -33,9 +33,11 @@ on:
     # nothing; ready_for_review starts the checks.
     types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
 
-# a push cancels the checks it outdates; a label run is apart, so it never cancels them
+# a push cancels the checks it outdates; a label run is apart, so it never cancels them, and
+# so is a draft's: a push and Mark Ready land together, and the push's draft payload must
+# not cancel the checks ready_for_review started
 concurrency:
-  group: pr-${{ github.event.pull_request.number }}-${{ contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && 'labels' || 'checks' }}
+  group: pr-${{ github.event.pull_request.number }}-${{ contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && 'labels' || github.event.pull_request.draft && 'draft' || 'checks' }}
   cancel-in-progress: true
 
 permissions: {}
