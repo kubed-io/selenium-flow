@@ -48,7 +48,7 @@ rules:
   # artifact, so the credential has nowhere to leak to.
   #
   # The agent workflows' approve jobs keep theirs too: an approved spec or plan lands in
-  # docs/, the wiki submodule, which only a git push can write (the wiki-commit action).
+  # docs/, the wiki submodule, which only a git push can write (kubed-io/actions/git/submodule).
   # Those jobs run no agent and upload no artifact.
   artipacked:
     ignore:

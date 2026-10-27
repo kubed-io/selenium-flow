@@ -99,14 +99,23 @@ jobs:
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
         claude_args: --strict-mcp-config
 
-    - name: Commit the Spec
+    # the draft spec lives under docs/: the wiki first, with git; then its pointer in one signed commit
+    - name: Push the Wiki
       if: env.WRITES == 'true' && fromJSON(steps.agent.outputs.output || '{}').commit_message
-      uses: ./.github/actions/wiki-commit
+      uses: kubed-io/actions/git/submodule@main
       with:
-        branch: ${{ env.BRANCH }}
         message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
+
+    - name: Commit the Spec
+      if: env.WRITES == 'true' && fromJSON(steps.agent.outputs.output || '{}').commit_message
+      uses: kubed-io/actions/git/commit@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ env.BRANCH }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        files: docs
 
   handoff:
     name: Hand Off
@@ -246,12 +255,20 @@ jobs:
         disallowed_tools: Bash,NotebookEdit
         claude_args: --strict-mcp-config
 
-    # the plan and spec live under docs/, the wiki
-    - name: Commit the Plan
+    # the plan and spec live under docs/: the wiki first, with git; then its pointer in one signed commit
+    - name: Push the Wiki
       if: fromJSON(steps.agent.outputs.output || '{}').commit_message
-      uses: ./.github/actions/wiki-commit
+      uses: kubed-io/actions/git/submodule@main
       with:
-        branch: ${{ needs.handoff.outputs.branch }}
         message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
+
+    - name: Commit the Plan
+      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      uses: kubed-io/actions/git/commit@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ needs.handoff.outputs.branch }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        files: docs
