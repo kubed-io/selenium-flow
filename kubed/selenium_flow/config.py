@@ -289,6 +289,16 @@ class LiveSettings(Section):
         ge=15,
         description="Seconds a live viewer may send no presence before it is dropped.",
     )
+    # At least 30: two of the progress heartbeat's 15 s (`mcp/progress.py`), and
+    # under Claude Code's two-minute move of a slow call to the background
+    # (live control spec, ruling 15).
+    await_cap: int = Field(
+        90,
+        ge=30,
+        description=(
+            'Seconds a blocking await_control waits before it answers "call again".'
+        ),
+    )
 
     @field_validator("password_file")
     @classmethod

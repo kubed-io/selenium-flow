@@ -6,6 +6,12 @@ bound write (`secrets.perform_write`), a flow step (`flows.api.run_for`) —
 calls `Calls.begin` as the call starts and `Calls.end` once it has its answer,
 and that is the whole of what it does here:
 
+- while a person holds the browser in the live view, a call that would change
+  it is refused (`faults.Controlled`) before anything else, so a refused call
+  is never begun: no in-flight count, no ``call.finished`` (live control spec,
+  ruling 32). Every host calls `begin` holding its turn on the session's lock,
+  so a call that queued before the person asked is refused when its turn comes
+  (rulings 14, 33);
 - capture is held again when it is owed and was let go while the agent
   paused (the deadline closes an idle connection), so the call that comes back
   is captured too;
@@ -21,8 +27,8 @@ and that is the whole of what it does here:
   (plan ruling 7), which `faults.message` reads.
 
 A call's window is bounded by the session's lock (`workspace.locks`): the host
-holds it from `begin` to `end` whenever capture is on, so another call's events
-cannot land inside this one's (plan ruling 8). At the end, one round trip on
+holds it from `begin` to `end`, so another call's events cannot land inside
+this one's (plan ruling 8). At the end, one round trip on
 the held connection lets the events the browser sent before it land first.
 
 **Nothing here fails a call.** `end` never raises and never waits longer than
@@ -121,20 +127,31 @@ class Calls:
         *,
         monitor=None,
         capture=None,
+        control=None,
         clock: Callable[[], float] = time.time,
     ):
         self.monitor = monitor
         self.capture = capture
+        # Who says a person holds a browser (`live.control.Controls`): anything
+        # with ``refusal(session_id, tool)``, or None, which refuses nothing.
+        self.control = control
         self.clock = clock
 
-    def wanted(self, workspace: str) -> bool:
-        """Whether capture holds a buffer for ``workspace``: then a call's
-        window has to be its own, and the host holds the session's lock."""
-        return self._mark(workspace) is not None
+    def refuse(self, session_id: str, tool: str) -> None:
+        """Raise the refusal for ``tool`` on this browser, if a person holds it."""
+        if self.control is None:
+            return
+        refusal = self.control.refusal(session_id, tool)
+        if refusal is not None:
+            raise refusal
 
-    def begin(self, workspace: str, session_id: str, *, browser: str = "") -> Begun:
-        """A call starts: the monitor is told, capture is held again if it
-        lapsed, then marked."""
+    def begin(
+        self, workspace: str, session_id: str, *, browser: str = "", tool: str
+    ) -> Begun:
+        """A call starts: refused while a person holds the browser and ``tool``
+        would change it; else the monitor is told, capture is held again if it
+        lapsed, then marked. Called holding the session's turn."""
+        self.refuse(session_id, tool)
         told(self.monitor, "calling", session_id)
         self._resume(workspace, session_id, browser)
         return Begun(workspace, session_id, self.clock(), self._mark(workspace))

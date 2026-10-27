@@ -296,7 +296,7 @@ def test_a_call_says_which_browser_it_ran_on_after_a_reopen_too():
 def test_a_failure_of_ours_is_a_5xx():
     monitor = FakeMonitor()
     calls = Calls(monitor=monitor)
-    calls.end(calls.begin("ws", "g1"), tool="extract", surface="mcp", browser="chrome",
+    calls.end(calls.begin("ws", "g1", tool="extract"), tool="extract", surface="mcp", browser="chrome",
               error=RuntimeError("boom"))
     assert monitor.published[0].outcome == "5xx"
 
@@ -492,11 +492,15 @@ def test_every_call_that_can_carry_the_hint_declares_it():
     from kubed.selenium_flow.core.capabilities import CAPABILITIES, PAGE_HINT
     from kubed.selenium_flow.spec.schemas import FLOW_SCHEMAS
 
-    # Opening and ending a browser are served by `Workspaces`, not `act`.
+    # Opening and ending a browser are served by `Workspaces`, not `act`; so is
+    # a call that waits, whose body reads the page itself and carries no hint
+    # (`await_control`'s ``page`` is where the browser is, its summary's).
     for row in CAPABILITIES:
         declared = row.response["properties"]
         if row.name in ("open_session", "end_browser"):
             assert "page" not in declared, row.name
+        elif row.waits:
+            assert declared.get("page") != PAGE_HINT, row.name
         else:
             assert declared["page"] == PAGE_HINT, row.name
     assert FLOW_SCHEMAS["FlowRun"]["properties"]["page"] == PAGE_HINT

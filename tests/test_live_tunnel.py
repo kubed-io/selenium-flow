@@ -8,6 +8,7 @@ import pytest
 
 from kubed.selenium_flow.faults import SocketClosed
 from kubed.selenium_flow.live import tunnel as tunnel_module
+from kubed.selenium_flow.live.control import Controls
 from kubed.selenium_flow.live.rfb import RFB_38
 from kubed.selenium_flow.live.tunnel import (
     BAD_CONTROL,
@@ -24,6 +25,7 @@ from kubed.selenium_flow.live.tunnels import Tunnels
 from kubed.selenium_flow.monitor.events import SessionEnded
 
 from .fakes import FakePeer
+from .test_live_tunnels import hint
 
 pytestmark = pytest.mark.unit
 
@@ -85,6 +87,20 @@ class Clock:
         return self.now
 
 
+class Passed:
+    """`locks.behind` whose answer a test flips."""
+
+    def __init__(self, value=True):
+        self.value = value
+
+    def __call__(self, _grid_id):
+        return lambda: self.value
+
+
+def registry():
+    return Tunnels(Controls(behind=Passed()))
+
+
 def make(viewer=None, **kw):
     viewer = viewer or FakePeer()
     node = FakePeer()
@@ -117,6 +133,14 @@ def text(**fields):
 
 async def in_control(viewer):
     viewer.feed(text(type="mode", mode="control"))
+    assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "control"}
+
+
+async def granted(viewer):
+    """Control through the registry: requested first, even with no call
+    running, then the grant once the pages are followed (ruling 27)."""
+    viewer.feed(text(type="mode", mode="control"))
+    assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "requested"}
     assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "control"}
 
 
@@ -162,17 +186,96 @@ async def test_watch_forwards_no_key_and_control_does_after_the_answer():
     await task
 
 
-async def test_a_refused_control_is_answered_watch():
-    tunnel, viewer, node, dial = make(may_control=lambda: False)
+async def test_a_requested_viewer_is_told_requested_and_stays_watch_at_the_gate(caplog):
+    tunnel, viewer, node, dial = make()
+    tunnel.on_ask = lambda: "requested"
+    with caplog.at_level(logging.INFO, logger=LOG):
+        task, _ = await start(tunnel, viewer, node, dial)
+        viewer.feed(text(type="mode", mode="control"))
+        assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "requested"}
+        assert tunnel.mode == "requested"
+        viewer.feed(key("a"))
+        viewer.feed(REQUEST)
+        assert await node.next_sent() == REQUEST  # the key never arrived
+        viewer.feed(text(type="mode", mode="control"))  # asking again: still waiting
+        assert json.loads(await viewer.next_sent())["mode"] == "requested"
+        tunnel.end(VIEWER_LEFT)
+        await task
+    assert "live: drk asked for control of w1 (session started X)" in caplog.messages
+    assert all("switched" not in m for m in caplog.messages)
+
+
+async def test_a_grant_sends_control_and_opens_the_gate(caplog):
+    tunnel, viewer, node, dial = make()
+    asks = []
+    tunnel.on_ask = lambda: asks.append(1) or "requested"
+    modes = []
+    tunnel.on_mode = lambda: modes.append(tunnel.mode)
+    with caplog.at_level(logging.INFO, logger=LOG):
+        task, _ = await start(tunnel, viewer, node, dial)
+        viewer.feed(text(type="mode", mode="control"))
+        assert json.loads(await viewer.next_sent())["mode"] == "requested"
+        await tunnel.grant()
+        assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "control"}
+        assert tunnel.mode == "control"
+        viewer.feed(key("b"))
+        assert await node.next_sent() == key("b")
+        viewer.feed(text(type="mode", mode="control"))  # already there: no new ask
+        assert json.loads(await viewer.next_sent())["mode"] == "control"
+        tunnel.end(VIEWER_LEFT)
+        await task
+    assert asks == [1] and modes == ["requested", "control"]
+    assert "live: drk switched to control in w1 (session started X)" in caplog.messages
+
+
+async def test_a_grant_after_the_viewer_went_back_to_watch_changes_nothing():
+    tunnel, viewer, node, dial = make()
+    tunnel.on_ask = lambda: "requested"
     task, _ = await start(tunnel, viewer, node, dial)
     viewer.feed(text(type="mode", mode="control"))
-    assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "watch"}
+    assert json.loads(await viewer.next_sent())["mode"] == "requested"
+    viewer.feed(text(type="mode", mode="watch"))
+    assert json.loads(await viewer.next_sent())["mode"] == "watch"
+    await tunnel.grant()
+    assert tunnel.mode == "watch"
     viewer.feed(key("a"))
     viewer.feed(REQUEST)
     assert await node.next_sent() == REQUEST
-    assert tunnel.mode == "watch"
     tunnel.end(VIEWER_LEFT)
     await task
+    assert [json.loads(m)["mode"] for m in viewer.sent if isinstance(m, str)] == [
+        "watch", "requested", "watch"
+    ]
+
+
+async def test_a_grant_to_a_viewer_that_is_gone_is_quiet():
+    tunnel, viewer, node, dial = make()
+    tunnel.on_ask = lambda: "requested"
+    task, _ = await start(tunnel, viewer, node, dial)
+    viewer.feed(text(type="mode", mode="control"))
+    await viewer.next_sent()
+    viewer.closed = (1006, "")  # its sends now fail
+    await tunnel.grant()
+    assert (await asyncio.wait_for(task, 1)) == VIEWER_LEFT
+
+
+async def test_through_the_registry_control_waits_for_the_call_then_lands():
+    behind = Passed(False)
+    tunnels = Tunnels(Controls(behind=behind, poll=0.01))
+    tunnel, viewer, node, dial = make()
+    tunnels.add(GRID_ID, tunnel)
+    task, _ = await start(tunnel, viewer, node, dial)
+    viewer.feed(text(type="mode", mode="control"))
+    assert json.loads(await viewer.next_sent())["mode"] == "requested"
+    assert hint(tunnels, "w1").startswith("drk asked for control")
+    behind.value = True
+    assert json.loads(await viewer.next_sent())["mode"] == "control"
+    assert hint(tunnels, "w1").startswith("drk has control")
+    viewer.feed(key("b"))
+    assert await node.next_sent() == key("b")
+    tunnel.end(VIEWER_LEFT)
+    await task
+    assert hint(tunnels, "w1").startswith("control of this browser was handed back")
 
 
 async def test_the_grace_ends_a_quiet_tunnel_with_4000():
@@ -291,7 +394,7 @@ async def test_uvicorn_stopping_reads_as_the_server_stopping(caplog):
 
 async def test_the_browser_ending_mid_handshake_closes_4001(caplog):
     tunnel, viewer, node, dial = make()
-    tunnels = Tunnels()
+    tunnels = registry()
     tunnels.add("g1", tunnel)
     with caplog.at_level(logging.INFO, logger=LOG):
         task = asyncio.create_task(tunnel.run(dial, b"secret"))
@@ -305,7 +408,7 @@ async def test_the_browser_ending_mid_handshake_closes_4001(caplog):
 
 
 async def test_stop_ends_every_tunnel_1001():
-    tunnels = Tunnels()
+    tunnels = registry()
     runs = []
     for grid_id in ("g1", "g2"):
         tunnel, viewer, node, dial = make()
@@ -352,11 +455,11 @@ async def test_a_mode_change_calls_on_mode():
 
 async def test_nothing_the_viewer_typed_and_no_grid_id_is_logged(caplog):
     tunnel, viewer, node, dial = make()
-    tunnels = Tunnels()
+    tunnels = registry()
     tunnels.add(GRID_ID, tunnel)
     with caplog.at_level(logging.DEBUG):
         task, _ = await start(tunnel, viewer, node, dial)
-        await in_control(viewer)
+        await granted(viewer)
         for message in (key("Z"), cut(b"hunter2"), QEMU_KEY):
             viewer.feed(message)
             assert await node.next_sent() == message
@@ -429,7 +532,7 @@ async def test_a_reason_from_outside_is_one_capped_line_in_the_log(caplog):
 
 async def test_a_control_ask_before_the_handshake_is_answered_watch(caplog):
     tunnel, viewer, _node, dial = make()
-    tunnels = Tunnels()
+    tunnels = registry()
     tunnels.add(GRID_ID, tunnel)
     with caplog.at_level(logging.INFO, logger=LOG):
         task = asyncio.create_task(tunnel.run(dial, b"secret"))
@@ -437,10 +540,10 @@ async def test_a_control_ask_before_the_handshake_is_answered_watch(caplog):
         viewer.feed(text(type="mode", mode="control"))  # the node has not spoken
         assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "watch"}
         assert tunnel.mode == "watch"
-        assert tunnels.controlled("w1") is None and tunnels.notice("w1") is None
+        assert hint(tunnels, "w1") is None
         tunnel.end(Ending(4003, "Authentication failed"))
         await task
-    assert tunnels.notice("w1") is None
+    assert hint(tunnels, "w1") is None
     assert "switched" not in caplog.text
 
 
@@ -460,16 +563,16 @@ async def test_control_is_handed_back_before_a_stalled_viewer_closes(monkeypatch
     monkeypatch.setattr(tunnel_module, "CLOSE_TIMEOUT", 0.3)
     viewer = Stalled()
     tunnel, viewer, node, dial = make(viewer)
-    tunnels = Tunnels()
+    tunnels = registry()
     tunnels.add(GRID_ID, tunnel)
     task, _ = await start(tunnel, viewer, node, dial)
-    await in_control(viewer)
-    assert tunnels.notice("w1").startswith("drk took control")
+    await granted(viewer)
+    assert hint(tunnels, "w1").startswith("drk has control")
     tunnel.end(NOBODY)
     await asyncio.wait_for(viewer.closing.wait(), 1)
     assert not task.done()  # the close is still pending
-    assert tunnels.controlled("w1") is None
-    assert tunnels.notice("w1").startswith("control of this browser was handed back")
+    assert not tunnels.controlling("w1", "drk")
+    assert hint(tunnels, "w1").startswith("control of this browser was handed back")
     assert (await asyncio.wait_for(task, 1)) == NOBODY
 
 
@@ -524,3 +627,39 @@ async def test_a_run_cancelled_while_its_tasks_wind_down_raises_the_callers_canc
         await task
     assert cancelled.value.args == ("the caller's",)
     await tick()
+
+
+class Stubborn(FakePeer):
+    """A viewer whose receive swallows its first cancel and blocks again."""
+
+    def __init__(self):
+        super().__init__()
+        self.release = asyncio.Event()
+        self.swallowed = False
+
+    async def receive(self):
+        try:
+            return await super().receive()
+        except asyncio.CancelledError:
+            if self.swallowed:
+                raise
+            self.swallowed = True
+            await self.release.wait()
+            raise
+
+
+async def test_a_second_cancellation_during_teardown_still_closes_both_sockets():
+    viewer = Stubborn()
+    tunnel, viewer, node, dial = make(viewer)
+    async with asyncio.timeout(5):
+        task = asyncio.create_task(tunnel.run(dial, b"secret"))
+        await tick()  # the viewer's reader and the hub's handshake are waiting
+        task.cancel()
+        await tick()  # run is now waiting for the reader that ignored its cancel
+        assert viewer.swallowed and not task.done()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    viewer.release.set()
+    await tick()
+    assert viewer.closed is not None and node.closed is not None

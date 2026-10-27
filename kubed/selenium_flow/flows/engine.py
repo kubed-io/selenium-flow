@@ -681,10 +681,13 @@ def _drive(
         # says. Saving refuses the pairing; this is the second half, for a
         # flow edited on disk - without it a false assertion could still
         # end `ok`, which is the whole failure this action exists to stop.
+        # Nor is a step refused because a person holds the browser: the run
+        # stops there with the refusal (live control spec, ruling 3), since
+        # every step after it would be refused the same way.
         if (
             step.get("onError") == "continue"
             and tool != ASSERTION
-            and not isinstance(exc, cancel.Cancelled)
+            and not isinstance(exc, (cancel.Cancelled, faults.Controlled))
         ):
             return True
         run.status = "failed"

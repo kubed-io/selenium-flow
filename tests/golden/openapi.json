@@ -139,6 +139,223 @@
         },
         "type": "object"
       },
+      "AwaitControlRequest": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "AwaitControlResponse": {
+        "properties": {
+          "control": {
+            "description": "Who had control and for how long; at the cap, who has it and since when. Null with nobody in control.",
+            "properties": {
+              "held_for": {
+                "description": "Seconds they held it; 0 if it was never granted.",
+                "type": "integer"
+              },
+              "since": {
+                "description": "When control was theirs (UTC), or was asked for.",
+                "type": "string"
+              },
+              "state": {
+                "description": "At the cap only: asked for, or held.",
+                "enum": [
+                  "requested",
+                  "held"
+                ],
+                "type": "string"
+              },
+              "until": {
+                "description": "When they handed back.",
+                "type": "string"
+              },
+              "who": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "who",
+              "since"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "dropped": {
+            "description": "Earlier pages left out of visited, past its 100.",
+            "type": "integer"
+          },
+          "ended": {
+            "description": "True when the browser ended while a person had control: there is no page to read; call open_session.",
+            "type": "boolean"
+          },
+          "handed_back": {
+            "description": "True when a person handed the browser back: the rest says what they did. False at the cap (call again) or with nobody in control.",
+            "type": "boolean"
+          },
+          "message": {
+            "description": "What happened, in a sentence.",
+            "type": "string"
+          },
+          "outline": {
+            "description": "The current page's elements, as outline maps them.",
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "elements": {
+                "description": "What is on the page: its content first, then its navigation, banner, footer and sidebars, each in document order.",
+                "items": {
+                  "properties": {
+                    "blocked_by": {
+                      "type": "string"
+                    },
+                    "css": {
+                      "type": "string"
+                    },
+                    "expanded": {
+                      "type": "boolean"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "open_with": {
+                      "description": "Which gesture opens it: click when the trigger carries aria-expanded, hover otherwise.",
+                      "enum": [
+                        "click",
+                        "hover"
+                      ],
+                      "type": "string"
+                    },
+                    "reason": {
+                      "description": "Why it cannot be used: hidden, covered, zero_size, offscreen or disabled.",
+                      "type": "string"
+                    },
+                    "region": {
+                      "description": "The landmark it sits in: navigation, banner, contentinfo, complementary, search or main. Absent outside one.",
+                      "type": "string"
+                    },
+                    "revealed_by": {
+                      "description": "Selector of the control that opens a hidden element. This is the one to act on.",
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string"
+                    },
+                    "visible": {
+                      "type": "boolean"
+                    },
+                    "xpath": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "total": {
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
+          "page": {
+            "description": "Where the browser is now. Absent when it ended.",
+            "properties": {
+              "title": {
+                "description": "Page title after the action.",
+                "type": "string"
+              },
+              "url": {
+                "description": "Current URL after the action.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "page_error": {
+            "description": "Present instead of page and outline when they could not be read.",
+            "type": "string"
+          },
+          "site_data": {
+            "description": "Present only when site data was restored, skipped or forgotten in this call.",
+            "properties": {
+              "forgotten": {
+                "description": "Sites deleted because restore_site_data was false.",
+                "type": "integer"
+              },
+              "restored": {
+                "description": "Each host whose saved cookies or storage are in the browser now (app.example.com). All of it is in place before the call returns.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "skipped": {
+                "description": "Items that could not be restored, each with a reason.",
+                "items": {
+                  "properties": {
+                    "cookie": {
+                      "description": "A cookie's name.",
+                      "type": "string"
+                    },
+                    "domain": {
+                      "description": "Its domain.",
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "site": {
+                      "description": "An origin whose storage did not come back.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "reason"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "uri": {
+                "description": "Where to read what is saved.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "visited": {
+            "description": "Every page the person reached, oldest first: the last with its whole URL, earlier ones origin and path. Absent when the pages could not be followed.",
+            "items": {
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "url"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "handed_back",
+          "ended",
+          "control",
+          "message"
+        ],
+        "type": "object"
+      },
       "DialogRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3795,6 +4012,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -3947,6 +4174,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -4050,6 +4287,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -4086,6 +4333,109 @@
           "browser"
         ],
         "x-mcp-tool": "assert"
+      }
+    },
+    "/browser/await-control": {
+      "post": {
+        "description": "Wait for the person who took control of this browser to hand it back.\n\nA person can take control of your browser from the admin's live view, to\nsign in, solve a captcha or fix something by hand. While they hold it, every\ncall that would change the browser is refused with a message naming this\ntool; reads still answer. Call this then, rather than retrying the refused\ncall.\n\nIt returns the moment they hand back, saying who had control and for how\nlong, the page the browser is on now, every page they reached (visited,\noldest first) and an outline of that page. Read it before carrying on: the\npage may not be where you left it. With nobody in control it returns at\nonce. ended=true means the browser ended while they had it: call\nopen_session.\n\nOn a client without background tasks it returns after about 90 seconds with\nhanded_back=false, saying to call again; do, until it hands back.",
+        "operationId": "await_control",
+        "parameters": [
+          {
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "in": "header",
+            "name": "X-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only. Its old name, ?session=, is refused with a 400.",
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AwaitControlRequest"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwaitControlResponse"
+                }
+              }
+            },
+            "description": "The action succeeded."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong bearer token."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of flow YAML. Send less; retrying it unchanged will fail again."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Something failed that this server did not expect."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The Grid could not serve this — unreachable, or no free slot for a new browser. Worth retrying after a wait."
+          }
+        },
+        "summary": "Wait for the person who took control of this browser to hand it back.",
+        "tags": [
+          "browser"
+        ],
+        "x-mcp-tool": "await_control"
       }
     },
     "/browser/dialog": {
@@ -4162,6 +4512,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
           },
           "413": {
             "content": {
@@ -4276,6 +4636,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -4389,6 +4759,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -4501,6 +4881,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
           },
           "413": {
             "content": {
@@ -4631,6 +5021,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -4743,6 +5143,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
           },
           "413": {
             "content": {
@@ -4857,6 +5267,16 @@
             },
             "description": "No such body. No session is open in this workspace, or the browser that made this request has ended or no longer holds its body: a body lives only as long as its browser. A new browser cannot return it, so do not retry; and opening one without capture forgets what was captured."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -4969,6 +5389,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
           },
           "413": {
             "content": {
@@ -5083,6 +5513,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -5195,6 +5635,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
           },
           "413": {
             "content": {
@@ -5309,6 +5759,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -5421,6 +5881,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
           },
           "413": {
             "content": {
@@ -5535,6 +6005,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -5647,6 +6127,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
           },
           "413": {
             "content": {
@@ -5799,6 +6289,16 @@
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -5911,6 +6411,16 @@
               }
             },
             "description": "No such browser session. It ended, the Grid reaped it, or the id was never real. Open a new one and retry."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "A person holds this workspace's browser in the live view. Call POST /browser/await-control, then retry."
           },
           "413": {
             "content": {

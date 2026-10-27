@@ -22,6 +22,11 @@ flow runner and the wiki need to know about one is a column of its row here:
   rather than only the page, so every surface asks ``Workspaces.reshape``;
 * ``library_arg`` names an argument that carries the caller's own library: a
   flow run injects it, and no request may set it.
+* ``under_control`` says whether it answers or is refused (a 409) while a
+  person holds the browser in the live view (spec 2026-10-27-live-control);
+* ``waits`` marks the call that waits, served by a body of its own on both
+  surfaces rather than through the recipe; its ``method`` names no
+  ``Actions`` method, and it is never a flow step.
 
 What is *not* here is the prompt. A tool's parameters and docstring are its
 schema and its description, and they stay literal Python in ``mcp/tools.py``
@@ -36,6 +41,7 @@ it carries are built by ``core.annotations`` beside it, which imports nothing.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from .annotations import hints, reads
 
@@ -58,6 +64,13 @@ class Capability:
     # The ``Actions`` method asked, with the workspace's name and the call's
     # arguments, when no session is open (`Workspaces.act`'s ``closed``).
     closed: str | None = None
+    # While a person holds the browser in the live view (spec
+    # 2026-10-27-live-control, ruling 11): ``answers`` for what changes nothing
+    # on the page, ``refused`` - a 409 naming `await_control` - for the rest.
+    under_control: Literal["answers", "refused"] = "refused"
+    # Served by a body of its own on both surfaces rather than through the
+    # recipe: a call that waits, which no lock or refusal may stand in front of.
+    waits: bool = False
 
 
 # ---- what each one answers -------------------------------------------------
@@ -191,6 +204,149 @@ BODY_RESPONSE = {
         "page": PAGE_HINT,
     },
     "required": ["id", "uri", "mime", "size", "binary", "text", "truncated"],
+}
+
+
+# What `outline` lists, and the hand-back's summary carries too.
+OUTLINE_ELEMENTS = {
+    "type": "array",
+    "description": (
+        "What is on the page: its content first, then its navigation, "
+        "banner, footer and sidebars, each in document order."
+    ),
+    "items": {
+        "type": "object",
+        "properties": {
+            "role": {"type": "string"},
+            "name": {"type": "string"},
+            "region": {
+                "type": "string",
+                "description": (
+                    "The landmark it sits in: navigation, banner, "
+                    "contentinfo, complementary, search or main. Absent "
+                    "outside one."
+                ),
+            },
+            "css": {"type": "string"},
+            "xpath": {"type": "string"},
+            "visible": {"type": "boolean"},
+            "reason": {
+                "type": "string",
+                "description": (
+                    "Why it cannot be used: hidden, covered, "
+                    "zero_size, offscreen or disabled."
+                ),
+            },
+            "blocked_by": {"type": "string"},
+            "revealed_by": {
+                "type": "string",
+                "description": (
+                    "Selector of the control that opens a hidden "
+                    "element. This is the one to act on."
+                ),
+            },
+            "open_with": {
+                "type": "string",
+                "enum": ["click", "hover"],
+                "description": (
+                    "Which gesture opens it: click when the trigger "
+                    "carries aria-expanded, hover otherwise."
+                ),
+            },
+            "expanded": {"type": "boolean"},
+        },
+    },
+}
+
+
+# What `await_control` answers: the hand-back's summary (live control spec,
+# "The summary"), the cap's "call again", or nobody in control.
+AWAIT_RESPONSE = {
+    "type": "object",
+    "properties": {
+        "handed_back": {
+            "type": "boolean",
+            "description": (
+                "True when a person handed the browser back: the rest says what "
+                "they did. False at the cap (call again) or with nobody in control."
+            ),
+        },
+        "ended": {
+            "type": "boolean",
+            "description": (
+                "True when the browser ended while a person had control: there is "
+                "no page to read; call open_session."
+            ),
+        },
+        "control": {
+            "type": ["object", "null"],
+            "description": (
+                "Who had control and for how long; at the cap, who has it and "
+                "since when. Null with nobody in control."
+            ),
+            "properties": {
+                "who": {"type": "array", "items": {"type": "string"}},
+                "since": {
+                    "type": "string",
+                    "description": "When control was theirs (UTC), or was asked for.",
+                },
+                "until": {"type": "string", "description": "When they handed back."},
+                "held_for": {
+                    "type": "integer",
+                    "description": "Seconds they held it; 0 if it was never granted.",
+                },
+                "state": {
+                    "type": "string",
+                    "enum": ["requested", "held"],
+                    "description": "At the cap only: asked for, or held.",
+                },
+            },
+            "required": ["who", "since"],
+        },
+        "page": {
+            "type": "object",
+            "description": "Where the browser is now. Absent when it ended.",
+            "properties": PAGE_STATE,
+        },
+        "visited": {
+            "type": "array",
+            "description": (
+                "Every page the person reached, oldest first: the last with its "
+                "whole URL, earlier ones origin and path. Absent when the pages "
+                "could not be followed."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"},
+                    "title": {"type": "string"},
+                },
+                "required": ["url"],
+            },
+        },
+        "dropped": {
+            "type": "integer",
+            "description": "Earlier pages left out of visited, past its 100.",
+        },
+        "outline": {
+            "type": "object",
+            "description": "The current page's elements, as outline maps them.",
+            "properties": {
+                "count": {"type": "integer"},
+                "total": {"type": "integer"},
+                "elements": OUTLINE_ELEMENTS,
+            },
+        },
+        "page_error": {
+            "type": "string",
+            "description": (
+                "Present instead of page and outline when they could not be read."
+            ),
+        },
+        "site_data": SITE_DATA_HINT,
+        "message": {"type": "string", "description": "What happened, in a sentence."},
+    },
+    "required": ["handed_back", "ended", "control", "message"],
 }
 
 
@@ -375,6 +531,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="extract",
         http_method="POST",
         annotations=hints("Read an element", read_only=True, idempotent=True),
+        under_control="answers",
         response=_page(
             html={"type": "string", "description": "innerHTML of the matched element."},
             text={"type": "string", "description": "Visible text of the element."},
@@ -421,6 +578,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="outline",
         http_method="POST",
         annotations=hints("Map the page's elements", read_only=True, idempotent=True),
+        under_control="answers",
         response=_page(
             count={"type": "integer", "description": "How many elements are listed."},
             total={
@@ -430,55 +588,7 @@ CAPABILITIES: tuple[Capability, ...] = (
                     "means scope it with selector, filter by text, or raise limit."
                 ),
             },
-            elements={
-                "type": "array",
-                "description": (
-                    "What is on the page: its content first, then its navigation, "
-                    "banner, footer and sidebars, each in document order."
-                ),
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "role": {"type": "string"},
-                        "name": {"type": "string"},
-                        "region": {
-                            "type": "string",
-                            "description": (
-                                "The landmark it sits in: navigation, banner, "
-                                "contentinfo, complementary, search or main. Absent "
-                                "outside one."
-                            ),
-                        },
-                        "css": {"type": "string"},
-                        "xpath": {"type": "string"},
-                        "visible": {"type": "boolean"},
-                        "reason": {
-                            "type": "string",
-                            "description": (
-                                "Why it cannot be used: hidden, covered, "
-                                "zero_size, offscreen or disabled."
-                            ),
-                        },
-                        "blocked_by": {"type": "string"},
-                        "revealed_by": {
-                            "type": "string",
-                            "description": (
-                                "Selector of the control that opens a hidden "
-                                "element. This is the one to act on."
-                            ),
-                        },
-                        "open_with": {
-                            "type": "string",
-                            "enum": ["click", "hover"],
-                            "description": (
-                                "Which gesture opens it: click when the trigger "
-                                "carries aria-expanded, hover otherwise."
-                            ),
-                        },
-                        "expanded": {"type": "boolean"},
-                    },
-                },
-            },
+            elements=OUTLINE_ELEMENTS,
         ),
     ),
     Capability(
@@ -487,6 +597,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="screenshot",
         http_method="POST",
         annotations=hints("Capture a screenshot"),
+        under_control="answers",
         response=_page(
             image={"type": "string", "format": "byte", "description": "Base64 PNG."},
             width={"type": "integer", "description": "Image width in pixels."},
@@ -570,6 +681,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="print",
         http_method="POST",
         annotations=hints("Print the page"),
+        under_control="answers",
         response=_page(
             file={"$ref": "#/components/schemas/FileEntry"},
             format={"type": "string", "enum": ["pdf", "html"]},
@@ -627,9 +739,23 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="network-body",
         http_method="POST",
         annotations=reads("Fetch a response body"),
+        under_control="answers",
         response=BODY_RESPONSE,
         visibility=("model", "app"),
         closed="network_body_closed",
+    ),
+    # The call that waits for a person to hand the browser back (live control
+    # spec, rulings 4, 15-17 and 30): a long poll over HTTP, a task or a capped
+    # blocking call over MCP, each with a body of its own.
+    Capability(
+        name="await_control",
+        method="await_control",
+        route="await-control",
+        http_method="POST",
+        annotations=reads("Wait for a person to hand back"),
+        under_control="answers",
+        waits=True,
+        response=AWAIT_RESPONSE,
     ),
     Capability(
         name="end_browser",
@@ -676,3 +802,6 @@ ENDPOINTS = {row.route: row.name for row in CAPABILITIES if row.route}
 
 # Per action, the argument that carries the caller's library. See `upload_file`.
 LIBRARY_ARG = {row.name: row.library_arg for row in CAPABILITIES if row.library_arg}
+
+# Per action, whether it answers or is refused while a person holds the browser.
+UNDER_CONTROL = {row.name: row.under_control for row in CAPABILITIES}

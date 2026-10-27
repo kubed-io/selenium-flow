@@ -18,6 +18,7 @@ import io
 import json
 import socket
 import zipfile
+from collections.abc import Callable
 from http.cookiejar import DefaultCookiePolicy
 from urllib.parse import urlsplit, urlunsplit
 
@@ -767,15 +768,21 @@ def _host(url: str) -> str | None:
         return None
 
 
-def ensure_url(driver, url: str) -> bool:
+def ensure_url(
+    driver, url: str, *, before_going: Callable[[], None] = lambda: None
+) -> bool:
     """Navigate to ``url`` unless the browser is already there.
 
     This is deliberately not an assertion. A caller naming a page means "act on
     this page", and failing because the browser happens to be elsewhere makes
     every workflow carry its own navigation step.
+
+    ``before_going`` runs only when it is about to navigate, immediately before
+    ``go``; it may raise to refuse.
     """
     if normalize_url(driver.current_url) == normalize_url(url):
         return False
+    before_going()
     go(driver, url)
     return True
 

@@ -223,6 +223,16 @@ class Actions:
         # The kept console and network (`capture.Capture`), wired by the server:
         # the capture resources read it. None when capture is not set up.
         self.capture = None
+        # `refusal(session_id, tool) -> Controlled | None`, wired by the server
+        # (`live.control.Controls`): a read whose url would navigate, or a
+        # screenshot that would resize, is refused while a person holds the
+        # browser. Duck-typed because core imports no live/. None: never refused.
+        self.control = None
+
+    def _refuse(self, session_id: str, tool: str) -> None:
+        refusal = self.control and self.control.refusal(session_id, tool)
+        if refusal:
+            raise refusal
 
     def _kept(self, name: str, data: bytes, folder=FILES_DIR) -> dict:
         """Keep bytes this server made with the caller's workspace.
@@ -1342,6 +1352,8 @@ class Actions:
 
         def capture(at):
             driver = at.driver
+            if width or height or as_bool(full_page, False):
+                self._refuse(session_id, "resize")
             if width or height:
                 current = driver.get_window_size()
                 driver.set_window_size(
@@ -1579,5 +1591,9 @@ class Actions:
             raise ValueError("session_id is required")
         driver = self.grid.reconnect(session_id)
         if url:
-            browser.ensure_url(driver, url)
+            browser.ensure_url(
+                driver,
+                url,
+                before_going=lambda: self._refuse(session_id, "navigate"),
+            )
         return driver

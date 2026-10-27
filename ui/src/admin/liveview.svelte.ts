@@ -3,7 +3,7 @@ import type { WorkspaceRow } from '../lib/types'
 import { workspacePath, type Api } from './api'
 
 export type LiveState = 'connecting' | 'connected' | 'disconnected'
-export type LiveMode = 'watch' | 'control'
+export type LiveMode = 'watch' | 'requested' | 'control'
 export interface LiveMint { url: string; heartbeat: number; grace: number }
 interface LiveOptions {
   api: Api
@@ -145,9 +145,9 @@ export class LiveView {
   #text(raw: string) {
     let frame: { type?: string; mode?: string }
     try { frame = JSON.parse(raw) } catch { return }
-    if (frame.type !== 'mode' || (frame.mode !== 'watch' && frame.mode !== 'control')) return
+    if (frame.type !== 'mode' || (frame.mode !== 'watch' && frame.mode !== 'requested' && frame.mode !== 'control')) return
     this.mode = frame.mode
-    if (this.#rfb) this.#rfb.viewOnly = frame.mode === 'watch'
+    if (this.#rfb) this.#rfb.viewOnly = frame.mode !== 'control'
   }
 
   #fail(reason: string) {

@@ -218,7 +218,8 @@ def mount(
             if not isinstance(text, str):
                 return JSONResponse({"error": NEEDS_TEXT}, status_code=400)
             who = audit.viewer_of(principal)
-            if not tunnels.controlling(key, who):
+            # Held, not merely requested: the agent's call may still be running.
+            if not tunnels.controls.controlling(key, who):
                 return JSONResponse({"error": NEEDS_CONTROL}, status_code=409)
             done = await run_in_threadpool(workspaces.paste, key, text)
         except Exception as exc:  # noqa: BLE001 - every failure is an answer

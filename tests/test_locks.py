@@ -9,6 +9,7 @@ driver: the lock lives in `Recipe.run`, and a double of an action would skip it.
 
 from __future__ import annotations
 
+import gc
 import threading
 import time
 from types import SimpleNamespace
@@ -625,3 +626,139 @@ def test_a_failure_with_no_ending_is_still_itself():
         workspaces.act(
             Caller(NAMED), lambda s: actions.extract(s, selector={"css": "h1"})
         )
+
+
+# ---- the mark: control waits for the calls before it, holding no thread ------
+#
+# Spec 2026-10-27-live-control, ruling 25: the grant of control waits until
+# every call that asked before it has had its turn, by polling from the event
+# loop - so taking a place in the queue must never wait, and never hold a thread.
+
+
+def holding(browser):
+    """Hold ``browser``'s turn in a thread until the returned event is set."""
+    held, release = threading.Event(), threading.Event()
+
+    def run():
+        with locks.driving(browser):
+            held.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert held.wait(5), "the holder never took its turn"
+    return thread, release
+
+
+def test_a_mark_on_an_idle_browser_has_passed_at_once():
+    assert locks.behind("g1")()
+
+
+def test_a_mark_passes_when_the_call_before_it_lets_go():
+    thread, release = holding("g1")
+    passed = locks.behind("g1")
+    assert not passed()
+    release.set()
+    thread.join(5)
+    assert not thread.is_alive()
+    assert passed()
+
+
+def test_a_call_after_the_mark_does_not_wait_for_it():
+    """The mark is a ticket nobody will take: the queue skips it, so a call
+    that asked after it runs the moment the call before it lets go."""
+    holder, release = holding("g1")
+    passed = locks.behind("g1")
+    turns = locks._holds["g1"].lock
+    took = threading.Event()
+
+    def after():
+        with locks.driving("g1"):
+            took.set()
+
+    later = threading.Thread(target=after)
+    later.start()
+    # Until the later call holds a ticket behind the mark (internals: the one
+    # deterministic sign that it is waiting on the lock).
+    deadline = time.monotonic() + 5
+    while turns._next < 3:
+        assert time.monotonic() < deadline, "the later call never queued"
+        time.sleep(0.001)
+    assert not took.is_set()
+
+    release.set()
+    assert took.wait(5), "the call after the mark waited for it"
+    holder.join(5)
+    later.join(5)
+    assert not holder.is_alive() and not later.is_alive()
+    assert passed()
+
+
+def test_a_mark_holds_no_thread():
+    holder, release = holding("g1")
+    try:
+        before = threading.active_count()
+        passed = locks.behind("g1")
+        assert threading.active_count() == before
+        assert not passed()
+    finally:
+        release.set()
+        holder.join(5)
+    assert passed()
+
+
+# ---- an ended hold that outlives its use ------------------------------------------
+
+
+def test_an_ended_hold_kept_alive_by_a_cycle_does_not_end_the_next_call():
+    """Review, Task 5: an `Ended` kept in a reference cycle (`pytest.raises`,
+    `in_thread`'s outcome) keeps the frame of the `driving` it was raised in,
+    and with it the hold. An `end_browser` with nothing running then flags that
+    leftover, and every call on the browser was told it ended until the
+    collector ran. An ended hold nobody holds or waits for is replaced."""
+    browser = "ended, and kept in a cycle"
+    gc.disable()
+    try:
+        kept: list = []
+
+        def ended_call():
+            with locks.driving(browser) as turn:  # the frame keeps `turn`
+                locks.interrupt(browser)
+                cancel.check()
+                return turn
+
+        try:
+            ended_call()
+        except cancel.Ended as exc:
+            kept.append(exc)  # its traceback keeps the frame
+        kept.append(kept)
+        locks.interrupt(browser)  # an end_browser with nothing running
+        leftover = locks._holds.get(browser)
+        assert leftover is not None and leftover.ending.is_set(), "nothing lingered"
+        drove = []
+        with locks.driving(browser):
+            drove.append(True)
+        assert drove
+        assert locks._holds.get(browser) is not leftover
+    finally:
+        gc.enable()
+
+
+def test_a_mark_on_a_hold_ended_under_its_holder_passes_when_the_holder_lets_go():
+    """A grant's mark taken while the call it waits for is being ended: the
+    hold is not idle, so not replaced, and the mark passes on it once the call
+    lets go. Only then is the ended hold replaced, for the calls after."""
+    browser = "marked, then ended"
+    holder, release = holding(browser)
+    ended = locks._holds[browser]
+    passed = locks.behind(browser)
+    locks.interrupt(browser)
+    assert locks.hold(browser) is ended, "replaced while it was held"
+    assert not passed()
+    release.set()
+    holder.join(5)
+    assert not holder.is_alive()
+    assert passed()
+    with locks.driving(browser) as turn:
+        assert turn is not ended and not turn.ending.is_set()
+    assert passed()

@@ -30,6 +30,9 @@ from .http import access_log, admin, files
 from .http import auth as http_auth
 from .http.admin import page as admin_page
 from .http.slashes import RelativeSlashRedirects
+from .live import pages as pages_module
+from .live.control import Controls
+from .live.pages import Pages
 from .live.tunnels import Tunnels
 from .mcp import (
     apps,
@@ -43,11 +46,13 @@ from .mcp import (
     show,
     skill,
     tools,
+    waiting,
 )
 from .monitor.events import LocalBus
 from .monitor.monitor import Monitor
 from .recordings import collector as recording_collector
 from .recordings import mounts
+from .workspace import locks
 from .workspace import settings as workspace_settings
 from .workspace import store as store_module
 from .workspace.store import WorkspaceStore
@@ -141,17 +146,32 @@ class SeleniumMCP:
         # connection for a browser opened with `capture` and hands its events
         # to this, which keeps them. Built first: the monitor's sink.
         self.capture = Capture(ttl=settings.capture.ttl)
+        # The pages a person reaches in the live view's Control, heard on the
+        # same connection for the monitor's `control` reason (live control
+        # spec, R7). Built before the monitor too: its other sink.
+        self.pages = Pages()
         self.monitor = Monitor(
             self.bus,
             listing=self.grid.listing,
             socket_url=self.grid.bidi_url,
-            events_for={"capture": capture_module.EVENTS},
+            events_for={
+                "capture": capture_module.EVENTS,
+                "control": pages_module.EVENTS,
+            },
             collectors_for={"capture": capture_module.COLLECTOR},
-            sink=self.capture,
+            sinks={"capture": self.capture, "control": self.pages},
         )
-        # The live view's open tunnels: a browser ending closes its viewers, and
-        # the server stopping closes them all.
-        self.tunnels = Tunnels()
+        self.pages.connection = self.monitor.connection
+        # Who has control of which browser (live control spec): requested while
+        # an agent's call runs, granted once the calls before the request have
+        # had their turn on the session's lock, which it polls rather than waits
+        # on, and once the pages the person reaches are followed.
+        self.controls = Controls(
+            behind=locks.behind, monitor=self.monitor, pages=self.pages
+        )
+        # The live view's open tunnels: a browser ending closes its viewers and
+        # releases its control, and the server stopping closes them all.
+        self.tunnels = Tunnels(self.controls)
         self.bus.subscribe("session.ended", self.tunnels.ended, name="live")
         # How a BiDi channel to a session's browser is opened: site data's save
         # and restore speak through it, reusing the connection the monitor holds
@@ -165,6 +185,7 @@ class SeleniumMCP:
         self.actions.hide = self.capture.hidden
         # The capture resources read it (`show`, `network_body`).
         self.actions.capture = self.capture
+        self.actions.control = self.controls
 
         # Recordings (recordings spec): the Grid films, the operator delivers to
         # the inbox, the collector files. Built before the workspaces, which tell
@@ -211,6 +232,9 @@ class SeleniumMCP:
             monitor=self.monitor,
             capture=self.capture,
             channels=self.actions.channels,
+            # A person's control in the live view refuses the calls that
+            # would change the browser (live control spec).
+            control=self.controls,
         )
 
         # The secrets an agent may bind, or None when none were configured.
@@ -230,10 +254,11 @@ class SeleniumMCP:
         # collector, which asks it to watch what its notes still owe. The two
         # tasks run only while something is owed.
         collector, monitor, bus = self.collector, self.monitor, self.bus
-        tunnels = self.tunnels
+        tunnels, controls = self.tunnels, self.controls
 
         @asynccontextmanager
         async def lifespan(_server):
+            controls.start()
             bus.start()
             await monitor.start()
             if collector is not None:
@@ -241,6 +266,11 @@ class SeleniumMCP:
             try:
                 yield {}
             finally:
+                # First: every pending grant goes and everything waiting for a
+                # hand-back returns, before anything it might wait on stops.
+                # The tasks extension has done it already, before its worker
+                # stopped (`waiting.Tasks`); again here, it finds nothing.
+                controls.stop()
                 if collector is not None:
                     await collector.stop()
                 tunnels.stop()
@@ -253,7 +283,14 @@ class SeleniumMCP:
             auth=self.doors.mcp,
             lifespan=lifespan,
         )
-        tools.register(self.mcp, self.actions, self.workspaces, self.secrets)
+        # `await_control` runs as an MCP task for a client that can (live
+        # control spec, ruling 8): Docket in memory, stopped only once the
+        # controls have let every waiter go, since its worker waits for the
+        # tasks it runs when it stops.
+        self.mcp.add_extension(waiting.Tasks(first=controls.stop))
+        tools.register(
+            self.mcp, self.actions, self.workspaces, self.secrets, live=settings.live
+        )
 
         # Everything to read is a resource. A client that cannot read them gets
         # `mirror`'s two tools, which read the same URIs (§F3.6).
@@ -351,9 +388,12 @@ class SeleniumMCP:
         secrets.register(self.mcp, self.secrets, auth_token, prefix=self.prefix)
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
+        # Before `Notices`, outermost of the two: a call that may become a
+        # task carries its workspace in a header its worker reads (ruling 31).
+        self.mcp.add_middleware(clients.Carry())
         # Before `failures`: the first added is outermost, so a failed call's
         # notice follows the sentence `Explained` has already written.
-        self.mcp.add_middleware(control.Notices(self.tunnels))
+        self.mcp.add_middleware(control.Notices(self.controls))
         failures.install(self.mcp)
         # The same workspaces the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.
@@ -364,6 +404,7 @@ class SeleniumMCP:
             auth_token,
             self.prefix,
             catalogue=self.secrets,
+            live=settings.live,
         )
 
         # The admin pages and the signed file route. Always on: they are how a

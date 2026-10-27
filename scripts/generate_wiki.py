@@ -92,6 +92,7 @@ GROUPS = [
             "dialog",
             "resize",
             "upload_file",
+            "await_control",
             "end_browser",
         ],
     ),

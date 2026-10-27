@@ -172,7 +172,7 @@ def parts():
         socket_url=lambda gid: f"ws://grid/session/{gid}/se/bidi",
         events_for={"capture": ("log.entryAdded",)},
         connect=FakeConnection,
-        sink=FakeSink(),
+        sinks={"capture": FakeSink()},
         clock=clock,
         tick=0.05,
     )
@@ -389,7 +389,7 @@ async def test_a_reason_with_events_holds_a_connection_until_the_deadline(parts)
     await monitor.look()
     assert not monitor.capturing(GID) and conn.closed == 1
     assert monitor.connection(GID) is None
-    assert ("detached", "bot", GID) in monitor.sink.calls
+    assert ("detached", "bot", GID) in monitor.sinks["capture"].calls
     assert GID in monitor.watches  # still watched by the listing
 
 
@@ -412,10 +412,10 @@ async def test_a_dropped_connection_counts_as_a_miss(parts):
     FakeConnection.made[0].drop()
     await monitor.look()  # still listed: the connection is opened again
     assert heard == [] and monitor.capturing(GID) and len(FakeConnection.made) == 2
-    assert [c[0] for c in monitor.sink.calls] == [
+    assert [c[0] for c in monitor.sinks["capture"].calls] == [
         "attached", "detached", "attached", "replayed"
     ]
-    assert monitor.sink.calls[2][-1] is True  # again: the same session's capture
+    assert monitor.sinks["capture"].calls[2][-1] is True  # again: the same session's capture
     FakeConnection.made[1].drop()
     listing.running.clear()
     await monitor.look()  # one miss after a drop is enough
@@ -453,7 +453,7 @@ async def test_a_watch_ended_during_a_hold_is_not_a_failure(parts, caplog):
         FakeConnection.gate.set()
         await look
     [conn] = FakeConnection.made
-    assert conn.closed and ("detached", "bot", GID) in monitor.sink.calls
+    assert conn.closed and ("detached", "bot", GID) in monitor.sinks["capture"].calls
     assert GID not in monitor._failed_logged and "trying again" not in caplog.text
 
 
@@ -466,7 +466,7 @@ async def test_ending_closes_the_connection(parts):
     monitor.ended("bot", GID, "ended")
     await asyncio.sleep(0)
     assert conn.closed == 1 and conn.closed_clean
-    assert monitor.sink.calls[-1] == ("detached", "bot", GID)
+    assert monitor.sinks["capture"].calls[-1] == ("detached", "bot", GID)
     await monitor.stop()
 
 
@@ -499,6 +499,22 @@ async def test_stop_survives_a_watch_ending_while_it_closes(parts):
     first.close = close_and_end_the_other
     await monitor.stop()
     assert first.closed == 1 and OTHER not in monitor.watches
+
+
+async def test_stop_right_after_a_wake_still_ends_the_loop(parts):
+    # Python 3.11's wait_for loses a cancel that lands once what it waits on
+    # is done: a release wakes the loop, and stop's cancel then came back as
+    # a normal return, so the loop looked again and stop waited on it for ever.
+    monitor, _listing, _clock, _heard = parts
+    monitor.tick = 60  # parked in its wait, not mid-look, when the wake lands
+    await monitor.start()
+    monitor.watch(GID, "a", "recording")
+    monitor.watch(GID, "a", "control")
+    await asyncio.sleep(0.05)
+    monitor.release(GID, "control")
+    stopping = asyncio.ensure_future(monitor.stop())
+    done, _ = await asyncio.wait({stopping}, timeout=2)
+    assert done == {stopping} and not monitor.running
 
 
 async def test_watch_and_ended_from_worker_threads(parts):

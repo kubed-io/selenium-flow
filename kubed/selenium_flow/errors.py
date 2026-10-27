@@ -51,6 +51,7 @@ from .core.cancel import Ended
 from .faults import (
     AssertionFailed,
     BidiUnavailable,
+    Controlled,
     NodeRefused,
     NoNodeTook,
     NotFound,
@@ -127,6 +128,12 @@ UNAVAILABLE = (
 
 def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
+    if isinstance(exc, Controlled):
+        # A person holds the browser in the live view: the request is fine and
+        # the workspace's state forbids it now. Not a 400, which says never
+        # send it again, and not a 5xx a retry loop would hammer: the caller
+        # calls `await_control` and then the same request succeeds.
+        return 409
     if isinstance(exc, (GONE, NotFound)):
         return 404
     if isinstance(exc, TooLarge):

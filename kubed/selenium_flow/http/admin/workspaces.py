@@ -668,7 +668,11 @@ def mount(
         # cannot mean different things: the admin names the workspace by its
         # key. Blocking HTTP to the Grid, so off the event loop — a slow Grid
         # would stall every connected dashboard.
-        await run_in_threadpool(workspaces.end_browser, Caller(key, "admin"))
+        # `admin=True`: the End is never refused for a person's control, and
+        # ending the session is what releases it (live control spec, ruling 11).
+        await run_in_threadpool(
+            workspaces.end_browser, Caller(key, "admin"), admin=True
+        )
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
     return broadcast

@@ -7,6 +7,10 @@ are the control channel: presence, and a request to change mode. Presence and
 input in Control are what keep the tunnel alive; with none for `grace` seconds
 nobody is watching and it ends (spec 2026-10-27, "Presence and teardown").
 
+Control is asked for, not taken: `on_ask` answers ``control`` or
+``requested``, and a requested viewer is Watch at the gate until `grant`
+(spec 2026-10-27-live-control, ruling 13). `live.control` decides.
+
 Every way the tunnel can end is an `Ending`, the first one wins, and `end` only
 records it, so it is safe from a timer, the event bus or the registry. A
 tunnel closes both sockets and awaits its own tasks before `run` returns.
@@ -20,7 +24,7 @@ import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from ..faults import SocketClosed
 from . import audit
@@ -36,6 +40,9 @@ CLOSE_TIMEOUT = 5.0
 CONTROL_CAP = 1024
 REASON_CAP = 123  # a WebSocket close reason is 123 bytes at most
 UVICORN_STOPPING = 1012
+
+# "requested" is Watch at the gate: only a granted viewer's input goes upstream.
+TunnelMode = Literal["watch", "requested", "control"]
 
 
 class Peer(Protocol):
@@ -81,7 +88,6 @@ class Tunnel:
         session: str,
         grace: float,
         touch: Callable[[], None] = lambda: None,
-        may_control: Callable[[], bool] = lambda: True,
         clock: Callable[[], float] = time.monotonic,
         heartbeat: float = HEARTBEAT,
     ):
@@ -89,13 +95,15 @@ class Tunnel:
         self.who = who
         self.workspace = workspace
         self.session = session
-        self.mode: Mode = "watch"
+        self.grid_id = ""  # set by the registry; never logged
+        self.mode: TunnelMode = "watch"
         self.on_mode: Callable[[], None] = lambda: None
+        # How Control is asked for; unwired, it is granted at once.
+        self.on_ask: Callable[[], Literal["control", "requested"]] = lambda: "control"
         # Called once the tunnel is over, before either socket is closed.
         self.on_end: Callable[[], None] = lambda: None
         self._grace = grace
         self._touch = touch
-        self._may_control = may_control
         self._clock = clock
         self._heartbeat = heartbeat
         self._last_touch: float | None = None
@@ -159,7 +167,8 @@ class Tunnel:
 
     async def _pass(self, data: bytes) -> None:
         """Gate the viewer's bytes and send what passes; the caller holds `_out`."""
-        passed = self._gate.feed(data, self.mode)
+        gated: Mode = "control" if self.mode == "control" else "watch"
+        passed = self._gate.feed(data, gated)
         if passed.input:
             self._present()
         if passed.forward:
@@ -182,19 +191,47 @@ class Tunnel:
         if kind == "presence":
             self._present()
         elif kind == "mode" and message.get("mode") in ("watch", "control"):
-            wanted: Mode = message["mode"]
-            # Nobody can see the screen until the tunnel pipes: Control waits.
-            if wanted == "control" and (not self._piping or not self._may_control()):
-                wanted = "watch"
+            wanted: TunnelMode = message["mode"]
+            if wanted == "control":
+                if not self._piping:
+                    # Nobody can see the screen until the tunnel pipes: Control waits.
+                    wanted = "watch"
+                elif self.mode == "watch":
+                    wanted = self.on_ask()
+                else:  # asked already: requested, or held
+                    wanted = self.mode
             changed = wanted != self.mode
             self.mode = wanted
             if changed:
                 self.on_mode()
             await self._to_viewer(json.dumps({"type": "mode", "mode": wanted}))
             if changed:
-                audit.switched(self.who, self.workspace, self.session, wanted)
+                if wanted == "requested":
+                    audit.asked(self.who, self.workspace, self.session)
+                else:
+                    audit.switched(self.who, self.workspace, self.session, wanted)
         else:
             self.end(BAD_CONTROL)
+
+    async def grant(self) -> None:
+        """Control is this viewer's now: open the gate and say so.
+
+        Nothing to do unless the viewer is still waiting for it. Never raises:
+        a viewer gone ends the tunnel, and anything else ends it loudly.
+        """
+        if self.mode != "requested" or self._ending is not None:
+            return
+        self.mode = "control"
+        try:
+            self.on_mode()
+            await self._to_viewer(json.dumps({"type": "mode", "mode": "control"}))
+        except _ViewerGone:
+            return
+        except Exception as error:  # noqa: BLE001 - anything unexpected ends the tunnel
+            audit.failed(self.workspace, error)
+            self.end(BROKEN)
+            return
+        audit.switched(self.who, self.workspace, self.session, "control")
 
     async def _to_viewer(self, data: bytes | str) -> None:
         try:
@@ -285,10 +322,12 @@ class Tunnel:
             # `wait`, not `gather`: cancelled here, gather raises a task's own
             # CancelledError in place of the caller's, and an anyio scope
             # (Starlette's) lets one that is not its own escape.
-            if tasks:
-                await asyncio.wait(tasks)
-            ending = self._ending or STOPPING
-            await self._close(ending)
+            try:
+                if tasks:
+                    await asyncio.wait(tasks)
+            finally:  # a second cancel while waiting must not skip the close
+                ending = self._ending or STOPPING
+                await self._close(ending)
         return ending
 
     async def _close(self, ending: Ending) -> None:

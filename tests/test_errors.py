@@ -91,3 +91,16 @@ def test_what_a_session_not_created_answers():
     assert errors.status_for(faults.NodeRefused("no", blamed=False)) == 503
     # The Grid's own failures, and anything not yet classified, stay 503.
     assert errors.status_for(SessionNotCreatedException("no free slot")) == 503
+
+
+# ---- a browser a person holds (spec 2026-10-27-live-control, ruling 12) ------
+
+
+def test_a_controlled_browser_is_a_409():
+    """Well formed, and refused for the workspace's state now: a retry after
+    the hand-back succeeds, so neither a 400 nor anything a 5xx would retry."""
+    from kubed.selenium_flow.errors import status_for
+    from kubed.selenium_flow.faults import Controlled
+
+    assert status_for(Controlled("kelly has control")) == 409
+    assert str(Controlled("kelly has control")) == "kelly has control"

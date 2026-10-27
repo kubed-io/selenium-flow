@@ -277,7 +277,7 @@ def test_a_paste_leaves_a_reopen_report_for_the_agent(held):
 def test_a_paste_takes_the_sessions_turn_before_the_call_begins(held, monkeypatch):
     workspaces, _ = held
     order = []
-    monkeypatch.setattr(workspaces.calls, "wanted", lambda name: True)
+    # Every call takes its turn at the host, capture or not (live control, ruling 33).
     monkeypatch.setattr(
         workspaces.calls, "begin", lambda *a, **k: order.append("begin") or object()
     )

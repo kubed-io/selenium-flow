@@ -67,7 +67,7 @@ from ..monitor.monitor import ATTACH_FAILED
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
 from ..site_data import snapshot as site_data_module
-from ..urls import allowed_navigation
+from ..urls import allowed_navigation, page_of, without_userinfo
 from . import locks
 from . import settings as settings_module
 from .calls import Calls, told
@@ -306,6 +306,7 @@ class Workspaces:
         monitor=None,
         capture=None,
         channels=None,
+        control=None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -327,9 +328,14 @@ class Workspaces:
         # browser is opened (`bidi.Channels`).
         self.capture = capture
         self.channels = channels
+        # Who says a person holds a browser in the live view
+        # (`live.control.Controls`, duck-typed: ``refusal(session_id, tool)``),
+        # or None, which refuses nothing: a unit test's manager.
+        self.control = control
         # What every call says as it finishes, and what it leaves on its
-        # result (`workspace.calls`).
-        self.calls = Calls(monitor=monitor, capture=capture)
+        # result (`workspace.calls`); it refuses a call a person's control
+        # forbids before saying anything.
+        self.calls = Calls(monitor=monitor, capture=capture, control=control)
 
     @property
     def kind(self) -> str:
@@ -655,6 +661,17 @@ class Workspaces:
         """Announce that ``session_id`` ended, when there is a monitor."""
         self._told("ended", name, session_id, cause)
 
+    def _refuse(self, caller: Caller, tool: str) -> None:
+        """Raise the refusal for ``tool`` while a person holds this workspace's
+        browser: for `open_session` and `end_browser`, which take no turn.
+        Nothing to refuse with no session open (no Grid id, no gate)."""
+        if self.control is None:
+            return
+        record = self.store.get(caller.name)
+        if record is None or not record.attached:
+            return
+        self.calls.refuse(record.session_id, tool)
+
     def _said(
         self,
         name: str,
@@ -668,18 +685,17 @@ class Workspaces:
         """Run ``call(session_id)`` as one said call: the result, and the page
         hint (or None).
 
-        The one bracket every host of a call shares, so they cannot drift: with
-        capture on, the call holds the session's turn from before it begins to
-        after it ends (the lock is reentrant), so its window is its own; the
-        call is begun, run, and ended with or without its error.
+        The one bracket every host of a call shares, so they cannot drift: the
+        call holds the session's turn from before it begins to after it ends
+        (the lock is reentrant; `Recipe.run` inside takes it again for free),
+        so its window is its own. With its turn, it is refused if a person
+        holds the browser — so a call that queued before they asked is refused
+        when its turn comes, never begun (live control spec, rulings 14, 32,
+        33) — else begun, run, and ended with or without its error. Reads take
+        their turn too, and answer.
         """
-        turn = (
-            locks.driving(session_id)
-            if self.calls.wanted(name)
-            else contextlib.nullcontext()
-        )
-        with turn:
-            begun = self.calls.begin(name, session_id, browser=kind)
+        with locks.driving(session_id):
+            begun = self.calls.begin(name, session_id, browser=kind, tool=tool)
             try:
                 result = call(session_id)
             except Exception as exc:
@@ -711,13 +727,13 @@ class Workspaces:
         ``reshapes`` is for the one action that changes a setting the record
         *stores* rather than just the page it is on. See :meth:`reshape`.
 
-        The action takes the session's turn on the browser itself, in
-        `Recipe.run` (`workspace.locks`). Resolving and settling do not need it:
-        every record write is a compare-and-set.
+        The call takes the session's turn on the browser (`workspace.locks`)
+        from its start to its end, and is refused there while a person holds
+        the browser (`faults.Controlled`). Resolving and settling do not need
+        the turn: every record write is a compare-and-set.
 
         Every call is said (`workspace.calls`): ``tool`` on ``surface``. With
-        capture on, the call holds the session's turn from its start to its end
-        (the lock is reentrant), so what the page reported in between is this
+        capture on, what the page reported while it held its turn is this
         call's alone, and comes back as ``page`` — or, when it raised, as a
         sentence on its error (plan rulings 7, 8).
 
@@ -744,8 +760,12 @@ class Workspaces:
         """Type ``text`` at the element a person focused in this workspace's
         browser (spec 2026-10-27, ruling 34): ``{"typed": n}``.
 
-        Never reopens a browser: with none open it is a 404. The action's
-        recipe takes the session's turn, so a call in flight finishes first.
+        Never reopens a browser: with none open it is a 404. It takes the
+        session's turn, so a call in flight finishes first, and it is never
+        refused for control: the person in control is the one pasting, and
+        only the admin's paste route, after its own `controlling` check, calls
+        this (live control spec, ruling 3).
+
         The page is not recorded: a pasted newline can submit a form and land
         on a URL carrying the text, which is never kept.
         """
@@ -770,6 +790,85 @@ class Workspaces:
         if result.get("site_data"):
             self._hold_again(name, result["site_data"], session_id)
         return {"typed": result["typed"]}
+
+    def handed_back(
+        self, name: str, episode: dict | None, *, surface: str = "mcp"
+    ) -> dict:
+        """`await_control`'s summary of a hand-back, or of nobody in control
+        (``episode`` None): everything but its sentence, which
+        `live.control.await_control` says (live control spec, "The summary").
+
+        ``episode`` is plain values (`live.control.handed`): who and for how
+        long, whether the browser ended under it, and the pages the person
+        reached as heard. The page and its outline are read live, as one
+        said call that answers under control, on the browser this workspace
+        holds now, **never reopening one**: with none live, a hand-back says
+        ``ended`` and carries no page. A page that cannot be read is said in
+        ``page_error``, never raised: the hand-back is said by this answer.
+
+        It settles with the URL withheld (ruling 29): the TTL slides, History
+        is not written. ``visited`` is shaped as History keeps a URL: the last
+        page whole, credentials cut; earlier ones origin and path.
+        """
+        summary: dict = {
+            "handed_back": episode is not None,
+            "ended": bool(episode and episode["ended"]),
+            "control": dict(episode["control"]) if episode else None,
+        }
+        if episode is not None and episode["followed"]:
+            pages = episode["pages"]
+            summary["visited"] = [
+                {
+                    "url": (
+                        without_userinfo(page["url"])
+                        if at == len(pages) - 1
+                        else page_of(page["url"])
+                    ),
+                    **({"title": page["title"]} if "title" in page else {}),
+                }
+                for at, page in enumerate(pages)
+            ]
+            summary["dropped"] = int(episode["dropped"])
+        session_id = "" if summary["ended"] else self.browser(name)
+        if not session_id:
+            summary["ended"] = episode is not None
+            return summary
+        record = self.store.get(name)
+        kind = ((record.settings if record else None) or {}).get(
+            "browser"
+        ) or DEFAULT_BROWSER
+        try:
+            read, _page = self._said(
+                name,
+                session_id,
+                kind,
+                self.actions.outline,
+                tool="await_control",
+                surface=surface,
+            )
+        except Exception as exc:  # noqa: BLE001 - the hand-back is said regardless
+            # By type: a Grid failure's text quotes the Grid's URL.
+            log.info(
+                "the page after a hand-back could not be read for %s: %s",
+                name, type(exc).__name__,
+            )
+            summary["page_error"] = faults.message(exc)
+            return summary
+        summary["page"] = {"url": read.get("url"), "title": read.get("title")}
+        summary["outline"] = {
+            key: read[key] for key in ("count", "total", "elements") if key in read
+        }
+        settled: dict = {}
+        try:
+            self.settle(name, settled, browser=session_id, url=None)
+        except Exception as exc:  # noqa: BLE001 - a TTL not slid is no reason
+            # to lose a hand-back this answer has already said.
+            log.warning(
+                "a hand-back for %s did not settle: %s", name, type(exc).__name__
+            )
+        if settled.get("site_data"):
+            summary["site_data"] = settled["site_data"]
+        return summary
 
     def settle(
         self,
@@ -893,8 +992,11 @@ class Workspaces:
 
         It takes no turn on the browser (`workspace.locks`): it makes one rather
         than driving it, and the one it replaces goes through `end_browser`.
+        So it is checked directly for a person's control of that one, before
+        anything else: replacing it would take it from under them.
         """
         name = caller.name
+        self._refuse(caller, "open_session")
         # What this workspace was last using. It sits between the client's
         # defaults and the explicit arguments: a caller that names nothing means
         # "carry on where I was", which is a stronger signal than a server-wide
@@ -1192,7 +1294,7 @@ class Workspaces:
             return []
         return [v["origin"] for v in record.pruned(time.time(), self.store.ttl).history]
 
-    def end_browser(self, caller: Caller) -> str | None:
+    def end_browser(self, caller: Caller, *, admin: bool = False) -> str | None:
         """End the browser a workspace holds, keeping the workspace itself.
 
         **The one place a browser is ended.** The caller ending its own, the
@@ -1212,9 +1314,17 @@ class Workspaces:
         Queued behind a 900 s `assert`, the call that exists to interrupt one
         could not.
 
+        **It is refused while a person holds the browser** (live control spec,
+        ruling 11), checked directly since it takes no turn — except the
+        admin's End, which still works: ending the session releases control.
+        ``admin`` says the call is that End, and is passed by its route alone
+        (`http/admin/workspaces.py`); it is also who the record says ended it.
+
         Returns the browser that was ended, or None if there was none.
         """
         name = caller.name
+        if not admin:
+            self._refuse(caller, "end_browser")
         record = self.store.get(name)
         if record is None or not record.attached:
             return None
@@ -1238,7 +1348,7 @@ class Workspaces:
         # only if it still names this browser — one opened meanwhile stays.
         ended = {
             "at": time.time(),
-            "by": "admin" if caller.named_by == "admin" else "caller",
+            "by": "admin" if admin else "caller",
         }
         self.store.update(
             name, lambda r: r.detached(ended) if r.session_id == target else None

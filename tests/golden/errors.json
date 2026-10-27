@@ -11,6 +11,12 @@
     },
     "status": 503
   },
+  "Controlled": {
+    "body": {
+      "error": "kelly has control"
+    },
+    "status": 409
+  },
   "ElementClickInterceptedException": {
     "body": {
       "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#elementclickinterceptedexception"
