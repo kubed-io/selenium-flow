@@ -38,6 +38,33 @@ def test_without_a_build_the_page_is_the_placeholder():
     assert "<title>Selenium Flow</title>" in res.text and "<h1>Selenium Flow</h1>" in res.text
 
 
+def test_live_js_is_served_with_an_etag_and_answers_304(built_ui):
+    client = TestClient(_server().mcp.http_app())
+    res = client.get("/live.js")
+    assert res.status_code == 200 and res.text == "/* live js */"
+    assert res.headers["content-type"].startswith("text/javascript")
+    assert res.headers["cache-control"] == "no-cache"
+    assert res.headers["x-content-type-options"] == "nosniff"
+    assert re.fullmatch(r'"[0-9a-f]{32}"', res.headers["etag"])
+    again = client.get("/live.js", headers={"If-None-Match": res.headers["etag"]})
+    assert again.status_code == 304
+    assert client.get("/live.js", headers={"If-None-Match": '"other"'}).status_code == 200
+
+
+def test_live_js_needs_no_credential_and_a_rebuild_changes_its_etag(built_ui):
+    client = TestClient(_server().mcp.http_app())
+    first = client.get("/live.js").headers["etag"]
+    (built_ui / "live.js").write_text("/* live js, rebuilt */")
+    second = client.get("/live.js")
+    assert second.text == "/* live js, rebuilt */" and second.headers["etag"] != first
+
+
+def test_without_a_build_live_js_is_404():
+    res = TestClient(_server().mcp.http_app()).get("/live.js")
+    assert res.status_code == 404
+    assert res.json() == {"error": "the live view is not built"}
+
+
 def test_without_a_build_no_app_is_offered_and_the_files_resource_stays():
     import asyncio
 

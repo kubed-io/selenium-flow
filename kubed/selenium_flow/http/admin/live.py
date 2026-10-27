@@ -24,7 +24,7 @@ from urllib.parse import quote
 
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
@@ -40,6 +40,7 @@ from ...live.rfb import read_password
 from ...live.tunnel import BROKEN, HEARTBEAT, Peer, Tunnel
 from ...live.tunnels import Tunnels
 from .. import answer, auth, links
+from . import page
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ LINK_TTL = 60
 
 SWITCHED_OFF = "the live view is switched off"
 NO_BROWSER = "this workspace has no browser open"
+NOT_BUILT = "the live view is not built"
 NO_LIVE_VIEW = "this browser has no live view"
 EXPIRED = "this live view link has expired: open the tab again"
 UNAUTHORIZED = "unauthorized"
@@ -145,6 +147,28 @@ def mount(
         if (record.ran or {}).get("live_view") is not True:
             return None, NO_LIVE_VIEW
         return record, None
+
+    @mcp.custom_route(f"{prefix}/live.js", methods=["GET"], name="admin_live_script")
+    async def admin_live_script(request: Request) -> Response:
+        """noVNC and the live view, built apart so the admin page loads without it.
+
+        Unauthenticated, like the page that asks for it: one fixed file of code,
+        no data. Without a build it is a 404.
+        """
+        built = await run_in_threadpool(page.live_script)
+        if built is None:
+            return JSONResponse({"error": NOT_BUILT}, status_code=404)
+        body, etag = built
+        headers = {
+            "Cache-Control": "no-cache",
+            "ETag": etag,
+            "X-Content-Type-Options": "nosniff",
+        }
+        if page._matches(request.headers.get("if-none-match"), etag):
+            return Response(status_code=304, headers=headers)
+        return Response(
+            body, media_type="text/javascript; charset=utf-8", headers=headers
+        )
 
     @mcp.custom_route(f"{prefix}{LIVE_PATH}", methods=["GET"], name="admin_live")
     async def admin_live(request: Request) -> JSONResponse:

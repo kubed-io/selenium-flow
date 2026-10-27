@@ -121,6 +121,11 @@
   ],
   [
     "GET",
+    "/live.js",
+    "admin_live_script"
+  ],
+  [
+    "GET",
     "/screenshots/{workspace}/{name}",
     "screenshot_file"
   ],

@@ -135,6 +135,28 @@ def _build(name: str, **substitutions: str) -> str:
     return re.sub(r"__([A-Z]+)__", fill, html)
 
 
+# The live view's script: not inlined, no html or css. (mtime, size) -> its ETag.
+_scripts: dict[tuple, str] = {}
+
+
+def live_script() -> tuple[bytes, str] | None:
+    """``live.js`` and a strong ETag for it, or None when no build has it."""
+    path = static_path() / "live.js"
+    try:
+        info = path.stat()
+        body = path.read_bytes()
+    except OSError:
+        return None
+    key = (info.st_mtime_ns, info.st_size)
+    etag = _scripts.get(key)
+    if etag is None:
+        if len(_scripts) >= 4:
+            _scripts.clear()
+        etag = f'"{hashlib.sha256(body).hexdigest()[:32]}"'
+        _scripts[key] = etag
+    return body, etag
+
+
 def sign_in(oidc) -> str:
     """What the page needs to offer Sign in with OIDC, or "" when it should not.
 
