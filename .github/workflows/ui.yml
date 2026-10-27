@@ -39,14 +39,19 @@ jobs:
       run: npm --prefix ui test
     - name: Build
       run: npm --prefix ui run build
-    # page() inlines exactly these; a code-split chunk would be a file the page
-    # never loads.
-    - name: Six Files
+    # page() inlines six of these; a code-split chunk would be a file the page
+    # never loads. live.js is the seventh: loaded, not inlined, and it must keep
+    # noVNC's MPL-2.0 banner through the minifier.
+    - name: Seven Files
       run: |
         actual="$(cd kubed/selenium_flow/http/static && ls -A | sort | tr '\n' ' ')"
-        expected="admin.css admin.html admin.js app.css app.html app.js "
+        expected="admin.css admin.html admin.js app.css app.html app.js live.js "
         if [ "$actual" != "$expected" ]; then
           echo "::error::expected '$expected', the build wrote '$actual'"
+          exit 1
+        fi
+        if ! head -c 300 kubed/selenium_flow/http/static/live.js | grep -q 'MPL-2.0'; then
+          echo "::error::live.js lost its noVNC MPL-2.0 banner"
           exit 1
         fi
     # page() inlines these files into an HTML string; a literal `<script` or
