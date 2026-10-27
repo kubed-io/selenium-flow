@@ -282,7 +282,11 @@ class Tunnel:
                 self._timer.cancel()
             for task in tasks:
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            # `wait`, not `gather`: cancelled here, gather raises a task's own
+            # CancelledError in place of the caller's, and an anyio scope
+            # (Starlette's) lets one that is not its own escape.
+            if tasks:
+                await asyncio.wait(tasks)
             ending = self._ending or STOPPING
             await self._close(ending)
         return ending

@@ -493,3 +493,34 @@ async def test_a_viewer_that_never_answers_ends_4003_within_the_timeout(monkeypa
     assert ending == Ending(4003, "the viewer did not finish the VNC handshake")
     assert viewer.closed == (4003, "the viewer did not finish the VNC handshake")
     assert node.closed == (1000, "")
+
+
+class Lingering(FakePeer):
+    """A hub socket whose receive takes a turn to let go once cancelled."""
+
+    async def receive(self):
+        try:
+            return await super().receive()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0)
+            raise
+
+
+async def test_a_run_cancelled_while_its_tasks_wind_down_raises_the_callers_cancel():
+    """anyio's cancel scopes (Starlette's TestClient, a task group) swallow only
+    their own cancellation: a task's, raised in its place, escapes the scope."""
+    tunnel, *_ = make()
+    node = Lingering()
+
+    async def dial():
+        return node
+
+    task = asyncio.create_task(tunnel.run(dial, b"secret"))
+    await tick()  # the hub's side waits in the handshake
+    tunnel.end(VIEWER_LEFT)
+    await asyncio.sleep(0)  # the run wakes and waits for its tasks to finish
+    task.cancel("the caller's")
+    with pytest.raises(asyncio.CancelledError) as cancelled:
+        await task
+    assert cancelled.value.args == ("the caller's",)
+    await tick()
