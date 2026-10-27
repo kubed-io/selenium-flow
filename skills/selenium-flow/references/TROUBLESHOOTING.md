@@ -11,13 +11,11 @@ is for when there is no element at all.
 
 ## A timeout on an XPath you believe in
 
-**Suspect the page before the expression.** The browser is persistent, so a
-failed earlier step can leave it somewhere you did not expect, and every later
-XPath then fails for a reason that has nothing to do with the XPath.
-
-The error says which XPath was waited for, for how long, and what URL the
-browser was on when it gave up — read it before changing anything. If that URL
-is not the page you expected, the selector was never the problem.
+**Read the URL in the error first.** It says what was waited for, for how long,
+and the page the browser was on when it gave up. The browser is persistent, so
+a failed earlier step can leave it somewhere you did not expect; if that URL is
+not the page you meant, the selector was never the problem. Put that page on the
+call as `url=` and try again, rather than rewriting the selector.
 
 Check where you are, cheaply:
 
@@ -142,13 +140,8 @@ they are the most common cause of a click that lands on nothing.
 
 ## A hover that reported success and opened nothing
 
-A hover onto a target the pointer is **already inside** fires no `mouseover`: the
-pointer did not move, so nothing happened, and the call still returns `ok`. It is
-the same menu failing twice in a row that gives it away.
-
-The server now steps the pointer aside before moving back, and the result says
-`nudged: true` when it did. If you are on an older server, hover something else
-first and then hover the target again.
+The server steps the pointer aside before a hover onto something it is already
+inside, and says `nudged: true`, so a menu that stays shut is not that.
 
 Do not try to check afterwards with `document.querySelectorAll(':hover')` — it
 comes back **empty** while the `:hover` styling is plainly applying. Read the
