@@ -246,7 +246,8 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         agent: .issue/roles/claude/agents/review.md
         schema: .issue/roles/claude/agents/review.schema.json
-        prompt: Review this pull request.
+        # the turn's words are a kb prompt (superpowers library)
+        prompt: /mcp__superpowers__superpowers_review
         prompt_when: always
         header: "**Verdict: {{ output.verdict }}**"
         review: "true"
