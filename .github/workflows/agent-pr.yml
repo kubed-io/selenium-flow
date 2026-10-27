@@ -102,19 +102,15 @@ jobs:
           else if (run?.event === 'pull_request_review') stage = byOwner || actor === process.env.COPILOT_ID ? 'code' : 'none';
           else if (!pushed) stage = 'code';
           else stage = pr.draft && (byOwner || byApp) && !finished ? 'code' : 'none';
-          // what an event with no words means: the code agent's turn
-          const reasons = {
-            review: 'A review came in. Apply receiving-code-review to every unresolved thread in reviews.md: fix it, or decline it with evidence, and answer each one in `threads`.',
-            ci: 'The checks failed on your last commit. `.issue/checks/report.md` has each failing job: its failed steps, annotations and the end of its log. Find the cause, fix it, run that check here, and commit.',
-          };
-          // said in the turn: a role's "read the skills first" is lost on a session that
-          // resumes the plan's conversation
-          const skills = '`subagent-driven-development`, `test-driven-development`, `receiving-code-review` and `verification-before-completion` from the `superpowers` server';
-          const how = 'by subagent-driven development: an implementer subagent, then the spec and code-quality reviewer subagents.';
+          // what an event with no words means: the code agent's turn. The words are kb
+          // prompts in the superpowers library (cluster mcp/mcp-kb/prompts/superpowers),
+          // sent as slash commands, so the methodology's own text drives each turn
+          const turn = (name) => `/mcp__superpowers__superpowers_${name}`;
+          const reasons = { review: turn('review-came-in'), ci: turn('checks-failed') };
           let prompt = '';
           if (dispatched) prompt = reasons[e.client_payload?.reason] || `Woken by ${e.client_payload?.reason || 'a dispatch'}: see what needs doing.`;
-          else if (labelled) prompt = `The plan is approved. First read ${skills}, then do the first task ${how}`;
-          else if (pushed) prompt = `Your last push landed. If this session has not read ${skills} yet, read them first. Then do the next task ${how}`;
+          else if (labelled) prompt = turn('plan-approved');
+          else if (pushed) prompt = turn('next-task');
           core.setOutput('stage', stage);
           core.setOutput('number', String(number));
           core.setOutput('head', pr.head.ref);
@@ -327,6 +323,7 @@ jobs:
     # docs/ is the wiki: it is pushed first, with git, and then the code and the wiki's
     # pointer go in one commit through the API, signed
     - name: Push the Wiki
+      id: wiki
       if: steps.msg.outputs.message != ''
       uses: kubed-io/actions/git/submodule@main
       with:
@@ -335,12 +332,38 @@ jobs:
         app_slug: ${{ steps.app.outputs.app-slug }}
 
     - name: Commit
+      id: commit
       if: steps.msg.outputs.message != ''
       uses: kubed-io/actions/git/commit@main
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ needs.route.outputs.head }}
         message: ${{ steps.msg.outputs.message }}
+        # the App cannot write workflow files, and one in the commit refuses all of it
+        ignore: .github/workflows/**
+
+    # the reply was posted before the commit: it says what the commit left out, or that
+    # it failed, so it never claims work the branch does not have
+    - name: Say What Was Left Out
+      if: >-
+        always() && steps.agent.outputs.comment_id != '' &&
+        (steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' ||
+          (steps.commit.outputs.ignored != '' && steps.commit.outputs.ignored != '[]'))
+      uses: actions/github-script@v9
+      env:
+        COMMENT_ID: ${{ steps.agent.outputs.comment_id }}
+        IGNORED: ${{ steps.commit.outputs.ignored }}
+        FAILED: ${{ steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      with:
+        github-token: ${{ steps.app.outputs.token }}
+        script: |
+          const id = Number(process.env.COMMENT_ID);
+          const { data: comment } = await github.rest.issues.getComment({ ...context.repo, comment_id: id });
+          const note = process.env.FAILED === 'true'
+            ? `> [!CAUTION]\n> **This run's commit failed, so nothing above is on the branch.** See [the run](${process.env.RUN_URL}).`
+            : `> [!WARNING]\n> **Not committed:** ${JSON.parse(process.env.IGNORED).map((p) => `\`${p}\``).join(', ')}. This job's token can't write workflow files, so Dr K commits them.`;
+          await github.rest.issues.updateComment({ ...context.repo, comment_id: id, body: `${comment.body}\n\n${note}` });
 
     # after the commit, so the checks and the review start once, on the final commit; on
     # the App's token, so ready_for_review wakes agent-review.yml
