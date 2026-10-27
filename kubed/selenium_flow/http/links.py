@@ -53,10 +53,19 @@ def sign(
     now: float | None = None,
     *,
     by: str | None = None,
+    exact: bool = False,
 ) -> str:
-    """``path`` with the query parameters that make it fetchable."""
-    earliest = int((time.time() if now is None else now) + ttl)
-    expires = -(-earliest // EXPIRY_STEP) * EXPIRY_STEP
+    """``path`` with the query parameters that make it fetchable.
+
+    When ``exact=True``, expires at exactly ``int(now + ttl)`` with no rounding.
+    When ``exact=False`` (default), expires are rounded up to ``EXPIRY_STEP``.
+    """
+    current_time = time.time() if now is None else now
+    if exact:
+        expires = int(current_time + ttl)
+    else:
+        earliest = int(current_time + ttl)
+        expires = -(-earliest // EXPIRY_STEP) * EXPIRY_STEP
     signed = f"{path}?exp={expires}&sig={signature(path, expires, token, by)}"
     return signed if by is None else f"{signed}&by={quote(by, safe='')}"
 

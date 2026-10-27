@@ -156,6 +156,28 @@ def test_an_expired_link_closes_4401_saying_so(client):
     assert (gone.code, gone.reason) == (4401, live_module.EXPIRED)
 
 
+def _minted_at(client, monkeypatch, at: float) -> str:
+    """A live link minted through the endpoint with the clock at ``at``,
+    the clock restored before the caller connects."""
+    with monkeypatch.context() as frozen:
+        frozen.setattr(links.time, "time", lambda: at)
+        url = mint(client)
+    assert int(dict(parse_qsl(urlsplit(url).query))["exp"]) == int(at) + 60
+    return url
+
+
+def test_a_live_link_signed_61_seconds_ago_is_refused(client, hub, monkeypatch):
+    url = _minted_at(client, monkeypatch, time.time() - 61)
+    gone = closed_with(client, url)
+    assert (gone.code, gone.reason) == (4401, live_module.EXPIRED)
+
+
+def test_a_live_link_signed_59_seconds_ago_opens_the_view(client, hub, monkeypatch):
+    url = _minted_at(client, monkeypatch, time.time() - 59)
+    with client.websocket_connect(url) as ws:
+        assert ws.receive_json() == {"type": "mode", "mode": "watch"}
+
+
 def test_an_admin_header_opens_the_socket_without_a_link(client):
     with client.websocket_connect(SOCKET, headers=AUTH) as ws:
         assert ws.receive_json() == {"type": "mode", "mode": "watch"}

@@ -138,6 +138,20 @@ def test_a_bound_link_needs_its_by():
     assert links.refusal(path, q["exp"][0], q["sig"][0], TOKEN) == "invalid"
 
 
+def test_an_exact_link_expires_on_the_second():
+    start = 1_793_109_731.0
+    signed = links.sign("/p", TOKEN, 60, now=start, by="drk", exact=True)
+    exp = int(parse_qs(urlsplit(signed).query)["exp"][0])
+    assert exp == int(start) + 60
+
+
+def test_only_an_exact_link_skips_the_rounding():
+    start = 1_793_109_731.0
+    assert links.sign("/p", TOKEN, 60, now=start) == links.sign("/p", TOKEN, 60, now=start, exact=False)
+    exp = int(parse_qs(urlsplit(links.sign("/p", TOKEN, 60, now=start)).query)["exp"][0])
+    assert exp % links.EXPIRY_STEP == 0
+
+
 def test_an_unbound_signature_is_unchanged():
     expected = hmac.new(TOKEN.encode(), b"/a:600", hashlib.sha256).hexdigest()[:32]
     assert links.signature("/a", 600, TOKEN) == expected

@@ -162,10 +162,14 @@ def mount(
             return JSONResponse({"error": why}, status_code=404)
         path = socket_path(key)
         who = audit.viewer_of(principal)
+        signed_url = (
+            links.sign(path, token, LINK_TTL, by=who, exact=True)
+            if token
+            else path
+        )
         return JSONResponse(
             {
-                "url": prefix
-                + (links.sign(path, token, LINK_TTL, by=who) if token else path),
+                "url": prefix + signed_url,
                 "heartbeat": HEARTBEAT,
                 "grace": live.grace,
             }

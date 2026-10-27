@@ -35,6 +35,7 @@ from .mcp import (
     apps,
     clients,
     completions,
+    control,
     failures,
     mirror,
     prompts,
@@ -350,6 +351,9 @@ class SeleniumMCP:
         secrets.register(self.mcp, self.secrets, auth_token, prefix=self.prefix)
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
+        # Before `failures`: the first added is outermost, so a failed call's
+        # notice follows the sentence `Explained` has already written.
+        self.mcp.add_middleware(control.Notices(self.tunnels))
         failures.install(self.mcp)
         # The same workspaces the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.
