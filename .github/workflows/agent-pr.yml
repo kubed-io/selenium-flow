@@ -296,6 +296,12 @@ jobs:
         agent: .issue/roles/claude/agents/code.md
         schema: .issue/roles/claude/agents/code.schema.json
         prompt: ${{ needs.route.outputs.prompt }}
+        # the plan approved: the planning drafts give way to the code
+        compact: >-
+          ${{ needs.route.outputs.takeover == 'true' && 'The plan is approved and the code
+          starts now. Keep Dr K''s rulings and why, what was settled and what was rejected,
+          and where the spec and plan live. Drop the drafting of the spec and plan: their
+          files are the record.' || '' }}
         max_runs: 40
         # the review agent posts as github-actions[bot]: its threads count
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282,github-actions
@@ -347,3 +353,17 @@ jobs:
         if [ "$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true ]; then
           gh pr ready "$NUMBER" --repo "$GITHUB_REPOSITORY"
         fi
+
+    # the plan built: the fix rounds that follow carry its summary, not every step of it
+    - name: Compact the Session
+      if: steps.msg.outputs.done == 'true' && steps.agent.outputs.session_id != ''
+      # a session that could not be compacted is still a finished task
+      continue-on-error: true
+      env:
+        SESSION_ID: ${{ steps.agent.outputs.session_id }}
+        CLAUDE: ${{ env.PATH_TO_CLAUDE_CODE_EXECUTABLE || 'claude' }}
+        INSTRUCTIONS: >-
+          The plan is built. Keep Dr K's rulings, what each task built and where, the
+          deviations recorded, and anything a review fix needs. Drop the step-by-step
+          implementation: the code, the plan and your notes are the record.
+      run: '"$CLAUDE" -p "/compact $INSTRUCTIONS" --resume "$SESSION_ID" --strict-mcp-config --output-format json > /dev/null'
