@@ -750,7 +750,8 @@ def perform_write(
     between the check and the typing would type the value somewhere the leash
     never saw (Copilot, #52).
 
-    It is a call like any other (`workspace.calls`), said from inside that turn:
+    It is a call like any other (`workspace.calls`), said from inside that turn,
+    and refused there while a person holds the browser (`faults.Controlled`):
     the value's every spelling is handed to capture *before* the keystrokes, so
     a page that echoes it is masked from its first event (ruling 13), and with
     capture on the result carries ``page`` like `Workspaces.act`'s.
@@ -761,7 +762,9 @@ def perform_write(
     calls = workspaces.calls
     resolved, kind = workspaces.resolved(name)
     with locks.driving(resolved):
-        begun = calls.begin(name, resolved, browser=kind)
+        # Refused here while a person holds the browser: after the turn,
+        # before the page is read or the call is begun (live control, ruling 32).
+        begun = calls.begin(name, resolved, browser=kind, tool="write")
         try:
             given, guarded = binding.bind_into(
                 kwargs,

@@ -201,7 +201,7 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
         } == json.loads(sink[0])
 
         # Ending a browser changes the list, so the listing after it is new.
-        def end_browser(caller):
+        def end_browser(caller, *, admin=False):
             server.workspaces.store.set(caller.name, Workspace(session_id=""))
 
         monkeypatch.setattr(server.workspaces, "end_browser", end_browser)

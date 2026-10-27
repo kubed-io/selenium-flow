@@ -114,8 +114,10 @@ class Recipe:
         failing an action that succeeded (AGENTS.md "Dialogs").
 
         From the reconnect to that page state the session's browser is this
-        call's alone (`workspace.locks`): another waits its turn, and the checks
-        above are made before it does, so a refused call never waits.
+        call's alone (`workspace.locks`): another waits its turn. A host
+        (`Workspaces.act`, a flow step, a bound write) already holds it, and
+        takes it again here for free; called on its own, the checks above are
+        made before it waits.
         """
         target = browser.locator(selector) if self.wait or selector else None
         timeout = as_int(wait_timeout, WAIT_TIMEOUT)

@@ -9,6 +9,7 @@ driver: the lock lives in `Recipe.run`, and a double of an action would skip it.
 
 from __future__ import annotations
 
+import gc
 import threading
 import time
 from types import SimpleNamespace
@@ -703,4 +704,61 @@ def test_a_mark_holds_no_thread():
     finally:
         release.set()
         holder.join(5)
+    assert passed()
+
+
+# ---- an ended hold that outlives its use ------------------------------------------
+
+
+def test_an_ended_hold_kept_alive_by_a_cycle_does_not_end_the_next_call():
+    """Review, Task 5: an `Ended` kept in a reference cycle (`pytest.raises`,
+    `in_thread`'s outcome) keeps the frame of the `driving` it was raised in,
+    and with it the hold. An `end_browser` with nothing running then flags that
+    leftover, and every call on the browser was told it ended until the
+    collector ran. An ended hold nobody holds or waits for is replaced."""
+    browser = "ended, and kept in a cycle"
+    gc.disable()
+    try:
+        kept: list = []
+
+        def ended_call():
+            with locks.driving(browser) as turn:  # the frame keeps `turn`
+                locks.interrupt(browser)
+                cancel.check()
+                return turn
+
+        try:
+            ended_call()
+        except cancel.Ended as exc:
+            kept.append(exc)  # its traceback keeps the frame
+        kept.append(kept)
+        locks.interrupt(browser)  # an end_browser with nothing running
+        leftover = locks._holds.get(browser)
+        assert leftover is not None and leftover.ending.is_set(), "nothing lingered"
+        drove = []
+        with locks.driving(browser):
+            drove.append(True)
+        assert drove
+        assert locks._holds.get(browser) is not leftover
+    finally:
+        gc.enable()
+
+
+def test_a_mark_on_a_hold_ended_under_its_holder_passes_when_the_holder_lets_go():
+    """A grant's mark taken while the call it waits for is being ended: the
+    hold is not idle, so not replaced, and the mark passes on it once the call
+    lets go. Only then is the ended hold replaced, for the calls after."""
+    browser = "marked, then ended"
+    holder, release = holding(browser)
+    ended = locks._holds[browser]
+    passed = locks.behind(browser)
+    locks.interrupt(browser)
+    assert locks.hold(browser) is ended, "replaced while it was held"
+    assert not passed()
+    release.set()
+    holder.join(5)
+    assert not holder.is_alive()
+    assert passed()
+    with locks.driving(browser) as turn:
+        assert turn is not ended and not turn.ending.is_set()
     assert passed()

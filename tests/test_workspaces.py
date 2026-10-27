@@ -1850,7 +1850,7 @@ def test_the_record_keeps_sent_and_ran_and_who_ended_it():
     record = workspaces.store.get(NAMED)
     assert record.sent == [{"key": "browserName", "value": "chrome", "sources": ["option"]}]
     assert record.ran["node"] == "node-1" and record.ended is None
-    workspaces.end_browser(Caller(NAMED, "admin"))
+    workspaces.end_browser(Caller(NAMED, "admin"), admin=True)
     ended = workspaces.store.get(NAMED)
     assert ended.sent == record.sent and ended.ran == record.ran
     assert ended.ended["by"] == "admin" and isinstance(ended.ended["at"], float)

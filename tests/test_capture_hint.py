@@ -296,7 +296,7 @@ def test_a_call_says_which_browser_it_ran_on_after_a_reopen_too():
 def test_a_failure_of_ours_is_a_5xx():
     monitor = FakeMonitor()
     calls = Calls(monitor=monitor)
-    calls.end(calls.begin("ws", "g1"), tool="extract", surface="mcp", browser="chrome",
+    calls.end(calls.begin("ws", "g1", tool="extract"), tool="extract", surface="mcp", browser="chrome",
               error=RuntimeError("boom"))
     assert monitor.published[0].outcome == "5xx"
 

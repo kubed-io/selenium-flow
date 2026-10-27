@@ -182,7 +182,7 @@ async def test_a_call_begun_a_second_before_the_deadline_keeps_its_connection(ru
     monitor, _ = running_monitor
     await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
     clock.now += 299
-    await asyncio.to_thread(calls_for(monitor, clock).begin, "ws1", GID)
+    await asyncio.to_thread(calls_for(monitor, clock).begin, "ws1", GID, tool="interact")
     clock.now += 2
     await monitor.look()
     assert monitor.capturing(GID)
@@ -192,7 +192,7 @@ async def test_the_deadline_never_closes_under_a_call_and_counts_from_its_end(ru
     monitor, _ = running_monitor
     calls = calls_for(monitor, clock)
     await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
-    begun = await asyncio.to_thread(calls.begin, "ws1", GID)
+    begun = await asyncio.to_thread(calls.begin, "ws1", GID, tool="interact")
     clock.now += 900  # one long call: an assert that waits, a slow save
     await monitor.look()
     assert monitor.capturing(GID)
@@ -216,7 +216,7 @@ async def test_a_look_before_the_end_reaches_the_loop_does_not_close_a_long_call
     monitor, _ = running_monitor
     calls = calls_for(monitor, clock)
     await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
-    begun = await asyncio.to_thread(calls.begin, "ws1", GID)
+    begun = await asyncio.to_thread(calls.begin, "ws1", GID, tool="interact")
     clock.now += 900
     held = []
     # Posted, and the loop has not got to them yet.
@@ -249,8 +249,8 @@ async def test_two_calls_in_flight_hold_until_the_last_ends(running_monitor, clo
     monitor, _ = running_monitor
     calls = calls_for(monitor, clock)
     await asyncio.to_thread(monitor.attach, "ws1", GID, "capture", grid_timeout=300)
-    first = await asyncio.to_thread(calls.begin, "ws1", GID)
-    second = await asyncio.to_thread(calls.begin, "ws1", GID)
+    first = await asyncio.to_thread(calls.begin, "ws1", GID, tool="interact")
+    second = await asyncio.to_thread(calls.begin, "ws1", GID, tool="interact")
     await asyncio.to_thread(calls.end, first, tool="extract", surface="mcp", browser="")
     clock.now += 900
     await monitor.look()
@@ -282,7 +282,7 @@ async def test_a_resume_waiting_on_a_hold_that_fails_does_not_try_again(running_
     FakeConnection.gate = asyncio.Event()
     monitor.calling(GID)  # a touch: the woken look holds again, and hangs
     await until(lambda: len(FakeConnection.made) == 2)
-    begun = asyncio.ensure_future(asyncio.to_thread(calls.begin, "ws1", GID))
+    begun = asyncio.ensure_future(asyncio.to_thread(calls.begin, "ws1", GID, tool="interact"))
     await until(lambda: monitor._attaching)  # the resume waits on the hold
     FakeConnection.gate.set()  # the look's hold fails, and backs off
     await begun
@@ -336,11 +336,11 @@ async def test_a_failed_resume_backs_off_instead_of_costing_every_call(running_m
     await monitor.look()  # the deadline let it go
     FakeConnection.refuse = True
     for _ in range(3):
-        begun = await asyncio.to_thread(calls.begin, "ws1", GID)
+        begun = await asyncio.to_thread(calls.begin, "ws1", GID, tool="interact")
         await asyncio.to_thread(calls.end, begun, tool="extract", surface="mcp", browser="")
     assert len(FakeConnection.made) == 2  # the hold, and one failed resume
     assert monitor.owes(GID, "capture")
     FakeConnection.refuse = False
     clock.now += 1
-    await asyncio.to_thread(calls.begin, "ws1", GID)
+    await asyncio.to_thread(calls.begin, "ws1", GID, tool="interact")
     assert len(FakeConnection.made) == 3 and monitor.capturing(GID)

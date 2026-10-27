@@ -267,6 +267,33 @@ def test_ending_a_workspace_with_no_browser_is_a_no_op(client, server):
     quit_.assert_not_called()
 
 
+def test_the_admins_end_is_never_refused_while_a_person_holds_control(
+    client, flow_session, monkeypatch
+):
+    """Live control, ruling 11: the caller's own end is refused while a person
+    holds the browser, and the admin's End still ends it (which releases
+    control). Both reach `Workspaces.end_browser`; only the caller's asks."""
+    from kubed.selenium_flow import faults
+
+    asked = []
+
+    def refusal(session_id, tool):
+        asked.append(tool)
+        return faults.Controlled("a person has control of this browser")
+
+    monkeypatch.setattr(flow_session.controls, "refusal", refusal)
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    with patch.object(browser.Grid, "is_alive", return_value=True), \
+            patch.object(browser.Grid, "quit") as quit_:
+        refused = client.delete("/browser", headers={**auth, "X-Workspace": KEY})
+        assert refused.status_code == 409, refused.text
+        quit_.assert_not_called()
+        ended = client.delete(f"/admin/workspaces/{KEY}/session", headers=auth)
+    assert ended.status_code == 200
+    quit_.assert_called_once_with("abc")
+    assert asked == ["end_browser"]
+
+
 def test_ending_a_workspace_does_not_disturb_the_files_route(client, flow_session):
     """`/admin/workspaces/<key>/session` and `/admin/workspaces/<key>/files` are different
     routes, and a DELETE to one must not be routed to the other."""

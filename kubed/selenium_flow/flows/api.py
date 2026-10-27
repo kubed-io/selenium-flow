@@ -661,7 +661,11 @@ def run_for(
     def step_started(entry, total):
         if before_step is not None:
             before_step(entry, total)
-        begun[:] = [calls.begin(workspace, resolved, browser=kind)]
+        # Inside the step's turn (`engine._take`): a step refused because a
+        # person holds the browser is never begun, and stops the run.
+        begun[:] = [
+            calls.begin(workspace, resolved, browser=kind, tool=entry["tool"])
+        ]
 
     def step_done(tool, error):
         if begun:

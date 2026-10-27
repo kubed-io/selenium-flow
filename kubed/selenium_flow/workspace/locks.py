@@ -20,13 +20,16 @@ so it never queues behind them: it sets the hold's ``ending`` flag, which the
 holder is watching through `core.cancel`, and a running `assert` raises its
 existing cancellation at its next poll and lets go. `open_session` takes none
 either - it makes a browser rather than driving one - and nothing that only
-reads (`workspace://current`) does.
+reads the record (`workspace://current`) does. A call, a read of the page
+included, takes its turn at its host (live control spec, ruling 33): that is
+where a person's control is checked, so a call queued before they asked is
+refused when its turn comes.
 
-**Reentrant**, because the units nest: a flow step and a bound write each hold
-it around the page read *and* the action, and the action's own `Recipe.run`
-takes it again in the same thread. **Fair**: first come, first served (`Turns`),
-so a flow, which lets go between steps, cannot barge back ahead of a call that
-queued during one.
+**Reentrant**, because the units nest: a call (`Workspaces.act`), a flow step
+and a bound write each hold it around the whole call, and the action's own
+`Recipe.run` takes it again in the same thread. **Fair**: first come, first
+served (`Turns`), so a flow, which lets go between steps, cannot barge back
+ahead of a call that queued during one.
 
 **Weak**: a hold lives only while a call holds or waits for it, or a flow run
 is under way on its browser, so a browser nobody is driving costs nothing and
@@ -115,6 +118,12 @@ class Turns:
             self._skip_abandoned()
             return ticket
 
+    def idle(self) -> bool:
+        """Nobody holds it and nobody waits for it: every ticket handed out,
+        marks included, has been served or skipped."""
+        with self._changed:
+            return self._owner is None and self._next == self._serving
+
     def passed(self, ticket: int) -> bool:
         """Whether every call that asked before ``ticket`` has had its turn."""
         with self._changed:
@@ -142,10 +151,20 @@ _registry = threading.Lock()
 
 
 def hold(browser: str) -> Hold:
-    """The hold for ``browser``: the one any other call on it is using, or new."""
+    """The hold for ``browser``: the one any other call on it is using, or new.
+
+    **An ended hold nobody holds or waits for is replaced.** The registry is
+    weak, but a reference can outlive its use — an exception's traceback keeps
+    the frame of the `driving` it was raised in, and a flow run keeps its
+    browser's hold for the run — so an ended hold can linger until the
+    collector runs, and every call on its browser would be told it ended.
+    Whoever still has it keeps it: a call queued before the end still waits on
+    it and is told `Ended` at its turn (it is not idle, so not replaced), a
+    flow still watches its ``ending``, and a mark on it has passed already
+    (idle means every ticket was served or skipped)."""
     with _registry:
         found = _holds.get(browser)
-        if found is None:
+        if found is None or (found.ending.is_set() and found.lock.idle()):
             found = _holds[browser] = Hold()
         return found
 

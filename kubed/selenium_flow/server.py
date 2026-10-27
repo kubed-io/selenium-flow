@@ -217,6 +217,9 @@ class SeleniumMCP:
             monitor=self.monitor,
             capture=self.capture,
             channels=self.actions.channels,
+            # A person's control in the live view refuses the calls that
+            # would change the browser (live control spec).
+            control=self.controls,
         )
 
         # The secrets an agent may bind, or None when none were configured.

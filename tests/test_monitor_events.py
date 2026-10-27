@@ -77,7 +77,7 @@ def test_call_finished_is_emitted_once_per_call_with_its_scalars_only():
         monitor=Monitor(bus, listing=lambda: (1, {})), clock=lambda: next(times)
     )
     calls.end(
-        calls.begin("bot", GID), tool="interact", surface="http", browser="firefox"
+        calls.begin("bot", GID, tool="interact"), tool="interact", surface="http", browser="firefox"
     )
     assert got == [
         CallFinished("bot", GID, "firefox", "interact", "http", "ok", 10.0, 0.25)
