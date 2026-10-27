@@ -5,9 +5,12 @@ is the part this server actually decides: who may fetch a file, which shape a
 given client is offered.
 """
 
+import hashlib
+import hmac
 import json
 import time
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -123,6 +126,21 @@ def test_a_refusal_says_expired_only_of_a_real_link():
     assert links.refusal(path, past, real, TOKEN) == "expired"
     assert links.refusal(path, past, "forged", TOKEN) == "invalid"
     assert links.refusal(path, "soon", real, TOKEN) == "invalid"
+
+
+def test_a_bound_link_needs_its_by():
+    path = "/admin/workspaces/w1/live/socket"
+    signed = links.sign(path, TOKEN, 60, by="drk")
+    q = parse_qs(urlsplit(signed).query)
+    assert q["by"] == ["drk"]
+    assert links.refusal(path, q["exp"][0], q["sig"][0], TOKEN, by="drk") is None
+    assert links.refusal(path, q["exp"][0], q["sig"][0], TOKEN, by="admin") == "invalid"
+    assert links.refusal(path, q["exp"][0], q["sig"][0], TOKEN) == "invalid"
+
+
+def test_an_unbound_signature_is_unchanged():
+    expected = hmac.new(TOKEN.encode(), b"/a:600", hashlib.sha256).hexdigest()[:32]
+    assert links.signature("/a", 600, TOKEN) == expected
 
 
 def test_without_a_token_the_url_is_unsigned():

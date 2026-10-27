@@ -55,7 +55,11 @@ def duration(seconds: float) -> str:
 
 def opened(who: str, workspace: str, session: str, mode: str) -> None:
     log.info(
-        "live: %s opened the live view of %s (%s) in %s", who, workspace, session, mode
+        "live: %s opened the live view of %s (%s) in %s",
+        who,
+        clean(workspace),
+        session,
+        mode,
     )
 
 
@@ -64,7 +68,7 @@ def switched(who: str, workspace: str, session: str, mode: str) -> None:
         "live: %s switched to %s in %s (%s)",
         who,
         mode,
-        workspace,
+        clean(workspace),
         session,
     )
 
@@ -75,7 +79,7 @@ def left(
     log.info(
         "live: %s left the live view of %s (%s) after %s in %s: %s",
         who,
-        workspace,
+        clean(workspace),
         session,
         duration(seconds),
         mode,
@@ -87,11 +91,13 @@ def refused(who: str | None, workspace: str, why: str) -> None:
     log.warning(
         "live: refused %s the live view of %s: %s",
         who or "someone",
-        workspace,
+        clean(workspace),
         clean(why, REASON_CAP),
     )
 
 
 def failed(workspace: str, error: BaseException) -> None:
     """An unexpected failure, by its type alone: its message may quote a URL."""
-    log.warning("live: the live view of %s failed: %s", workspace, type(error).__name__)
+    log.warning(
+        "live: the live view of %s failed: %s", clean(workspace), type(error).__name__
+    )

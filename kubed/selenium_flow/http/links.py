@@ -37,23 +37,38 @@ DEFAULT_TTL = 3600
 EXPIRY_STEP = 600
 
 
-def signature(path: str, expires: int, token: str) -> str:
-    """The HMAC binding one path to one expiry."""
-    message = f"{path}:{expires}".encode()
+def signature(path: str, expires: int, token: str, by: str | None = None) -> str:
+    """The HMAC binding one path to one expiry, and to a viewer when ``by`` is
+    given: a link minted for one admin opens nothing as another, so the audit
+    line's name is the one the link was minted for."""
+    message = f"{path}:{expires}" + ("\0" + by if by is not None else "")
+    message = message.encode()
     return hmac.new(token.encode(), message, hashlib.sha256).hexdigest()[:32]
 
 
 def sign(
-    path: str, token: str, ttl: int = DEFAULT_TTL, now: float | None = None
+    path: str,
+    token: str,
+    ttl: int = DEFAULT_TTL,
+    now: float | None = None,
+    *,
+    by: str | None = None,
 ) -> str:
     """``path`` with the query parameters that make it fetchable."""
     earliest = int((time.time() if now is None else now) + ttl)
     expires = -(-earliest // EXPIRY_STEP) * EXPIRY_STEP
-    return f"{path}?exp={expires}&sig={signature(path, expires, token)}"
+    signed = f"{path}?exp={expires}&sig={signature(path, expires, token, by)}"
+    return signed if by is None else f"{signed}&by={quote(by, safe='')}"
 
 
 def refusal(
-    path: str, expires, provided, token: str, now: float | None = None
+    path: str,
+    expires,
+    provided,
+    token: str,
+    now: float | None = None,
+    *,
+    by: str | None = None,
 ) -> str | None:
     """Why a request's ``exp``/``sig`` do not authorise ``path`` — ``"invalid"``
     or ``"expired"`` — or None when they do.
@@ -71,7 +86,7 @@ def refusal(
         expires = int(expires)
     except (TypeError, ValueError):
         return "invalid"
-    expected = signature(path, expires, token).encode()
+    expected = signature(path, expires, token, by).encode()
     if not hmac.compare_digest(expected, str(provided or "").encode()):
         return "invalid"
     if expires < (time.time() if now is None else now):

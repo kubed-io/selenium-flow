@@ -30,6 +30,7 @@ from .http import access_log, admin, files
 from .http import auth as http_auth
 from .http.admin import page as admin_page
 from .http.slashes import RelativeSlashRedirects
+from .live.tunnels import Tunnels
 from .mcp import (
     apps,
     clients,
@@ -147,6 +148,10 @@ class SeleniumMCP:
             collectors_for={"capture": capture_module.COLLECTOR},
             sink=self.capture,
         )
+        # The live view's open tunnels: a browser ending closes its viewers, and
+        # the server stopping closes them all.
+        self.tunnels = Tunnels()
+        self.bus.subscribe("session.ended", self.tunnels.ended, name="live")
         # How a BiDi channel to a session's browser is opened: site data's save
         # and restore speak through it, reusing the connection the monitor holds
         # when there is one.
@@ -224,6 +229,7 @@ class SeleniumMCP:
         # collector, which asks it to watch what its notes still owe. The two
         # tasks run only while something is owed.
         collector, monitor, bus = self.collector, self.monitor, self.bus
+        tunnels = self.tunnels
 
         @asynccontextmanager
         async def lifespan(_server):
@@ -236,6 +242,7 @@ class SeleniumMCP:
             finally:
                 if collector is not None:
                     await collector.stop()
+                tunnels.stop()
                 await monitor.stop()
                 await bus.stop()
 
@@ -374,6 +381,9 @@ class SeleniumMCP:
             door=self.doors.admin,
             oidc_page=admin_page.sign_in(settings.oidc),
             capture=self.capture,
+            live=settings.live,
+            tunnels=self.tunnels,
+            monitor=self.monitor,
         )
         # A filed recording shows on every open admin page now, not a tick on.
         if self.collector is not None:

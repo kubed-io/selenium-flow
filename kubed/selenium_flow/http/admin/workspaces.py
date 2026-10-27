@@ -355,7 +355,8 @@ class _Stream(EventSourceResponse):
 
 
 def mount(
-    mcp, actions, workspaces, flow_store, token, prefix, guarded, door
+    mcp, actions, workspaces, flow_store, token, prefix, guarded, door,
+    live_enabled: bool = False,
 ):
     """Mount the workspace list, its event stream and the end-a-session route.
 
@@ -383,7 +384,7 @@ def mount(
         if workspaces_store is None or not hasattr(workspaces_store, "records"):
             # A store that cannot enumerate is not an error: workspaces still
             # work, there is simply no list to show.
-            return {"workspaces": []}
+            return {"workspaces": [], "live_enabled": live_enabled}
         try:
             records = workspaces_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
@@ -394,7 +395,7 @@ def mount(
             report = log.debug if store_failing[0] else log.warning
             report("could not read the workspace store: %s", exc)
             store_failing[0] = True
-            return {"workspaces": []}
+            return {"workspaces": [], "live_enabled": live_enabled}
         if store_failing[0]:
             log.info("the workspace store is readable again")
             store_failing[0] = False
@@ -567,7 +568,7 @@ def mount(
                     **_grid_facts(running.get(sid, {})),
                 }
             )
-        return {"workspaces": rows}
+        return {"workspaces": rows, "live_enabled": live_enabled}
 
     broadcast = Broadcast(workspaces_payload)
 

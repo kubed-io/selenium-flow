@@ -1,5 +1,6 @@
 {
   "events_url": "/admin/events?<signed>",
+  "live_enabled": true,
   "workspaces": [
     {
       "asked_version": null,
