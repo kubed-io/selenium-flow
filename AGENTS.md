@@ -789,10 +789,10 @@ so while they hold it agents wait.
   `full_page`), is refused before it moves anything; `execute_script` and
   `assert` run the caller's JavaScript, so they act. That check runs inside
   the action and cannot tell whether Control was asked for before the call
-  began, so a read already running when a person asks, which then navigates
-  or resizes, is refused part-way (409) rather than finishing first as
-  ruling 1 has it: the agent awaits control and calls again, and the person's
-  page never moves under them.
+  began, so a call already running when a person asks (a read, or any action
+  given a `url`) that then navigates or resizes is refused part-way (409)
+  rather than finishing first as ruling 1 has it: the agent awaits control and
+  calls again, and the person's page never moves under them.
 - **The grant is a mark, not a thread.** Control is granted once every call
   that asked for the lock before the request has had its turn: a ticket
   abandoned in the lock's queue (`locks.behind`), polled from the loop every
