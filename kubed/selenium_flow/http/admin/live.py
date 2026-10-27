@@ -8,14 +8,17 @@ admin credential in a header, checks the workspace again (the browser may have
 gone in the minute between) and hands the connection to a `Tunnel`
 (spec 2026-10-27-live-view, "Getting in").
 
-This module logs nothing itself: the link's query, a Grid id and the VNC URL
-must not reach a line, and `live.audit` is the one place that logs.
+`live.audit` is the place that logs the live view. This module logs only a
+refused paste: by our own sentence, or by the failure's type alone. The link's
+query, a Grid id, the VNC URL, a driver's own wording and pasted text never
+reach a line.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 
@@ -25,18 +28,24 @@ from starlette.responses import JSONResponse
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from ... import errors
 from ...bidi.connection import open_socket
 from ...config import LiveSettings
-from ...faults import SocketClosed
+from ...core import cancel
+from ...core.actions import CANNOT_TYPE, IN_A_FRAME, NOTHING_FOCUSED, TOO_DEEP
+from ...faults import NotFound, SocketClosed, TooLarge
 from ...live import audit
 from ...live.rfb import Refused as LiveRefused
 from ...live.rfb import read_password
 from ...live.tunnel import BROKEN, HEARTBEAT, Peer, Tunnel
 from ...live.tunnels import Tunnels
-from .. import auth, links
+from .. import answer, auth, links
+
+log = logging.getLogger(__name__)
 
 LIVE_PATH = "/admin/workspaces/{key}/live"
 SOCKET_PATH = "/admin/workspaces/{key}/live/socket"
+PASTE_PATH = "/admin/workspaces/{key}/live/paste"
 LINK_TTL = 60
 
 SWITCHED_OFF = "the live view is switched off"
@@ -44,9 +53,22 @@ NO_BROWSER = "this workspace has no browser open"
 NO_LIVE_VIEW = "this browser has no live view"
 EXPIRED = "this live view link has expired: open the tab again"
 UNAUTHORIZED = "unauthorized"
+NEEDS_CONTROL = "paste needs Control: switch the live view to Control first"
+PASTE_FAILED = "the paste failed in the browser"
+NEEDS_TEXT = "paste needs text: send {\"text\": \"...\"}"
+
+OUR_REFUSALS = (IN_A_FRAME, NOTHING_FOCUSED, TOO_DEEP, CANNOT_TYPE)
 
 NOT_AUTHORIZED = 4401
 NOT_AVAILABLE = 4004
+
+
+def _ours(exc: Exception) -> bool:
+    """Whether ``exc`` says only our own words, so the route may repeat them."""
+    # The classes first: `TooLarge` is a `ValueError`, and says its own words.
+    if isinstance(exc, (NotFound, TooLarge, cancel.Ended)):
+        return True
+    return isinstance(exc, ValueError) and str(exc) in OUR_REFUSALS
 
 
 def socket_path(key: str) -> str:
@@ -148,6 +170,39 @@ def mount(
                 "grace": live.grace,
             }
         )
+
+    @mcp.custom_route(
+        f"{prefix}{PASTE_PATH}", methods=["POST"], name="admin_live_paste"
+    )
+    async def admin_live_paste(request: Request) -> JSONResponse:
+        """Type the viewer's pasted text at the element they focused.
+
+        Control only. Neither this module nor `audit.pasted` ever logs the text.
+        """
+        try:
+            principal = await door.admit(request)
+        except auth.Refused as refused:
+            return JSONResponse({"error": refused.reason}, status_code=refused.status)
+        key = request.path_params["key"]
+        try:
+            body = await answer.read_body(request)
+            text = body.get("text") if isinstance(body, dict) else None
+            if not isinstance(text, str):
+                return JSONResponse({"error": NEEDS_TEXT}, status_code=400)
+            who = audit.viewer_of(principal)
+            if not tunnels.controlling(key, who):
+                return JSONResponse({"error": NEEDS_CONTROL}, status_code=409)
+            done = await run_in_threadpool(workspaces.paste, key, text)
+        except Exception as exc:  # noqa: BLE001 - every failure is an answer
+            if _ours(exc):
+                return answer.refused(exc, "paste", log)
+            status = errors.status_for(exc)
+            log.info("paste refused (%s): %s", status, type(exc).__name__)
+            return JSONResponse({"error": PASTE_FAILED}, status_code=status)
+        record = workspaces.store.get(key)
+        session = audit.session_label(record.opened_at if record else 0)
+        audit.pasted(who, key, session, done["typed"])
+        return JSONResponse(done)
 
     async def admit(websocket: WebSocket, key: str) -> str | None:
         """Who is watching, or None once the socket has been refused (and closed)."""

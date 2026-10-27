@@ -73,6 +73,17 @@ def switched(who: str, workspace: str, session: str, mode: str) -> None:
     )
 
 
+def pasted(who: str, workspace: str, session: str, characters: int) -> None:
+    """A paste, by its length: never the text."""
+    log.info(
+        "live: %s pasted %d characters into %s (%s)",
+        who,
+        characters,
+        clean(workspace),
+        session,
+    )
+
+
 def left(
     who: str, workspace: str, session: str, seconds: float, mode: str, reason: str
 ) -> None:

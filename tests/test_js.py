@@ -16,7 +16,7 @@ import subprocess
 
 import pytest
 
-from kubed.selenium_flow.core import js, pointer, probe
+from kubed.selenium_flow.core import actions, js, pointer, probe
 
 pytestmark = pytest.mark.unit
 
@@ -77,7 +77,13 @@ def test_every_script_is_used(name):
     """A file nobody loads still ships in the wheel and still looks maintained.
     The composed constants are the whole set of callers."""
     composed = "\n".join(
-        [probe.USABLE_JS, probe.OUTLINE_JS, pointer.NUDGE_JS, pointer.CENTER_JS]
+        [
+            probe.USABLE_JS,
+            probe.OUTLINE_JS,
+            pointer.NUDGE_JS,
+            pointer.CENTER_JS,
+            actions.FOCUSED,
+        ]
     )
     assert js.read(name) in composed, f"{name} is packaged and loaded by nothing"
 

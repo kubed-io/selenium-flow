@@ -136,6 +136,11 @@
   ],
   [
     "POST",
+    "/admin/workspaces/{key}/live/paste",
+    "admin_live_paste"
+  ],
+  [
+    "POST",
     "/admin/workspaces/{key}/network/{id}/body",
     "admin_request_body"
   ],

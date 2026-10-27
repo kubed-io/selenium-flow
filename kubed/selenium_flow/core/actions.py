@@ -21,6 +21,7 @@ from pathlib import Path
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
     SessionNotCreatedException,
+    WebDriverException,
 )
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
@@ -36,7 +37,7 @@ from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
 from ..urls import allowed_navigation
-from . import browser, pointer, probe, session_caps
+from . import browser, js, pointer, probe, session_caps
 from .assertion import Assertion, window
 from .browser import Grid
 from .coerce import as_bool, as_int
@@ -117,6 +118,23 @@ INSECURE_SKIP = "an insecure browser gets no saved site data"
 # Fail closed: WebDriver can switch into only iframe and frame, so a secret meant
 # for the rest has no checkable road in at all.
 FRAME_ELEMENTS = ("iframe", "frame", "object", "embed", "fencedframe", "portal")
+# A viewer's paste (spec 2026-10-27, ruling 34). The text is typed with
+# WebDriver at the element the person focused, because VNC keystrokes cannot
+# carry non-ASCII text.
+PASTE_CAP = 10_000
+PASTE_DEPTH = 10  # frames followed to the focused element
+IN_A_FRAME = (
+    "the agent is working inside a frame, and a paste would move it out of it: "
+    "type this in Control instead"
+)
+NOTHING_FOCUSED = (
+    "nothing in the browser has focus: click where the text goes, then paste"
+)
+TOO_DEEP = "the focused element is nested too many frames deep to paste into"
+CANNOT_TYPE = "this browser cannot type some of these characters (emoji, for one)"
+# ChromeDriver's refusal of a character outside the Basic Multilingual Plane.
+BMP_REFUSAL = "only supports characters in the BMP"
+FOCUSED = js.read("focused.js")
 FRAME_REFUSAL = (
     "a secret cannot be typed into an element that hosts another document; "
     "switch into the frame first"
@@ -1082,6 +1100,54 @@ class Actions:
         return self._recipe(CLICKABLE, retry_stale=True).run(
             session_id, typing, url=url, selector=selector, wait_timeout=wait_timeout
         )
+
+    def paste(self, session_id: str, text: str) -> dict:
+        """Type ``text`` at the element a person focused, wherever the caret is.
+
+        Not through `press_key`, whose keys go to ``<body>`` and so blur what
+        the person focused; and with no ``clear()``, so the text lands at the
+        caret. The element is followed into a focused frame and an open shadow
+        root, and the agent is always left in the top document. Refused while
+        the agent has a frame selected: putting it back at the top would move it.
+
+        Answers a count and no page state: neither the value nor the text can
+        come back.
+        """
+        text = str(text)[:PASTE_CAP]
+
+        def typing(at):
+            driver = at.driver
+            if driver.execute_script("return window !== window.top;"):
+                raise ValueError(IN_A_FRAME)
+            switched = False
+            try:
+                found = driver.execute_script(FOCUSED)
+
+                def hosts(element) -> bool:
+                    return element.tag_name.lower() in FRAME_ELEMENTS
+
+                for _ in range(PASTE_DEPTH):
+                    if found is None or not hosts(found):
+                        break
+                    driver.switch_to.frame(found)
+                    switched = True
+                    found = driver.execute_script(FOCUSED)
+                if found is None:
+                    raise ValueError(NOTHING_FOCUSED)
+                if hosts(found):
+                    raise ValueError(TOO_DEEP)
+                try:
+                    found.send_keys(text)
+                except WebDriverException as exc:
+                    if BMP_REFUSAL in str(exc):
+                        raise ValueError(CANNOT_TYPE) from None
+                    raise
+            finally:
+                if switched:
+                    driver.switch_to.default_content()
+            return {"typed": len(text)}
+
+        return self._recipe().run(session_id, typing)
 
     def press_key(
         self,

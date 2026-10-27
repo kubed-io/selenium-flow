@@ -655,6 +655,41 @@ class Workspaces:
         """Announce that ``session_id`` ended, when there is a monitor."""
         self._told("ended", name, session_id, cause)
 
+    def _said(
+        self,
+        name: str,
+        session_id: str,
+        kind: str,
+        call,
+        *,
+        tool: str,
+        surface: str,
+    ) -> tuple[dict, dict | None]:
+        """Run ``call(session_id)`` as one said call: the result, and the page
+        hint (or None).
+
+        The one bracket every host of a call shares, so they cannot drift: with
+        capture on, the call holds the session's turn from before it begins to
+        after it ends (the lock is reentrant), so its window is its own; the
+        call is begun, run, and ended with or without its error.
+        """
+        turn = (
+            locks.driving(session_id)
+            if self.calls.wanted(name)
+            else contextlib.nullcontext()
+        )
+        with turn:
+            begun = self.calls.begin(name, session_id, browser=kind)
+            try:
+                result = call(session_id)
+            except Exception as exc:
+                self.calls.end(
+                    begun, tool=tool, surface=surface, browser=kind, error=exc
+                )
+                raise
+            page = self.calls.end(begun, tool=tool, surface=surface, browser=kind)
+        return result, page
+
     def act(
         self,
         caller: Caller,
@@ -697,25 +732,44 @@ class Workspaces:
             if closed is not None:
                 closed(name)
             raise
-        turn = (
-            locks.driving(resolved)
-            if self.calls.wanted(name)
-            else contextlib.nullcontext()
+        result, page = self._said(
+            name, resolved, kind, call, tool=tool, surface=surface
         )
-        with turn:
-            begun = self.calls.begin(name, resolved, browser=kind)
-            try:
-                result = call(resolved)
-            except Exception as exc:
-                self.calls.end(
-                    begun, tool=tool, surface=surface, browser=kind, error=exc
-                )
-                raise
-            page = self.calls.end(begun, tool=tool, surface=surface, browser=kind)
         self.settle(name, result, browser=resolved, reshapes=reshapes)
         if page is not None and isinstance(result, dict):
             result["page"] = page
         return result
+
+    def paste(self, name: str, text: str) -> dict:
+        """Type ``text`` at the element a person focused in this workspace's
+        browser (spec 2026-10-27, ruling 34): ``{"typed": n}``.
+
+        Never reopens a browser: with none open it is a 404. The action's
+        recipe takes the session's turn, so a call in flight finishes first.
+        The page is not recorded: a pasted newline can submit a form and land
+        on a URL carrying the text, which is never kept.
+        """
+        session_id = self.browser(name)
+        if not session_id:
+            raise faults.NotFound("this workspace has no browser open")
+        record = self.store.get(name)
+        kind = ((record.settings if record else None) or {}).get(
+            "browser"
+        ) or DEFAULT_BROWSER
+        result, _page = self._said(
+            name,
+            session_id,
+            kind,
+            lambda resolved: self.actions.paste(resolved, text),
+            tool="paste",
+            surface="http",
+        )
+        self.settle(name, result, browser=session_id, url=None)
+        # A paste slides the TTL but is not the agent's call: the reopen report
+        # it was handed is put back for the next result that is.
+        if result.get("site_data"):
+            self._hold_again(name, result["site_data"], session_id)
+        return {"typed": result["typed"]}
 
     def settle(
         self,

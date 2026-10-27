@@ -25,6 +25,8 @@ from kubed.selenium_flow.workspace.store import Workspace
 from .conftest import TOKEN
 from .fakes import FakePeer
 from .test_live_tunnel import GRID_ID, vnc_node
+from .test_live_tunnels import held
+from .test_paste import FocusedDriver, element
 
 pytestmark = pytest.mark.unit
 
@@ -294,3 +296,105 @@ def test_a_failure_after_accept_closes_1011_and_logs_its_type(
         gone = closed_with(client, url, headers=headers)
     assert (gone.code, gone.reason) == (1011, "the live view failed")
     assert "RuntimeError" in caplog.text and "secret-host" not in caplog.text
+
+
+PASTE = "/admin/workspaces/w1/live/paste"
+
+
+@pytest.fixture
+def typing(server, monkeypatch):
+    """The browser ``w1`` holds, as a driver whose focus is a textarea."""
+    driver = FocusedDriver()
+    driver.answers[:] = [element(driver.log)]
+    grid = server.actions.grid
+    monkeypatch.setattr(grid, "is_alive", lambda session_id: True)
+    monkeypatch.setattr(grid, "reconnect", lambda session_id: driver)
+    return driver
+
+
+@pytest.mark.parametrize("mode", [None, "watch"])
+def test_paste_needs_control(client, server, typing, mode):
+    if mode:
+        held(server.tunnels, "w1", "admin", mode, GRID_ID)
+    answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
+    assert answered.status_code == 409
+    assert answered.json() == {"error": live_module.NEEDS_CONTROL}
+    assert ("element", "send_keys", "hello") not in typing.log
+
+
+def test_paste_in_control_types_and_audits_a_count(client, server, typing, caplog):
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    with caplog.at_level(logging.DEBUG):
+        answered = client.post(PASTE, json={"text": "hunter2"}, headers=AUTH)
+    assert answered.status_code == 200 and answered.json() == {"typed": 7}
+    assert ("element", "send_keys", "hunter2") in typing.log
+    assert "pasted 7 characters into w1" in caplog.text
+    assert all("hunter2" not in r.getMessage() for r in caplog.records)
+    assert "hunter2" not in repr(server.workspaces.store.get("w1"))
+
+
+def test_a_refused_paste_logs_no_text(client, server, typing, caplog):
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    typing.answers[:] = []  # nothing has focus
+    with caplog.at_level(logging.DEBUG):
+        answered = client.post(PASTE, json={"text": "hunter2"}, headers=AUTH)
+    assert answered.status_code == 400
+    assert "nothing in the browser has focus" in answered.json()["error"]
+    assert all("hunter2" not in r.getMessage() for r in caplog.records)
+
+
+def test_paste_with_no_browser_is_404(client, server):
+    held(server.tunnels, "idle", "admin", "control", "g-idle")
+    answered = client.post(
+        "/admin/workspaces/idle/live/paste", json={"text": "x"}, headers=AUTH
+    )
+    assert answered.status_code == 404
+
+
+def test_paste_is_behind_the_admin_door(client):
+    assert client.post(PASTE, json={"text": "x"}).status_code == 401
+
+
+@pytest.mark.parametrize("body", [[], "x", {}, {"text": 5}])
+def test_paste_wants_text(client, server, typing, body):
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    assert client.post(PASTE, json=body, headers=AUTH).status_code == 400
+
+
+def test_an_oversize_paste_body_is_413(client, server, typing):
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    big = "a" * (3 * 2**20)
+    answered = client.post(PASTE, json={"text": big}, headers=AUTH)
+    assert answered.status_code == 413
+    assert answered.json() == {"error": "a JSON body is limited to 1 MiB"}
+
+
+def test_a_driver_failure_is_logged_by_type_and_never_quoted(
+    client, server, typing, caplog
+):
+    from selenium.common.exceptions import WebDriverException
+
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    field = typing.answers[0]
+    field.fail_on = {"send_keys": WebDriverException("could not type hunter2")}
+    with caplog.at_level(logging.DEBUG):
+        answered = client.post(PASTE, json={"text": "hunter2"}, headers=AUTH)
+    assert answered.status_code >= 400
+    assert answered.json() == {"error": live_module.PASTE_FAILED}
+    assert "hunter2" not in answered.text
+    assert all("hunter2" not in r.getMessage() for r in caplog.records)
+    assert "WebDriverException" in caplog.text
+
+
+def test_a_frame_the_driver_cannot_enter_says_our_sentence(client, server, typing):
+    from selenium.common.exceptions import NoSuchFrameException
+
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    typing.answers[:] = [element(typing.log, "object")]
+
+    def refuse(target):
+        raise NoSuchFrameException("driver words about the object")
+
+    typing.switch_to.frame = refuse
+    answered = client.post(PASTE, json={"text": "x"}, headers=AUTH)
+    assert answered.json() == {"error": live_module.PASTE_FAILED}
