@@ -56,8 +56,10 @@ def test_a_record_written_before_site_data_reads_as_empty():
 
 def test_every_browser_is_opened_with_bidi():
     from kubed.selenium_flow.core.browser import Grid
+    from kubed.selenium_flow.core.session_caps import build
     for name in ("chrome", "firefox"):
-        assert Grid()._options(name).to_capabilities().get("webSocketUrl") is True
+        caps = Grid()._options(build(name)).to_capabilities()
+        assert caps.get("webSocketUrl") is True
 
 
 # ---- what the live Grid taught (2026-09-30) ---------------------------------

@@ -22,7 +22,7 @@ steps:
 - tool: screenshot
   args: {filename: hangar-check}
 - tool: navigate
-  args: {url: "${admin}/#/workspaces/${workspace}"}
+  args: {url: "${admin}/#/workspaces/${workspace}/files"}
 - tool: assert
   args:
     script: >-

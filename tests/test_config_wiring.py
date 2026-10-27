@@ -40,6 +40,17 @@ def test_a_server_built_from_settings_uses_them(tmp_path):
     assert server.sources["workspace.ttl"] == "args"
 
 
+def test_the_config_capabilities_and_version_reach_every_open():
+    """`session.capabilities` is its own source, beside the cascade (spec
+    2026-10-26-session-capabilities): the actions hold it for every build.
+    `session.version` is the cascade's floor, like `session.browser`."""
+    s = Settings(grid=GRID, mcp={"skill": False},
+                 session={"version": "152", "capabilities": {"kubed:pool": "default"}})
+    server = SeleniumMCP(s)
+    assert server.actions.config_capabilities == {"kubed:pool": "default"}
+    assert server.workspaces.defaults == {"version": "152"}
+
+
 def test_no_settings_is_every_default(monkeypatch):
     monkeypatch.setenv("DATA_DIR", "/nowhere")
     server = SeleniumMCP()

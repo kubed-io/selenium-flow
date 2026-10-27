@@ -7,6 +7,7 @@ tool call opened a browser nobody closed.
 """
 
 import json
+import re
 
 import pytest
 from pydantic import ValidationError
@@ -1749,3 +1750,147 @@ def test_opening_ending_and_reaping_log_no_grid_id(named_caller, caplog):
                  "could not end the browser", "raced", "could not end the losing"):
         assert any(path in line and NAMED in line for line in said), (path, said)
     assert not [line for line in said if "generated-" in line], said
+
+
+# ---- version, capabilities, and what each session sent (spec 2026-10-26) ----
+
+
+def opened_workspace():
+    """A manager whose workspace NAMED holds a browser."""
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.open_browser(Caller(NAMED))
+    return workspaces, actions
+
+
+@pytest.mark.parametrize(
+    "capabilities,said",
+    [
+        ({"browserName": "x"}, "browserName cannot be sent in capabilities"),
+        ({"goog:chromeOptions": {"args": "--x"}}, "goog:chromeOptions.args"),
+    ],
+)
+def test_a_refused_capability_costs_the_held_browser_nothing(capabilities, said):
+    """Review Focus 4: refused before `end_browser`, like a bad `browser=`."""
+    workspaces, actions = opened_workspace()
+    with pytest.raises(ValueError, match=said):
+        workspaces.open_browser(Caller(NAMED), capabilities=capabilities)
+    assert actions.closed == []
+    assert workspaces.store.get(NAMED).session_id == "generated-1"
+
+
+def test_version_and_capabilities_are_remembered_and_carried():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.open_browser(Caller(NAMED), version="152", capabilities={"kubed:pool": "a"})
+    workspaces.open_browser(Caller(NAMED))
+    carried = actions.opened_settings[-1]
+    assert carried["version"] == "152"
+    assert carried["capabilities"] == {"kubed:pool": "a"}
+
+
+def test_an_empty_object_and_latest_clear_what_was_remembered():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.open_browser(Caller(NAMED), version="152", capabilities={"kubed:pool": "a"})
+    workspaces.open_browser(Caller(NAMED), version="latest", capabilities={})
+    settings = workspaces.store.get(NAMED).settings
+    assert settings["version"] == "latest" and settings["capabilities"] == {}
+    workspaces.open_browser(Caller(NAMED))
+    assert actions.opened_settings[-1]["capabilities"] == {}
+
+
+def test_switching_browser_drops_a_remembered_version():  # ruling 20
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.open_browser(Caller(NAMED), browser="chrome", version="152")
+    workspaces.open_browser(Caller(NAMED), browser="firefox")
+    assert "version" not in actions.opened_settings[-1]
+    # Naming the same browser again is no switch.
+    workspaces.open_browser(Caller(NAMED), browser="firefox", version="142")
+    workspaces.open_browser(Caller(NAMED), browser="Firefox")
+    assert actions.opened_settings[-1]["version"] == "142"
+
+
+def test_a_switch_with_a_version_keeps_the_one_asked_for():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.open_browser(Caller(NAMED), browser="chrome", version="152")
+    workspaces.open_browser(Caller(NAMED), browser="firefox", version="142")
+    assert actions.opened_settings[-1]["version"] == "142"
+
+
+def test_a_reap_replays_version_and_capabilities():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    settings = {"browser": "chrome", "version": "152", "capabilities": {"kubed:pool": "a"}}
+    workspaces.store.set(NAMED, Workspace(session_id="dead", settings=settings))
+    workspaces.resolve(NAMED)
+    assert actions.opened_settings == [settings]
+    record = workspaces.store.get(NAMED)
+    assert record.sent and record.ran == {"version": "100.0", "node": "node-1", "live_view": True}
+
+
+def test_a_reopen_refuses_a_remembered_key_that_became_owned():  # ruling 26
+    """Review Focus 3: a key an upgrade made owned is refused in words that
+    say how to clear it, and no browser of another shape is opened."""
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.store.set(
+        NAMED,
+        Workspace(session_id="dead", settings={"capabilities": {"browserName": "x"}}),
+    )
+    with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
+        workspaces.resolve(NAMED)
+    assert actions.opened == 0
+
+
+def test_the_record_keeps_sent_and_ran_and_who_ended_it():
+    workspaces, _actions = opened_workspace()
+    record = workspaces.store.get(NAMED)
+    assert record.sent == [{"key": "browserName", "value": "chrome", "sources": ["option"]}]
+    assert record.ran["node"] == "node-1" and record.ended is None
+    workspaces.end_browser(Caller(NAMED, "admin"))
+    ended = workspaces.store.get(NAMED)
+    assert ended.sent == record.sent and ended.ran == record.ran
+    assert ended.ended["by"] == "admin" and isinstance(ended.ended["at"], float)
+    workspaces.open_browser(Caller(NAMED))
+    assert workspaces.store.get(NAMED).ended is None
+    workspaces.end_browser(Caller(NAMED, "query"))
+    assert workspaces.store.get(NAMED).ended["by"] == "caller"
+
+
+def test_the_result_never_carries_sent_or_ran():
+    told = manager().open_browser(Caller(NAMED))
+    assert not {"sent", "ran", "session_id"} & told.keys()
+
+
+def test_describe_reports_the_version_that_ran(named_caller):
+    workspaces, _actions = opened_workspace()
+    assert workspaces.describe(clients_module.caller())["version"] == "100.0"
+    assert manager().describe(clients_module.caller())["version"] is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {},
+        {"sent": "x", "ran": [], "ended": {"by": "nobody"}},
+        {"sent": [{"key": 1}], "ran": {"version": 5}, "ended": {"at": "x", "by": "admin"}},
+        {"sent": [{"key": "a", "sources": ["somewhere"]}], "ended": {"at": True, "by": "caller"}},
+    ],
+)
+def test_old_and_malformed_records_read_as_none(raw):  # Review Focus 5
+    record = Workspace.from_json(json.dumps({"session_id": "a", **raw}))
+    assert record.sent == [] and record.ended is None
+    assert record.ran in (None, {"version": None, "node": None, "live_view": None})
+
+
+def test_a_good_record_reads_back_whole():
+    record = Workspace(
+        session_id="a",
+        sent=[{"key": "k:v", "value": {"x": [1]}, "sources": ["config", "raw"]}],
+        ran={"version": "1", "node": "n", "live_view": False},
+        ended={"at": 5.0, "by": "caller"},
+    )
+    assert Workspace.from_json(record.to_json()) == record

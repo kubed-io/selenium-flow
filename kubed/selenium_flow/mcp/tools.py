@@ -30,7 +30,14 @@ from fastmcp.apps import AppConfig
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
 from fastmcp.utilities.types import Image
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    JsonValue,
+    model_validator,
+)
 
 from .. import secrets as secrets_module
 from ..core.actions import (
@@ -358,6 +365,7 @@ def register(
     def open_session(
         url: str | None = None,
         browser: Browser = None,
+        version: str | None = None,
         width: int | None = None,
         height: int | None = None,
         page_load_timeout: int | None = None,
@@ -365,6 +373,7 @@ def register(
         insecure: bool | None = None,
         record: bool | None = None,
         capture: bool | None = None,
+        capabilities: dict[str, JsonValue] | None = None,
         fresh: bool = False,
         restore_site_data: bool = True,
     ) -> dict:
@@ -377,21 +386,33 @@ def register(
         open_session(browser="firefox"). Files that browser had and you did not keep
         go with it.
 
-        Set width and height when layout matters; the headless default is narrow.
-        fresh=true starts on about:blank. Saved site data comes back by default;
-        restore_site_data=false opens without it and deletes it, which is how you
-        start as a new user. page_load_timeout bounds a navigation that
-        hangs. insecure=true accepts a self-signed certificate; use it only for a site
-        you know has one. An insecure browser gets no saved site data.
-        record=true films this browser's whole life as a video, from now until it
-        ends; it appears under workspace://files/recordings shortly after. A person
-        watches it, so only when one will — it costs the Grid. Not inherited: ask
-        again for the next browser.
-        capture=true keeps what the page logs and fetches — workspace://console and
-        workspace://network — and a call that caused a page error says so in its
-        result. Off by default and not inherited: ask again for the next browser.
-        An open without capture=true also forgets what was captured, so read those
-        first when you are debugging.
+        The options, and what the next open_session() keeps:
+        - browser is chrome (default) or firefox. version="152" asks the Grid for
+          that version, and the result's version says which one ran;
+          version="latest" forgets a remembered one, and switching browser forgets
+          it too. Both are remembered.
+        - width and height set the window when layout matters; the headless
+          default is narrow. page_load_timeout bounds a navigation that hangs,
+          script_timeout a script. insecure=true accepts a self-signed certificate;
+          use it only for a site you know has one, and an insecure browser gets no
+          saved site data. All remembered.
+        - record=true films this browser's whole life as a video; it appears under
+          workspace://files/recordings shortly after it ends. A person watches it,
+          so only when one will — it costs the Grid. capture=true keeps what the
+          page logs and fetches — workspace://console and workspace://network —
+          and a call that caused a page error says so in its result. An open
+          without capture=true forgets what was captured, so read those first when
+          you are debugging. Neither is kept: ask again for the next browser.
+        - fresh=true starts on about:blank. Saved site data comes back by default;
+          restore_site_data=false opens without it and deletes it, which is how you
+          start as a new user.
+
+        capabilities is the last resort, only for something no option above covers:
+        extra W3C capabilities sent to the Grid as given, best effort, and
+        remembered whole; {} forgets them. A key an option controls is refused
+        with the option to use. Inside goog:chromeOptions or moz:firefoxOptions
+        your args and prefs are added to selenium-flow's, and the result's ignored
+        lists any of yours that lost.
         """
         return workspaces.open_browser(
             clients.caller(),
@@ -399,6 +420,7 @@ def register(
             fresh=fresh,
             restore_site_data=restore_site_data,
             browser=browser,
+            version=version,
             width=width,
             height=height,
             page_load_timeout=page_load_timeout,
@@ -406,6 +428,7 @@ def register(
             insecure=insecure,
             record=record,
             capture=capture,
+            capabilities=capabilities,
         )
 
     @action("network_body")

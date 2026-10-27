@@ -76,3 +76,18 @@ def test_a_url_and_an_xpath_in_one_message_lose_only_the_credential():
     assert "hunter2" not in said and "user:" not in said
     assert "http://grid.internal:4444/session" in said
     assert "//input[@name='q']" in said
+
+
+# ---- a session that was not created (spec 2026-10-26, ruling 16) -----------
+
+
+def test_what_a_session_not_created_answers():
+    from selenium.common.exceptions import SessionNotCreatedException
+
+    from kubed.selenium_flow import errors
+
+    assert errors.status_for(faults.NoNodeTook("no node")) == 503
+    assert errors.status_for(faults.NodeRefused("no", blamed=True)) == 400
+    assert errors.status_for(faults.NodeRefused("no", blamed=False)) == 503
+    # The Grid's own failures, and anything not yet classified, stay 503.
+    assert errors.status_for(SessionNotCreatedException("no free slot")) == 503

@@ -217,6 +217,36 @@ def test_a_good_token_gets_past_auth(client):
     assert "error" in response.json()
 
 
+def test_post_browser_takes_version_and_capabilities(open_server, monkeypatch):
+    """The body is the tool's schema: both arrive at the open as given."""
+    seen = {}
+
+    def opened(caller, **kwargs):
+        seen.update(kwargs)
+        return {"workspace": caller.name}
+
+    monkeypatch.setattr(open_server.workspaces, "open_browser", opened)
+    client = TestClient(open_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
+    response = client.post(
+        "/browser", json={"version": "152", "capabilities": {"kubed:pool": "a"}}
+    )
+    assert response.status_code == 200
+    assert seen["version"] == "152" and seen["capabilities"] == {"kubed:pool": "a"}
+
+
+def test_post_browser_refuses_an_owned_capability_naming_the_option(open_client):
+    """Refused before anything is opened or ended: the Grid is unroutable here,
+    so reaching it would be a 503, not this 400."""
+    response = open_client.post(
+        "/browser", json={"capabilities": {"browserName": "firefox"}}
+    )
+    assert response.status_code == 400
+    assert (
+        "browserName cannot be sent in capabilities: use browser= instead"
+        in response.json()["error"]
+    )
+
+
 def test_the_mouse_action_is_the_path_not_a_field(open_client):
     """`/browser/interact/click` reads as the thing it does, and the action can
     no longer be omitted: without one there is no route (§F2.13)."""
@@ -630,6 +660,8 @@ STATUS_TABLE = (
     [(_raised(faults.AssertionFailed), 400), (_raised(faults.NotFound), 404)]
     + [(_raised(faults.BidiUnavailable), 503), (_raised(faults.TooLarge), 413)]
     + [(_raised(faults.NoSession), 400)]
+    + [(faults.NodeRefused("it said no", blamed=True), 400)]
+    + [(faults.NodeRefused("it said no", blamed=False), 503)]
     + [(_raised(cls), 400) for cls in errors.CALLER if cls is not faults.AssertionFailed]
     + [(_raised(cls), 404) for cls in errors.GONE]
     + [(_raised(cls), 503) for cls in errors.UNAVAILABLE if cls is not faults.BidiUnavailable]

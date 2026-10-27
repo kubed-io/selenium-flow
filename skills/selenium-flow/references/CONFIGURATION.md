@@ -126,6 +126,7 @@ server default (config: session.*)   <   client default (URL param / header)   <
 | Setting | Env | Parameter | Header |
 |---|---|---|---|
 | Browser | `SESSION_BROWSER` | `?browser=` | `X-Browser` |
+| Browser version | `SESSION_VERSION` | `?version=` | `X-Version` |
 | Window width | `SESSION_WIDTH` | `?width=` | `X-Window-Width` |
 | Window height | `SESSION_HEIGHT` | `?height=` | `X-Window-Height` |
 | Page load timeout (s) | `SESSION_PAGE_LOAD_TIMEOUT` | `?page_load_timeout=` | `X-Page-Load-Timeout` |
@@ -161,8 +162,17 @@ reaps an idle session and the next call transparently reopens one, it comes back
 as the same browser rather than the default one.
 
 The Grid must actually offer the browser you ask for. If it has no Firefox
-node, a Firefox request waits in the session queue until it times out — that is
-a Grid capacity question, not a server setting.
+node, a Firefox request waits in the session queue until the Grid gives up, and
+`open_session` then fails with a 503 saying no node took it — a Grid capacity
+question, not a server setting.
+
+**`SESSION_CAPABILITIES`** is a JSON object of W3C capabilities every new
+session sends, such as `{"kubed:pool": "default"}` for a Grid whose node
+classes each carry one. It is not a default in the cascade above: it is sent
+under whatever a caller's own `capabilities` say, and a key the caller sends
+replaces it. A key one of the named options controls (`browserName`,
+`browserVersion`, …) stops the boot, naming the option. There is no
+per-client switch for it.
 
 ## Uploads need one writable directory
 

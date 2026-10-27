@@ -522,6 +522,14 @@ def mount(
                     # How long the Grid lets its session sit idle: kept from
                     # the last open, so an idle card shows it too.
                     "grid_timeout": record.grid_timeout,
+                    # The Session tab (spec 2026-10-26-session-capabilities):
+                    # the version asked for, what the last open sent and what
+                    # the Grid says ran, and how that session ended. Kept when
+                    # it ends, so the idle card shows the last browser.
+                    "asked_version": (record.settings or {}).get("version"),
+                    "sent": record.sent,
+                    "ran": record.ran,
+                    "ended": record.ended,
                     "started": record.opened_at or None,
                     # Who opened this browser, for the meta line ("by drk").
                     "opened_by": record.opened_by,

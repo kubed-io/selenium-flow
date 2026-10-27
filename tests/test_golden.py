@@ -218,9 +218,22 @@ def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
     )
     store.set(
         "detached",
-        Workspace(session_id="", opened_at=NOW - 7200).visited(
-            "https://mail.example.org/inbox", now=NOW - 3600
-        ),
+        Workspace(
+            session_id="",
+            opened_at=NOW - 7200,
+            settings={"browser": "firefox", "version": "142"},
+            sent=[
+                {"key": "browserName", "value": "firefox", "sources": ["option"]},
+                {"key": "kubed:pool", "value": "default", "sources": ["config"]},
+                {
+                    "key": "moz:firefoxOptions",
+                    "value": {"prefs": {"pdfjs.disabled": True}},
+                    "sources": ["flow", "raw"],
+                },
+            ],
+            ran={"version": "142.0", "node": "node-firefox-1", "live_view": True},
+            ended={"at": NOW - 3500, "by": "admin"},
+        ).visited("https://mail.example.org/inbox", now=NOW - 3600),
     )
     store.set(
         "sited",
@@ -271,6 +284,8 @@ def raised():
             out[cls.__name__] = cls("nonexistent.invalid")
         else:
             out[cls.__name__] = cls("it went wrong")
+    out["NodeRefused(blamed)"] = faults.NodeRefused("it went wrong", blamed=True)
+    out["NodeRefused(not blamed)"] = faults.NodeRefused("it went wrong", blamed=False)
     out["NotFound"] = faults.NotFound("no such thing")
     out["requests.HTTPError(no response)"] = http
     out["requests.HTTPError(404)"] = http_404

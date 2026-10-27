@@ -100,6 +100,27 @@ test('Files and Flows are tabs, routed by the hash (D3)', async () => {
   expect(container.querySelector('#tabFiles')).toHaveAttribute('aria-selected', 'true') // the prop moves, not the click
 })
 
+test('Session is the first tab and where a workspace opens; Files has a hash of its own', async () => {
+  const { container } = setup({}, { tab: 'session' })
+  await vi.waitFor(() => expect(container.querySelector('#workspaceCard')).not.toBeNull())
+  const tabs = [...container.querySelectorAll('#workspaceTabs [role=tab]')].map((t) => t.id)
+  expect(tabs[0]).toBe('tabSession')
+  expect(container.querySelector('#tabSession')).toHaveAttribute('aria-selected', 'true')
+  expect(container.querySelector('#paneSession')).not.toHaveAttribute('hidden')
+  expect(container.querySelector('#paneFiles')).toHaveAttribute('hidden')
+  await fireEvent.click(container.querySelector('#tabFiles')!)
+  expect(location.hash).toBe('#/workspaces/k/files')
+  await fireEvent.click(container.querySelector('#tabSession')!)
+  expect(location.hash).toBe('#/workspaces/k')
+})
+
+test('the Session pane waits for the row rather than drawing a default browser', async () => {
+  const gate = deferred<{ body: unknown }>()
+  const { container } = setup({ 'GET /admin/workspaces/k/files': () => gate.promise }, { tab: 'session' })
+  expect(container.querySelector('#paneSession')).toHaveTextContent('Loading…')
+  expect(container.querySelector('#workspaceCard')).toBeNull()
+})
+
 test('a section collapsed on Files is still collapsed after a look at Flows, with nothing refetched (D3)', async () => {
   const { container, calls, rerender } = setup()
   await vi.waitFor(() => expect(container.querySelector('#flowsTotal')).toHaveTextContent('0'))

@@ -8,10 +8,12 @@ reopening on the default instead of the one that was asked for.
 
 import pytest
 from selenium import webdriver
+from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 
 from kubed.selenium_flow.config import SessionSettings
 from kubed.selenium_flow.core.browser import Grid, is_partial
 from kubed.selenium_flow.core.defaults import BROWSERS, normalize_browser
+from kubed.selenium_flow.core.session_caps import build
 from kubed.selenium_flow.workspace import settings as settings_module
 
 pytestmark = pytest.mark.unit
@@ -50,9 +52,10 @@ def test_an_unknown_browser_is_refused_rather_than_defaulted():
 
 def test_the_options_are_the_right_driver_class():
     grid = Grid("http://grid.invalid:4444")
-    assert isinstance(grid._options("chrome"), webdriver.ChromeOptions)
-    assert isinstance(grid._options("firefox"), webdriver.FirefoxOptions)
-    assert isinstance(grid._options(None), webdriver.ChromeOptions)
+    assert isinstance(grid._options(build("chrome")), webdriver.ChromeOptions)
+    assert isinstance(grid._options(build("firefox")), webdriver.FirefoxOptions)
+    assert isinstance(grid._options(build(None)), webdriver.ChromeOptions)
+    assert isinstance(grid._options(), webdriver.ChromeOptions)
 
 
 @pytest.mark.parametrize("name", BROWSERS)
@@ -63,17 +66,17 @@ def test_both_browsers_carry_the_two_capabilities_that_matter(name):
     caller's behalf; without `se:downloadsEnabled` the Grid keeps no per-session
     download store and `show` has nothing to list.
     """
-    caps = Grid("http://grid.invalid:4444")._options(name).to_capabilities()
+    caps = Grid("http://grid.invalid:4444")._options(build(name)).to_capabilities()
     assert caps["unhandledPromptBehavior"] == "ignore"
     assert caps["se:downloadsEnabled"] is True
 
 
 @pytest.mark.parametrize("name", ["chrome", "firefox"])
 def test_recording_asks_the_grid_for_video_only_when_asked(name):
-    plain = Grid("http://grid.invalid")._options(name).to_capabilities()
+    plain = Grid("http://grid.invalid")._options(build(name)).to_capabilities()
     assert "se:recordVideo" not in plain and "se:videoName" not in plain
     caps = Grid("http://grid.invalid")._options(
-        name, record=True, video_name="bot"
+        build(name, record=True, video_name="bot")
     ).to_capabilities()
     assert caps["se:recordVideo"] is True
     assert caps["se:videoName"] == "bot"
@@ -85,7 +88,7 @@ def test_firefox_is_told_to_save_downloads_without_asking():
     A PDF a site serves would hang without it: Firefox opens a PDF in its own
     viewer rather than saving, so the file never reaches the Grid's store.
     """
-    caps = Grid("http://grid.invalid:4444")._options("firefox").to_capabilities()
+    caps = Grid("http://grid.invalid:4444")._options(build("firefox")).to_capabilities()
     prefs = caps["moz:firefoxOptions"]["prefs"]
     assert prefs["browser.download.folderList"] == 2
     assert "application/pdf" in prefs["browser.helperApps.neverAsk.saveToDisk"]
@@ -103,7 +106,7 @@ def test_chrome_is_never_offered_the_chance_to_save_a_password():
     """
     prefs = (
         Grid("http://grid.invalid:4444")
-        ._options("chrome")
+        ._options(build("chrome"))
         .to_capabilities()["goog:chromeOptions"]["prefs"]
     )
     assert prefs["credentials_enable_service"] is False
@@ -115,10 +118,60 @@ def test_chrome_is_never_offered_the_chance_to_save_a_password():
 def test_firefox_is_never_offered_the_chance_to_save_a_password():
     prefs = (
         Grid("http://grid.invalid:4444")
-        ._options("firefox")
+        ._options(build("firefox"))
         .to_capabilities()["moz:firefoxOptions"]["prefs"]
     )
     assert prefs["signon.rememberSignons"] is False
+
+
+@pytest.mark.parametrize("name", ["chrome", "firefox"])
+def test_what_is_sent_is_exactly_what_was_built(name):
+    """Selenium's Options add keys of their own and rebuild a vendor block
+    from their own fields; what an open sends is the built set and nothing
+    else (spec 2026-10-26-session-capabilities, ruling 23)."""
+    built = build(
+        name,
+        version="9",
+        config={"kubed:pool": "d"},
+        raw={"x:y": 1, "goog:chromeOptions": {"args": ["--a"]}},
+    )
+    caps = Grid("http://grid.invalid")._options(built).to_capabilities()
+    assert caps == built.send
+    # A copy each time: what a later reader does to it never reaches the set.
+    caps["x:y"] = 2
+    assert Grid("http://grid.invalid")._options(built).to_capabilities()["x:y"] == 1
+
+
+def test_firefox_no_longer_accepts_every_certificate():  # ruling 23
+    caps = Grid("http://grid.invalid")._options(build("firefox")).to_capabilities()
+    assert caps["acceptInsecureCerts"] is False
+    assert "moz:debuggerAddress" not in caps and "pageLoadStrategy" not in caps
+
+
+def test_the_inert_options_are_valid():
+    """What `reconnect` builds a driver with: never sent, but Selenium reads
+    its browser name to pick the connection."""
+    caps = Grid("http://grid.invalid")._options().to_capabilities()
+    assert caps["browserName"] == "chrome"
+
+
+@pytest.mark.parametrize("name", ["chrome", "firefox"])
+def test_open_sends_the_built_set(name, monkeypatch):
+    """`Grid.open` hands Selenium the built set as the session's capabilities."""
+    sent = {}
+
+    class Started(Exception):
+        pass
+
+    def start_session(self, capabilities):
+        sent.update(capabilities)
+        raise Started
+
+    monkeypatch.setattr(RemoteWebDriver, "start_session", start_session)
+    built = build(name, version="152")
+    with pytest.raises(Started):
+        Grid("http://grid.invalid:4444").open(built)
+    assert sent == built.send
 
 
 @pytest.mark.parametrize(
@@ -138,6 +191,55 @@ def test_a_download_in_flight_is_not_offered_to_the_caller(name, partial):
     something else.
     """
     assert is_partial(name) is partial
+
+
+class TestVersionAndCapabilities:
+    """`version` is `browser`'s twin; raw `capabilities` has no client layer
+    (spec 2026-10-26-session-capabilities, rulings 10, 13 and 19)."""
+
+    def test_version_comes_from_the_client_and_latest_is_kept(self):
+        assert settings_module.from_client({"version": "152"}, {})["version"] == "152"
+        assert settings_module.from_client({}, {"x-version": " 9 "})["version"] == "9"
+        assert "version" not in settings_module.from_client({"version": "  "}, {})
+        resolved = settings_module.resolve(
+            {"version": "Latest"}, previous={"version": "152"}
+        )
+        assert resolved["version"] == "latest"
+
+    def test_capabilities_have_no_client_layer_and_an_empty_object_clears(self):
+        said = settings_module.from_client(
+            {"capabilities": "{}"}, {"x-capabilities": "{}"}
+        )
+        assert "capabilities" not in said
+        resolved = settings_module.resolve(
+            {"capabilities": {}}, previous={"capabilities": {"a:b": 1}}
+        )
+        assert resolved["capabilities"] == {}
+        kept = settings_module.resolve({}, previous={"capabilities": {"a:b": 1}})
+        assert kept["capabilities"] == {"a:b": 1}
+
+    def test_capabilities_as_a_json_string_are_read_and_anything_else_refused(self):
+        resolved = settings_module.resolve({"capabilities": '{"a:b": 1}'})
+        assert resolved["capabilities"] == {"a:b": 1}
+        for bad in ("[1]", "nope", 5, ["a"]):
+            with pytest.raises(ValueError, match="capabilities must be an object"):
+                settings_module.resolve({"capabilities": bad})
+
+    def test_the_config_version_is_the_floor(self):
+        assert settings_module.from_settings(SessionSettings(version="152")) == {
+            "version": "152"
+        }
+        # The config's capabilities are their own source, never the cascade's.
+        floor = settings_module.from_settings(
+            SessionSettings(capabilities={"kubed:pool": "d"})
+        )
+        assert floor == {}
+
+    def test_a_resolved_object_is_a_copy(self):
+        given = {"a:b": {"c": 1}}
+        resolved = settings_module.resolve({"capabilities": given})
+        resolved["capabilities"]["a:b"]["c"] = 2
+        assert given == {"a:b": {"c": 1}}
 
 
 class TestTheSettingsCascade:

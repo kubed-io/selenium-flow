@@ -104,6 +104,8 @@ class SeleniumMCP:
             self.grid,
             pointers=pointers if pointers is not None else pointer.matching(self.store),
         )
+        # Under every open's own capabilities, at the next open after a change.
+        self.actions.config_capabilities = dict(settings.session.capabilities)
         auth_token = (
             settings.auth.token.get_secret_value() if settings.auth.token else None
         )

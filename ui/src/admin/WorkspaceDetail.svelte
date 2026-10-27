@@ -10,6 +10,7 @@
   import CaptureNetworkPane from './CaptureNetworkPane.svelte'
   import FlowsPane from './FlowsPane.svelte'
   import RequestPane from './RequestPane.svelte'
+  import SessionPane from './SessionPane.svelte'
   import HistoryPane from './HistoryPane.svelte'
   import type { Live } from './live.svelte'
   import SiteDataPane from './SiteDataPane.svelte'
@@ -311,7 +312,8 @@
   <div id="detailHeader">{#if m.headed}<WorkspaceSummary data={m.row} />{/if}</div>
 
   <div class="tabs subtabs" id="workspaceTabs" role="tablist">
-    <button id="tabFiles" role="tab" aria-selected={tab === 'files'} onclick={() => go(hashes.workspace(key))}>Files <span id="filesTotal" class="count">{filesTotal}</span></button>
+    <button id="tabSession" role="tab" aria-selected={tab === 'session'} onclick={() => go(hashes.workspace(key))}>Session</button>
+    <button id="tabFiles" role="tab" aria-selected={tab === 'files'} onclick={() => go(hashes.files(key))}>Files <span id="filesTotal" class="count">{filesTotal}</span></button>
     <button id="tabFlows" role="tab" aria-selected={tab === 'flows'} onclick={() => go(hashes.flows(key))}>Flows <span id="flowsTotal" class="count">{flowsTotal}</span></button>
     <button id="tabSiteData" role="tab" aria-selected={tab === 'site-data'} onclick={() => go(hashes.siteData(key))}>Site data <span id="siteDataTotal" class="count">{siteDataTotal}</span></button>
     <button id="tabHistory" role="tab" aria-selected={tab === 'history'} onclick={() => go(hashes.history(key))}>History <span id="historyTotal" class="count">{historyTotal}</span></button>
@@ -321,6 +323,13 @@
             onclick={() => { if (!captureOff) go(hashes.network(key)) }}>Network <span id="networkTotal" class="count">{networkTotal}</span></button>
   </div>
 
+  <!-- Where a workspace opens. Blank until its row arrives, like the header:
+       a default drawn before then would claim a browser nobody asked for. -->
+  {#if m.headed}
+    <SessionPane row={m.row} hidden={tab !== 'session'} />
+  {:else}
+    <div id="paneSession" class="empty" hidden={tab !== 'session'}>Loading…</div>
+  {/if}
   <!-- Both panes stay mounted and toggle `hidden`, as today: a section
        collapsed on Files is still collapsed after a look at Flows. -->
   <FilesPane {m} {root} hidden={tab !== 'files'}

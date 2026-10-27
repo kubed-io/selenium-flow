@@ -24,6 +24,8 @@
     if (row.sensitive) return row.set ? '●●●●' : ''
     if (Array.isArray(row.value)) return row.value.length ? row.value.join(', ') : '—'
     if (row.value === null || row.value === undefined || row.value === '') return '—'
+    // An object setting (session.capabilities) reads as the JSON it was given.
+    if (typeof row.value === 'object') return Object.keys(row.value).length ? JSON.stringify(row.value) : '—'
     return String(row.value)
   }
 </script>
@@ -65,8 +67,4 @@
     content: attr(data-tip); position: absolute; left: 20px; top: -4px; z-index: 5; white-space: nowrap;
     padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--panel); font-size: 12px; font-weight: 400;
   }
-  .pill.src.default { color: var(--muted); }
-  .pill.src.config { color: var(--accent); border-color: currentColor; }
-  .pill.src.env { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .pill.src.args { background: var(--ink); border-color: var(--ink); color: var(--panel); }
 </style>

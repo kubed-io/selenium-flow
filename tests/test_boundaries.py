@@ -87,6 +87,7 @@ NO_SELENIUM = tuple(
         "core.naming",
         "core.coerce",
         "core.assertion",
+        "core.session_caps",
         "workspace.store",
         "site_data.snapshot",
         "site_data.spare",

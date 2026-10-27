@@ -18,7 +18,10 @@ import tempfile
 import time
 from pathlib import Path
 
-from selenium.common.exceptions import ElementClickInterceptedException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    SessionNotCreatedException,
+)
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -33,7 +36,7 @@ from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
 from ..urls import allowed_navigation
-from . import browser, pointer, probe
+from . import browser, pointer, probe, session_caps
 from .assertion import Assertion, window
 from .browser import Grid
 from .coerce import as_bool, as_int
@@ -143,6 +146,24 @@ DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
 FRAME_ACTIONS = ("switch", "parent", "default")
 
 
+
+# What `open_session`'s result carries for the workspace and never for a
+# caller: the Grid's id, what was sent, and what the Grid says ran.
+OPEN_PRIVATE = ("session_id", "sent", "ran")
+
+
+def _ran(driver) -> dict:
+    """What the Grid says it started: version, node and live view, each None
+    when the returned capabilities do not say."""
+    caps = getattr(driver, "caps", None) or {}
+    version, node = caps.get("browserVersion"), caps.get("se:containerName")
+    live = caps.get("se:vncEnabled")
+    return {
+        "version": version if isinstance(version, str) and version else None,
+        "node": node if isinstance(node, str) and node else None,
+        "live_view": live if isinstance(live, bool) else None,
+    }
+
 class Actions:
     """The browser operations, bound to one Grid."""
 
@@ -177,6 +198,10 @@ class Actions:
         # browsing context. Wired by the server once capture exists, so a
         # save's spare tab never reaches a caller's console or network log.
         self.hide = None
+        # The operator's `session.capabilities`, sent under the caller's at
+        # every open (spec 2026-10-26-session-capabilities): its own source,
+        # never a layer of the cascade. Wired by the server.
+        self.config_capabilities: dict = {}
         # The kept console and network (`capture.Capture`), wired by the server:
         # the capture resources read it. None when capture is not set up.
         self.capture = None
@@ -221,6 +246,7 @@ class Actions:
         self,
         url=None,
         browser=None,
+        version=None,
         width=None,
         height=None,
         page_load_timeout=None,
@@ -230,6 +256,7 @@ class Actions:
         capture=None,
         video_name=None,
         site_data=None,
+        capabilities=None,
         *,
         on_created=None,
         on_ready=None,
@@ -269,14 +296,35 @@ class Actions:
         insecure = as_bool(insecure, False)
         record = as_bool(record, False)
         capture = as_bool(capture, False)
-        driver = self.grid.open(
-            name, insecure=insecure, record=record, video_name=video_name
+        # What is sent is decided once, in `session_caps`. Built before
+        # anything opens: an owned key is a 400 that costs no browser.
+        built = session_caps.build(
+            name,
+            version=version,
+            insecure=insecure,
+            record=record,
+            video_name=video_name,
+            config=self.config_capabilities,
+            raw=capabilities,
         )
+        try:
+            driver = self.grid.open(built)
+        except SessionNotCreatedException as exc:
+            # No browser exists, so there is nothing to quit. A queue timeout
+            # or a node's refusal says what it means; the Grid's own failures
+            # stay as they were (spec 2026-10-26-session-capabilities).
+            fault = session_caps.not_created(failure_text(exc), built)
+            if fault is None:
+                raise
+            raise fault from exc
         session_id = driver.session_id
         try:
             return self._set_up(
                 driver,
                 name,
+                built=built,
+                asked_version=version,
+                capabilities=capabilities,
                 url=url,
                 width=width,
                 height=height,
@@ -310,6 +358,9 @@ class Actions:
         driver,
         name: str,
         *,
+        built: session_caps.Built,
+        asked_version,
+        capabilities,
         url,
         width,
         height,
@@ -407,17 +458,30 @@ class Actions:
             applied["record"] = True
         if capture:
             applied["capture"] = True
+        if asked_version is not None and str(asked_version).strip():
+            # As asked, `latest` included: the version that ran is beside it.
+            applied["version"] = str(asked_version).strip()
+        if capabilities:
+            applied["capabilities"] = capabilities
+        ran = _ran(driver)
         result = {
             "session_id": session_id,
             "browser": name,
+            "version": ran["version"],
             "url": current_url,
             "title": title,
             "width": size["width"],
             "height": size["height"],
             "settings": applied,
         }
+        if built.ignored:
+            result["ignored"] = list(built.ignored)
         if report and (report["restored"] or report["skipped"]):
             result["site_data"] = report
+        # For the workspace record and the admin only (`OPEN_PRIVATE`): what
+        # was sent, and what the Grid says ran.
+        result["sent"] = built.sent
+        result["ran"] = ran
         return result
 
     def save_site_data(self, session_id: str, url=None) -> dict:

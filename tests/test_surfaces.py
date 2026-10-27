@@ -5,6 +5,8 @@ doors onto the same function. A capability added to one and forgotten in the
 other breaks that quietly, so it is asserted here rather than trusted.
 """
 
+import json
+
 import pytest
 
 from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
@@ -300,3 +302,31 @@ async def test_network_body_publishes_its_ids_limits(server):
     tool = await server.mcp.get_tool("network_body")
     assert tool.parameters["properties"]["id"] | {"type": "string"} == {
         "type": "string", "minLength": 1, "maxLength": 64}
+
+
+async def test_open_session_takes_version_and_raw_capabilities(server, monkeypatch):
+    """`version` and `capabilities` on the tool (spec 2026-10-26-session-
+    capabilities): typed, so a model sees a string and a JSON object, and the
+    object takes nested JSON as given."""
+    from fastmcp import Client
+
+    from .conftest import NAMED, calling_as
+
+    tool = await server.mcp.get_tool("open_session")
+    props = tool.parameters["properties"]
+    assert {"version", "capabilities"} <= set(props)
+    assert "string" in json.dumps(props["version"])
+    assert "object" in json.dumps(props["capabilities"])
+
+    seen = {}
+
+    def opened(caller, **kwargs):
+        seen.update(kwargs)
+        return {"workspace": caller.name}
+
+    calling_as(monkeypatch, NAMED)
+    monkeypatch.setattr(server.workspaces, "open_browser", opened)
+    raw = {"goog:chromeOptions": {"args": ["--a"], "prefs": {"x": 1}}, "k:v": [None]}
+    async with Client(server.mcp) as client:
+        await client.call_tool("open_session", {"version": "152", "capabilities": raw})
+    assert seen["version"] == "152" and seen["capabilities"] == raw

@@ -17,6 +17,7 @@ import pytest
 from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
+from kubed.selenium_flow.core.session_caps import build
 
 from .conftest import calling_as
 
@@ -506,12 +507,13 @@ def test_an_insecure_browser_accepts_a_self_signed_certificate_and_nothing_else(
     insecure-content setting it once also carried let an https page load http
     scripts; with nothing downloaded through the page, nothing needs it."""
     grid = Grid("http://grid.invalid:4444")
-    default = grid._options("chrome")
-    insecure = grid._options("chrome", insecure=True)
-    assert not default.accept_insecure_certs
-    assert insecure.accept_insecure_certs
-    assert grid._options("firefox", insecure=True).accept_insecure_certs
-    prefs = insecure.experimental_options["prefs"]
+    default = grid._options(build("chrome")).to_capabilities()
+    insecure = grid._options(build("chrome", insecure=True)).to_capabilities()
+    assert default["acceptInsecureCerts"] is False
+    assert insecure["acceptInsecureCerts"] is True
+    firefox = grid._options(build("firefox", insecure=True)).to_capabilities()
+    assert firefox["acceptInsecureCerts"] is True
+    prefs = insecure["goog:chromeOptions"]["prefs"]
     assert "profile.default_content_setting_values.mixed_script" not in prefs
 
 
@@ -547,8 +549,8 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
         def get(self, url):
             self.current_url = url
 
-    def opening(browser=None, insecure=False, record=False, video_name=None):
-        asked.append(insecure)
+    def opening(built):
+        asked.append(built.send["acceptInsecureCerts"])
         return _Driver()
 
     monkeypatch.setattr(server.grid, "open", opening)

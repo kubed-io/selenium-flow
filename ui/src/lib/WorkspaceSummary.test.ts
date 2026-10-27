@@ -2,26 +2,24 @@ import { render, screen } from '@testing-library/svelte'
 import { expect, test } from 'vitest'
 import WorkspaceSummary from './WorkspaceSummary.svelte'
 
-test('named: no key or held-by; groups by lifetime (D1)', () => {
+test('the masthead: the name, how it is, and the last page; the facts are on Session', () => {
   const { container } = render(WorkspaceSummary, { data: { key: 'k', name: 'mine', owner: 'named', browser: 'firefox', session_id: 'id1', version: '130', live: false, url: 'https://a.b/' } })
   expect(container.querySelector('strong')).toHaveTextContent('mine')
   expect(screen.getByText('idle')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'https://a.b/' })).toHaveAttribute('rel', 'noopener noreferrer')
-  const labels = [...container.querySelectorAll('.group > .label')].map((e) => e.textContent)
-  expect(labels).toEqual(['workspace', 'browser'])
-  expect(screen.queryByText('key')).toBeNull()
+  expect(container.querySelector('.groups')).toBeNull()
+  expect(screen.queryByText('id1')).toBeNull()
 })
 
-test('unnamed shows key and held-by; a javascript: page is text; nowhere yet', () => {
+test('unnamed shows who holds it; a javascript: page is text; nowhere yet', () => {
   const r = render(WorkspaceSummary, { data: { key: 'stdio', owner: 'stdio', url: 'javascript:x' } })
-  expect(screen.getByText('key')).toBeInTheDocument()
-  expect(screen.getByText('held by')).toBeInTheDocument()
+  expect(r.container.querySelector('strong')).toHaveTextContent('stdio')
   expect(screen.queryByRole('link')).toBeNull()
   expect(screen.getByText('javascript:x')).toBeInTheDocument()
   r.unmount()
   render(WorkspaceSummary, { data: { key: 'x' } })
   expect(screen.getByText('nowhere yet')).toBeInTheDocument()
-  expect(screen.getByText('x')).toBeInTheDocument()
+  expect(screen.getByText('Workspace')).toBeInTheDocument()
 })
 
 test('a recording live workspace wears ● REC; otherwise none (R7)', () => {
@@ -32,23 +30,9 @@ test('a recording live workspace wears ● REC; otherwise none (R7)', () => {
   expect(screen.queryByText('● REC')).toBeNull()
 })
 
-test('the idle timeout sits with the session, live and idle, hidden when unknown (spec ruling 11)', () => {
-  const live = render(WorkspaceSummary, { data: { key: 'k', live: true, session_id: 'id1', grid_timeout: 300 } })
-  const fact = screen.getByText('idle timeout').closest('.group')
-  expect(fact?.querySelector('.label')).toHaveTextContent('browser')
-  expect(screen.getByText('300 s · read from the Grid node')).toBeInTheDocument()
-  live.unmount()
-  const idle = render(WorkspaceSummary, { data: { key: 'k', live: false, grid_timeout: 300 } })
-  expect(screen.getByText('300 s · no session is open')).toBeInTheDocument()
-  idle.unmount()
-  render(WorkspaceSummary, { data: { key: 'k', live: true, grid_timeout: null } })
-  expect(screen.queryByText('idle timeout')).toBeNull()
-})
-
-test('the card and summary wear ● capture or capture paused, and say the capture fact', () => {
-  const r = render(WorkspaceSummary, { data: { key: 'k', live: true, capture: true, capturing: true, captured: { console: 1, network: 2, errors: 0, failed_requests: 0 } } })
+test('the masthead wears ● capture or capture paused, as it did', () => {
+  const r = render(WorkspaceSummary, { data: { key: 'k', live: true, capture: true, capturing: true } })
   expect(screen.getByText('● capture')).toHaveClass('pill', 'capture')
-  expect(screen.getByText('on · receiving · 2 requests · 1 console entries')).toBeInTheDocument()
   r.unmount()
   render(WorkspaceSummary, { data: { key: 'k', live: false, capture: true, capturing: false } })
   expect(screen.getByText('capture paused')).toHaveClass('pill', 'capture-paused')

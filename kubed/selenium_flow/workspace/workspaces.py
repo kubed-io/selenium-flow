@@ -58,11 +58,11 @@ from ..capture import NETWORK_URI
 from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
 from ..capture.store import Buffer
-from ..core import guidance
-from ..core.actions import Actions
+from ..core import guidance, session_caps
+from ..core.actions import OPEN_PRIVATE, Actions
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
-from ..core.defaults import DEFAULT_BROWSER
+from ..core.defaults import DEFAULT_BROWSER, normalize_browser
 from ..monitor.monitor import ATTACH_FAILED
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
@@ -358,6 +358,7 @@ class Workspaces:
             "in_frame": None,
             "window": None,
             "grid_timeout": None,
+            "version": None,
             "store": self.kind,
             "settings": {},
         }
@@ -383,6 +384,9 @@ class Workspaces:
         # The idle timeout the Grid gave the last session: kept when it has
         # ended, like the window, because it is what the next one will get.
         status["grid_timeout"] = record.grid_timeout
+        # The version as it ran, beside `browser`; `settings` holds the one
+        # asked for. Kept when the session ends, like the idle timeout.
+        status["version"] = (record.ran or {}).get("version")
         saved = site_data_module.summary(record.site_data)
         if saved is not None:
             status["site_data"] = saved
@@ -514,6 +518,10 @@ class Workspaces:
         if not self._can_capture():
             # Nobody would hear it (capture was turned off since).
             replay.pop("capture", None)
+        # A remembered key an upgrade made owned is refused, saying how to
+        # clear it: dropping it quietly would change the browser's shape
+        # (spec 2026-10-26-session-capabilities, ruling 26).
+        session_caps.check(replay.get("capabilities"), remembered=True)
         opened = self._opened(
             name,
             replay,
@@ -537,6 +545,8 @@ class Workspaces:
             report=opened.get("site_data"),
             grid_timeout=timeout,
             window_seen=_measured(opened),
+            sent=opened.get("sent"),
+            ran=opened.get("ran"),
         )
         if kept == opened["session_id"]:
             self._told(
@@ -845,6 +855,14 @@ class Workspaces:
             for k, v in (previous.get("settings") or {}).items()
             if k not in ("record", "capture")
         }
+        asked = wanted.get("browser")
+        if asked not in (None, "") and normalize_browser(asked) != normalize_browser(
+            inherited_settings.get("browser")
+        ):
+            # Another browser is another version: Chrome's 152 is not a
+            # Firefox the Grid has (spec 2026-10-26-session-capabilities,
+            # ruling 20). One asked for in the same call still stands.
+            inherited_settings.pop("version", None)
         resolved = settings_module.resolve(
             wanted,
             defaults=self.defaults,
@@ -855,6 +873,9 @@ class Workspaces:
             raise ValueError(RECORDING_OFF)
         if resolved.get("capture") and not self._can_capture():
             raise ValueError(CAPTURE_OFF)
+        # An owned key or a vendor block a merge cannot add to: a 400 before
+        # the held browser is ended, like a bad `browser=`.
+        session_caps.check(resolved.get("capabilities"))
         # The caller's page, checked for the same reason. A remembered one is
         # where the browser already was, so it is not the caller's to check.
         if url:
@@ -893,6 +914,8 @@ class Workspaces:
             opened_by=caller.principal.opener() if caller.principal else None,
             grid_timeout=timeout,
             window_seen=_measured(opened),
+            sent=opened.get("sent"),
+            ran=opened.get("ran"),
         )
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
@@ -927,8 +950,9 @@ class Workspaces:
         if forgotten is not None:
             opened["site_data"] = {"forgotten": forgotten}
         # The Grid's id is dropped here rather than never fetched: it is how the
-        # browser is reached, and it is not part of what a caller is told.
-        told = {k: v for k, v in opened.items() if k != "session_id"}
+        # browser is reached, and it is not part of what a caller is told. So
+        # are what was sent and what ran, which are the admin's.
+        told = {k: v for k, v in opened.items() if k not in OPEN_PRIVATE}
         told["recording"] = bool(resolved.get("record"))
         told["capture"] = bool(resolved.get("capture"))
         if noted:
@@ -966,6 +990,8 @@ class Workspaces:
         opened_by: dict | object | None = KEEP,
         grid_timeout: int | None = None,
         window_seen: str | None = None,
+        sent: list | None = None,
+        ran: dict | None = None,
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
@@ -1009,6 +1035,11 @@ class Workspaces:
                 **({} if opened_by is KEEP else {"opened_by": opened_by}),
                 grid_timeout=grid_timeout,
                 window_seen=window_seen,
+                # What this browser's open sent and what ran; a new browser
+                # has not ended.
+                sent=list(sent or []),
+                ran=dict(ran) if ran else None,
+                ended=None,
             )
             return fresh.visited(url, ttl=ttl), None
 
@@ -1151,8 +1182,12 @@ class Workspaces:
             )
         # Ending took a Grid round trip: detach the record as it is now, and
         # only if it still names this browser — one opened meanwhile stays.
+        ended = {
+            "at": time.time(),
+            "by": "admin" if caller.named_by == "admin" else "caller",
+        }
         self.store.update(
-            name, lambda r: r.detached() if r.session_id == target else None
+            name, lambda r: r.detached(ended) if r.session_id == target else None
         )
         # Only a confirmed quit (a 404 counts: Grid.quit treats it as done) is
         # announced, and only once detached, so a page redrawn on it never
