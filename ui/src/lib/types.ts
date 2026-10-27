@@ -23,6 +23,13 @@ export interface FilesData {
 
 export interface Counts { downloads: number; screenshots: number; recordings?: number; files: number }
 
+/** One capability an open sent, and the layers it came from. */
+export interface SentCapability {
+  key: string
+  value: unknown
+  sources: ('flow' | 'config' | 'option' | 'raw')[]
+}
+
 export interface WorkspaceRow {
   key: string
   name?: string | null
@@ -51,6 +58,14 @@ export interface WorkspaceRow {
   capturing?: boolean
   captured?: Captured | null
   capture_ttl?: number
+  /** The version asked for (`latest` or none: any). `version` is the Grid listing's, as ran. */
+  asked_version?: string | null
+  /** What the last open sent, for the Session tab only. */
+  sent?: SentCapability[]
+  /** What the Grid says the last open started. */
+  ran?: { version: string | null; node: string | null; live_view: boolean | null } | null
+  /** How the last session ended, when this server ended it. */
+  ended?: { at: number; by: 'admin' | 'caller' } | null
 }
 
 export interface WorkspacesPayload { workspaces: WorkspaceRow[]; events_url?: string }

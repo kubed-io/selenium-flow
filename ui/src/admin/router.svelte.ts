@@ -1,7 +1,7 @@
 /* The hash, not the history API: every other path under this mount is a real
    endpoint, and a history route would need a catch-all that answers a mistyped
    API call with HTML. A hash never reaches the server. */
-export type Tab = 'files' | 'flows' | 'site-data' | 'history' | 'console' | 'network'
+export type Tab = 'session' | 'files' | 'flows' | 'site-data' | 'history' | 'console' | 'network'
 export type Route =
   | { view: 'list' }
   | { view: 'console' }
@@ -9,7 +9,7 @@ export type Route =
   | { view: 'settings' }
   | { view: 'workspace'; key: string; tab: Tab; flow: string | undefined; site: string | undefined; request: string | undefined }
 
-const TABS: readonly string[] = ['flows', 'site-data', 'history', 'console', 'network']
+const TABS: readonly string[] = ['session', 'files', 'flows', 'site-data', 'history', 'console', 'network']
 
 export function parse(hash: string): Route {
   const [view, key, tab, rest] = hash.replace(/^#\/?/, '').split('/')
@@ -19,7 +19,8 @@ export function parse(hash: string): Route {
   if (view === 'workspaces' && key) {
     // parse() runs at module load: a bad pasted `%` must not stop the app booting.
     try {
-      const picked = (TABS.includes(tab) ? tab : 'files') as Tab
+      // A workspace opens on Session (spec 2026-10-26-session-capabilities).
+      const picked = (TABS.includes(tab) ? tab : 'session') as Tab
       const named = rest ? decodeURIComponent(rest) : undefined
       return {
         view: 'workspace',
@@ -44,6 +45,7 @@ export const hashes = {
   secrets: '#/secrets',
   settings: '#/settings',
   workspace: (key: string) => '#/workspaces/' + enc(key),
+  files: (key: string) => '#/workspaces/' + enc(key) + '/files',
   flows: (key: string) => '#/workspaces/' + enc(key) + '/flows',
   siteData: (key: string) => '#/workspaces/' + enc(key) + '/site-data',
   site: (key: string, host: string) => '#/workspaces/' + enc(key) + '/site-data/' + enc(host),

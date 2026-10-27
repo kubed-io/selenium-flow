@@ -1,31 +1,13 @@
 <script lang="ts">
-  import { browserMark, captureFact, idle, safeHref } from './format'
+  import { browserMark, safeHref } from './format'
   import type { WorkspaceRow } from './types'
 
+  /* The masthead: which workspace, how it is, and where it was. The facts
+     about it and its browser live on the Session tab (spec
+     2026-10-26-session-capabilities); the pills stay here as they were. */
   let { data }: { data: WorkspaceRow | null } = $props()
   const s = $derived(data ?? ({ key: '' } as WorkspaceRow))
   const href = $derived(safeHref(s.url))
-
-  // Grouped by how long each fact lives: the workspace's survive its browser.
-  const groups = $derived([
-    ['workspace', [
-      ['key', s.name ? null : s.key],
-      ['held by', s.name ? null : s.owner],
-      ['browser', s.browser],
-      ['window', s.window],
-      ['started', s.started ? new Date(s.started * 1000).toLocaleString() : null],
-      ['capture', captureFact(s)],
-    ]],
-    ['browser', [
-      ['version', s.version],
-      ['id', s.session_id],
-      ['node', s.node],
-      // The session's, as drawn: kept on the record after it ends, so an idle
-      // card shows it too (spec ruling 11).
-      ['idle timeout', idle(s.grid_timeout, s.live)],
-    ]],
-  ].map(([label, facts]) => [label, (facts as [string, unknown][]).filter(([, v]) => v)] as const)
-    .filter(([, facts]) => facts.length))
 </script>
 
 <div class="card">
@@ -36,7 +18,7 @@
     {#if s.live && s.recording}<span class="pill rec">● REC</span>{/if}
     {#if s.capture}{#if s.capturing}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
   </div>
-  <div class="lastpage">
+  <div class="lastpage masthead">
     <div class="k small muted">last page</div>
     {#if href}
       <a {href} target="_blank" rel="noopener noreferrer">{s.url}</a>
@@ -44,14 +26,9 @@
       <span class="small muted">{s.url || 'nowhere yet'}</span>
     {/if}
   </div>
-  <div class="groups">
-    {#each groups as [label, facts] (label)}
-      <div class="group">
-        <div class="label">{label}</div>
-        {#each facts as [k, v] (k)}
-          <div class="fact"><div class="k">{k}</div><div class="v">{v}</div></div>
-        {/each}
-      </div>
-    {/each}
-  </div>
 </div>
+
+<style>
+  /* Nothing sits below it any more, so no rule to close it off. */
+  .masthead { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+</style>

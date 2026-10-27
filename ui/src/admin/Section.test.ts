@@ -69,3 +69,18 @@ test('a different id starts open', () => {
   expect(container.querySelector('button.title')).toHaveAttribute('aria-expanded', 'true')
   expect(container.querySelector('section')).toHaveAttribute('data-open', 'true')
 })
+
+test('a collapsed section starts closed, and a fold the user made still wins', async () => {
+  // This file runs real durations (the mock above), and jsdom has no animate.
+  Element.prototype.animate = (() => ({ cancel() {}, onfinish: null, currentTime: 0 })) as unknown as typeof Element.prototype.animate
+  const { container, unmount } = render(Harness, { collapsed: true })
+  const toggle = container.querySelector('button.title') as HTMLButtonElement
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  expect(container.querySelector('section')).toHaveAttribute('data-open', 'false')
+  expect(container.querySelector('#myBody p')).toBeNull()
+  await fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  unmount()
+  const again = render(Harness, { collapsed: true })
+  expect(again.container.querySelector('button.title')).toHaveAttribute('aria-expanded', 'true')
+})

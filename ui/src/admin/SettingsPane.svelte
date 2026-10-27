@@ -67,8 +67,4 @@
     content: attr(data-tip); position: absolute; left: 20px; top: -4px; z-index: 5; white-space: nowrap;
     padding: 4px 8px; border-radius: 6px; background: var(--ink); color: var(--panel); font-size: 12px; font-weight: 400;
   }
-  .pill.src.default { color: var(--muted); }
-  .pill.src.config { color: var(--accent); border-color: currentColor; }
-  .pill.src.env { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .pill.src.args { background: var(--ink); border-color: var(--ink); color: var(--panel); }
 </style>

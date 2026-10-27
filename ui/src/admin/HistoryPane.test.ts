@@ -56,10 +56,10 @@ const visits = (c: HTMLElement) => [...c.querySelectorAll('#paneHistory section.
 const loaded = (c: HTMLElement, n = 4) => vi.waitFor(() => expect(visits(c)).toHaveLength(n))
 const modal = () => document.querySelector('.modal') as HTMLElement
 
-test('History is the fourth subtab and counts the hosts listed', async () => {
+test('History is the fifth subtab, after Session, and counts the hosts listed', async () => {
   const { container } = setup()
   const tabs = [...container.querySelectorAll('#workspaceTabs button')].map((b) => b.firstChild!.textContent!.trim())
-  expect(tabs).toEqual(['Files', 'Flows', 'Site data', 'History', 'Console', 'Network'])
+  expect(tabs).toEqual(['Session', 'Files', 'Flows', 'Site data', 'History', 'Console', 'Network'])
   expect(screen.getByRole('tab', { name: /History/ })).toHaveAttribute('aria-selected', 'true')
   await loaded(container)
   expect(container.querySelector('#historyTotal')).toHaveTextContent('4')

@@ -2,6 +2,7 @@
   "events_url": "/admin/events?<signed>",
   "workspaces": [
     {
+      "asked_version": null,
       "attached": true,
       "browser": "chrome",
       "capture": false,
@@ -14,6 +15,7 @@
         "recordings": 0,
         "screenshots": 0
       },
+      "ended": null,
       "files_count": 0,
       "files_rev": "[]",
       "flows_count": 0,
@@ -27,7 +29,9 @@
       "node": null,
       "opened_by": null,
       "owner": "named",
+      "ran": null,
       "recording": false,
+      "sent": [],
       "session_id": "live-1",
       "site_data_count": 0,
       "site_data_rev": "[null, []]",
@@ -37,6 +41,7 @@
       "window": null
     },
     {
+      "asked_version": null,
       "attached": true,
       "browser": "chrome",
       "capture": false,
@@ -49,6 +54,7 @@
         "recordings": 0,
         "screenshots": 0
       },
+      "ended": null,
       "files_count": 0,
       "files_rev": "[]",
       "flows_count": 0,
@@ -62,7 +68,9 @@
       "node": null,
       "opened_by": null,
       "owner": "named",
+      "ran": null,
       "recording": false,
+      "sent": [],
       "session_id": "live-1",
       "site_data_count": 0,
       "site_data_rev": "[null, []]",
@@ -72,6 +80,7 @@
       "window": null
     },
     {
+      "asked_version": null,
       "attached": false,
       "browser": "chrome",
       "capture": false,
@@ -84,6 +93,7 @@
         "recordings": 0,
         "screenshots": 0
       },
+      "ended": null,
       "files_count": 0,
       "files_rev": "[]",
       "flows_count": 0,
@@ -97,7 +107,9 @@
       "node": null,
       "opened_by": null,
       "owner": "named",
+      "ran": null,
       "recording": false,
+      "sent": [],
       "session_id": null,
       "site_data_count": 1,
       "site_data_rev": "[1790799970.0, [\"app.example.com\"]]",
@@ -107,8 +119,9 @@
       "window": null
     },
     {
+      "asked_version": "142",
       "attached": false,
-      "browser": "chrome",
+      "browser": "firefox",
       "capture": false,
       "capture_ttl": 10800,
       "captured": null,
@@ -118,6 +131,10 @@
         "files": 0,
         "recordings": 0,
         "screenshots": 0
+      },
+      "ended": {
+        "at": 1790796500.0,
+        "by": "admin"
       },
       "files_count": 0,
       "files_rev": "[]",
@@ -132,7 +149,40 @@
       "node": null,
       "opened_by": null,
       "owner": "named",
+      "ran": {
+        "live_view": true,
+        "node": "node-firefox-1",
+        "version": "142.0"
+      },
       "recording": false,
+      "sent": [
+        {
+          "key": "browserName",
+          "sources": [
+            "option"
+          ],
+          "value": "firefox"
+        },
+        {
+          "key": "kubed:pool",
+          "sources": [
+            "config"
+          ],
+          "value": "default"
+        },
+        {
+          "key": "moz:firefoxOptions",
+          "sources": [
+            "flow",
+            "raw"
+          ],
+          "value": {
+            "prefs": {
+              "pdfjs.disabled": true
+            }
+          }
+        }
+      ],
       "session_id": null,
       "site_data_count": 0,
       "site_data_rev": "[null, []]",

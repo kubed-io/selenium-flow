@@ -693,3 +693,29 @@ def test_a_grid_that_cannot_be_listed_is_logged_without_its_credentials(client, 
         client.get("/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"})
     assert "could not read the grid" in caplog.text
     assert "hunter2" not in caplog.text
+
+
+def test_a_row_carries_what_the_session_sent_ran_and_how_it_ended(client, server):
+    """The Session tab's three parts (spec 2026-10-26-session-capabilities):
+    what was asked, what the Grid gave, and every capability sent."""
+    sent = [{"key": "kubed:pool", "value": "a", "sources": ["config"]}]
+    server.workspaces.store.set("w", Workspace(
+        session_id="",
+        settings={"browser": "firefox", "version": "142"},
+        sent=sent,
+        ran={"version": "142.0", "node": "node-a", "live_view": True},
+        ended={"at": 5.0, "by": "admin"},
+    ))
+    row = admin_row(client, server, [])
+    assert row["sent"] == sent
+    assert row["ran"] == {"version": "142.0", "node": "node-a", "live_view": True}
+    assert row["ended"] == {"at": 5.0, "by": "admin"}
+    assert row["asked_version"] == "142"
+
+
+def test_a_row_from_before_sessions_kept_anything_reads_as_none(client, server):
+    """Review Focus 5: an old record lists like any other."""
+    server.workspaces.store.set("w", Workspace(session_id=""))
+    row = admin_row(client, server, [])
+    assert row["sent"] == [] and row["ran"] is None and row["ended"] is None
+    assert row["asked_version"] is None
