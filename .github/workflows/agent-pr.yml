@@ -58,6 +58,7 @@ jobs:
       number: ${{ steps.route.outputs.number }}
       head: ${{ steps.route.outputs.head }}
       prompt: ${{ steps.route.outputs.prompt }}
+      prompt_when: ${{ steps.route.outputs.prompt_when }}
       takeover: ${{ steps.route.outputs.takeover }}
       run_id: ${{ steps.route.outputs.run_id }}
     steps:
@@ -115,6 +116,10 @@ jobs:
           core.setOutput('number', String(number));
           core.setOutput('head', pr.head.ref);
           core.setOutput('prompt', prompt);
+          // a dispatched event (checks failed, a review) is the point of its run: its prompt
+          // is the whole turn, and anything unread is the next one. A slash command only
+          // works at the start of a turn, so it cannot follow the thread's messages
+          core.setOutput('prompt_when', dispatched ? 'always' : 'quiet');
           // the checks run whose report the code job downloads
           const runId = dispatched && e.client_payload?.reason === 'ci' ? Number(e.client_payload?.run_id) || 0 : 0;
           core.setOutput('run_id', runId ? String(runId) : '');
@@ -292,6 +297,7 @@ jobs:
         agent: .issue/roles/claude/agents/code.md
         schema: .issue/roles/claude/agents/code.schema.json
         prompt: ${{ needs.route.outputs.prompt }}
+        prompt_when: ${{ needs.route.outputs.prompt_when }}
         # the plan approved: the planning drafts give way to the code
         compact: >-
           ${{ needs.route.outputs.takeover == 'true' && 'The plan is approved and the code
