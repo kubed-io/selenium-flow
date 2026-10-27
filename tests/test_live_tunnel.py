@@ -524,3 +524,39 @@ async def test_a_run_cancelled_while_its_tasks_wind_down_raises_the_callers_canc
         await task
     assert cancelled.value.args == ("the caller's",)
     await tick()
+
+
+class Stubborn(FakePeer):
+    """A viewer whose receive swallows its first cancel and blocks again."""
+
+    def __init__(self):
+        super().__init__()
+        self.release = asyncio.Event()
+        self.swallowed = False
+
+    async def receive(self):
+        try:
+            return await super().receive()
+        except asyncio.CancelledError:
+            if self.swallowed:
+                raise
+            self.swallowed = True
+            await self.release.wait()
+            raise
+
+
+async def test_a_second_cancellation_during_teardown_still_closes_both_sockets():
+    viewer = Stubborn()
+    tunnel, viewer, node, dial = make(viewer)
+    async with asyncio.timeout(5):
+        task = asyncio.create_task(tunnel.run(dial, b"secret"))
+        await tick()  # the viewer's reader and the hub's handshake are waiting
+        task.cancel()
+        await tick()  # run is now waiting for the reader that ignored its cancel
+        assert viewer.swallowed and not task.done()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    viewer.release.set()
+    await tick()
+    assert viewer.closed is not None and node.closed is not None

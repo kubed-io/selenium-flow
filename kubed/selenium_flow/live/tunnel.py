@@ -285,10 +285,12 @@ class Tunnel:
             # `wait`, not `gather`: cancelled here, gather raises a task's own
             # CancelledError in place of the caller's, and an anyio scope
             # (Starlette's) lets one that is not its own escape.
-            if tasks:
-                await asyncio.wait(tasks)
-            ending = self._ending or STOPPING
-            await self._close(ending)
+            try:
+                if tasks:
+                    await asyncio.wait(tasks)
+            finally:  # a second cancel while waiting must not skip the close
+                ending = self._ending or STOPPING
+                await self._close(ending)
         return ending
 
     async def _close(self, ending: Ending) -> None:
