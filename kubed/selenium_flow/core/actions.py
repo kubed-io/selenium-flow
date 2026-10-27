@@ -1110,10 +1110,15 @@ class Actions:
         root, and the agent is always left in the top document. Refused while
         the agent has a frame selected: putting it back at the top would move it.
 
+        One trailing newline is dropped before the cap, the usual leftover of a
+        terminal copy, which would submit a form; newlines inside still type.
+
         Answers a count and no page state: neither the value nor the text can
         come back.
         """
-        text = str(text)[:PASTE_CAP]
+        text = str(text)
+        text = text.removesuffix("\r\n" if text.endswith("\r\n") else "\n")
+        text = text[:PASTE_CAP]
 
         def typing(at):
             driver = at.driver
@@ -1137,7 +1142,8 @@ class Actions:
                 if hosts(found):
                     raise ValueError(TOO_DEEP)
                 try:
-                    found.send_keys(text)
+                    if text:
+                        found.send_keys(text)
                 except WebDriverException as exc:
                     if BMP_REFUSAL in str(exc):
                         raise ValueError(CANNOT_TYPE) from None

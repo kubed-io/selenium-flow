@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { Api } from './api'
-  import { LiveView } from './liveview.svelte'
+  import { LiveView, PASTE_CAP } from './liveview.svelte'
 
   let { api, key, name, root, load }: {
     api: Api
@@ -70,7 +70,7 @@
             title={up && control ? 'Paste' : 'Paste types into the browser in Control'}>📋</button>
     {#if pasting && up && control}
       <div class="popover">
-        <textarea placeholder="Paste" bind:value={text}></textarea>
+        <textarea placeholder="Paste" maxlength={PASTE_CAP} bind:value={text}></textarea>
         <p class="small muted">Types at the cursor in the browser</p>
         {#if refused}<p class="small error">{refused}</p>{/if}
         <button type="button" class="primary" disabled={sending || !text} onclick={send}>Send</button>

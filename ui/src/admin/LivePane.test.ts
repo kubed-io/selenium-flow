@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { FakeRfb, FakeSocket, MINT } from '../test/live'
 import { ApiError, type Api } from './api'
 import LivePane from './LivePane.svelte'
+import { PASTE_CAP } from './liveview.svelte'
 
 let paste: () => unknown
 const api = vi.fn(async (path: string) => (path.endsWith('/paste') ? paste() : { ...MINT })) as unknown as Api
@@ -64,7 +65,7 @@ test('Control gets the outline and opens the paste popover', async () => {
   expect(container.querySelector('.screen')).toHaveClass('control')
   await fireEvent.click(screen.getByRole('button', { name: /Paste/ }))
   expect(screen.getByText('Types at the cursor in the browser')).toBeInTheDocument()
-  expect(screen.getByPlaceholderText('Paste')).toBeInTheDocument()
+  expect(screen.getByPlaceholderText('Paste')).toHaveAttribute('maxlength', String(PASTE_CAP))
 })
 
 test('a refused paste keeps its text and shows the sentence; a sent one closes the popover', async () => {

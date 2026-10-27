@@ -160,6 +160,35 @@ def test_it_is_capped_at_ten_thousand_characters(paste):
     assert answer["typed"] == PASTE_CAP
 
 
+@pytest.mark.parametrize(
+    "text, typed",
+    [
+        ("hello\n", "hello"),
+        ("hello\r\n", "hello"),
+        ("hello\n\n", "hello\n"),
+        ("one\ntwo\r\nthree\n", "one\ntwo\r\nthree"),
+        ("hello\r", "hello\r"),
+        # Dropped before the cap: what was sent ends in the newline.
+        ("a" * (PASTE_CAP - 1) + "\n", "a" * (PASTE_CAP - 1)),
+        ("a" * (PASTE_CAP - 1) + "\n\n", "a" * (PASTE_CAP - 1) + "\n"),
+    ],
+    ids=["lf", "crlf", "only-one", "inside", "lone-cr", "at-the-cap", "over-the-cap"],
+)
+def test_one_trailing_newline_is_dropped_and_the_rest_types(paste, text, typed):
+    driver = FocusedDriver()
+    driver.answers[:] = [element(driver.log)]
+    answer = paste(driver, text)
+    assert calls(driver, ("element", "send_keys")) == [("element", "send_keys", typed)]
+    assert answer["typed"] == len(typed)
+
+
+def test_a_lone_newline_types_nothing(paste):
+    driver = FocusedDriver()
+    driver.answers[:] = [element(driver.log)]
+    assert paste(driver, "\n")["typed"] == 0
+    assert not calls(driver, ("element", "send_keys"))
+
+
 def test_the_answer_is_a_count_and_never_the_text(paste):
     driver = FocusedDriver()
     driver.answers[:] = [element(driver.log)]
