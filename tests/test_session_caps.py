@@ -450,3 +450,41 @@ def test_no_message_quotes_a_vendor_block_or_a_proxy():  # Review Focus 2
     )
     for said in ("New session request timed out", "session not created: no"):
         assert "SECRET" not in str(not_created(said, built))
+
+
+# ---- whose version a refusal blames (ruling 4) --------------------------------
+
+REFUSED = "session not created: no such version"
+
+
+def test_a_config_version_alone_is_not_the_callers():
+    fault = not_created(REFUSED, build("chrome", version="152", version_from="config"))
+    assert not fault.blamed
+    assert str(fault).endswith("the server's own session.version asks for 152")
+
+
+@pytest.mark.parametrize(
+    "origin, said",
+    [
+        ("client", "version 152, from X-Version or ?version="),
+        ("call", "version 152, from this call's version="),
+        (
+            "remembered",
+            'version 152, remembered by this workspace (version="latest" forgets it)',
+        ),
+    ],
+)
+def test_a_callers_version_is_blamed_naming_where_it_came_from(origin, said):
+    fault = not_created(REFUSED, build("chrome", version="152", version_from=origin))
+    assert fault.blamed and said in str(fault)
+
+
+def test_raw_keys_are_blamed_without_naming_a_config_version():
+    fault = not_created(
+        REFUSED, build("chrome", version="152", version_from="config", raw={"x:y": 1})
+    )
+    assert fault.blamed and "version 152" not in str(fault)
+
+
+def test_latest_has_no_origin():
+    assert build("chrome", version="latest", version_from="client").version_from is None

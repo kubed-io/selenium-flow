@@ -286,6 +286,7 @@ class Actions:
         site_data=None,
         capabilities=None,
         *,
+        version_from: str = "call",
         on_created=None,
         on_ready=None,
         on_quit=None,
@@ -302,6 +303,9 @@ class Actions:
         storage, the saved sessionStorage — before the first page loads, except
         into an ``insecure`` browser, which gets none. ``record`` asks the Grid
         to film this browser's whole life.
+
+        ``version_from`` says whose ``version`` is (see ``session_caps.build``);
+        a node's refusal blames the caller for it unless it is the config's.
 
         ``on_created`` is called with the Grid's id the moment the browser
         exists, before anything here that can fail: a browser left running by
@@ -334,6 +338,7 @@ class Actions:
             video_name=video_name,
             config=self.config_capabilities,
             raw=capabilities,
+            version_from=version_from,
         )
         try:
             driver = self.grid.open(built)
