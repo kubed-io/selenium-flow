@@ -90,6 +90,37 @@ test('moves the toggle only when the proxy answers', async () => {
   view.dispose()
 })
 
+test('stays view-only while control is requested', async () => {
+  const { view } = make()
+  await view.connect()
+  view.ask('control')
+  sock().say('{"type":"mode","mode":"requested"}')
+  expect(view.mode).toBe('requested')
+  expect(rfb().viewOnly).toBe(true)
+  await expect(view.paste('x')).rejects.toThrow('Paste types into the browser in Control')
+  view.dispose()
+})
+
+test('grants on control after requested', async () => {
+  const { view } = make()
+  await view.connect()
+  sock().say('{"type":"mode","mode":"requested"}')
+  sock().say('{"type":"mode","mode":"control"}')
+  expect(view.mode).toBe('control')
+  expect(rfb().viewOnly).toBe(false)
+  view.dispose()
+})
+
+test('a watch frame withdraws a requested control', async () => {
+  const { view } = make()
+  await view.connect()
+  sock().say('{"type":"mode","mode":"requested"}')
+  sock().say('{"type":"mode","mode":"watch"}')
+  expect(view.mode).toBe('watch')
+  expect(rfb().viewOnly).toBe(true)
+  view.dispose()
+})
+
 test('sends presence every heartbeat while visible, none while hidden, one at once on becoming visible', async () => {
   vi.useFakeTimers()
   const { view } = make()

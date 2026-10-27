@@ -29,6 +29,7 @@
 
   const up = $derived(view?.state === 'connected')
   const control = $derived(view?.mode === 'control')
+  const requested = $derived(view?.mode === 'requested')
 
   const closePaste = () => { pasting = false; refused = '' }
   // The popover is only ever for Control: a drop or a switch to Watch closes it.
@@ -59,9 +60,10 @@
 
 {#snippet toggle()}
   <span class="switch">
-    <button type="button" aria-pressed={!control} aria-label="Watch" title="Watch" disabled={!up} onclick={() => view?.ask('watch')}>👁️</button>
-    <button type="button" aria-pressed={control} aria-label="Control" title="Control" disabled={!up} onclick={() => view?.ask('control')}>🖱️</button>
+    <button type="button" aria-pressed={!control && !requested} aria-label="Watch" title="Watch" disabled={!up} onclick={() => view?.ask('watch')}>👁️</button>
+    <button type="button" aria-pressed={control || requested} aria-label="Control" title="Control" disabled={!up} onclick={() => view?.ask('control')}>🖱️</button>
   </span>
+  {#if requested}<span class="small muted" role="status">waiting for the agent's call to finish</span>{/if}
 {/snippet}
 
 {#snippet paste()}

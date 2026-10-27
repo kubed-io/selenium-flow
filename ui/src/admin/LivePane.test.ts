@@ -82,6 +82,19 @@ test('a refused paste keeps its text and shows the sentence; a sent one closes t
   await vi.waitFor(() => expect(screen.queryByPlaceholderText('Paste')).toBeNull())
 })
 
+test('says it is waiting for the agent, keeps Watch reachable and paste greyed', async () => {
+  await setup(); await connect()
+  await fireEvent.click(screen.getByRole('button', { name: /Control/ }))
+  sock().say('{"type":"mode","mode":"requested"}')
+  expect(await screen.findByText("waiting for the agent's call to finish")).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Paste/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Watch/ })).toBeEnabled()
+  await fireEvent.click(screen.getByRole('button', { name: /Watch/ }))
+  expect(sock().sent).toContain('{"type":"mode","mode":"watch"}')
+  sock().say('{"type":"mode","mode":"watch"}')
+  await vi.waitFor(() => expect(screen.queryByText("waiting for the agent's call to finish")).toBeNull())
+})
+
 test('disconnected shows the reason, dims, and Reconnect mints again', async () => {
   const { container } = await setup(); await connect()
   sock().shut(4001, 'idle')
