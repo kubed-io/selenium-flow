@@ -71,6 +71,7 @@ NO_PROTOCOL = (
     *walk("monitor"),
     *walk("bidi"),
     *walk("capture"),
+    *walk("live"),
     *(
         f"kubed.selenium_flow.{name}"
         for name in (
@@ -97,6 +98,7 @@ NO_SELENIUM = tuple(
         "monitor.monitor",
         "bidi.connection",
         "bidi.channel",
+        "live.rfb",
         "capture",
         "capture.masking",
         "capture.merge",
@@ -192,6 +194,7 @@ def test_the_walk_finds_the_layers():
     assert "kubed.selenium_flow.monitor.events" in NO_PROTOCOL
     assert "kubed.selenium_flow.bidi.connection" in NO_PROTOCOL
     assert "kubed.selenium_flow.capture.store" in NO_PROTOCOL
+    assert "kubed.selenium_flow.live.rfb" in NO_PROTOCOL
     assert "kubed.selenium_flow.workspace.store" in NO_PROTOCOL
     assert "kubed.selenium_flow.site_data.snapshot" in NO_PROTOCOL
     assert "kubed.selenium_flow.core.coerce" in NO_PROTOCOL
@@ -242,7 +245,7 @@ UPPER = tuple(
 
 # The kernel: the same layers `NO_PROTOCOL` walks, `flows/api` excepted.
 KERNEL = (
-    "core", "workspace", "flows", "site_data", "recordings", "monitor", "bidi", "capture"
+    "core", "workspace", "flows", "site_data", "recordings", "monitor", "bidi", "capture", "live"
 )
 KERNEL_SKIP = {"flows/api.py"}
 

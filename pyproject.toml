@@ -62,6 +62,10 @@ dependencies = [
   # asyncio client with pings. It already arrives with fastmcp,
   # whose floor this is; declared because the module imports it.
   "websockets>=15",
+  # Imported directly by live/rfb.py for VNC's DES. It arrives with FastMCP's
+  # JWT verifier; declared because the module imports it. 43 is where
+  # hazmat.decrepit arrived.
+  "cryptography>=43",
 ]
 
 [project.optional-dependencies]
@@ -123,6 +127,7 @@ packages = [
   "kubed.selenium_flow",
   "kubed.selenium_flow.bidi",
   "kubed.selenium_flow.capture",
+  "kubed.selenium_flow.live",
   "kubed.selenium_flow.core",
   "kubed.selenium_flow.flows",
   "kubed.selenium_flow.http",
