@@ -217,7 +217,7 @@ anyone else. On top of it:
   on), every user of that session shares it; otherwise `Channels.open_channel` opens one for
   the block and closes it. A connection closes clean — it removes the intercepts added on it,
   then unsubscribes by id and removes its data collectors — so Firefox's fan-out never floods another
-  socket, no body outlives its reader and no intercept outlives a save the close cut off. `websockets` is imported in `bidi/connection.py` and nowhere else. An
+  socket, no body outlives its reader and no intercept outlives a save the close cut off. `websockets` is imported in `bidi/connection.py` and nowhere else: `dial`, `Socket` and `open_socket` there are also the one opener of the live view's hub socket. An
   intercept is added only by the spare tab (`site_data/spare.py`), scoped to its tab and one
   path, and removed before its listener: a request matching an orphaned intercept hangs with
   nobody to answer. Selenium's own BiDi client is not used. A held socket is a channel, never
@@ -711,6 +711,44 @@ which it still owes something. It says so on a bus: `session.opened`,
   with one rename at boot (`flows/store.from_settings`), and both present stops
   the boot naming both. Retired names refused at boot: `FLOW_DATA_DIR`,
   `SESSION_STORE`, `SESSION_TTL`, and `session.store` / `session.ttl` in the file.
+
+### The live view: a tunnel this server owns
+
+An admin watches, and in Control types into, a workspace's Grid browser through
+a WebSocket this server proxies to the hub's `/session/<id>/se/vnc`
+(`live/`, `http/admin/live.py`; spec 2026-10-27-live-view).
+
+- **The proxy owns teardown.** It closes upstream when the viewer leaves, when
+  the browser ends (`session.ended` for its Grid id, 4001) and when nobody is
+  present for `live.grace`; either socket closing closes both. A tunnel held
+  through the hub kept a browser alive for 40+ minutes after its tab closed.
+- **A visible tab keeps the browser alive, with no cap** (ruling 14): the page's
+  heartbeat and, in Control, input are presence. Do not add a duration or
+  viewer limit without a ruling.
+- **Watch is the gate's, not the page's.** The viewer's stream is parsed into
+  whole RFB messages and passed through an allowlist of noVNC's own: Watch
+  forwards only what asks for pictures, an unknown type closes `4005`, and
+  SetEncodings loses ExtendedMouseButtons. ClientInit is replaced with
+  `shared`, so a viewer never takes the browser from the agent's screen.
+- **`dial()` is the one socket opener, and `live/` is plain**: no Starlette, no
+  `websockets`, listed in `test_boundaries`. The route adapts both sides.
+- **The socket is mounted through FastMCP's `_additional_http_routes`**, a
+  private list, because it has no WebSocket route API. `test_admin_live` is what
+  notices when FastMCP moves it.
+- **The socket link is exact**: 60 s, no rounding (`links.sign(exact=True)`,
+  ruling 15), because it is checked once at connect and grants a keyboard.
+- **The audit line names the session by its start time** and never holds a
+  frame, a keystroke, paste text, the link's query, the password or a Grid id:
+  the id is what opens the hub's socket. `uvicorn`'s own WebSocket lines are
+  rewritten to the route template by `http/access_log.py`.
+- **Paste is WebDriver's**, sent to the focused element: x11vnc drops
+  non-ASCII keystrokes once its spare keycodes run out (ruling 31, measured).
+  It refuses while the agent has a frame selected, because frame switches are
+  sticky.
+- **A person in Control is on every MCP result for that workspace**
+  (`mcp/control.py`, ruling 35); HTTP results carry none. The state is the
+  tunnels' and is process memory: one replica, and a restart forgets it.
+- **`.github/` is never edited by the agent workflow**; a person commits workflow changes.
 
 ### Everything to read is a resource, named by its URI
 

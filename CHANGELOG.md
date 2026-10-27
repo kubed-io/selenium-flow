@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Watch, or take the keyboard of, a workspace's live browser** from the admin UI's new Live tab; the agent is told while a person has control.
 - **`open_session` takes `version` and raw `capabilities`**, and `session.capabilities` sends a default with every browser; the admin UI's new Session tab shows what was asked, what ran and what was sent.
 - Fixed: Firefox accepts a self-signed certificate only with `insecure=true`, like Chrome.
 - The Flows tab opens a flow's panel beside the flow you picked, and a link to a flow scrolls to it.
