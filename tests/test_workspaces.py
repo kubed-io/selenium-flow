@@ -13,6 +13,7 @@ import time
 import pytest
 from pydantic import ValidationError
 
+from kubed.selenium_flow import faults
 from kubed.selenium_flow.config import RedisSettings, WorkspaceSettings
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.principal import Principal
@@ -28,6 +29,7 @@ from kubed.selenium_flow.workspace.workspaces import (
     OLD_HEADER,
     OLD_QUERY,
     Caller,
+    Workspaces,
     values_of,
 )
 
@@ -1091,13 +1093,16 @@ def test_context_is_what_a_reopen_should_inherit(monkeypatch):
     workspaces = manager()
     workspaces.store.set(
         NAMED,
-        Workspace(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
+        Workspace(
+            session_id="", settings={"browser": "firefox"}, set_by={"browser": "caller"}
+        ).visited("https://x/"),
     )
     monkeypatch.setattr(
         clients_module, "request_values", lambda: http({"workspace": "desktop"})
     )
     assert workspaces.context(NAMED) == {
         "settings": {"browser": "firefox"},
+        "set_by": {"browser": "caller"},
         "url": "https://x/",
     }
 
@@ -1214,6 +1219,7 @@ async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
         Workspace(
             session_id="",
             settings={"browser": "firefox", "width": 1400, "height": 900},
+            set_by={"browser": "caller", "width": "caller", "height": "caller"},
         ).visited("https://app.test/orders"),
     )
     async with Client(server.mcp) as client:
@@ -1997,3 +2003,156 @@ def test_a_bind_keeps_the_sources_it_is_given_and_defaults_the_rest_to_the_calle
     record = store.get("w")
     assert record.session_id == "grid-a"
     assert record.set_by == {"browser": "config", "width": "caller"}
+
+
+# ---- what a workspace carries over (spec 2026-10-27) -----------------------
+
+
+def test_a_changed_config_reaches_the_next_explicit_open():  # ruling 1
+    """An operator who changes `session.*` sees it at every workspace's next
+    open: the config is read fresh, never frozen into the record."""
+    ws = Workspaces(
+        RecordingActions(),
+        MemoryStore(),
+        defaults={"browser": "chrome", "width": 800, "version": "150"},
+    )
+    ws.open_browser(Caller(NAMED))
+    ws.defaults = {"browser": "firefox", "width": 1200, "version": "152"}
+    ws.open_browser(Caller(NAMED))
+    last = ws.actions.opened_settings[-1]
+    assert (last["browser"], last["width"], last["version"]) == ("firefox", 1200, "152")
+
+
+def test_a_dropped_client_header_no_longer_applies():
+    """A header taken out of a client's config stops applying at its next
+    open, instead of living on in the workspace it once opened."""
+    ws = manager()
+    ws.open_browser(caller_of({"workspace": NAMED}, {"x-browser": "firefox"}))
+    assert ws.actions.opened_settings[-1]["browser"] == "firefox"
+    ws.open_browser(caller_of({"workspace": NAMED}))
+    assert ws.actions.opened_settings[-1].get("browser") in (None, "chrome")
+
+
+def test_only_what_the_caller_passed_is_carried():
+    ws = Workspaces(RecordingActions(), MemoryStore(), defaults={"width": 800})
+    ws.open_browser(Caller(NAMED), height=600)
+    assert ws.store.get(NAMED).set_by == {"width": "config", "height": "caller"}
+    ws.defaults = {}
+    ws.open_browser(Caller(NAMED))
+    assert ws.actions.opened_settings[-1] == {"height": 600}
+
+
+def test_a_reap_replays_the_whole_stored_set():
+    """A reap is not a new open: the browser comes back the shape it was,
+    config values included, whatever the config says now."""
+    ws = Workspaces(RecordingActions(), MemoryStore(), defaults={"width": 800})
+    ws.open_browser(Caller(NAMED), height=600)
+    ws.defaults = {"width": 1200}
+    ws.actions.grid.alive.discard("generated-1")
+    ws.resolve(NAMED)
+    assert ws.actions.opened_settings[-1] == {"width": 800, "height": 600}
+    # Still the config's: the next explicit open reads the config afresh.
+    assert ws.store.get(NAMED).set_by == {"width": "config", "height": "caller"}
+    ws.open_browser(Caller(NAMED))
+    assert ws.actions.opened_settings[-1] == {"width": 1200, "height": 600}
+
+
+def test_x_browser_beats_a_config_version():  # Review Focus 2
+    """Another browser is another version: the config's Chrome 152 is not
+    sent to the Firefox a client's header asked for."""
+    ws = Workspaces(RecordingActions(), MemoryStore(), defaults={"version": "152"})
+    ws.open_browser(caller_of({"workspace": NAMED}, {"x-browser": "firefox"}))
+    last = ws.actions.opened_settings[-1]
+    assert last["browser"] == "firefox" and "version" not in last
+
+
+def test_a_resize_survives_a_config_change():  # Review Focus 3
+    """A window the caller resized to is the caller's (ruling 13), so a
+    changed config width does not undo it at the next open."""
+    ws = Workspaces(RecordingActions(), MemoryStore(), defaults={"width": 800})
+    ws.open_browser(Caller(NAMED))
+    ws.reshape(NAMED, {"width": 1024, "height": 768})
+    ws.defaults = {"width": 1200}
+    ws.open_browser(Caller(NAMED))
+    last = ws.actions.opened_settings[-1]
+    assert (last["width"], last["height"]) == (1024, 768)
+
+
+def test_a_passed_version_keeps_its_browser_after_session_browser_changes():
+    """Review Focus 5: a version passed alone pinned the browser it was for
+    (ruling 12), so a later `session.browser` does not move it."""
+    ws = manager()
+    ws.open_browser(Caller(NAMED), version="152")
+    ws.defaults = {"browser": "firefox"}
+    ws.open_browser(Caller(NAMED))
+    last = ws.actions.opened_settings[-1]
+    assert (last["browser"], last["version"]) == ("chrome", "152")
+
+
+def test_a_remembered_owned_key_on_an_explicit_open_says_how_to_clear_it():
+    """Ruling 3: the remembered object is the caller's to clear, so the
+    refusal says how, and the held browser is not ended for it."""
+    ws = manager()
+    ws.store.set(
+        NAMED,
+        Workspace(
+            session_id="held",
+            settings={"capabilities": {"browserName": "x"}},
+            set_by={"capabilities": "caller"},
+        ),
+    )
+    ws.actions.grid.alive.add("held")
+    with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
+        ws.open_browser(Caller(NAMED))
+    assert ws.actions.closed == []
+    assert ws.store.get(NAMED).session_id == "held"
+
+
+def test_an_owned_key_passed_now_is_not_called_remembered():
+    ws = manager()
+    with pytest.raises(ValueError) as refused:
+        ws.open_browser(Caller(NAMED), capabilities={"browserName": "x"})
+    assert "open_session(capabilities={})" not in str(refused.value)
+
+
+def test_the_version_origin_reaches_the_open():
+    ws = manager()
+    ws.open_browser(Caller(NAMED), version="152")
+    assert ws.actions.opened_version_from[-1] == "call"
+    ws.open_browser(Caller(NAMED))
+    assert ws.actions.opened_version_from[-1] == "remembered"
+    ws.actions.grid.alive.discard("generated-2")
+    ws.resolve(NAMED)
+    assert ws.actions.opened_version_from[-1] == "remembered"
+    assert "version_from" not in ws.actions.opened_settings[-1]
+
+    configured = Workspaces(RecordingActions(), MemoryStore(), defaults={"version": "150"})
+    configured.open_browser(Caller(NAMED))
+    assert configured.actions.opened_version_from[-1] == "config"
+    configured.actions.grid.alive.discard("generated-1")
+    configured.resolve(NAMED)
+    assert configured.actions.opened_version_from[-1] == "config"
+
+
+def test_a_client_version_reaches_the_open_as_the_clients():
+    ws = manager()
+    ws.open_browser(caller_of({"workspace": NAMED}, {"x-version": "152"}))
+    assert ws.actions.opened_version_from[-1] == "client"
+
+
+def test_an_upgraded_record_asks_for_open_session_and_keeps_its_site_data():
+    """Review Focus 1: a record written before sources were kept lets go of
+    its browser, which the Grid reaps, and keeps where it has been and what it
+    saved, so the caller's next `open_session` signs back in."""
+    saved = {"cookies": [{"name": "sid", "value": "1", "domain": "a.test"}], "origins": {}}
+    old = {**OLD, "site_data": saved}
+    fake = FakeRedis()
+    fake.data[f"p:{NAMED}"] = json.dumps(old).encode()
+    ws = manager(store=RedisStore(fake, prefix="p:"))
+    ws.actions.grid.alive.add(old["session_id"])
+    with pytest.raises(faults.NoSession):
+        ws.resolve(NAMED)
+    assert ws.actions.closed == []  # left for the Grid to reap
+    ws.open_browser(Caller(NAMED))
+    assert ws.actions.opened_settings[-1]["site_data"] == saved
+    assert ws.store.get(NAMED).history[-1]["origin"] == "https://a.test"

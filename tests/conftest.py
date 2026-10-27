@@ -89,6 +89,9 @@ class RecordingActions:
         self.opened = 0
         self.opened_urls = []
         self.opened_settings = []
+        # Where each open's version came from (`session_caps.build`): beside
+        # the settings, never one of them.
+        self.opened_version_from = []
         self.closed = []
         self.grid = FakeGrid()
 
@@ -96,6 +99,7 @@ class RecordingActions:
         self.opened += 1
         session_id = f"generated-{self.opened}"
         self.opened_urls.append(url)
+        self.opened_version_from.append(kwargs.pop("version_from", "call"))
         self.opened_settings.append(dict(kwargs))
         self.grid.alive.add(session_id)
         # What a real open reports for the workspace only: what was sent and

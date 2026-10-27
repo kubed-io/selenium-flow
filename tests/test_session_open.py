@@ -207,12 +207,10 @@ def open_over_http(settings=None, headers=None, json=None):
     )
 
 
-@pytest.mark.xfail(strict=True, reason="Task 4")
 def test_a_refused_config_version_is_a_503():
     assert open_over_http({"session": {"version": "152"}}).status_code == 503
 
 
-@pytest.mark.xfail(strict=True, reason="Task 4")
 def test_a_refused_x_version_is_a_400_naming_it():
     response = open_over_http(headers={"X-Version": "152"})
     assert response.status_code == 400
