@@ -91,6 +91,20 @@ class BidiUnavailable(ConnectionError):
     socket's URL."""
 
 
+class SocketClosed(ConnectionError):
+    """One end of a socket closed, or never opened.
+
+    ``code`` and ``reason`` are what the closing side said, or None and the
+    failure's type when the socket never opened: an open's own message can
+    quote the URL, credentials and all, so it is never carried."""
+
+    def __init__(self, code: int | None = None, reason: str = ""):
+        super().__init__(f"socket closed ({code}): {reason}" if reason else
+                         f"socket closed ({code})")
+        self.code = code
+        self.reason = reason
+
+
 class NoNodeTook(ConnectionError):
     """No Grid node took a new browser before the Grid's queue gave up: a 503.
 

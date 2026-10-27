@@ -312,6 +312,17 @@ class Grid:
         root = urlunsplit((scheme, parts.netloc, parts.path.rstrip("/"), "", ""))
         return f"{root}/session/{session_id}/se/bidi"
 
+    def vnc_url(self, session_id: str) -> str:
+        """The browser's VNC stream, as the hub proxies it (live view spec,
+        ruling 10).
+
+        Derived from ``url`` like `bidi_url`, never read from the session's
+        ``se:vnc`` capability, which names the hub's in-cluster Service. This
+        server reaches the hub directly, so an ingress that refuses
+        ``/session/*/se/vnc`` from outside does not stand in its way.
+        """
+        return self.bidi_url(session_id).removesuffix("/se/bidi") + "/se/vnc"
+
     def is_alive(self, session_id: str) -> bool:
         """Whether a session still exists on the Grid.
 

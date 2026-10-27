@@ -54,6 +54,7 @@ from .faults import (
     NodeRefused,
     NoNodeTook,
     NotFound,
+    SocketClosed,
     TooLarge,
     Unresolved,
 )
@@ -110,9 +111,13 @@ GONE = (InvalidSessionIdException, NoSuchDriverException, Ended)
 # `SessionNotCreatedException` stays here for the Grid's own failures (spec
 # 2026-10-26-session-capabilities, ruling 24); `open_session` turns a queue
 # timeout into `NoNodeTook` and a node's refusal into `NodeRefused`, below.
+#
+# `SocketClosed` is a socket to the Grid that closed or would not open (the
+# live view's tunnel to the hub): the Grid's side, like a BiDi socket's.
 UNAVAILABLE = (
     BidiUnavailable,
     NoNodeTook,
+    SocketClosed,
     SessionNotCreatedException,
     requests.ConnectionError,
     requests.Timeout,

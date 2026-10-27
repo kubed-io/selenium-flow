@@ -41,7 +41,7 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
-from ..faults import BidiUnavailable
+from ..faults import BidiUnavailable, SocketClosed
 
 log = logging.getLogger(__name__)
 
@@ -105,14 +105,65 @@ class BidiError(Exception):
 Handler = Callable[[str, dict], Awaitable[None] | None]
 
 
-def _connect(url: str):
+def dial(url: str, *, max_size: int | None = None):
+    """Open a socket to the Grid: the one place one is opened, pinged and
+    given its limits (live view spec, ruling 12). Awaitable; a `Connection`
+    and a `Socket` both come through here. ``max_size`` is `MAX_MESSAGE`
+    unless given, read when called."""
     return ws_connect(
         url,
         open_timeout=OPEN_TIMEOUT,
         ping_interval=PING_INTERVAL,
         ping_timeout=PING_INTERVAL,
-        max_size=MAX_MESSAGE,
+        max_size=MAX_MESSAGE if max_size is None else max_size,
     )
+
+
+def _closed(exc: ConnectionClosed) -> SocketClosed:
+    said = exc.rcvd
+    return SocketClosed(said.code if said else None, said.reason if said else "")
+
+
+class Socket:
+    """A held socket that is not a BiDi `Connection`: frames in and out, and
+    how it closed. The live view's tunnel holds the hub's VNC socket as one.
+
+    ``receive`` returns ``bytes`` for a binary frame and ``str`` for text, and
+    both it and ``send`` raise `SocketClosed` once the socket has gone, with
+    the code the far side sent."""
+
+    def __init__(self, ws):
+        self._ws = ws
+
+    async def receive(self) -> bytes | str:
+        try:
+            return await self._ws.recv()
+        except ConnectionClosed as exc:
+            raise _closed(exc) from None
+
+    async def send(self, data: bytes | str) -> None:
+        try:
+            await self._ws.send(data)
+        except ConnectionClosed as exc:
+            raise _closed(exc) from None
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        """Close, once; closing a closed socket does nothing."""
+        with contextlib.suppress(Exception):
+            await self._ws.close(code, reason)
+
+
+async def open_socket(url: str, *, max_size: int | None = None) -> Socket:
+    """A `Socket` to ``url``, open within ``OPEN_TIMEOUT``.
+
+    Any failure is `SocketClosed` with no code and the failure's type for its
+    reason: the exception's own message can quote the URL, credentials and all.
+    """
+    try:
+        ws = await asyncio.wait_for(dial(url, max_size=max_size), OPEN_TIMEOUT)
+    except (OSError, WebSocketException, TimeoutError) as exc:
+        raise SocketClosed(None, type(exc).__name__) from None
+    return Socket(ws)
 
 
 class Subscriber:
@@ -281,7 +332,7 @@ class Connection:
     ):
         self.url = url
         self.on_close = on_close
-        self._connect = connect or _connect
+        self._connect = connect or dial
         self._clock = clock
         self._ws = None
         self._reader: asyncio.Task | None = None
