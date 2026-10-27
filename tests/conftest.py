@@ -27,7 +27,7 @@ from .bidi_fakes import (
     FakeBrowser,
     browser_in_thread,  # noqa: F401 - a fixture, offered here
 )
-from .fakes import FakeGrid, ScriptedDriver
+from .fakes import FakeGrid, FakePeer, ScriptedDriver  # noqa: F401 - FakePeer is offered here
 
 TOKEN = "test-token-abc123"
 
