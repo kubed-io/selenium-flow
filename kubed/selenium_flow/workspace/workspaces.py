@@ -1148,6 +1148,7 @@ class Workspaces:
         window_seen: str | None = None,
         sent: list | None = None,
         ran: dict | None = None,
+        set_by: dict | None = None,
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
@@ -1170,6 +1171,10 @@ class Workspaces:
         ``report`` is a silent reopen's site data report: the record holds it
         for this browser until `touch` hands it to the first result. Any other
         bind drops whatever an earlier reopen still held.
+
+        ``set_by`` says who set each of the settings, by key; a setting it
+        does not name is the caller's, which is what handing them in directly
+        means.
         """
         ttl = self.store.ttl
 
@@ -1185,6 +1190,10 @@ class Workspaces:
                 session_id=session_id,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
+                set_by={
+                    k: (set_by or {}).get(k, settings_module.CALLER)
+                    for k in (settings or {})
+                },
                 site_data={} if forget_site_data or r is None else dict(r.site_data),
                 # Reset explicitly: any other bind drops an earlier reopen's report.
                 reopened={"browser": session_id, "report": report} if report else {},

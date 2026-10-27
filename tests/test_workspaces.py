@@ -8,6 +8,7 @@ tool call opened a browser nobody closed.
 
 import json
 import re
+import time
 
 import pytest
 from pydantic import ValidationError
@@ -1923,3 +1924,76 @@ def test_a_good_record_reads_back_whole():
         ended={"at": 5.0, "by": "caller"},
     )
     assert Workspace.from_json(record.to_json()) == record
+
+
+OLD = {
+    "session_id": "grid-a",
+    "settings": {"browser": "firefox", "width": 1400},
+    "history": [{"origin": "https://a.test", "url": "https://a.test/x", "at": time.time()}],
+    "site_data": {"cookies": [], "origins": {}},
+    "sent": [{"key": "browserName", "value": "firefox", "sources": ["option"]}],
+    "ran": {"version": "142.0", "node": "n", "live_view": True},
+}
+
+
+def test_a_record_without_sources_loses_its_settings_and_its_browser():  # ruling 14
+    record = Workspace.from_json(json.dumps(OLD))
+    assert record.settings == {} and record.set_by == {} and record.session_id == ""
+    assert record.history == OLD["history"] and record.site_data == OLD["site_data"]
+    assert record.sent == OLD["sent"] and record.ran == OLD["ran"]
+
+
+@pytest.mark.parametrize(
+    "set_by",
+    [
+        [],
+        {"browser": "caller"},
+        {"browser": "caller", "width": "nobody"},
+        {"browser": "caller", "width": "caller", "height": "caller"},
+    ],
+)
+def test_malformed_sources_read_as_an_old_record(set_by):
+    record = Workspace.from_json(json.dumps({**OLD, "set_by": set_by}))
+    assert record.settings == {} and record.session_id == ""
+
+
+def test_a_new_record_reads_back_whole():
+    raw = {**OLD, "set_by": {"browser": "caller", "width": "config"}}
+    record = Workspace.from_json(json.dumps(raw))
+    assert record.settings == OLD["settings"] and record.set_by == raw["set_by"]
+    assert record.session_id == "grid-a"
+    assert Workspace.from_json(record.to_json()) == record
+
+
+def test_a_resize_marks_the_window_as_the_callers():  # ruling 13
+    record = Workspace(
+        settings={"width": 800, "height": 600}, set_by={"width": "config", "height": "config"}
+    )
+    assert record.reshaped({"width": 1024, "height": 768}).set_by == {
+        "width": "caller",
+        "height": "caller",
+    }
+
+
+def test_a_bind_with_no_sources_reads_back_whole_through_redis():
+    store = RedisStore(FakeRedis(), prefix="p:")
+    m = manager(store=store)
+    m.remember("w", "grid-a", settings={"browser": "firefox", "width": 1400})
+    record = store.get("w")
+    assert record.session_id == "grid-a"
+    assert record.settings == {"browser": "firefox", "width": 1400}
+    assert record.set_by == {"browser": "caller", "width": "caller"}
+
+
+def test_a_bind_keeps_the_sources_it_is_given_and_defaults_the_rest_to_the_caller():
+    store = RedisStore(FakeRedis(), prefix="p:")
+    m = manager(store=store)
+    m.remember(
+        "w",
+        "grid-a",
+        settings={"browser": "firefox", "width": 1400},
+        set_by={"browser": "config", "height": "client"},
+    )
+    record = store.get("w")
+    assert record.session_id == "grid-a"
+    assert record.set_by == {"browser": "config", "width": "caller"}

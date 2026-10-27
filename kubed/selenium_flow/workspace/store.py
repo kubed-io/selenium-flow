@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from .. import faults
 from ..core.session_caps import SOURCES
 from ..urls import origin_of, page_of, without_userinfo
+from .settings import CALLER, SET_BY
 
 if TYPE_CHECKING:
     from ..config import RedisSettings, WorkspaceSettings
@@ -115,6 +116,10 @@ class Workspace:
     # What the workspace was opened with, so a reopen uses the same browser
     # rather than a default one.
     settings: dict = field(default_factory=dict)
+    # Who set each of those settings: "config", "client" or "caller", one per
+    # key. A record whose sources are missing or do not match its settings is
+    # not read (see `from_json`).
+    set_by: dict = field(default_factory=dict)
     # Where the workspace has been: one {"origin", "url", "at"} per origin,
     # newest first. Written by `visited`; the admin History tab reads it.
     history: list = field(default_factory=list)
@@ -187,12 +192,19 @@ class Workspace:
                 # clause below does not catch.
                 return None
             settings = data.get("settings")
+            settings = settings if isinstance(settings, dict) else {}
+            set_by = _set_by(data.get("set_by"), settings)
+            session_id = str(data.get("session_id") or "") if set_by is not None else ""
             site_data = data.get("site_data")
             reopened = data.get("reopened")
             return cls(
-                session_id=str(data.get("session_id") or ""),
+                # A record without valid sources keeps no settings and lets go
+                # of its browser, so the Grid reaps it and the next call opens
+                # afresh; the rest of it stays (spec 2026-10-27, ruling 14).
+                session_id=session_id,
                 opened_at=float(data.get("opened_at", 0.0)),
-                settings=settings if isinstance(settings, dict) else {},
+                settings=settings if set_by is not None else {},
+                set_by=set_by if set_by is not None else {},
                 history=_visits(data.get("history")),
                 site_data=site_data if isinstance(site_data, dict) else {},
                 reopened=reopened if isinstance(reopened, dict) else {},
@@ -250,11 +262,13 @@ class Workspace:
         A merge rather than a swap: the caller names only the settings it just
         changed, and the ones it does not mention — the browser, the timeouts —
         have to survive or a reopen would replay a browser nobody asked for.
+        What is handed in is the caller's, so those keys are marked so.
         """
         merged = {**self.settings, **settings}
+        set_by = {**self.set_by, **dict.fromkeys(settings, CALLER)}
         width, height = merged.get("width"), merged.get("height")
         seen = f"{width}x{height}" if width and height else self.window_seen
-        return replace(self, settings=merged, window_seen=seen)
+        return replace(self, settings=merged, set_by=set_by, window_seen=seen)
 
     def with_site_data(self, site_data: dict) -> Workspace:
         """The same record holding this site data."""
@@ -285,6 +299,16 @@ def _opener(value) -> dict | None:
         return None
     name = value.get("username")
     return {"kind": value["kind"], "username": name if isinstance(name, str) else None}
+
+
+def _set_by(raw, settings: dict) -> dict | None:
+    """A stored ``set_by``, or None unless it names a known source for exactly
+    the keys of ``settings``."""
+    if not isinstance(raw, dict) or set(raw) != set(settings):
+        return None
+    if not all(v in SET_BY for v in raw.values()):
+        return None
+    return dict(raw)
 
 
 def _sent(raw) -> list:

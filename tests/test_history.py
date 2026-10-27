@@ -93,7 +93,7 @@ def test_both_stores_round_trip_the_history(store):
 
 
 def test_a_record_from_before_the_history_reads_as_having_been_nowhere():
-    old = Workspace.from_json('{"session_id": "s", "url": "https://a.test/x"}')
+    old = Workspace.from_json('{"session_id": "s", "set_by": {}, "url": "https://a.test/x"}')
     assert (old.session_id, old.history, old.url) == ("s", [], "")
 
 
