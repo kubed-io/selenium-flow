@@ -30,6 +30,7 @@ from .http import access_log, admin, files
 from .http import auth as http_auth
 from .http.admin import page as admin_page
 from .http.slashes import RelativeSlashRedirects
+from .live.control import Controls
 from .live.tunnels import Tunnels
 from .mcp import (
     apps,
@@ -48,6 +49,7 @@ from .monitor.events import LocalBus
 from .monitor.monitor import Monitor
 from .recordings import collector as recording_collector
 from .recordings import mounts
+from .workspace import locks
 from .workspace import settings as workspace_settings
 from .workspace import store as store_module
 from .workspace.store import WorkspaceStore
@@ -149,9 +151,13 @@ class SeleniumMCP:
             collectors_for={"capture": capture_module.COLLECTOR},
             sink=self.capture,
         )
-        # The live view's open tunnels: a browser ending closes its viewers, and
-        # the server stopping closes them all.
-        self.tunnels = Tunnels()
+        # Who has control of which browser (live control spec): requested while
+        # an agent's call runs, granted once the calls before the request have
+        # had their turn on the session's lock, which it polls rather than waits on.
+        self.controls = Controls(behind=locks.behind)
+        # The live view's open tunnels: a browser ending closes its viewers and
+        # releases its control, and the server stopping closes them all.
+        self.tunnels = Tunnels(self.controls)
         self.bus.subscribe("session.ended", self.tunnels.ended, name="live")
         # How a BiDi channel to a session's browser is opened: site data's save
         # and restore speak through it, reusing the connection the monitor holds
@@ -230,7 +236,7 @@ class SeleniumMCP:
         # collector, which asks it to watch what its notes still owe. The two
         # tasks run only while something is owed.
         collector, monitor, bus = self.collector, self.monitor, self.bus
-        tunnels = self.tunnels
+        tunnels, controls = self.tunnels, self.controls
 
         @asynccontextmanager
         async def lifespan(_server):
@@ -241,6 +247,9 @@ class SeleniumMCP:
             try:
                 yield {}
             finally:
+                # First: every pending grant goes and everything waiting for a
+                # hand-back returns, before anything it might wait on stops.
+                controls.stop()
                 if collector is not None:
                     await collector.stop()
                 tunnels.stop()

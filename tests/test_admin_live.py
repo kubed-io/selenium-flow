@@ -481,3 +481,36 @@ def test_a_frame_the_driver_cannot_enter_says_our_sentence(client, server, typin
     typing.switch_to.frame = refuse
     answered = client.post(PASTE, json={"text": "x"}, headers=AUTH)
     assert answered.json() == {"error": live_module.PASTE_FAILED}
+
+
+def test_the_socket_asks_control_of_the_registry_and_leaving_hands_back(
+    client, server, monkeypatch
+):
+    """The route's tunnel is wired to the server's `Controls`: with no call on
+    the browser Control is granted at once, and the viewer leaving hands back."""
+
+    async def dial(url, **_kw):
+        peer = FakePeer()
+        peer.node = asyncio.create_task(vnc_node(peer, password_asked=False))
+        return peer
+
+    monkeypatch.setattr(live_module, "open_socket", dial)
+    with client.websocket_connect(mint(client)) as ws:
+        assert ws.receive_json() == {"type": "mode", "mode": "watch"}
+        assert ws.receive_bytes() == RFB_38
+        ws.send_bytes(RFB_38)
+        assert ws.receive_bytes() == bytes([1, 1])
+        ws.send_bytes(b"\x01")
+        assert ws.receive_bytes() == bytes(4)
+        ws.send_bytes(b"\x01")
+        ws.receive_bytes()  # ServerInit: the tunnel pipes
+        ws.send_json({"type": "mode", "mode": "control"})
+        assert ws.receive_json() == {"type": "mode", "mode": "control"}
+        assert server.controls.controlling("w1", "admin")
+        assert server.controls.refusal(GRID_ID, "navigate") is not None
+    deadline = time.monotonic() + 2
+    while server.controls.controlling("w1", "admin") and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not server.controls.controlling("w1", "admin")
+    assert server.controls.refusal(GRID_ID, "navigate") is None
+    assert server.controls.notice("w1")["state"] == "handed_back"

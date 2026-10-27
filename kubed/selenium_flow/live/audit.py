@@ -73,6 +73,16 @@ def switched(who: str, workspace: str, session: str, mode: str) -> None:
     )
 
 
+def asked(who: str, workspace: str, session: str) -> None:
+    """Control asked for while an agent's call runs: granted when it ends."""
+    log.info(
+        "live: %s asked for control of %s (%s)",
+        who,
+        clean(workspace),
+        session,
+    )
+
+
 def pasted(who: str, workspace: str, session: str, characters: int) -> None:
     """A paste, by its length: never the text."""
     log.info(

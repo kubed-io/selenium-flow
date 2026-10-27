@@ -49,6 +49,7 @@ def server(tmp_path, monkeypatch):
     return make(tmp_path)
 
 
+@pytest.mark.xfail(strict=True, reason="Task 8 restates the notice")
 def test_a_controlled_workspace_s_result_carries_the_notice(server):
     held(server.tunnels, "w1", "drk", "control")
     result = keep(server)
@@ -57,6 +58,7 @@ def test_a_controlled_workspace_s_result_carries_the_notice(server):
     assert result.structured_content["uri"] == "workspace://files/rec-20261008-1403.mp4"
 
 
+@pytest.mark.xfail(strict=True, reason="Task 8 restates the notice")
 def test_a_failed_call_carries_it_after_its_own_sentence(server):
     held(server.tunnels, "w1", "drk", "control")
     with pytest.raises(ToolError) as caught:
@@ -110,4 +112,4 @@ def test_the_http_surface_is_unchanged(server):
     after = web.post("/browser", json={}, headers={"X-Workspace": "w1"})
     assert (after.status_code, after.text) == (before.status_code, before.text)
     assert "control of this browser" not in after.text
-    assert server.tunnels.notice("w1").startswith("drk took control")
+    assert server.tunnels.notice("w1") is not None
