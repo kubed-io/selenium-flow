@@ -20,8 +20,7 @@ Name your workspace one of two ways, whichever your client can set:
 
 **Sending both is an error**, not a contest one of them wins. Two names is two
 ideas about who is calling, and quietly picking one hides that from whoever
-wired it up. The old spellings, `?session=` and `X-Session-Key`, are refused
-with a message that gives the new one.
+wired it up.
 
 Over **stdio** there is nothing to read, and one process serves one client, so
 the name is `stdio` and you need do nothing.

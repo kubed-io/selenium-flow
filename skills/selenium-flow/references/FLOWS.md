@@ -263,8 +263,10 @@ Saved from a flow, it is saved like any other: a run's report never carries it
 
 ## When a flow fails
 
-A run that fails names the step, what went wrong, and the page it was on. It also
-carries a `hint`:
+**Read `status` before you report success.** A failed run is an ordinary result,
+not a tool error: the call succeeds and its `status` says `failed`. A run that
+fails names the step, what went wrong, and the page it was on. It also carries a
+`hint`:
 
 ```json
 {

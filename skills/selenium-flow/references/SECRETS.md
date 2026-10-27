@@ -13,8 +13,9 @@ call, and whatever your host logs. A password you *name* is in none of them.
 1. **Find the secret.** Read `secret://secrets`: the names, the keys and the
    sites each may be used on. `show(secret://secrets)` draws them for the
    person.
-2. **Find the selectors.** Drive the login page by hand once and `extract` to
-   find the fields (`skill://selenium-flow/references/READING_PAGES.md`). Type nothing real yet.
+2. **Find the selectors.** `outline` the login page: it gives each field a
+   checked selector (`skill://selenium-flow/references/READING_PAGES.md`). Type
+   nothing real yet.
 3. **Build the flow.** The password step names the secret instead of a value.
 4. **Save it.** `save_flow`, once (`skill://selenium-flow/references/FLOWS.md`).
 5. **Run it.** `run_flow`, forever after, with no credential anywhere.
@@ -101,11 +102,10 @@ frame, and an allowed frame inside another site's page does not either.
 **A parameter is for what varies between runs. A secret is for what must not be
 seen.** An email address is a parameter. Its password is a secret.
 
-There is no middle option. A parameter marked `"writeOnly": true` used to be
-typed and hidden from the report; it hides nothing now and `save_flow` refuses
-it, because a familiar marker that silently does nothing is a leak with a
-reassuring name on it. If a caller has to supply a sensitive value itself, it
-already holds the value — only a secret keeps it out of everyone's hands.
+There is no middle option: `save_flow` refuses a parameter marked
+`"writeOnly": true`, because it would hide nothing. If a caller has to supply a
+sensitive value itself, it already holds the value; only a secret keeps it out
+of everyone's hands.
 
 ## What this does not protect
 

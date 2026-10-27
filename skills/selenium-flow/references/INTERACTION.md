@@ -30,10 +30,8 @@ the pointer onto the element before it acts, so afterwards it is on what you
 acted on — which is where a person's hand would be, and which keeps a `:hover`
 menu open across the click that opened it.
 
-That also means a hover onto something the pointer is already inside is not a
-no-op any more. It used to be: no movement, no `mouseover`, and a cheerful `ok`
-either way. The server steps the pointer aside first, and says `nudged: true`
-when it did.
+A hover onto something the pointer is already inside would send no `mouseover`,
+so the server steps the pointer aside first and says `nudged: true` when it did.
 
 ## Gliding, and when to ask for it
 
@@ -90,7 +88,7 @@ and it is **not an assertion**. If the browser is elsewhere it navigates there
 first, then acts. If it is already there, nothing happens.
 
 ```
-click(url="https://example.com/settings", selector={"xpath": "//button[@id='save']"})
+interact(url="https://example.com/settings", action="click", selector={"css": "#save"})
 ```
 
 That is one call instead of navigate-then-click. Use it whenever you know the
@@ -120,14 +118,17 @@ A multi-field form is one `write` per field, then a `click` on the button:
 
 ```
 write(selector={"xpath": "//input[@name='email']"}, text="a@example.com")
-write(selector={"xpath": "//input[@name='password']"}, text="...")
-click(selector={"xpath": "//button[@type='submit']"})
+write(selector={"xpath": "//input[@name='password']"},
+      secret={"name": "example", "key": "password"})
+interact(action="click", selector={"xpath": "//button[@type='submit']"})
 ```
 
-`click` returns `url` and `title` read *after* the click, so a changed URL is
-your confirmation the submit worked. Check it rather than assuming.
+A real password is never `text`: name a secret and the server types it
+(`skill://selenium-flow/references/SECRETS.md`). The click returns `url` and
+`title` read *after* it, so a changed URL is your confirmation the submit
+worked. Check it rather than assuming.
 
-To empty a field: `write(xpath=..., text="", clear=true)`.
+To empty a field: `write(selector={"css": "#q"}, text="", clear=True)`.
 
 ## Keys
 
@@ -270,6 +271,17 @@ You rarely need an explicit wait. `click` and `write` wait for the element to be
 
 So: act on the element and let the tool wait. If a page is genuinely slow, raise
 `wait_timeout` on that one call rather than polling in a loop.
+
+**Never sleep in a script.** `await new Promise(r => setTimeout(r, 6000))` guesses
+at a duration: too short on a slow day, wasted time on a fast one. (It also
+breaks on Firefox, where a top-level `await` is a syntax error; Chrome allows
+it. A script that must wait on something async returns a promise, which both
+browsers await.) Wait for the effect instead, with `assert`:
+
+```
+assert(script="return document.querySelector('#finish')?.offsetParent !== null",
+       wait_timeout=30, message="The result never appeared.")
+```
 
 For something that has no element to wait on — an animation settling, a
 background fetch — wait for its *effect*:
