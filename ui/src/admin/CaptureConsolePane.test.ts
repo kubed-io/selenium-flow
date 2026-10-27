@@ -27,11 +27,11 @@ test('Clear hides what was there and says nothing was sent', async () => {
 
 test('Live opens the stream, Paused counts, Captured closes it and reloads', async () => {
   render(CaptureConsolePane, { props: props() })
-  await fireEvent.click(await screen.findByRole('button', { name: 'Live' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Stream' }))
   const es = FakeEventSource.last
   expect(es.url).toContain('kind=console')
   es.emit({ seq: 9, at: 1, level: 'log', text: 'a', kept: true })
-  expect(await screen.findByText('Live · 1 messages')).toBeInTheDocument()
+  expect(await screen.findByText('Stream · 1 messages')).toBeInTheDocument()
   await fireEvent.click(screen.getByRole('button', { name: 'Pause' }))
   es.emit({ seq: 10, at: 2, level: 'log', text: 'b', kept: true })
   expect(await screen.findByText('Paused · 1 messages · 1 new')).toBeInTheDocument()
@@ -44,7 +44,7 @@ test('Live opens the stream, Paused counts, Captured closes it and reloads', asy
 
 test('unmounting closes the stream', async () => {
   const r = render(CaptureConsolePane, { props: props() })
-  await fireEvent.click(await screen.findByRole('button', { name: 'Live' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Stream' }))
   const es = FakeEventSource.last
   r.unmount()
   expect(es.closed).toBe(true)
@@ -72,7 +72,7 @@ test('a source is a file name and line, never the query or the whole URL', async
 
 test('Live survives a buffer that starts again: a repeated seq is a new row, and Clear does not hide it', async () => {
   render(CaptureConsolePane, { props: props() })
-  await fireEvent.click(await screen.findByRole('button', { name: 'Live' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Stream' }))
   const es = FakeEventSource.last
   es.emit({ seq: 5, at: 1, level: 'log', text: 'before', kept: true })
   expect(await screen.findByText('before')).toBeInTheDocument()
@@ -87,7 +87,7 @@ test('Live survives a buffer that starts again: a repeated seq is a new row, and
 
 test('two live rows with one seq are both drawn', async () => {
   render(CaptureConsolePane, { props: props() })
-  await fireEvent.click(await screen.findByRole('button', { name: 'Live' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Stream' }))
   const es = FakeEventSource.last
   es.emit({ seq: 1, at: 1, level: 'log', text: 'first life', kept: true })
   es.emit({ seq: 1, at: 2, level: 'log', text: 'second life', kept: true })

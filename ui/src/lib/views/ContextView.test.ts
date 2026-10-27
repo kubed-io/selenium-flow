@@ -9,7 +9,7 @@ test('a live workspace: name, mark, pill, link, window, principal, sites', () =>
   const { container } = render(ContextView, { props: { data: base } })
   expect(container.querySelector('strong')).toHaveTextContent('mine')
   expect(container.querySelector('.bmark')).toHaveTextContent('🦊')
-  expect(screen.getByText('live')).toBeInTheDocument()
+  expect(screen.getByText('open')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'https://example.com/a' })).toHaveAttribute('rel', 'noopener noreferrer')
   expect(screen.getByText('1280x800')).toBeInTheDocument()
   expect(screen.getByText('drk')).toBeInTheDocument()

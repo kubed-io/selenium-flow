@@ -15,7 +15,7 @@ test('loads, then streams from the signed URL against ROOT (U1, U2)', async () =
   expect(live.data?.workspaces).toEqual([{ key: 'a' }])
   expect(FakeEventSource.last!.url).toBe('/base/flow/admin/events?sig=1')
   FakeEventSource.last!.onopen!()
-  expect(live.badge).toEqual({ text: 'live', cls: 'live' })
+  expect(live.badge).toEqual({ text: '', cls: 'live' })
   FakeEventSource.last!.emit({ workspaces: [{ key: 'b' }] })
   expect(live.data?.workspaces).toEqual([{ key: 'b' }])
   FakeEventSource.last!.onerror!()

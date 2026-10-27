@@ -49,7 +49,7 @@ export class Live {
 
   #apply(data: WorkspacesPayload) { this.data = data; this.error = null }
 
-  #beat() { this.#lastBeat = Date.now(); this.badge = { text: 'live', cls: 'live' } }
+  #beat() { this.#lastBeat = Date.now(); this.badge = { text: '', cls: 'live' } }
 
   #watch(url: string) {
     if (this.#events) return

@@ -178,6 +178,8 @@ input[type=password], input[type=text] {
   vertical-align: middle;
   animation: dot-pulse 2s ease-in-out infinite;
 }
+/* The connected badge is the dot alone: green, no pill box, no trailing margin. */
+.dot.live { color: var(--ok); margin-right: 0; }
 @keyframes dot-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) {
   .dot { animation: none; }

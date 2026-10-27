@@ -11,7 +11,7 @@
   <div class="row" style="margin-bottom:10px">
     <span class="bmark" title={data.browser || 'browser'}>{browserMark(data.browser)}</span>
     <strong class="grow">{data.workspace}</strong>
-    {#if data.live}<span class="pill live">live</span>{:else}<span class="pill">idle</span>{/if}
+    {#if data.live}<span class="pill live">open</span>{:else}<span class="pill">idle</span>{/if}
     {#if data.settings?.record && data.live}<span class="pill rec">● REC</span>{/if}
     {#if data.capture && data.capturing}<span class="pill capture">● capture</span>{/if}
     {#if data.capture && !data.capturing}<span class="pill capture-paused">capture paused</span>{/if}

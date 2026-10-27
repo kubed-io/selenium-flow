@@ -16,7 +16,7 @@
         <span class="bmark" title={s.browser || 'browser'}>{browserMark(s.browser)}</span>
         <span class="pill name">{workspaceLabel(s)}</span>
         <span class="mono grow small muted">{s.session_id || 'no browser'}</span>
-        {#if s.live}<span class="pill live">live</span>{:else}<span class="pill">idle</span>{/if}
+        {#if s.live}<span class="pill live">open</span>{:else}<span class="pill">idle</span>{/if}
         {#if s.capture}{#if s.capturing}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
       </div>
       <div class="small muted" style="margin-top:6px">{metaLine(s)}</div>
