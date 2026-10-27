@@ -9,10 +9,16 @@ import json
 
 import pytest
 
-from kubed.selenium_flow.core.capabilities import ENDPOINTS, UNDER_CONTROL, method_for
+from kubed.selenium_flow.core.capabilities import (
+    ENDPOINTS,
+    UNDER_CONTROL,
+    capability,
+    method_for,
+)
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
+from kubed.selenium_flow.mcp import mirror
 
 pytestmark = pytest.mark.unit
 
@@ -78,11 +84,15 @@ EXPECTED = {
     "outline",
     "save_site_data",
     "network_body",
+    "await_control",
 }
 
 
 def test_every_route_maps_to_a_real_action(actions):
     for path, method_name in ENDPOINTS.items():
+        if capability(method_name).waits:
+            # Served by a body of its own on both surfaces, not by an action.
+            continue
         # Through `method_for`, because `assert` is a keyword and its method is
         # `assert_`. Everything else maps to itself.
         method = method_for(method_name)
@@ -100,8 +110,8 @@ def test_what_answers_under_control():
     answers (spec 2026-10-27-live-control, rulings 11 and 21); every other row
     is refused."""
     assert {n for n, v in UNDER_CONTROL.items() if v == "answers"} == {
-        "extract", "outline", "screenshot", "print", "network_body"
-    }  # await_control joins in Task 9
+        "extract", "outline", "screenshot", "print", "network_body", "await_control"
+    }
     assert set(UNDER_CONTROL.values()) == {"answers", "refused"}
     assert set(UNDER_CONTROL) == EXPECTED | RESOURCE_ACTIONS
 
@@ -177,7 +187,8 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
         assert hints.title, f"{tool.name} has no display title"
 
 
-async def test_only_reading_the_page_is_marked_read_only(server):
+@pytest.mark.parametrize("resources", ["on", "off"])
+async def test_only_reading_the_page_is_marked_read_only(server, monkeypatch, resources):
     """The hint is a promise a client is entitled to act on, so it is asserted
     against a named list rather than left to whoever adds the next tool.
 
@@ -186,19 +197,26 @@ async def test_only_reading_the_page_is_marked_read_only(server):
     sometimes.
 
     `network_body` is in: it reads the browser's kept response and writes
-    nothing.
+    nothing. So is `await_control`, which waits and reads the page.
 
     `outline` is the interesting inclusion. It runs JavaScript, which is the
     thing that makes `execute_script` destructive — but the script is *ours* and
     only reads, where `execute_script` hands the page whatever the caller wrote.
     The rule is about what the page is asked to do, not about the mechanism.
     """
+    monkeypatch.setattr(
+        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
+    )
     read_only = {
         t.name
         for t in await server.mcp.list_tools()
         if t.annotations.read_only_hint
-    } - FLOW_TOOLS
-    assert read_only == {"extract", "outline", "network_body"}, "only these read the page"
+    } - FLOW_TOOLS - mirror.MIRROR_TOOLS
+    assert read_only == {
+        "extract", "outline", "network_body", "await_control"
+    }, "only these read the page"
+    tool = await server.mcp.get_tool("await_control")
+    assert tool.annotations.destructive_hint is False
 
 
 async def test_a_tool_that_can_act_on_the_page_admits_it(server):

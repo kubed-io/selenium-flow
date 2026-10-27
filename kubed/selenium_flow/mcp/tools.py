@@ -25,7 +25,7 @@ import json
 from collections.abc import Callable
 from typing import Annotated, Literal
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from fastmcp.apps import AppConfig
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools import ToolResult
@@ -40,6 +40,7 @@ from pydantic import (
 )
 
 from .. import secrets as secrets_module
+from ..config import LiveSettings
 from ..core.actions import (
     DIALOG_ACTIONS,
     FRAME_ACTIONS,
@@ -52,8 +53,9 @@ from ..core.capabilities import CAPABILITIES, Capability, capability
 from ..core.defaults import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..core.recipe import DIALOG_TIMEOUT, WAIT_TIMEOUT
+from ..live import control as control_module
 from ..workspace.workspaces import NAME_PARAM, Workspaces
-from . import clients
+from . import clients, waiting
 
 
 def _lowered(value):
@@ -285,7 +287,12 @@ def _as_image(result: dict) -> Image | ToolResult:
 
 
 def register(
-    mcp: FastMCP, actions: Actions, workspaces: Workspaces, catalogue=None
+    mcp: FastMCP,
+    actions: Actions,
+    workspaces: Workspaces,
+    catalogue=None,
+    *,
+    live: LiveSettings | None = None,
 ) -> None:
     """Register every capability as an MCP tool on ``mcp``.
 
@@ -293,12 +300,16 @@ def register(
     docstring (or ``description=``) the prompt, both read by FastMCP and both
     written out by hand. Its name, its annotations and what it does come from
     its row in ``core.capabilities``: ``action`` gives a declaration the one
-    body every action shares, and ``own`` publishes the two whose body is their
-    own. A row left undeclared stops the server here.
+    body every action shares, and ``own`` publishes the ones whose body is
+    their own. A row left undeclared stops the server here.
+
+    ``live`` is the live view's settings, read at each call: ``await_cap``
+    bounds a blocking `await_control`.
     """
     declared: set[str] = set()
+    live = live if live is not None else LiveSettings()
 
-    def publish(fn, name: str, description: str | None):
+    def publish(fn, name: str, description: str | None, task=None):
         row = capability(name)
         declared.add(row.name)
         app = AppConfig(visibility=list(row.visibility)) if row.visibility else None
@@ -307,6 +318,7 @@ def register(
             description=description,
             annotations=row.annotations,
             app=app,
+            task=task,
         )(fn)
 
     def act(row: Capability, arguments: dict):
@@ -357,9 +369,10 @@ def register(
 
         return bind
 
-    def own(name: str, *, description: str | None = None):
-        """Publish a declaration whose body is its own."""
-        return lambda fn: publish(fn, name, description)
+    def own(name: str, *, description: str | None = None, task=None):
+        """Publish a declaration whose body is its own; ``task`` for one that
+        may run as an MCP task (`waiting.TASK`)."""
+        return lambda fn: publish(fn, name, description, task)
 
     @own("open_session")
     def open_session(
@@ -470,6 +483,37 @@ def register(
         caller = clients.caller()
         workspaces.end_browser(caller)
         return {"success": True, "workspace": caller.name}
+
+    @own("await_control", task=waiting.TASK)
+    async def await_control(ctx: Context) -> dict:
+        """Wait for the person who took control of this browser to hand it back.
+
+        A person can take control of your browser from the admin's live view, to
+        sign in, solve a captcha or fix something by hand. While they hold it, every
+        call that would change the browser is refused with a message naming this
+        tool; reads still answer. Call this then, rather than retrying the refused
+        call.
+
+        It returns the moment they hand back, saying who had control and for how
+        long, the page the browser is on now, every page they reached (visited,
+        oldest first) and an outline of that page. Read it before carrying on: the
+        page may not be where you left it. With nobody in control it returns at
+        once. ended=true means the browser ended while they had it: call
+        open_session.
+
+        On a client without background tasks it returns after about 90 seconds with
+        handed_back=false, saying to call again; do, until it hands back.
+        """
+        name = clients.caller().name
+        controls = workspaces.control
+        return await waiting.waited(
+            ctx,
+            lambda cap: control_module.await_control(
+                controls, workspaces, name, cap=cap, surface="mcp"
+            ),
+            cap=live.await_cap,
+            message=lambda: controls.waiting(name),
+        )
 
     @action("navigate")
     def navigate(url: str) -> dict:

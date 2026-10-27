@@ -11,7 +11,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from fastmcp.utilities.tasks import TaskConfig
-from fastmcp_tasks import TasksExtension, call_tool_task
+from fastmcp_tasks import call_tool_task
 from fastmcp_tasks.models import CreateTaskResult
 from starlette.testclient import TestClient
 
@@ -257,7 +257,7 @@ async def test_a_create_task_result_passes_untouched(server):
     """R1: a call that becomes a task returns its stub, untouched, and a pending
     hand-back is not spent on it: the stub cannot say it."""
     outer, inner = [], []
-    server.mcp.add_extension(TasksExtension(url="memory://"))
+    # The server registers the tasks extension itself (`mcp.waiting.Tasks`).
     server.mcp.middleware.insert(0, Seen(outer))  # outside `Notices`
     server.mcp.add_middleware(Seen(inner))  # inside it
 

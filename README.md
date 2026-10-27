@@ -43,7 +43,7 @@ Every action is a tool **and** an endpoint, one to one, and a test fails the bui
 
 ## 🧰 Every action, both ways
 
-Nineteen actions, each a tool **and** an endpoint with identical parameters — a request body *is* the tool's schema, with nothing added and nothing taken away.
+Twenty actions, each a tool **and** an endpoint: a request body *is* the tool's schema, nothing added, nothing taken away.
 
 > **Name your workspace** on either surface: `?workspace=<name>` or an `X-Workspace` header. There is no session id anywhere. See [Workspaces](#-workspaces).
 
@@ -67,6 +67,7 @@ Nineteen actions, each a tool **and** an endpoint with identical parameters — 
 | [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | `POST /browser/upload` | Attach a file to a file input 📎 |
 | [`save_site_data`](https://github.com/kubed-io/selenium-flow/wiki/save_site_data) | `POST /browser/save-site-data` | Keep cookies and storage to restore 🍪 |
 | [`network_body`](https://github.com/kubed-io/selenium-flow/wiki/network_body) | `POST /browser/network-body` | One captured response body 📦 |
+| [`await_control`](https://github.com/kubed-io/selenium-flow/wiki/await_control) | `POST /browser/await-control` | Wait for a person to hand back ✋ |
 | [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `DELETE /browser` | Give the slot back, keep the workspace 🧹 |
 
 Every parameter, return field and trap worth knowing is one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from the live tool schemas. The same schemas are served at `GET /openapi.yaml`.
@@ -401,9 +402,8 @@ Point an MCP client at `http://localhost:8000/mcp`, open `localhost:8000` — an
 
 ## 🛠 Contributing
 
-Setup, tests, how the OpenAPI spec is generated and how the embedded skill is
-packaged: [CONTRIBUTING.md](CONTRIBUTING.md). Design rules worth reading before
-changing behaviour: [AGENTS.md](AGENTS.md).
+Setup, tests, the spec and packaging:
+[CONTRIBUTING.md](CONTRIBUTING.md). Design rules: [AGENTS.md](AGENTS.md).
 
 ---
 

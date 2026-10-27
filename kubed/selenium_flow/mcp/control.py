@@ -13,6 +13,10 @@ A refusal (`faults.Controlled`) already says it, so it is answered as it is.
 A call that became a task returns its stub (`CreateTaskResult`), which has no
 text to add to: it passes untouched, and an unsaid hand-back stays unsaid for
 the next result (R1).
+
+`await_control` is passed through whole: its answer says control itself, and
+the notice would replace its ``control`` (the summary's, or null) with the
+episode's and spend a hand-back it did not say.
 """
 
 from __future__ import annotations
@@ -25,6 +29,9 @@ from mcp.types import TextContent
 from ..faults import Controlled
 from ..live.control import Controls
 from . import clients
+
+# The tools whose answer is about control already.
+SAYS_CONTROL = frozenset({"await_control"})
 
 
 class Notices(Middleware):
@@ -41,6 +48,8 @@ class Notices(Middleware):
         return self.controls.notice(caller.named)
 
     async def on_call_tool(self, context, call_next):
+        if context.message.name in SAYS_CONTROL:
+            return await call_next(context)
         try:
             result = await call_next(context)
         except ToolError as exc:

@@ -492,11 +492,15 @@ def test_every_call_that_can_carry_the_hint_declares_it():
     from kubed.selenium_flow.core.capabilities import CAPABILITIES, PAGE_HINT
     from kubed.selenium_flow.spec.schemas import FLOW_SCHEMAS
 
-    # Opening and ending a browser are served by `Workspaces`, not `act`.
+    # Opening and ending a browser are served by `Workspaces`, not `act`; so is
+    # a call that waits, whose body reads the page itself and carries no hint
+    # (`await_control`'s ``page`` is where the browser is, its summary's).
     for row in CAPABILITIES:
         declared = row.response["properties"]
         if row.name in ("open_session", "end_browser"):
             assert "page" not in declared, row.name
+        elif row.waits:
+            assert declared.get("page") != PAGE_HINT, row.name
         else:
             assert declared["page"] == PAGE_HINT, row.name
     assert FLOW_SCHEMAS["FlowRun"]["properties"]["page"] == PAGE_HINT

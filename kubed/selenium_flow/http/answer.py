@@ -17,6 +17,7 @@ into a response is this module's job, which is why ``as_response`` lives here.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Callable
 from dataclasses import replace
@@ -231,11 +232,16 @@ async def answer(
         # a `requests` call to the Grid or a whole flow run, and on the event
         # loop one `assert` waiting 900s stalled every other request, MCP and
         # `/health` included — FastMCP already runs the same sync tools in a
-        # thread pool. An `async def` call only builds its coroutine there,
-        # and it is awaited back here on the loop (§F4.19).
-        result = await run_in_threadpool(call, caller, body)
-        if hasattr(result, "__await__"):
-            result = await result
+        # thread pool. An `async def` call is awaited here on the loop and
+        # takes no thread at all: a long poll waiting behind forty queued
+        # calls for a thread, only to build its coroutine, would wait for
+        # nothing (§F4.19). One that returns an awaitable is awaited too.
+        if inspect.iscoroutinefunction(call):
+            result = await call(caller, body)
+        else:
+            result = await run_in_threadpool(call, caller, body)
+            if hasattr(result, "__await__"):
+                result = await result
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001 - whatever the call raises is an
         # answer, not a crash: `errors` classifies every failure these trees can

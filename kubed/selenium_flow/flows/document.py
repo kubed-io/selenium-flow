@@ -123,6 +123,10 @@ ASSERTION = "assert"
 # edited — see §F1.9. A flow that opened its own browser would also end the
 # caller's, since open_session replaces the one you are holding.
 NOT_STEPS = {
+    "await_control": (
+        "A flow cannot wait for a person: a refused step stops the run, and "
+        "whoever started it calls await_control"
+    ),
     "open_session": (
         "A flow runs in the browser you already have, which is what lets one "
         "flow run on Chrome and then on Firefox without being edited"

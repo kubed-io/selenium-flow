@@ -46,6 +46,7 @@ from .mcp import (
     show,
     skill,
     tools,
+    waiting,
 )
 from .monitor.events import LocalBus
 from .monitor.monitor import Monitor
@@ -257,6 +258,7 @@ class SeleniumMCP:
 
         @asynccontextmanager
         async def lifespan(_server):
+            controls.start()
             bus.start()
             await monitor.start()
             if collector is not None:
@@ -266,6 +268,8 @@ class SeleniumMCP:
             finally:
                 # First: every pending grant goes and everything waiting for a
                 # hand-back returns, before anything it might wait on stops.
+                # The tasks extension has done it already, before its worker
+                # stopped (`waiting.Tasks`); again here, it finds nothing.
                 controls.stop()
                 if collector is not None:
                     await collector.stop()
@@ -279,7 +283,14 @@ class SeleniumMCP:
             auth=self.doors.mcp,
             lifespan=lifespan,
         )
-        tools.register(self.mcp, self.actions, self.workspaces, self.secrets)
+        # `await_control` runs as an MCP task for a client that can (live
+        # control spec, ruling 8): Docket in memory, stopped only once the
+        # controls have let every waiter go, since its worker waits for the
+        # tasks it runs when it stops.
+        self.mcp.add_extension(waiting.Tasks(first=controls.stop))
+        tools.register(
+            self.mcp, self.actions, self.workspaces, self.secrets, live=settings.live
+        )
 
         # Everything to read is a resource. A client that cannot read them gets
         # `mirror`'s two tools, which read the same URIs (§F3.6).
@@ -377,6 +388,9 @@ class SeleniumMCP:
         secrets.register(self.mcp, self.secrets, auth_token, prefix=self.prefix)
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
+        # Before `Notices`, outermost of the two: a call that may become a
+        # task carries its workspace in a header its worker reads (ruling 31).
+        self.mcp.add_middleware(clients.Carry())
         # Before `failures`: the first added is outermost, so a failed call's
         # notice follows the sentence `Explained` has already written.
         self.mcp.add_middleware(control.Notices(self.controls))
@@ -390,6 +404,7 @@ class SeleniumMCP:
             auth_token,
             self.prefix,
             catalogue=self.secrets,
+            live=settings.live,
         )
 
         # The admin pages and the signed file route. Always on: they are how a

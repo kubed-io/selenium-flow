@@ -67,7 +67,7 @@ from ..monitor.monitor import ATTACH_FAILED
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
 from ..site_data import snapshot as site_data_module
-from ..urls import allowed_navigation
+from ..urls import allowed_navigation, page_of, without_userinfo
 from . import locks
 from . import settings as settings_module
 from .calls import Calls, told
@@ -790,6 +790,85 @@ class Workspaces:
         if result.get("site_data"):
             self._hold_again(name, result["site_data"], session_id)
         return {"typed": result["typed"]}
+
+    def handed_back(
+        self, name: str, episode: dict | None, *, surface: str = "mcp"
+    ) -> dict:
+        """`await_control`'s summary of a hand-back, or of nobody in control
+        (``episode`` None): everything but its sentence, which
+        `live.control.await_control` says (live control spec, "The summary").
+
+        ``episode`` is plain values (`live.control.handed`): who and for how
+        long, whether the browser ended under it, and the pages the person
+        reached as heard. The page and its outline are read live, as one
+        said call that answers under control, on the browser this workspace
+        holds now, **never reopening one**: with none live, a hand-back says
+        ``ended`` and carries no page. A page that cannot be read is said in
+        ``page_error``, never raised: the hand-back is said by this answer.
+
+        It settles with the URL withheld (ruling 29): the TTL slides, History
+        is not written. ``visited`` is shaped as History keeps a URL: the last
+        page whole, credentials cut; earlier ones origin and path.
+        """
+        summary: dict = {
+            "handed_back": episode is not None,
+            "ended": bool(episode and episode["ended"]),
+            "control": dict(episode["control"]) if episode else None,
+        }
+        if episode is not None and episode["followed"]:
+            pages = episode["pages"]
+            summary["visited"] = [
+                {
+                    "url": (
+                        without_userinfo(page["url"])
+                        if at == len(pages) - 1
+                        else page_of(page["url"])
+                    ),
+                    **({"title": page["title"]} if "title" in page else {}),
+                }
+                for at, page in enumerate(pages)
+            ]
+            summary["dropped"] = int(episode["dropped"])
+        session_id = "" if summary["ended"] else self.browser(name)
+        if not session_id:
+            summary["ended"] = episode is not None
+            return summary
+        record = self.store.get(name)
+        kind = ((record.settings if record else None) or {}).get(
+            "browser"
+        ) or DEFAULT_BROWSER
+        try:
+            read, _page = self._said(
+                name,
+                session_id,
+                kind,
+                self.actions.outline,
+                tool="await_control",
+                surface=surface,
+            )
+        except Exception as exc:  # noqa: BLE001 - the hand-back is said regardless
+            # By type: a Grid failure's text quotes the Grid's URL.
+            log.info(
+                "the page after a hand-back could not be read for %s: %s",
+                name, type(exc).__name__,
+            )
+            summary["page_error"] = faults.message(exc)
+            return summary
+        summary["page"] = {"url": read.get("url"), "title": read.get("title")}
+        summary["outline"] = {
+            key: read[key] for key in ("count", "total", "elements") if key in read
+        }
+        settled: dict = {}
+        try:
+            self.settle(name, settled, browser=session_id, url=None)
+        except Exception as exc:  # noqa: BLE001 - a TTL not slid is no reason
+            # to lose a hand-back this answer has already said.
+            log.warning(
+                "a hand-back for %s did not settle: %s", name, type(exc).__name__
+            )
+        if settled.get("site_data"):
+            summary["site_data"] = settled["site_data"]
+        return summary
 
     def settle(
         self,

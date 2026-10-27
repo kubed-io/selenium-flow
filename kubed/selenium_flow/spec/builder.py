@@ -240,6 +240,13 @@ async def build_spec(
                 },
             }
         }
+        if row.waits:
+            # It takes nothing, is what a 409 sends a caller to, and says an
+            # ended browser in its answer rather than as a 404.
+            operation = paths[route][row.http_method.lower()]
+            operation["requestBody"]["required"] = False
+            for status in ("404", "409"):
+                operation["responses"].pop(status)
 
     # The browser this caller holds: one resource, three methods. Not one path
     # per verb, because which browser is a question about who is asking and the

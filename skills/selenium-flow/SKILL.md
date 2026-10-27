@@ -173,6 +173,7 @@ check this table twice before reaching for it.
 | `assert` | JavaScript that must return true, or the call fails | `script`, `message`, `stable_for` |
 | `save_site_data` | keep the cookies and storage of the sites you have been to, so a replacement comes back signed in | `url` |
 | `network_body` | fetch one captured response body while the browser lives | `id` from workspace://network |
+| `await_control` | a call was refused because a person has your browser: wait for them to hand back, and hear what they did | — |
 | `show` | draw any resource for the person (hosts that render apps): the workspace, files and one file, site data, flows, the secrets, these pages, the flow schema | `uri` |
 | `keep_file` | keep a file in Files, past the browser | `uri` |
 | `save_flow` | save a sequence of steps under a name | `name`, `parameters`, `steps`, `timeout` |

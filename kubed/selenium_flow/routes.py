@@ -40,9 +40,11 @@ from starlette.responses import JSONResponse, Response
 
 from . import faults, urls
 from . import secrets as secrets_module
+from .config import LiveSettings
 from .core.actions import Actions
 from .core.capabilities import CAPABILITIES, ENDPOINTS, Capability
 from .http import answer as answer_module
+from .live import control as control_module
 from .mcp import resources
 from .principal import ADMIN
 from .spec import build_spec
@@ -79,6 +81,8 @@ def register(
     token: str | None,
     prefix: str = "",
     catalogue=None,
+    *,
+    live: LiveSettings | None = None,
 ) -> None:
     """Register the ops endpoints, the spec, and the browser resource on ``mcp``.
 
@@ -92,6 +96,7 @@ def register(
     failure §F1.11 named, and a kubelet is not the one who chose the mount.
     """
     browser_root = f"{prefix}/browser"
+    live = live if live is not None else LiveSettings()
 
     # ---- the ops endpoints -------------------------------------------------
     #
@@ -298,9 +303,27 @@ def register(
             log,
         )
 
+    # The calls that wait, each a body of its own, awaited on the loop: a long
+    # poll holding one of the worker threads would starve every other call
+    # while it waited (live control spec, ruling 30).
+    async def awaited(caller, _body):
+        """Wait for the person to hand back, up to `live.await_cap` (ruling 15)."""
+        return await control_module.await_control(
+            workspaces.control, workspaces, caller.name,
+            cap=live.await_cap, surface="http",
+        )
+
+    waiting = {"await_control": awaited}
+
     # Every row of the table, at the path and method it declares. A row the
     # resource has no call for is a KeyError at startup, not a missing route.
     for row in CAPABILITIES:
+        if row.waits:
+            _bind(
+                mcp, token, f"{browser_root}/{row.route}", row.http_method,
+                f"browser_{row.route}", row.route, waiting[row.name],
+            )
+            continue
         if row.route:
             _add(mcp, actions, workspaces, token, browser_root, row, catalogue)
             continue

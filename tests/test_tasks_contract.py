@@ -26,12 +26,14 @@ from fastmcp.utilities.tasks import TaskConfig
 from fastmcp_tasks import TasksExtension, call_tool_task
 from fastmcp_tasks.models import CreateTaskResult
 
+from kubed.selenium_flow.mcp import clients
+
 pytestmark = pytest.mark.unit
 
 TASK = TaskConfig(mode="optional", poll_interval=timedelta(seconds=1))
-# A private header middleware sets at submission (ruling 31). A client's own
-# value for it must not survive.
-CARRIED = "x-carried"
+# The private header middleware sets at submission (ruling 31), the one
+# await_control's worker reads. A client's own value for it must not survive.
+CARRIED = clients.CARRIED
 # Every test's whole conversation is bounded by this: a task an upgrade leaves
 # "working" must fail the test by name, not hang the run.
 SOON = 5

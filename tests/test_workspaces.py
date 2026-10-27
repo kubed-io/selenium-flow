@@ -1492,23 +1492,52 @@ def test_an_open_uses_the_defaults_its_caller_brought():
     assert actions.opened_settings == [{"width": 1400}]
 
 
-def test_off_the_request_object_the_headers_still_name_a_caller(monkeypatch):
-    """N12: when the request object is out of reach, FastMCP's header helper is
-    the fallback — lowercased, with no query parameters to offer."""
+def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch):
+    """N12, as live control ruling 31 left it: off the request object, the
+    headers are a background task's snapshot, and the name its submission
+    carried (`clients.CARRIED`) is the only one read - never an X-Workspace
+    the snapshot kept, and never the stdio constant."""
     import fastmcp.server.dependencies as dependencies
 
     def no_request():
         raise RuntimeError("no active HTTP request")
 
+    def snapshot(headers):
+        # As FastMCP filters: without include_all, `host` (among others) goes.
+        def get(include_all=False):
+            return {
+                k: v for k, v in headers.items()
+                if include_all or k.lower() != "host"
+            }
+
+        return get
+
     monkeypatch.setattr(dependencies, "get_http_request", no_request)
     monkeypatch.setattr(
-        dependencies, "get_http_headers", lambda: {"X-Workspace": " desk "}
+        dependencies,
+        "get_http_headers",
+        snapshot({"host": "test", "X-Workspace": "other", clients_module.CARRIED: "desk"}),
     )
-    assert clients_module.request_values() == ({}, {"x-workspace": [" desk "]})
+    assert clients_module.request_values() == (
+        {}, {"host": ["test"], "x-workspace": ["desk"]}
+    )
     caller = clients_module.caller()
     assert (caller.name, caller.named_by) == ("desk", "header")
 
-    monkeypatch.setattr(dependencies, "get_http_headers", dict)
+    monkeypatch.setattr(
+        dependencies, "get_http_headers", snapshot({"host": "test", "X-Workspace": "desk"})
+    )
+    with pytest.raises(ValueError, match="name your workspace"):
+        _ = clients_module.caller().name
+
+    # A submission whose only headers are the ones FastMCP filters by default
+    # still came over HTTP: unnamed, never stdio.
+    monkeypatch.setattr(dependencies, "get_http_headers", snapshot({"host": "test"}))
+    assert clients_module.request_values() == ({}, {"host": ["test"]})
+    with pytest.raises(ValueError, match="name your workspace"):
+        _ = clients_module.caller().name
+
+    monkeypatch.setattr(dependencies, "get_http_headers", snapshot({}))
     assert clients_module.request_values() is None, "no headers is not HTTP at all"
 
 

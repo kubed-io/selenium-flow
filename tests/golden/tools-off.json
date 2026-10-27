@@ -52,6 +52,22 @@
     },
     "name": "assert"
   },
+  "await_control": {
+    "annotations": {
+      "destructive_hint": false,
+      "idempotent_hint": true,
+      "open_world_hint": true,
+      "read_only_hint": true,
+      "title": "Wait for a person to hand back"
+    },
+    "description": "Wait for the person who took control of this browser to hand it back.\n\nA person can take control of your browser from the admin's live view, to\nsign in, solve a captcha or fix something by hand. While they hold it, every\ncall that would change the browser is refused with a message naming this\ntool; reads still answer. Call this then, rather than retrying the refused\ncall.\n\nIt returns the moment they hand back, saying who had control and for how\nlong, the page the browser is on now, every page they reached (visited,\noldest first) and an outline of that page. Read it before carrying on: the\npage may not be where you left it. With nobody in control it returns at\nonce. ended=true means the browser ended while they had it: call\nopen_session.\n\nOn a client without background tasks it returns after about 90 seconds with\nhanded_back=false, saying to call again; do, until it hands back.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "await_control"
+  },
   "delete_flow": {
     "annotations": {
       "destructive_hint": true,

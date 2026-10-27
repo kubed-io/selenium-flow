@@ -18,6 +18,10 @@ mutated, so a worker thread's `refusal` is one dict read (as the monitor's
 ``watches`` are read). The grant's turn is a mark in the lock's queue that the
 loop polls; no thread ever waits on the lock for it (ruling 25).
 
+`await_control` is the agent's side: one body for both surfaces that waits for
+the episode to end and answers with what the person did, read through
+`Workspaces.handed_back` and said in the copy below (rulings 4, 6, 15-17).
+
 Process memory, like the tunnels: a restart forgets every episode, and with
 them every tunnel, which is the truth.
 """
@@ -26,10 +30,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Literal
+
+import anyio
 
 from ..core.capabilities import UNDER_CONTROL
 from ..faults import Controlled
@@ -57,6 +64,23 @@ HANDED_BACK = (
     "changed. Call await_control for what they did, or look at the page before "
     "carrying on."
 )
+
+# What `await_control` answers (rulings 15-17), its progress line, and the
+# hand-back's own sentence, built from its clauses.
+STILL = "still in {who}'s control; call again."
+NOBODY = "nobody has control of this browser: carry on."
+ENDED = "the browser ended while {who} had control: call open_session."
+BACK = "{who} handed back at {at} UTC after {held}; {pages}"
+WITHDRAWN = (
+    "{who} withdrew the request for control at {at} UTC before it was granted: "
+    "nothing changed."
+)
+REACHED = "visited lists the {n} they reached, oldest first."
+REACHED_SOME = "visited lists the last {n} of the {total} pages they reached."
+REACHED_NONE = "they reached no other page."
+UNFOLLOWED = "the pages they reached could not be followed."
+WAITING = "waiting for {who} to hand back control"
+STOPPING = "the server is stopping: call await_control again once it is back."
 
 ANSWERS = frozenset(name for name, says in UNDER_CONTROL.items() if says == "answers")
 
@@ -150,6 +174,9 @@ class Controls:
         self._episodes: dict[str, Episode] = {}  # workspace -> requested or held
         self._unsaid: dict[str, Episode] = {}  # workspace -> its last hand-back
         self._gates: dict[str, Gate] = {}  # Grid id -> read from any thread
+        # From `stop` to the next `start`: a waiter let go answers at once,
+        # never reading a page behind a call's turn on the lock.
+        self.stopped = False
 
     # ---- the person's side, on the loop ---------------------------------------
 
@@ -203,9 +230,14 @@ class Controls:
             if episode.grid_id == grid_id:
                 self._release(episode, ended=True)
 
+    def start(self) -> None:
+        """The server is serving again, after a `stop`."""
+        self.stopped = False
+
     def stop(self) -> None:
         """The server is stopping: every pending grant goes, every waiter returns
         with its episode, and nothing is left to be said to a later call."""
+        self.stopped = True
         for episode in list(self._episodes.values()):
             self._release(episode)
         self._unsaid.clear()
@@ -338,6 +370,13 @@ class Controls:
             "hint": HANDED_BACK.format(at=_hhmm(back.until)),
         }
 
+    def waiting(self, workspace: str) -> str:
+        """The progress line of a wait for this workspace's hand-back. Reads
+        the episode only: never says, so never spends, a hand-back."""
+        episode = self._episodes.get(workspace)
+        who = said(episode.who) if episode is not None else PERSON
+        return WAITING.format(who=who)
+
     async def wait(self, workspace: str, timeout: float | None) -> Waited:
         """Until the workspace's episode ends, up to ``timeout`` (None: no cap).
 
@@ -359,3 +398,128 @@ class Controls:
         if self._unsaid.get(workspace) is episode:
             del self._unsaid[workspace]
         return Waited("handed_back", episode)
+
+
+# ---- await_control ---------------------------------------------------------------
+
+
+def _lasted(seconds: float) -> str:
+    """A duration as the hand-back says it: 12s, 5m12s, 1h05m."""
+    seconds = max(int(seconds), 0)
+    hours, rest = divmod(seconds, 3600)
+    minutes, seconds = divmod(rest, 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    if minutes:
+        return f"{minutes}m{seconds:02d}s"
+    return f"{seconds}s"
+
+
+def handed(episode: Episode) -> dict:
+    """What a released episode tells `Workspaces.handed_back`: plain values, so
+    the workspace layer never holds the episode. The pages are as heard."""
+    since = episode.granted if episode.granted is not None else episode.since
+    until = episode.until if episode.until is not None else since
+    held = 0 if episode.granted is None else int(max(until - episode.granted, 0))
+    return {
+        "control": {
+            "who": names(episode.who),
+            "since": _iso(since),
+            "until": _iso(until),
+            "held_for": held,
+        },
+        "ended": episode.ended,
+        "followed": episode.followed,
+        "pages": [dict(page) for page in episode.pages],
+        "dropped": episode.dropped,
+    }
+
+
+def _still(episode: Episode) -> dict:
+    """At the cap: who has it and since when, and call again (ruling 15)."""
+    held = episode.state == "held" and episode.granted is not None
+    return {
+        "handed_back": False,
+        "ended": False,
+        "control": {
+            "who": names(episode.who),
+            "since": _iso(episode.granted if held else episode.since),
+            "state": "held" if held else "requested",
+        },
+        "message": STILL.format(who=said(episode.who)),
+    }
+
+
+def _stopping(episode: Episode | None) -> dict:
+    """The server is stopping: nothing is read, the browser's turn included, so
+    a stop is never held behind a call (control is forgotten with the
+    process; the agent calls again once it is back)."""
+    control = None
+    if episode is not None:
+        since = episode.granted if episode.granted is not None else episode.since
+        control = {"who": names(episode.who), "since": _iso(since)}
+    return {
+        "handed_back": False,
+        "ended": False,
+        "control": control,
+        "message": STOPPING,
+    }
+
+
+def _reached(episode: Episode, summary: dict) -> str:
+    if not episode.followed:
+        return UNFOLLOWED
+    count = len(summary.get("visited") or ())
+    if not count:
+        return REACHED_NONE
+    if episode.dropped:
+        return REACHED_SOME.format(n=count, total=count + episode.dropped)
+    return REACHED.format(n="1 page" if count == 1 else f"{count} pages")
+
+
+def _message(episode: Episode | None, summary: dict) -> str:
+    if episode is None:
+        return NOBODY
+    who = said(episode.who)
+    if summary.get("ended"):
+        return ENDED.format(who=who)
+    until = episode.until if episode.until is not None else episode.since
+    if episode.granted is None:
+        return WITHDRAWN.format(who=who, at=_hhmm(until))
+    return BACK.format(
+        who=who,
+        at=_hhmm(until),
+        held=_lasted(until - episode.granted),
+        pages=_reached(episode, summary),
+    )
+
+
+async def await_control(
+    controls: Controls,
+    workspaces,
+    name: str,
+    *,
+    cap: float | None,
+    surface: str = "mcp",
+) -> dict:
+    """`await_control`'s one body, for both surfaces (R2, R6).
+
+    Waits for the workspace's episode to end, up to ``cap`` (None: until it
+    does, as a background task). With nobody in control it answers at once,
+    with the unsaid hand-back if there is one, which this says (ruling 17).
+    The summary is read by ``workspaces.handed_back`` (`Workspaces`, duck-typed)
+    in a worker thread: it reaches the Grid, and never reopens a browser. Let
+    go by the server stopping, it reads nothing and says so.
+    """
+    waited = await controls.wait(name, cap)
+    episode = waited.episode
+    if controls.stopped:
+        return _stopping(episode)
+    if waited.kind == "still":
+        return _still(episode)
+    told = None if episode is None else handed(episode)
+    summary = await anyio.to_thread.run_sync(
+        functools.partial(workspaces.handed_back, name, told, surface=surface)
+    )
+    summary["message"] = _message(episode, summary)
+    return summary

@@ -18,11 +18,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from fastmcp.exceptions import ToolError
 from fastmcp.server import dependencies
 from fastmcp.server.dependencies import get_access_token, get_context
+from fastmcp.server.middleware import Middleware
 
+from .. import faults
 from ..principal import Principal
-from ..workspace.workspaces import Caller, values_of
+from ..workspace.workspaces import WORKSPACE_HEADER, Caller, values_of
 
 _OFF = ("off", "false", "0", "no", "none")
 
@@ -33,6 +36,13 @@ NO_RESOURCES = ("Visual Studio Code",)
 
 # Where the `2026-07-28` protocol carries the client's identity on every request.
 CLIENT_INFO_META = "io.modelcontextprotocol/clientInfo"
+
+# The workspace a background task's worker is about (live control spec, ruling
+# 31). The worker has no request, only the headers snapshotted at submission,
+# so ``?workspace=`` never reaches it: `Carry` writes the caller's name here as
+# the call is submitted, and only the no-request branch below reads it. A
+# client sending it is ignored on a request and overwritten at submission.
+CARRIED = "x-selenium-flow-workspace"
 
 
 def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None:
@@ -49,15 +59,26 @@ def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None
         request = None
     if request is not None:
         return values_of(request)
-    # Headers may still be reachable when the request object is not: a
-    # background task carries its originating request's.
+    # No request, but maybe its headers: a background task's worker has the
+    # snapshot of every header its submission carried (`include_all`, so an
+    # HTTP submission always has some - its `host`). None at all means no HTTP
+    # request was ever behind this call: stdio, a task submitted over stdio
+    # included.
     try:
-        headers = dependencies.get_http_headers()
+        headers = dependencies.get_http_headers(include_all=True)
     except Exception:  # noqa: BLE001 - no request is no request
         return None
     if not headers:
         return None
-    return {}, {k.lower(): [v] for k, v in headers.items()}
+    # A task submitted over HTTP is named by what `Carry` wrote at submission,
+    # and by nothing else: never by an X-Workspace the snapshot kept, and never
+    # the stdio constant (§F2.12). Without it the worker is unnamed.
+    values = {k.lower(): [v] for k, v in headers.items()}
+    carried = values.pop(CARRIED, None)
+    values.pop(WORKSPACE_HEADER, None)
+    if carried:
+        values[WORKSPACE_HEADER] = carried
+    return {}, values
 
 
 def principal() -> Principal | None:
@@ -137,3 +158,56 @@ def reads_resources(caller: Caller) -> bool:
     if said is not None:
         return str(said).strip().lower() not in _OFF
     return not caller.client.startswith(NO_RESOURCES)
+
+
+class Carry(Middleware):
+    """Carry the caller's workspace to a background task's worker (R3, ruling 31).
+
+    On every call over HTTP, a ``CARRIED`` header the client sent is dropped:
+    it is ours. For a call to a tool that may run as a task - read off the
+    tool's own task config, so no second list can drift from it - the caller's
+    name is read from the request now, while there is one, and written into
+    its headers, which the task's snapshot is taken from after this runs. In
+    place, in ``scope["headers"]``: Starlette's `Request` reads that very list,
+    and a `MutableHeaders` over it is a copy the snapshot never sees.
+
+    A request that names no workspace, or names it badly (twice, malformed,
+    the old spelling), is refused here, at submission, as the tool would
+    refuse it: its worker sees only headers, and could neither say why nor
+    tell a URL's name from a header's. Off HTTP there is nothing to carry.
+    """
+
+    async def on_call_tool(self, context, call_next):
+        try:
+            request = dependencies.get_http_request()
+        except Exception:  # noqa: BLE001 - off HTTP there is no request
+            request = None
+        if request is not None:
+            headers = request.scope["headers"]
+            key = CARRIED.encode()
+            headers[:] = [h for h in headers if h[0].lower() != key]
+            name = context.message.name
+            if await _tasked(context, name):
+                caller = Caller.from_request(*values_of(request))
+                try:
+                    named = caller.name
+                except ValueError as refusal:
+                    raise ToolError(
+                        f"Error calling tool {name!r}: {faults.message(refusal)}"
+                    ) from refusal
+                headers.append((key, named.encode()))
+        return await call_next(context)
+
+
+async def _tasked(context, name: str) -> bool:
+    """Whether the tool ``name`` may run as a task, by its own task config."""
+    fastmcp = context.fastmcp_context
+    server = fastmcp.fastmcp if fastmcp is not None else None
+    if server is None:
+        return False
+    try:
+        tool = await server.get_tool(name)
+    except Exception:  # noqa: BLE001 - an unknown tool is the call's to refuse
+        return False
+    config = getattr(tool, "task_config", None)
+    return bool(config is not None and config.supports_tasks())
