@@ -497,3 +497,39 @@ def test_session_capabilities_that_are_not_an_object_stop_the_boot(value):
 
 def test_a_blank_session_version_is_unset():
     assert load([], {"SESSION_VERSION": "   "}).settings.session.version is None
+
+
+# ---- the live view (spec 2026-10-27-live-view) -------------------------------
+
+
+def test_the_live_section_loads_from_env():
+    s = load([], {
+        "LIVE_ENABLED": "false",
+        "LIVE_PASSWORD_FILE": "/run/vnc/password",
+        "LIVE_GRACE": "45",
+    }).settings
+    assert (s.live.enabled, s.live.password_file, s.live.grace) == (
+        False, "/run/vnc/password", 45,
+    )
+
+
+def test_the_live_defaults():
+    s = load([], {}).settings
+    assert (s.live.enabled, s.live.password_file, s.live.grace) == (True, None, 30)
+
+
+def test_a_live_grace_under_fifteen_is_refused():
+    # The heartbeat is fixed at 10 s: a grace shorter than that and a margin
+    # would drop a viewer whose tab is in plain sight.
+    with pytest.raises(ConfigError, match=r"live\.grace"):
+        load([], {"LIVE_GRACE": "10"})
+
+
+def test_a_blank_live_password_file_is_none():
+    assert load([], {"LIVE_PASSWORD_FILE": "  "}).settings.live.password_file is None
+
+
+def test_the_live_section_reads_from_the_file(tmp_path):
+    path = _file(tmp_path, "live:\n  password_file: /run/vnc/password\n  grace: 20\n")
+    s = load([], {"CONFIG_FILE": path}).settings
+    assert (s.live.password_file, s.live.grace) == ("/run/vnc/password", 20)
