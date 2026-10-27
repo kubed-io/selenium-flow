@@ -246,10 +246,13 @@ jobs:
         submodules: true
         persist-credentials: false
 
+    # CI tests the floor and the newest; the agent has both (python3.11), 3.14 the default
     - name: Setup Python
       uses: actions/setup-python@v7
       with:
-        python-version: "3.14"
+        python-version: |
+          3.11
+          3.14
 
     - name: Install
       run: pip install --editable .[test,build]
