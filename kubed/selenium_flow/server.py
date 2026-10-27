@@ -30,7 +30,9 @@ from .http import access_log, admin, files
 from .http import auth as http_auth
 from .http.admin import page as admin_page
 from .http.slashes import RelativeSlashRedirects
+from .live import pages as pages_module
 from .live.control import Controls
+from .live.pages import Pages
 from .live.tunnels import Tunnels
 from .mcp import (
     apps,
@@ -143,18 +145,29 @@ class SeleniumMCP:
         # connection for a browser opened with `capture` and hands its events
         # to this, which keeps them. Built first: the monitor's sink.
         self.capture = Capture(ttl=settings.capture.ttl)
+        # The pages a person reaches in the live view's Control, heard on the
+        # same connection for the monitor's `control` reason (live control
+        # spec, R7). Built before the monitor too: its other sink.
+        self.pages = Pages()
         self.monitor = Monitor(
             self.bus,
             listing=self.grid.listing,
             socket_url=self.grid.bidi_url,
-            events_for={"capture": capture_module.EVENTS},
+            events_for={
+                "capture": capture_module.EVENTS,
+                "control": pages_module.EVENTS,
+            },
             collectors_for={"capture": capture_module.COLLECTOR},
-            sink=self.capture,
+            sinks={"capture": self.capture, "control": self.pages},
         )
+        self.pages.connection = self.monitor.connection
         # Who has control of which browser (live control spec): requested while
         # an agent's call runs, granted once the calls before the request have
-        # had their turn on the session's lock, which it polls rather than waits on.
-        self.controls = Controls(behind=locks.behind)
+        # had their turn on the session's lock, which it polls rather than waits
+        # on, and once the pages the person reaches are followed.
+        self.controls = Controls(
+            behind=locks.behind, monitor=self.monitor, pages=self.pages
+        )
         # The live view's open tunnels: a browser ending closes its viewers and
         # releases its control, and the server stopping closes them all.
         self.tunnels = Tunnels(self.controls)

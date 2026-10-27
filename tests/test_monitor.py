@@ -172,7 +172,7 @@ def parts():
         socket_url=lambda gid: f"ws://grid/session/{gid}/se/bidi",
         events_for={"capture": ("log.entryAdded",)},
         connect=FakeConnection,
-        sink=FakeSink(),
+        sinks={"capture": FakeSink()},
         clock=clock,
         tick=0.05,
     )
@@ -389,7 +389,7 @@ async def test_a_reason_with_events_holds_a_connection_until_the_deadline(parts)
     await monitor.look()
     assert not monitor.capturing(GID) and conn.closed == 1
     assert monitor.connection(GID) is None
-    assert ("detached", "bot", GID) in monitor.sink.calls
+    assert ("detached", "bot", GID) in monitor.sinks["capture"].calls
     assert GID in monitor.watches  # still watched by the listing
 
 
@@ -412,10 +412,10 @@ async def test_a_dropped_connection_counts_as_a_miss(parts):
     FakeConnection.made[0].drop()
     await monitor.look()  # still listed: the connection is opened again
     assert heard == [] and monitor.capturing(GID) and len(FakeConnection.made) == 2
-    assert [c[0] for c in monitor.sink.calls] == [
+    assert [c[0] for c in monitor.sinks["capture"].calls] == [
         "attached", "detached", "attached", "replayed"
     ]
-    assert monitor.sink.calls[2][-1] is True  # again: the same session's capture
+    assert monitor.sinks["capture"].calls[2][-1] is True  # again: the same session's capture
     FakeConnection.made[1].drop()
     listing.running.clear()
     await monitor.look()  # one miss after a drop is enough
@@ -453,7 +453,7 @@ async def test_a_watch_ended_during_a_hold_is_not_a_failure(parts, caplog):
         FakeConnection.gate.set()
         await look
     [conn] = FakeConnection.made
-    assert conn.closed and ("detached", "bot", GID) in monitor.sink.calls
+    assert conn.closed and ("detached", "bot", GID) in monitor.sinks["capture"].calls
     assert GID not in monitor._failed_logged and "trying again" not in caplog.text
 
 
@@ -466,7 +466,7 @@ async def test_ending_closes_the_connection(parts):
     monitor.ended("bot", GID, "ended")
     await asyncio.sleep(0)
     assert conn.closed == 1 and conn.closed_clean
-    assert monitor.sink.calls[-1] == ("detached", "bot", GID)
+    assert monitor.sinks["capture"].calls[-1] == ("detached", "bot", GID)
     await monitor.stop()
 
 

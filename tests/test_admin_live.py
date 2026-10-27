@@ -487,7 +487,8 @@ def test_the_socket_asks_control_of_the_registry_and_leaving_hands_back(
     client, server, monkeypatch
 ):
     """The route's tunnel is wired to the server's `Controls`: with no call on
-    the browser Control is granted at once, and the viewer leaving hands back."""
+    the browser Control is requested, then granted without waiting for one, and
+    the viewer leaving hands back."""
 
     async def dial(url, **_kw):
         peer = FakePeer()
@@ -505,6 +506,9 @@ def test_the_socket_asks_control_of_the_registry_and_leaving_hands_back(
         ws.send_bytes(b"\x01")
         ws.receive_bytes()  # ServerInit: the tunnel pipes
         ws.send_json({"type": "mode", "mode": "control"})
+        # Requested first: the grant waits for the pages to be followed, which
+        # here (no monitor running) fails at once and grants all the same.
+        assert ws.receive_json() == {"type": "mode", "mode": "requested"}
         assert ws.receive_json() == {"type": "mode", "mode": "control"}
         assert server.controls.controlling("w1", "admin")
         assert server.controls.refusal(GRID_ID, "navigate") is not None

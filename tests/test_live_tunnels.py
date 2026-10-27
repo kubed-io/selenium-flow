@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from kubed.selenium_flow.live.control import HANDED_BACK, HELD, Controls
@@ -31,11 +33,20 @@ def registry(clock=lambda: T):
 
 def held(tunnels, workspace, who, mode, grid_id="g1"):
     """A viewer of ``workspace`` in ``mode``, asked through the registry as the
-    tunnel asks once it pipes. Control is granted at once when no call runs."""
+    tunnel asks once it pipes. With no call running, Control is requested and
+    the grant lands once the pages are followed (ruling 27): run here to its
+    end on a loop of its own, since the callers are plain tests."""
     tunnel = Tunnel(FakePeer(), who=who, workspace=workspace, session="s", grace=1)
     tunnels.add(grid_id, tunnel)
     if mode == "control":
-        tunnel.mode = tunnel.on_ask()
+
+        async def granted():
+            tunnel.mode = tunnel.on_ask()
+            episode = tunnels.controls._episodes.get(workspace)
+            if episode is not None and episode.pending is not None:
+                await asyncio.wait({episode.pending})
+
+        asyncio.run(granted())
     return tunnel
 
 

@@ -135,6 +135,14 @@ async def in_control(viewer):
     assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "control"}
 
 
+async def granted(viewer):
+    """Control through the registry: requested first, even with no call
+    running, then the grant once the pages are followed (ruling 27)."""
+    viewer.feed(text(type="mode", mode="control"))
+    assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "requested"}
+    assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "control"}
+
+
 async def test_a_tunnel_opens_in_watch_and_says_so(caplog):
     tunnel, viewer, node, dial = make()
     with caplog.at_level(logging.INFO, logger=LOG):
@@ -450,7 +458,7 @@ async def test_nothing_the_viewer_typed_and_no_grid_id_is_logged(caplog):
     tunnels.add(GRID_ID, tunnel)
     with caplog.at_level(logging.DEBUG):
         task, _ = await start(tunnel, viewer, node, dial)
-        await in_control(viewer)
+        await granted(viewer)
         for message in (key("Z"), cut(b"hunter2"), QEMU_KEY):
             viewer.feed(message)
             assert await node.next_sent() == message
@@ -557,7 +565,7 @@ async def test_control_is_handed_back_before_a_stalled_viewer_closes(monkeypatch
     tunnels = registry()
     tunnels.add(GRID_ID, tunnel)
     task, _ = await start(tunnel, viewer, node, dial)
-    await in_control(viewer)
+    await granted(viewer)
     assert tunnels.notice("w1").startswith("drk has control")
     tunnel.end(NOBODY)
     await asyncio.wait_for(viewer.closing.wait(), 1)

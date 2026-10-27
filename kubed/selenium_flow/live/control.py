@@ -2,8 +2,11 @@
 
 A person clicking Control while an agent's call runs *requests* it, and the call
 finishes first; Control is *granted* once the calls that asked before the
-request have had their turn on the session's lock, and at once when none had
-(spec 2026-10-27-live-control, rulings 1, 13, 14 and 25). From the request on,
+request have had their turn on the session's lock, and once the pages the
+person reaches are followed (spec 2026-10-27-live-control, rulings 1, 13, 14,
+25 and 27). Every request is answered ``requested`` first, even with no call
+running: the grant waits on the monitor, so the viewer hears ``control`` only
+once the pages are followed or could not be (ruling 19). From the request on,
 the browser is controlled: a call that would change it is refused with
 `faults.Controlled`, a 409, naming who and since when, and reads keep
 answering. The last viewer to leave Control, or to withdraw a request, hands
@@ -95,7 +98,12 @@ class Episode:
     granted: float | None = None
     until: float | None = None
     ended: bool = False  # the browser ended under it
-    followed: bool = False  # pages listened for (Task 7)
+    followed: bool = False  # the grant's attach held: the pages were listened for
+    # The pages the person reached, oldest first, as `Pages.listed` gives them
+    # (``{"url", "title"?}``, URLs as heard), and how many earlier ones went;
+    # taken at the release.
+    pages: list[dict] = field(default_factory=list, repr=False)
+    dropped: int = 0
     done: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     # The tunnels asking or holding now, and the grant's poll while requested.
     tunnels: list = field(default_factory=list, repr=False)
@@ -120,8 +128,9 @@ class Controls:
 
     ``behind(grid_id)`` marks the session's lock queue and returns whether the
     calls before the mark have had their turn (`workspace.locks.behind`).
-    ``monitor`` and ``pages`` are the grant's attach and the pages the person
-    reaches; unset until Task 7 builds them.
+    ``monitor`` (`Monitor.attach_here` and `release`) and ``pages``
+    (`live.pages.Pages`) follow the pages the person reaches; without them the
+    grant lands unfollowed.
     """
 
     def __init__(
@@ -164,12 +173,10 @@ class Controls:
             episode.tunnels.append(tunnel)
             self._episodes[tunnel.workspace] = episode
             self._shut(episode)
-            passed = self._behind(tunnel.grid_id)
-            if passed():
-                self._hold(episode)
-                return "control"
+            # The grant is a task even when no call is running: it waits for
+            # the pages to be followed, and the viewer hears "requested" first.
             episode.pending = asyncio.get_running_loop().create_task(
-                self._turn(episode, passed)
+                self._turn(episode, self._behind(tunnel.grid_id))
             )
             return "requested"
         if tunnel not in episode.tunnels:
@@ -216,9 +223,14 @@ class Controls:
                 episode.pending = None
 
     async def _grant(self, episode: Episode) -> None:
-        # Task 7 awaits the monitor's attach for the pages here, before the
-        # grant: a page the person reaches must not be missed (ruling 27).
+        """Follow the pages, then hold and tell every requesting viewer. A page
+        the person reaches must not be missed, so the grant waits for the
+        attach, up to ``ATTACH_TIMEOUT`` (ruling 27); one that fails grants
+        all the same, unfollowed (ruling 19)."""
         if episode.state != "requested":
+            return
+        episode.followed = await self._follow(episode)
+        if episode.state != "requested":  # released meanwhile
             return
         self._hold(episode)
         for tunnel in list(episode.tunnels):
@@ -230,6 +242,20 @@ class Controls:
                 # A `Tunnel` ends itself on a failure it did not expect; nothing
                 # here is the next viewer's business.
                 continue
+
+    async def _follow(self, episode: Episode) -> bool:
+        """Owe the monitor ``control`` for this browser, its pages listed from
+        now; whether the connection is held. Cancelled by the release."""
+        if self._monitor is None or self._pages is None:
+            return False
+        self._pages.follow(episode.grid_id)
+        try:
+            await self._monitor.attach_here(
+                episode.workspace, episode.grid_id, "control"
+            )
+        except Exception:  # noqa: BLE001 - BidiUnavailable: granted unfollowed
+            return False
+        return True
 
     def _hold(self, episode: Episode) -> None:
         episode.state = "held"
@@ -248,7 +274,13 @@ class Controls:
         episode.until = self._clock()
         episode.ended = ended
         episode.tunnels.clear()
-        # Task 7 lets the monitor's `control` reason go and stops the pages here.
+        # Never awaits: called from withdraw, ended and stop. An attach still
+        # under way went with the pending grant, cancelled above.
+        if self._monitor is not None:
+            self._monitor.release(episode.grid_id, "control")
+        if self._pages is not None:
+            episode.pages, episode.dropped = self._pages.listed(episode.grid_id)
+            self._pages.stop(episode.grid_id)
         if self._episodes.get(episode.workspace) is episode:
             del self._episodes[episode.workspace]
         gate = self._gates.get(episode.grid_id)

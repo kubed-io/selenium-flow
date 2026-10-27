@@ -103,6 +103,7 @@ NO_SELENIUM = tuple(
         "live.tunnel",
         "live.tunnels",
         "live.control",
+        "live.pages",
         "capture",
         "capture.masking",
         "capture.merge",

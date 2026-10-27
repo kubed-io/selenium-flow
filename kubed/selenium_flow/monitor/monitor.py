@@ -43,11 +43,20 @@ close in the middle would take those with it.
 **Capture attaches before the first page** (capture spec, ruling 6). `attach`
 holds the connection now — open, subscribe, add the data collector — and
 returns only then, so the open path can navigate knowing nothing is missed; a
-failure is `BidiUnavailable`, a 503. What the connection delivers goes to the
-`Sink` (`capture.Capture`), told when a hold starts (``again`` when this
-session was held before: Chrome replays what it already sent), when that
-replay is over, and when a hold ends. A hold that fails is tried again on a
-back-off of 1, 2, 4 … 30 seconds.
+failure is `BidiUnavailable`, a 503. `attach_here` is the same from the loop:
+a person's Control follows the pages that way (live control spec, ruling 27).
+A hold that fails is tried again on a back-off of 1, 2, 4 … 30 seconds.
+
+**A sink per reason** (live control spec, R7). ``sinks`` maps a reason to its
+`Sink` — ``capture`` to `capture.Capture`, ``control`` to `live.pages.Pages`
+— and each hears only its own: ``attached`` when a hold opens with its reason
+owed, or when `_extend` adds the reason to a hold already open (``again``
+false, the top context the hold learned); then each event of its
+``events_for``, ``replayed`` (``again``: Chrome replays what it already sent)
+and ``lost``; and ``detached`` when the hold ends, or when its reason is let go
+while the connection stays for another. One connection serves them all: two
+reasons owed at once share one socket, and an event both asked for reaches
+both.
 
 Calls come from worker threads (FastMCP's sync tools, Starlette's routes) and
 are handed to the loop, as the recordings collector's are. Nothing here logs a
@@ -91,10 +100,12 @@ ATTACH_FAILED = (
     "capture needs the browser's BiDi channel and the Grid's /se/bidi route "
     "did not answer, so this browser was ended: retry, or open without capture"
 )
+UNAVAILABLE = "the browser's BiDi channel (the Grid's /se/bidi route) did not answer"
 
 
 class Sink(Protocol):
-    """What hears a held connection: `capture.Capture`. Called on the loop."""
+    """What hears a held connection for one reason: `capture.Capture`,
+    `live.pages.Pages`. Called on the loop."""
 
     def attached(
         self,
@@ -117,25 +128,6 @@ class Sink(Protocol):
     def lost(self, workspace: str, session_id: str) -> None: ...
 
 
-class _NoSink:
-    """The sink of a monitor given none: hears everything, keeps nothing."""
-
-    def attached(self, workspace, session_id, browser, top, *, again) -> None:
-        pass
-
-    def ingest(self, workspace, session_id, method, params) -> None:
-        pass
-
-    def replayed(self, workspace, session_id) -> None:
-        pass
-
-    def detached(self, workspace, session_id) -> None:
-        pass
-
-    def lost(self, workspace, session_id) -> None:
-        pass
-
-
 @dataclass
 class Watch:
     """One session the monitor owes something, and what it knows of it."""
@@ -154,6 +146,10 @@ class Watch:
     retry_at: float = 0.0  # no hold is tried before this
     subscribed: frozenset[str] = frozenset()  # the events the connection asked for
     attached_once: bool = False  # a hold succeeded on this session before
+    # The reasons whose sinks were told `attached` on the connection and not
+    # yet `detached`: what an event, a drop or a replay is routed to.
+    heard: set[str] = field(default_factory=set)
+    top: str | None = None  # the top-level context the hold learned
     # Held while the connection is opened, extended or closed, so a look and an
     # attach never work on one watch's connection at once.
     busy: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
@@ -172,8 +168,8 @@ class Monitor:
     to the BiDi events it needs: a watch holds a connection only while it owes
     such a reason. ``collectors_for`` maps a reason to the parameters of the
     data collector it adds when a connection is held. ``connect(url,
-    on_close=)`` builds a `Connection`; a test seam. ``sink`` hears what a
-    connection delivers.
+    on_close=)`` builds a `Connection`; a test seam. ``sinks`` maps a reason
+    to the `Sink` that hears what a connection delivers for it.
     """
 
     def __init__(
@@ -185,7 +181,7 @@ class Monitor:
         events_for: Mapping[str, tuple[str, ...]] | None = None,
         collectors_for: Mapping[str, dict] | None = None,
         connect: Callable[..., Connection] | None = None,
-        sink: Sink | None = None,
+        sinks: Mapping[str, Sink] | None = None,
         clock: Callable[[], float] = time.time,
         tick: float = LISTING_TICK,
     ):
@@ -195,7 +191,7 @@ class Monitor:
         self.events_for = dict(events_for or {})
         self.collectors_for = dict(collectors_for or {})
         self.connect = connect or Connection
-        self.sink: Sink = sink if sink is not None else _NoSink()
+        self.sinks: dict[str, Sink] = dict(sinks or {})
         self.clock = clock
         self.tick = tick
         self.watches: dict[str, Watch] = {}
@@ -285,13 +281,24 @@ class Monitor:
         loop = self._loop
         if loop is None:
             raise RuntimeError("the monitor is not running")
+        expired = threading.Event()  # set before the cancel it explains
         future = asyncio.run_coroutine_threadsafe(
-            self._attach(workspace, session_id, reason, browser, grid_timeout, resume),
+            self._attach(
+                workspace,
+                session_id,
+                reason,
+                browser,
+                grid_timeout,
+                resume,
+                expired=expired.is_set,
+            ),
             loop,
         )
         try:
             future.result(ATTACH_TIMEOUT)
         except Exception as exc:
+            if isinstance(exc, TimeoutError):
+                expired.set()
             future.cancel()  # a hold still under way closes what it opened
             log.info(
                 "monitor: capture did not attach for %s (%s)",
@@ -299,6 +306,34 @@ class Monitor:
                 type(exc).__name__,
             )
             raise BidiUnavailable(ATTACH_FAILED) from exc
+
+    async def attach_here(
+        self, workspace: str, session_id: str, reason: str, *, browser: str = ""
+    ) -> None:
+        """`attach` from the loop: owe ``reason`` and hold its connection, or
+        extend the one held, before returning. `BidiUnavailable` on any
+        failure within ``ATTACH_TIMEOUT``, the reason then owed no more; a
+        cancellation closes what the hold opened and propagates."""
+        try:
+            if self._loop is None:
+                raise ConnectionError("the monitor is not running")
+            async with asyncio.timeout(ATTACH_TIMEOUT) as timeout:
+                await self._attach(
+                    workspace,
+                    session_id,
+                    reason,
+                    browser,
+                    None,
+                    expired=timeout.expired,
+                )
+        except Exception as exc:
+            log.info(
+                "monitor: %s did not attach for %s (%s)",
+                reason,
+                workspace,
+                type(exc).__name__,
+            )
+            raise BidiUnavailable(UNAVAILABLE) from exc
 
     def release(self, session_id: str, reason: str) -> None:
         """Owe ``reason`` no more; a watch owing nothing is dropped."""
@@ -345,9 +380,14 @@ class Monitor:
         return w is not None and reason in w.owed
 
     def capturing(self, session_id: str) -> bool:
-        """Whether a connection to this session's browser is held right now."""
+        """Whether capture's connection to this session's browser is held right
+        now: held, and capture among the reasons it is held for. A connection
+        held only for a person's control is not capture (live control spec,
+        ruling 28)."""
         w = self.watches.get(session_id)
-        return bool(w and w.connection and w.connection.is_open)
+        return bool(
+            w and w.connection and w.connection.is_open and "capture" in w.heard
+        )
 
     def backing_off(self, session_id: str) -> bool:
         """Whether a hold on this session failed and its back-off has not run
@@ -449,6 +489,10 @@ class Monitor:
     def _wanted(self, w: Watch) -> list[str]:
         return sorted({e for reason in w.owed for e in self.events_for.get(reason, ())})
 
+    def _told(self, w: Watch) -> list[str]:
+        """The owed reasons that have a sink to tell, in order."""
+        return sorted(reason for reason in w.owed if reason in self.sinks)
+
     def _owe(
         self,
         session_id: str,
@@ -489,8 +533,12 @@ class Monitor:
         w.owed.discard(reason)
         if not w.owed:
             self._drop(session_id)
-        else:
-            self._wake()
+            return
+        if reason in w.heard:
+            # The connection stays for another reason: this one's sink is done.
+            w.heard.discard(reason)
+            self._tell_detached(w, reason)
+        self._wake()
 
     async def _attach(
         self,
@@ -500,9 +548,17 @@ class Monitor:
         browser: str,
         grid_timeout: int | None,
         resume: bool = False,
+        *,
+        expired: Callable[[], bool] = lambda: False,
     ) -> None:
         """`attach` on the loop: owe the reason, then hold the connection now
-        rather than at the next look. On any failure the reason is released."""
+        rather than at the next look. On any failure the reason is released.
+
+        A failure backs the watch off, and so does a cancellation ``expired``
+        explains: the caller's ``ATTACH_TIMEOUT`` ran out on a route that
+        hangs. Any other cancellation — a person's Control released while its
+        attach was under way, the monitor stopping — is no failure: it is not
+        logged and holds no later call back."""
         task = asyncio.current_task()
         self._attaching.add(task)
         try:
@@ -527,7 +583,8 @@ class Monitor:
             except BaseException as exc:
                 # Backed off like a look's hold, so a call that resumes it
                 # does not pay ATTACH_TIMEOUT again on every call.
-                self._failed(w, self.clock(), exc)
+                if not isinstance(exc, asyncio.CancelledError) or expired():
+                    self._failed(w, self.clock(), exc)
                 if added:
                     self._unowe(session_id, reason)
                 raise
@@ -582,9 +639,17 @@ class Monitor:
                 ),
                 None,
             )
-            self.sink.attached(w.workspace, w.session_id, w.browser, top, again=again)
+            w.top = top
+            for reason in self._told(w):
+                w.heard.add(reason)  # first: a sink that raises is still detached
+                self.sinks[reason].attached(
+                    w.workspace, w.session_id, w.browser, top, again=again
+                )
             conn.listen(
-                wanted, self._deliverer(w), name="capture", on_drop=self._loser(w)
+                wanted,
+                self._deliverer(w),
+                name=self._listener_name(w),
+                on_drop=self._loser(w, wanted),
             )
             await conn.subscribe(wanted)
             for reason in sorted(w.owed):
@@ -593,7 +658,9 @@ class Monitor:
                     await conn.add_collector(params)
             if again:
                 await conn.flush()
-                self.sink.replayed(w.workspace, w.session_id)
+                for reason in sorted(w.heard):
+                    self.sinks[reason].replayed(w.workspace, w.session_id)
+            await self._subscribed(w, conn, sorted(w.heard), flushed=again)
             if self.watches.get(w.session_id) is not w:
                 raise ConnectionError("the session ended while it was attached")
         except BaseException:
@@ -607,33 +674,97 @@ class Monitor:
         self._succeeded(w)
 
     async def _extend(self, w: Watch, conn: Connection) -> None:
-        """Subscribe the events a reason owed since the hold added."""
+        """Subscribe the events a reason owed since the hold added, add its
+        collector and tell its sink `attached`: the hold's top, not again."""
         added = [e for e in self._wanted(w) if e not in w.subscribed]
-        if not added:
+        joining = [reason for reason in self._told(w) if reason not in w.heard]
+        if not added and not joining:
             return
-        listener = conn.listen(
-            added, self._deliverer(w), name="capture", on_drop=self._loser(w)
-        )
         try:
-            await conn.subscribe(added)
+            for reason in joining:
+                w.heard.add(reason)
+                self.sinks[reason].attached(
+                    w.workspace, w.session_id, w.browser, w.top, again=False
+                )
+            if added:
+                listener = conn.listen(
+                    added,
+                    self._deliverer(w),
+                    name=self._listener_name(w),
+                    on_drop=self._loser(w, added),
+                )
+                try:
+                    await conn.subscribe(added)
+                except BaseException:
+                    listener.cancel()
+                    raise
+                w.subscribed = w.subscribed | frozenset(added)
+            for reason in joining:
+                params = self.collectors_for.get(reason)
+                if params is not None:
+                    await conn.add_collector(params)
+            await self._subscribed(w, conn, joining, flushed=not added)
         except BaseException:
-            listener.cancel()
+            for reason in joining:
+                if reason in w.heard:
+                    w.heard.discard(reason)
+                    self._tell_detached(w, reason)
             raise
-        w.subscribed = w.subscribed | frozenset(added)
         self._succeeded(w)
 
-    def _deliverer(self, w: Watch) -> Callable[[str, dict], None]:
-        return functools.partial(self._deliver, w.workspace, w.session_id)
-
-    def _deliver(
-        self, workspace: str, session_id: str, method: str, params: dict
+    async def _subscribed(
+        self, w: Watch, conn: Connection, reasons: list[str], *, flushed: bool
     ) -> None:
-        self.sink.ingest(workspace, session_id, method, params)
+        """Tell each of ``reasons`` whose sink asks (an optional
+        ``subscribed``: `live.pages.Pages`) that what the subscribe re-sent is
+        behind it. Subscribing ``browsingContext.contextCreated`` re-sends it
+        for every context already open, on both browsers (capture spec,
+        measured), on a first hold as on a hold again; flushed first, unless
+        the hold already was or nothing new was subscribed. Capture does not
+        ask, and costs nothing here."""
+        told = [
+            r for r in reasons if callable(getattr(self.sinks[r], "subscribed", None))
+        ]
+        if not told:
+            return
+        if not flushed:
+            await conn.flush()
+        for reason in told:
+            self.sinks[reason].subscribed(w.workspace, w.session_id)
 
-    def _loser(self, w: Watch) -> Callable[[], None]:
-        """Tells the sink of each event the capture listener's queue dropped,
-        so a reader sees the count rather than only a log line."""
-        return functools.partial(self.sink.lost, w.workspace, w.session_id)
+    @staticmethod
+    def _listener_name(w: Watch) -> str:
+        return "+".join(sorted(w.heard)) or "monitor"
+
+    def _deliverer(self, w: Watch) -> Callable[[str, dict], None]:
+        return functools.partial(self._deliver, w)
+
+    def _deliver(self, w: Watch, method: str, params: dict) -> None:
+        """Hand an event to every sink heard on the connection that asked for
+        it; one sink failing does not cost the others it."""
+        failed: Exception | None = None
+        for reason in sorted(w.heard):
+            if method not in self.events_for.get(reason, ()):
+                continue
+            try:
+                self.sinks[reason].ingest(w.workspace, w.session_id, method, params)
+            except Exception as exc:  # noqa: BLE001 - raised after the others
+                failed = failed or exc
+        if failed is not None:
+            raise failed  # the subscriber logs it by type
+
+    def _loser(self, w: Watch, events: list[str]) -> Callable[[], None]:
+        """Tells each sink that asked for one of this listener's events that
+        its queue dropped one, so a reader sees the count rather than only a
+        log line."""
+        events = frozenset(events)
+
+        def lost() -> None:
+            for reason in sorted(w.heard):
+                if events & frozenset(self.events_for.get(reason, ())):
+                    self.sinks[reason].lost(w.workspace, w.session_id)
+
+        return lost
 
     def _notice_drop(self, w: Watch) -> None:
         """A connection closed under us: let it go, and look at the session now."""
@@ -663,10 +794,23 @@ class Monitor:
             )
 
     def _detached(self, w: Watch) -> None:
+        """The hold ended, or failed: every sink heard on it, or owed on it,
+        is told, and none is heard any more."""
+        told = sorted(w.heard | set(self._told(w)))
+        w.heard = set()
+        for reason in told:
+            self._tell_detached(w, reason)
+
+    def _tell_detached(self, w: Watch, reason: str) -> None:
+        sink = self.sinks.get(reason)
+        if sink is None:
+            return
         try:
-            self.sink.detached(w.workspace, w.session_id)
+            sink.detached(w.workspace, w.session_id)
         except Exception as exc:  # noqa: BLE001 - a hold ends whatever the sink does
-            log.warning("monitor: the capture sink failed (%s)", type(exc).__name__)
+            log.warning(
+                "monitor: the %s sink failed (%s)", reason, type(exc).__name__
+            )
 
     def _close_later(self, conn: Connection) -> asyncio.Task:
         """Close ``conn`` in a task `stop` waits for. On the loop, which is

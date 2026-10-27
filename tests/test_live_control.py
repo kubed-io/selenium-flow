@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from kubed.selenium_flow.faults import Controlled
+from kubed.selenium_flow.faults import BidiUnavailable, Controlled
 from kubed.selenium_flow.live.control import Controls, Gate, Waited, said
 
 pytestmark = pytest.mark.unit
@@ -89,7 +89,10 @@ async def until(check, timeout=1.0):
 
 
 async def test_with_no_call_running_control_is_granted_at_once(controls, passed, t1):
-    assert controls.ask(t1) == "control"
+    # Requested first, even then: the grant waits for the pages to be followed
+    # (ruling 27), and lands without waiting for any call.
+    assert controls.ask(t1) == "requested"
+    await until(lambda: t1.granted)
     refused = controls.refusal("g1", "navigate")
     assert isinstance(refused, Controlled)
     assert str(refused) == HELD.format(who="drk", at="15:12")
@@ -136,6 +139,7 @@ async def test_leaving_while_requested_ends_the_episode(controls, passed, t1):  
 async def test_control_is_held_while_any_viewer_holds_it(controls, t1, t2):
     controls.ask(t1)
     controls.ask(t2)
+    await until(lambda: t1.granted and t2.granted)
     assert str(controls.refusal("g1", "navigate")).startswith("drk and kim has control")
     controls.withdraw(t1)
     assert str(controls.refusal("g1", "navigate")).startswith("kim has control")
@@ -181,18 +185,18 @@ async def test_the_browser_ending_cancels_a_pending_grant(controls, passed, t1):
 async def test_a_new_browser_in_the_workspace_starts_a_new_episode(controls, t1):
     controls.ask(t1)
     other = FakeTunnel("kim", grid_id="g2")
-    assert controls.ask(other) == "control"
+    assert controls.ask(other) == "requested"
     assert controls.refusal("g1", "navigate") is None
+    await until(lambda: other.granted)
     assert str(controls.refusal("g2", "navigate")).startswith("kim has control")
 
 
 async def test_stop_cancels_a_pending_grant_and_sets_every_event(controls, passed, t1):
-    passed.value = False
     held = FakeTunnel("kim", workspace="w2", grid_id="g2")
-    controls.ask(t1)
-    passed.value = True
-    controls.ask(held)  # w2 held at once
+    controls.ask(held)  # w2 held once its grant runs
+    await until(lambda: held.granted)
     passed.value = False
+    controls.ask(t1)  # w1 waits for a call
     waiters = [
         asyncio.create_task(controls.wait("w1", None)),
         asyncio.create_task(controls.wait("w2", None)),
@@ -228,9 +232,11 @@ async def test_a_grant_that_fails_for_one_tunnel_still_grants_the_others(
 # ---- the words -----------------------------------------------------------------
 
 
-def test_the_refusal_says_who_and_when():
+async def test_the_refusal_says_who_and_when():
     controls = Controls(behind=Behind(), clock=Clock())
-    controls.ask(FakeTunnel("admin"))
+    admin = FakeTunnel("admin")
+    controls.ask(admin)
+    await until(lambda: admin.granted)
     refusal = controls.refusal("g1", "navigate")
     assert str(refusal) == (
         "a person has control of this browser since 15:12 UTC. Call "
@@ -284,6 +290,7 @@ async def test_the_notice_while_requested(controls, passed):
 
 async def test_the_notice_while_held(controls, t1):
     controls.ask(t1)
+    await until(lambda: t1.granted)
     notice = controls.notice("w1")
     assert notice["state"] == "held" and notice["who"] == ["drk"]
     assert notice["hint"] == HELD.format(who="drk", at="15:12")
@@ -311,6 +318,7 @@ async def test_a_new_episode_forgets_an_unsaid_hand_back(controls, t1, t2):
     controls.ask(t1)
     controls.withdraw(t1)
     controls.ask(t2)
+    await until(lambda: t2.granted)
     assert controls.notice("w1")["state"] == "held"
     controls.withdraw(t2)
     assert controls.notice("w1")["who"] == ["kim"]
@@ -390,3 +398,128 @@ async def test_a_release_during_the_grant_tells_no_further_viewer(controls, pass
     await asyncio.sleep(0.02)
     assert not second.granted
     assert controls.refusal("g1", "navigate") is None
+
+
+# ---- the pages: the grant waits for them to be followed (ruling 27) -------------
+
+
+class FakeMonitor:
+    """`Monitor.attach_here` and `release`; ``gate`` holds the attach open."""
+
+    def __init__(self):
+        self.attached, self.released = [], []
+        self.gate: asyncio.Event | None = None
+        self.fail = False
+
+    async def attach_here(self, workspace, session_id, reason, *, browser=""):
+        self.attached.append((workspace, session_id, reason))
+        if self.gate is not None:
+            await self.gate.wait()
+        if self.fail:
+            raise BidiUnavailable("the BiDi channel did not answer")
+
+    def release(self, session_id, reason):
+        self.released.append((session_id, reason))
+
+
+class FakePages:
+    def __init__(self):
+        self.followed, self.stopped = [], []
+
+    def follow(self, grid_id):
+        self.followed.append(grid_id)
+
+    def listed(self, grid_id):
+        return [{"url": "https://a.example/", "title": "A"}], 3
+
+    def stop(self, grid_id):
+        self.stopped.append(grid_id)
+        return [{"url": "https://a.example/", "title": "A"}]
+
+
+@pytest.fixture
+def monitor():
+    return FakeMonitor()
+
+
+@pytest.fixture
+def pages():
+    return FakePages()
+
+
+@pytest.fixture
+async def followed(passed, clock, monitor, pages):
+    made = Controls(behind=passed, monitor=monitor, pages=pages, clock=clock, poll=0.01)
+    yield made
+    made.stop()
+
+
+async def test_the_grant_waits_for_the_pages_to_be_followed(followed, monitor, pages, t1):
+    monitor.gate = asyncio.Event()
+    assert followed.ask(t1) == "requested"
+    await until(lambda: monitor.attached)
+    assert pages.followed == ["g1"] and monitor.attached == [("w1", "g1", "control")]
+    await asyncio.sleep(0.03)
+    assert not t1.granted and not followed.controlling("w1", "drk")
+    assert "asked for control" in str(followed.refusal("g1", "navigate"))
+    monitor.gate.set()
+    await until(lambda: t1.granted)
+    episode = followed._episodes["w1"]
+    assert episode.followed and episode.state == "held"
+    assert followed.controlling("w1", "drk")
+
+
+async def test_bidi_unavailable_still_grants_with_followed_false(followed, monitor, t1):
+    monitor.fail = True
+    followed.ask(t1)
+    await until(lambda: t1.granted)
+    episode = followed._episodes["w1"]
+    assert episode.state == "held" and episode.followed is False
+
+
+async def test_with_no_monitor_the_grant_lands_unfollowed(controls, t1):
+    controls.ask(t1)
+    await until(lambda: t1.granted)
+    assert controls._episodes["w1"].followed is False
+
+
+async def test_the_release_lets_control_go_and_keeps_the_pages(followed, monitor, pages, t1):
+    followed.ask(t1)
+    await until(lambda: t1.granted)
+    episode = followed._episodes["w1"]
+    followed.withdraw(t1)
+    assert monitor.released == [("g1", "control")] and pages.stopped == ["g1"]
+    assert episode.pages == [{"url": "https://a.example/", "title": "A"}]
+    assert episode.dropped == 3
+
+
+async def test_a_release_while_the_attach_is_under_way_cancels_it(followed, monitor, pages, t1):
+    monitor.gate = asyncio.Event()  # never set: the attach hangs
+    followed.ask(t1)
+    await until(lambda: monitor.attached)
+    episode = followed._episodes["w1"]
+    task = episode.pending
+    followed.withdraw(t1)
+    async with asyncio.timeout(1):
+        await asyncio.wait({task})
+    assert task.cancelled() and episode.pending is None
+    assert monitor.released == [("g1", "control")] and pages.stopped == ["g1"]
+    assert not t1.granted
+
+
+@pytest.mark.parametrize("how", ["withdraw", "ended", "stop"])
+async def test_every_release_cancels_the_pending_grant(controls, passed, t1, how):
+    passed.value = False
+    controls.ask(t1)
+    episode = controls._episodes["w1"]
+    task = episode.pending
+    assert task is not None
+    await asyncio.sleep(0.02)  # polling the mark
+    {"withdraw": lambda: controls.withdraw(t1), "ended": lambda: controls.ended("g1"),
+     "stop": controls.stop}[how]()
+    async with asyncio.timeout(1):
+        await asyncio.wait({task})
+    assert task.cancelled() and episode.pending is None
+    passed.value = True
+    await asyncio.sleep(0.03)
+    assert not t1.granted
