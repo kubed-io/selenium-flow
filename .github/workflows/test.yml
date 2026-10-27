@@ -47,6 +47,8 @@ jobs:
     name: Test
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-26.04
+    # the suite takes minutes; a hang fails here, red, instead of holding the PR for 6 hours
+    timeout-minutes: 20
     permissions:
       contents: read
       # The results and coverage comments on the pull request, and the check
