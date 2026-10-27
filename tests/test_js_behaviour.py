@@ -288,3 +288,22 @@ def test_the_spare_script_runs_nothing_on_a_page_from_another_origin():
 def test_the_spare_script_leaves_a_page_without_the_marker_alone():
     page = spare("1", "https://example.test", html="<p>a site</p>")
     assert page == {"spare": False, "origin": "https://example.test"}
+
+
+def test_the_focused_script_follows_an_open_shadow_root_to_the_element_in_it():
+    html = '<div id="host"></div>'
+    setup = (
+        "const root = document.getElementById('host').attachShadow({mode: 'open'});"
+        "root.innerHTML = '<input id=\"inner\">';"
+        "root.getElementById('inner').focus();"
+    )
+    assert run("focused.js", html, setup=setup) == "input#inner"
+
+
+def test_the_focused_script_answers_the_element_itself_in_the_light_dom():
+    html = '<textarea id="t"></textarea>'
+    assert run("focused.js", html, setup="document.getElementById('t').focus();") == "textarea#t"
+
+
+def test_the_focused_script_answers_null_when_focus_is_on_the_body():
+    assert run("focused.js", "<p>nothing here</p>") is None

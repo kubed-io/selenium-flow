@@ -3,10 +3,12 @@ import { readFileSync } from 'node:fs'
 
 const OUT = new URL('../../kubed/selenium_flow/http/static/', import.meta.url)
 // admin raised 45 -> 50 KB: carries E3's Console and Network tabs.
-const BUDGET = { admin: 50 * 1024, app: 110 * 1024 }
+// admin raised 50 -> 55 KB: carries #83's Live tab.
+const BUDGET = { admin: 55 * 1024, app: 110 * 1024, live: 64 * 1024 }
 let over = false
-for (const surface of /** @type {const} */ (['admin', 'app'])) {
-  const bytes = ['html', 'css', 'js']
+for (const surface of /** @type {const} */ (['admin', 'app', 'live'])) {
+  // live is one file, loaded rather than inlined.
+  const bytes = (surface === 'live' ? ['js'] : ['html', 'css', 'js'])
     .map((ext) => readFileSync(new URL(`${surface}.${ext}`, OUT)))
     .reduce((sum, b) => sum + gzipSync(b, { level: 9 }).length, 0)
   const ok = bytes <= BUDGET[surface]

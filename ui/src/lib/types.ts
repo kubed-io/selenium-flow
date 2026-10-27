@@ -68,7 +68,11 @@ export interface WorkspaceRow {
   ended?: { at: number; by: 'admin' | 'caller' } | null
 }
 
-export interface WorkspacesPayload { workspaces: WorkspaceRow[]; events_url?: string }
+export interface WorkspacesPayload {
+  workspaces: WorkspaceRow[]
+  events_url?: string
+  live_enabled?: boolean
+}
 
 export interface FilesResponse {
   workspace?: WorkspaceRow

@@ -56,7 +56,7 @@ test('three top tabs, one pane at a time; the live badge (R1, L1)', async () => 
   sessionStorage.setItem('sf-token', 't')
   fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
-  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Workspaces', { selector: 'strong' })).toBeInTheDocument())
   expect(container.querySelector('#tabWorkspaces')).toHaveAttribute('aria-selected', 'true')
   expect(container.querySelector('#live')).toHaveTextContent('connecting…')
   expect(container.querySelector('#paneSecrets')).toBeNull()
@@ -66,7 +66,7 @@ test('the console tab hides itself when it would frame this page (R3, C1)', asyn
   sessionStorage.setItem('sf-token', 't')
   fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const self = render(Admin, { mount: '', console: '/' })
-  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Workspaces', { selector: 'strong' })).toBeInTheDocument())
   expect(self.container.querySelector('#tabConsole')).not.toBeVisible()
   self.unmount()
   history.replaceState(null, '', '/#/console')
@@ -79,7 +79,7 @@ test('the console iframe is created at sign-in and keeps its place across tab sw
   sessionStorage.setItem('sf-token', 't')
   fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
-  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Workspaces', { selector: 'strong' })).toBeInTheDocument())
 
   // Present — and already carrying its `src` — while still on `#/`, not
   // created lazily on first visit to the console tab.
@@ -91,7 +91,7 @@ test('the console iframe is created at sign-in and keeps its place across tab sw
   await vi.waitFor(() => expect(container.querySelector('#paneConsole')).toBeVisible())
   expect(container.querySelector('iframe.console')).toBe(iframe)
 
-  await fireEvent.click(screen.getByText('Workspaces'))
+  await fireEvent.click(screen.getByText('Workspaces', { selector: '.tabs button' }))
   await vi.waitFor(() => expect(container.querySelector('#paneConsole')).not.toBeVisible())
   expect(container.querySelector('iframe.console')).toBe(iframe)
 
@@ -126,7 +126,7 @@ test('the top tabs read Workspaces, Secrets, Settings, Grid console left to righ
   sessionStorage.setItem('sf-token', 't')
   fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
-  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Workspaces', { selector: 'strong' })).toBeInTheDocument())
   const tabs = [...container.querySelectorAll('.tabs button')]
   expect(tabs.map((b) => b.textContent?.trim())).toEqual(['Workspaces', 'Secrets', 'Settings', 'Grid console'])
 
@@ -140,7 +140,7 @@ test('clicking the Settings tab routes through the hash', async () => {
   sessionStorage.setItem('sf-token', 't')
   fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/grid' })
-  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Workspaces', { selector: 'strong' })).toBeInTheDocument())
   await fireEvent.click(container.querySelector('#tabSettings')!)
   expect(location.hash).toBe('#/settings')
 })
@@ -159,7 +159,7 @@ test('#/console with a self-framing console URL shows the workspace list, not th
   history.replaceState(null, '', '/#/console')
   fakeFetch({ 'GET /admin/workspaces': { body: WORKSPACES } })
   const { container } = render(Admin, { mount: '', console: '/' })
-  await vi.waitFor(() => expect(screen.getByText('Live workspaces')).toBeInTheDocument())
+  await vi.waitFor(() => expect(screen.getByText('Workspaces', { selector: 'strong' })).toBeInTheDocument())
   expect(container.querySelector('#paneWorkspaces')).toBeInTheDocument()
   expect(container.querySelector('iframe.console')).toBeNull()
 })

@@ -75,3 +75,16 @@ def test_session_timeout_reads_the_browsers_own_node():
 )
 def test_the_bidi_url_is_derived_from_the_grids_own(url, socket):
     assert Grid(url).bidi_url("abc") == socket
+
+
+@pytest.mark.parametrize(
+    ("url", "socket"),
+    [
+        ("http://grid:4444", "ws://grid:4444/session/abc/se/vnc"),
+        ("https://u:p@hub.test:4444/grid/", "wss://u:p@hub.test:4444/grid/session/abc/se/vnc"),
+    ],
+)
+def test_the_vnc_url_is_the_bidi_url_s_sibling(url, socket):
+    """Built like the BiDi socket's, from the Grid's own URL and never from the
+    session's ``se:vnc`` capability, which names an in-cluster host."""
+    assert Grid(url).vnc_url("abc") == socket

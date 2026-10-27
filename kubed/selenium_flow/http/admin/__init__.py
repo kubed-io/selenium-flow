@@ -21,8 +21,9 @@ The files themselves are the Grid's, not ours — see ``Grid.files``.
 
 One module per tab: ``page`` (the shell), ``workspaces`` (the list and its live
 stream), ``site_data`` (history and saved site data), ``files``, ``flows``, and
-``capture`` (console, network and the live tail), and ``signed`` (the links
-that carry their own authority).
+``capture`` (console, network and the live tail), ``live`` (the live view's
+signed socket onto a browser's VNC stream), and ``signed`` (the links that
+carry their own authority).
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from starlette.responses import JSONResponse
 from .. import answer, auth, links
 from . import capture as capture_tab
 from . import files, flows, page, signed, site_data
+from . import live as live_view
 from . import workspaces as workspace_list
 
 log = logging.getLogger(__name__)
@@ -57,6 +59,9 @@ def register(
     door: auth.AdminDoor | None = None,
     oidc_page: str = "",
     capture=None,
+    live=None,
+    tunnels=None,
+    monitor=None,
 ) -> workspace_list.Broadcast:
     """Mount the admin pages, their JSON API, and the signed file routes.
 
@@ -110,7 +115,8 @@ def register(
         return JSONResponse(settings_payload())
 
     broadcast = workspace_list.mount(
-        mcp, actions, workspaces, flow_store, token, prefix, guarded, door
+        mcp, actions, workspaces, flow_store, token, prefix, guarded, door,
+        live_enabled=bool(live and live.enabled),
     )
     site_data.mount(mcp, workspaces, catalogue, prefix, guarded, broadcast.changes)
     files.mount(
@@ -121,6 +127,10 @@ def register(
     if capture is not None:
         capture_tab.mount(
             mcp, actions, workspaces, capture, token, prefix, guarded, door
+        )
+    if live is not None:
+        live_view.mount(
+            mcp, actions, workspaces, live, token, prefix, door, tunnels, monitor
         )
     signed.mount(mcp, actions, flow_store, token, prefix)
     return broadcast

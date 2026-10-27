@@ -185,6 +185,49 @@ def test_the_access_log_drops_the_query_string_and_keeps_the_rest(tmp_path, list
     assert "workspace=" not in line and "sig=" not in line
 
 
+SOCKET_LINK = "/flow/admin/workspaces/s3cr3t/live/socket?exp=1&sig=abc&by=drk"
+SOCKET_ROUTE = "/flow/admin/workspaces/{key}/live/socket"
+WEBSOCKET_LINES = [
+    ('%s - "WebSocket %s" [accepted]', ("10.0.0.1:5000", SOCKET_LINK), "[accepted]"),
+    ('%s - "WebSocket %s" 403', ("10.0.0.1:5000", SOCKET_LINK), "403"),
+    ('%s - "WebSocket %s" %d', ("10.0.0.1:5000", SOCKET_LINK, 404), "404"),
+]
+
+
+def error_line(msg, args, logger="uvicorn.error"):
+    record = logging.LogRecord(logger, logging.INFO, __file__, 1, msg, args, None)
+    assert all(f.filter(record) for f in logging.getLogger(logger).filters)
+    return record.getMessage()
+
+
+@pytest.mark.parametrize(("msg", "args", "tail"), WEBSOCKET_LINES)
+def test_uvicorn_s_websocket_line_names_the_route_not_the_link(
+    tmp_path, listened, msg, args, tail
+):
+    """The live socket's path carries the workspace and its query a signature."""
+    main_module.main(config(tmp_path, "route_prefix: /flow\n"))
+    line = error_line(msg, args)
+    assert line == f'10.0.0.1:5000 - "WebSocket {SOCKET_ROUTE}" {tail}'
+    for leak in ("?", "sig", "exp", "by=", "s3cr3t"):
+        assert leak not in line
+
+
+def test_no_other_uvicorn_error_record_is_altered(tmp_path, listened):
+    main_module.main(config(tmp_path))
+    assert error_line("Started server process [%d]", (7,)) == "Started server process [7]"
+    assert error_line("a %s b %s c %s", ("x", "/y?z=1", "w")) == "a x b /y?z=1 c w"
+
+
+def test_the_one_filter_serves_both_loggers_however_often_it_boots(tmp_path, listened):
+    main_module.main(config(tmp_path))
+    main_module.main(config(tmp_path))
+    mine = [
+        [f for f in logging.getLogger(name).filters if isinstance(f, access_log.RouteTemplates)]
+        for name in ("uvicorn.access", "uvicorn.error")
+    ]
+    assert [len(m) for m in mine] == [1, 1] and mine[0][0] is mine[1][0]
+
+
 SESSION_PATHS = [
     ("/admin/workspaces/s3cr3t/history", "/admin/workspaces/{key}/history"),
     ("/kept/s3cr3t/x.pdf", "/kept/{workspace}/{name}"),

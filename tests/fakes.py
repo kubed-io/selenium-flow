@@ -6,6 +6,7 @@ could each hold a ``FakeRedis`` and the unit double could drift from the one the
 bench times; a module split now has one file to repoint.
 """
 
+import asyncio
 import json
 import threading
 from contextlib import contextmanager
@@ -14,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from selenium.common.exceptions import UnexpectedAlertPresentException
 
 from kubed.selenium_flow.bidi import CHANNEL_DOWN, BidiError
-from kubed.selenium_flow.faults import BidiUnavailable
+from kubed.selenium_flow.faults import BidiUnavailable, SocketClosed
 from kubed.selenium_flow.urls import origin_of
 
 MAIN = "main-1"
@@ -629,3 +630,45 @@ class CountingDriver(ScriptedDriver):
         self.__dict__["reconnects"] += 1
         self.log.append(("reconnect", session_id))
         return self
+
+
+class FakePeer:
+    """Answers `live.tunnel.Peer`: one end of a WebSocket, played by a test.
+
+    ``feed`` is what ``receive`` returns next and ``hang_up`` makes it raise
+    `SocketClosed`; ``sent`` is everything ``send`` was given and ``closed`` the
+    code and reason ``close`` was called with. ``next_sent`` waits for the next
+    send, so a test reads the tunnel's side of a conversation in order.
+    """
+
+    def __init__(self):
+        self.sent = []
+        self.closed = None
+        self._incoming = asyncio.Queue()
+        self._outgoing = asyncio.Queue()
+
+    def feed(self, data):
+        self._incoming.put_nowait(data)
+
+    def hang_up(self, code=1000, reason=""):
+        self._incoming.put_nowait(SocketClosed(code, reason))
+
+    async def receive(self):
+        item = await self._incoming.get()
+        if isinstance(item, BaseException):
+            self._incoming.put_nowait(item)
+            raise item
+        return item
+
+    async def send(self, data):
+        if self.closed is not None:
+            raise SocketClosed(*self.closed)
+        self.sent.append(data)
+        self._outgoing.put_nowait(data)
+
+    async def close(self, code=1000, reason=""):
+        if self.closed is None:
+            self.closed = (code, reason)
+
+    async def next_sent(self):
+        return await asyncio.wait_for(self._outgoing.get(), 1)

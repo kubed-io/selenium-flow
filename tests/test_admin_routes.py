@@ -23,6 +23,6 @@ def test_the_route_table_is_unchanged():
         [method, route.path, route.name]
         for route in server.mcp.http_app().routes
         if route.name in ALSO or str(route.name).startswith("admin_")
-        for method in sorted(route.methods - {"HEAD"})
+        for method in sorted((getattr(route, "methods", None) or {"WS"}) - {"HEAD"})
     )
     golden_tools.compare("admin-routes.json", table)

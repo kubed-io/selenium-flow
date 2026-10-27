@@ -37,3 +37,12 @@ test('the masthead wears ● capture or capture paused, as it did', () => {
   render(WorkspaceSummary, { data: { key: 'k', live: false, capture: true, capturing: false } })
   expect(screen.getByText('capture paused')).toHaveClass('pill', 'capture-paused')
 })
+
+test('the masthead pill reads open for a browser and idle for none', () => {
+  const r = render(WorkspaceSummary, { data: { key: 'k', live: true } })
+  expect(screen.getByText('open')).toHaveClass('pill', 'live')
+  r.unmount()
+  render(WorkspaceSummary, { data: { key: 'k', live: false } })
+  expect(screen.getByText('idle')).toHaveClass('pill')
+  expect(screen.queryByText('open')).toBeNull()
+})

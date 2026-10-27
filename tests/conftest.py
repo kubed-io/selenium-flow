@@ -27,7 +27,7 @@ from .bidi_fakes import (
     FakeBrowser,
     browser_in_thread,  # noqa: F401 - a fixture, offered here
 )
-from .fakes import FakeGrid, ScriptedDriver
+from .fakes import FakeGrid, FakePeer, ScriptedDriver  # noqa: F401 - FakePeer is offered here
 
 TOKEN = "test-token-abc123"
 
@@ -215,11 +215,14 @@ SHELL = (
 
 @pytest.fixture
 def built_ui(ui_dir):
-    """A stand-in for the build: the six files, recognisable by content."""
+    """A stand-in for the build: the seven files the server reads, recognisable by
+    content. The eighth, ``live.js.LICENSE.txt``, ships beside ``live.js`` and is
+    never served, so nothing here needs it."""
     for name in ("admin", "app"):
         (ui_dir / f"{name}.html").write_text(SHELL.format(name=name))
         (ui_dir / f"{name}.css").write_text(f"/* {name} css */")
         (ui_dir / f"{name}.js").write_text(f"/* {name} js */")
+    (ui_dir / "live.js").write_text("/* live js */")
     return ui_dir
 
 

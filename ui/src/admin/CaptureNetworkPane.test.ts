@@ -46,7 +46,7 @@ test('empty', async () => {
 
 test('a live row that was not kept does not open a request it cannot show', async () => {
   render(CaptureNetworkPane, { props: props() })
-  await fireEvent.click(await screen.findByRole('button', { name: 'Live' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Stream' }))
   const es = FakeEventSource.last
   es.emit(req({ id: '2.1', seq: 20, url: 'https://a.test/logo.png', type: 'image', kept: false }))
   es.emit(req({ id: '2.2', seq: 21, url: 'https://a.test/api', kept: true }))

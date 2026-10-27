@@ -5,7 +5,8 @@ import asyncio
 import pytest
 
 from kubed.selenium_flow.bidi import BidiError, Connection
-from kubed.selenium_flow.bidi.connection import READ_TURN, Subscriber
+from kubed.selenium_flow.bidi.connection import READ_TURN, Subscriber, dial, open_socket
+from kubed.selenium_flow.faults import SocketClosed
 
 pytestmark = pytest.mark.unit
 
@@ -383,3 +384,68 @@ async def test_a_raising_drop_counter_cannot_take_down_the_reader(caplog):
     assert "a page's data" not in caplog.text
     gate.set()
     sub.cancel()
+
+
+# ---- one opener, and a plain socket for the live view ------------------------
+#
+# `dial` is the one place a socket to the Grid is opened (live view spec,
+# ruling 12): the BiDi `Connection` dials through it, and the live tunnel holds
+# its socket as a `Socket`, which says only bytes, text and how it closed.
+
+
+@pytest.fixture
+async def echo():
+    """A local server that echoes every frame, binary as binary."""
+    from websockets.asyncio.server import serve
+
+    async def handler(ws):
+        async for message in ws:
+            await ws.send(message)
+
+    async with serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        yield f"ws://127.0.0.1:{port}/session/x/se/vnc"
+
+
+@pytest.fixture
+async def hangs_up():
+    """A local server that closes every connection with 4321 "bye"."""
+    from websockets.asyncio.server import serve
+
+    async def handler(ws):
+        await ws.close(4321, "bye")
+
+    async with serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        yield f"ws://127.0.0.1:{port}/"
+
+
+async def test_a_socket_carries_bytes_and_text_both_ways(echo):
+    sock = await open_socket(echo)
+    await sock.send(b"\x01\x02")
+    assert await sock.receive() == b"\x01\x02"
+    await sock.send("hi")
+    assert await sock.receive() == "hi"
+    await sock.close()
+    await sock.close()  # idempotent
+
+
+async def test_a_socket_the_far_side_closed_says_its_code(hangs_up):
+    sock = await open_socket(hangs_up)
+    with pytest.raises(SocketClosed) as caught:
+        await sock.receive()
+    assert (caught.value.code, caught.value.reason) == (4321, "bye")
+    with pytest.raises(SocketClosed):
+        await sock.send(b"late")
+
+
+async def test_an_open_that_fails_names_no_url():
+    with pytest.raises(SocketClosed) as caught:
+        await open_socket("ws://user:SECRET@127.0.0.1:9/session/x/se/vnc")
+    said = f"{caught.value} {caught.value.reason}"
+    assert "SECRET" not in said and "127.0.0.1" not in said
+    assert caught.value.code is None
+
+
+def test_the_connection_still_dials_through_dial():
+    assert Connection("ws://x")._connect is dial

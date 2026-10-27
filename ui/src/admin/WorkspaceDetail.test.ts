@@ -9,6 +9,7 @@ import { resetFolds } from './folds.svelte'
 import { Live } from './live.svelte'
 import Modal from './Modal.svelte'
 import type { ModalSpec } from './modal'
+import { FakeRfb, FakeSocket, MINT } from '../test/live'
 import WorkspaceDetail from './WorkspaceDetail.svelte'
 
 // Spied, not replaced: each still renders for real. The spies only let the
@@ -27,7 +28,7 @@ const api = createApi({ base: '', token: () => 't', onUnauthorized: () => {} })
 function setup(routes = {}, props = {}) {
   const net = fakeFetch({ 'GET /admin/workspaces/k/files': { body: FILES }, 'GET /admin/workspaces/k/flows': { body: FLOWS }, ...routes })
   const live = new Live(api, '')
-  const r = render(WorkspaceDetail, { key: 'k', tab: 'files', flow: undefined, api, live, root: '', ...props })
+  const r = render(WorkspaceDetail, { key: 'k', tab: 'files', flow: undefined, api, live, root: '', liveScript: '', ...props })
   return { ...r, ...net, live }
 }
 beforeEach(() => { history.replaceState(null, '', '/#/workspaces/k'); vi.stubGlobal('alert', vi.fn()) })
@@ -147,7 +148,7 @@ test('a folded Screenshots section stays folded after the view remounts', async 
   expect(container.querySelector('#screenshotsSection')).toHaveAttribute('data-open', 'false')
   unmount()
 
-  const remounted = render(WorkspaceDetail, { key: 'k', tab: 'files', flow: undefined, api, live: new Live(api, ''), root: '' })
+  const remounted = render(WorkspaceDetail, { key: 'k', tab: 'files', flow: undefined, api, live: new Live(api, ''), root: '', liveScript: '' })
   await vi.waitFor(() => expect(remounted.container.querySelector('#screenshotsCount')).toHaveTextContent('2'))
   expect(remounted.container.querySelector('[aria-controls="screenshotsBody"]')).toHaveAttribute('aria-expanded', 'false')
   expect(remounted.container.querySelector('#screenshotsSection')).toHaveAttribute('data-open', 'false')
@@ -461,7 +462,7 @@ const B_ROUTES = {
    own load produced. */
 async function leaveThenLand(calls: { method: string; path: string }[], unmount: () => void, land: () => void) {
   unmount()
-  const b = render(WorkspaceDetail, { key: 'b', tab: 'files', flow: undefined, api, live: new Live(api, ''), root: '' })
+  const b = render(WorkspaceDetail, { key: 'b', tab: 'files', flow: undefined, api, live: new Live(api, ''), root: '', liveScript: '' })
   await vi.waitFor(() => expect(calls.some((c) => c.path === '/admin/workspaces/b/flows')).toBe(true))
   await vi.waitFor(() => expect(b.container.querySelector('#screenshotsCount')).toHaveTextContent('1'))
   const before = calls.length
@@ -616,7 +617,7 @@ test('a flow Move/Delete/Save from a workspace that has since been left does not
   await vi.waitFor(() => expect(calls.filter((c) => c.method !== 'GET')).toHaveLength(3))
   unmount()
 
-  const b = render(WorkspaceDetail, { key: 'b', tab: 'flows', flow: 'other', api, live: new Live(api, ''), root: '' })
+  const b = render(WorkspaceDetail, { key: 'b', tab: 'flows', flow: 'other', api, live: new Live(api, ''), root: '', liveScript: '' })
   await vi.waitFor(() => expect(b.container.querySelector('.outline [data-step="1"]')).not.toBeNull())
   await fireEvent.click(b.container.querySelector('.outline [data-step="1"]')!)
   expect(location.hash).toBe('#/workspaces/b/flows/other')
@@ -691,4 +692,55 @@ test('with capture on the tabs count what was captured', async () => {
   await vi.waitFor(() => expect(container.querySelector('#consoleTotal')).toHaveTextContent('5'))
   expect(container.querySelector('#networkTotal')).toHaveTextContent('24')
   expect(screen.getByRole('tab', { name: /Network/ })).not.toHaveAttribute('aria-disabled', 'true')
+})
+
+const liveRow = { ...row, ran: { version: '4', node: 'n', live_view: true } }
+const viewer = async () => ({ RFB: FakeRfb as never })
+
+test('Live is the last tab, and greyed with its reason for an idle row and for a Grid with no VNC', async () => {
+  const { container } = setup({}, { liveScript: '', viewer })
+  const tabs = [...container.querySelectorAll('#workspaceTabs [role=tab]')]
+  expect(tabs.at(-1)).toHaveAttribute('id', 'tabLive')
+  await vi.waitFor(() => expect(container.querySelector('#detailHeader')).toHaveTextContent('mine'))
+  const tab = container.querySelector('#tabLive')!
+  expect(tab).toHaveAttribute('aria-disabled', 'true')
+  expect(tab).toHaveAttribute('title', 'no live view · this Grid has no VNC')
+  expect(tab).toHaveClass('muted')
+})
+
+afterEach(() => vi.unstubAllGlobals())
+
+test('a row whose Grid reported no live view greys the tab', async () => {
+  const novnc = { ...liveRow, ran: { version: '4', node: 'n', live_view: false } }
+  const { container } = setup({ 'GET /admin/workspaces/k/files': { body: { ...FILES, workspace: novnc } } }, { liveScript: '', viewer })
+  await vi.waitFor(() => expect(container.querySelector('#tabLive')).toHaveAttribute('title', 'no live view · this Grid has no VNC'))
+  expect(container.querySelector('#tabLive')).toHaveAttribute('aria-disabled', 'true')
+})
+
+test('a deep link shows Loading… until the row arrives, not a reason', async () => {
+  const gate = deferred<{ body: unknown }>()
+  const { container } = setup({ 'GET /admin/workspaces/k/files': () => gate.promise }, { tab: 'live', liveScript: '', viewer })
+  expect(container.querySelector('#paneLive')).toHaveTextContent('Loading…')
+  expect(container.querySelector('#paneLive')).not.toHaveTextContent('no live view')
+  gate.resolve({ body: FILES })
+  await vi.waitFor(() => expect(container.querySelector('#paneLive')).toHaveTextContent('no live view · this Grid has no VNC'))
+})
+
+test('an idle row says there is no browser', async () => {
+  const idle = { ...row, live: false, attached: false }
+  const { container } = setup({ 'GET /admin/workspaces/k/files': { body: { ...FILES, workspace: idle } } }, { liveScript: '', viewer })
+  await vi.waitFor(() => expect(container.querySelector('#tabLive')).toHaveAttribute('title', 'no live view · no browser'))
+})
+
+test('leaving the Live tab closes the socket', async () => {
+  FakeSocket.all = []
+  vi.stubGlobal('WebSocket', FakeSocket)
+  const files = { 'GET /admin/workspaces/k/files': { body: { ...FILES, workspace: liveRow } }, 'GET /admin/workspaces/k/live': { body: { ...MINT } } }
+  fakeFetch({ 'GET /admin/workspaces/k/flows': { body: FLOWS }, ...files })
+  const r = render(WorkspaceDetail, { key: 'k', tab: 'live', flow: undefined, api, live: new Live(api, ''), root: '', liveScript: '', viewer })
+  await vi.waitFor(() => expect(FakeSocket.all).toHaveLength(1))
+  const tab = r.container.querySelector('#tabLive')!
+  expect(tab).not.toHaveAttribute('aria-disabled', 'true')
+  await r.rerender({ tab: 'files' })
+  expect(FakeSocket.all[0].closed?.[0]).toBe(1000)
 })

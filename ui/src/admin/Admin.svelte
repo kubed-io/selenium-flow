@@ -226,7 +226,7 @@
           <!-- Keyed: a switch destroys the old workspace's subtree — its loads,
                its lightbox, its modal — and builds the new one from nothing. -->
           {#key route.key}
-            <WorkspaceDetail key={route.key} tab={route.tab} flow={route.flow} site={route.site} request={route.request} {api} {live} root={ROOT} />
+            <WorkspaceDetail key={route.key} tab={route.tab} flow={route.flow} site={route.site} request={route.request} {api} {live} root={ROOT} liveScript={BASE + '/live.js'} />
           {/key}
         {:else}
           <WorkspacesView {live} />

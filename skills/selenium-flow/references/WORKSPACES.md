@@ -144,6 +144,18 @@ under `workspace://files/recordings` shortly after the browser ends (or is
 reaped); `keep_file` it to keep it. It costs the Grid, so ask for it only when a
 person will watch.
 
+## When a person takes control
+
+A person can take control of your workspace's browser from the admin page. While
+one has, every tool result for your workspace ends with a notice that begins
+with who has control (a name, or "a person") and `took control of this browser`: someone is at the keyboard of
+this browser and may be typing in it right now. Stop, and ask the user before
+your next action, because a click or a keystroke of yours lands on top of theirs.
+
+When the last of them leaves, the next result says `control of this browser was
+handed back`, once. The page may have changed under you, so look at it again,
+with `extract` or `outline`, before carrying on from what you remember.
+
 ## Your library is your name too
 
 The flow library and Files are the directory your workspace name

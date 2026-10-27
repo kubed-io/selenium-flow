@@ -301,3 +301,19 @@ def test_every_documented_selector_is_one_the_server_would_accept():
         # with a quoted literal in it, and the skip hid half the cases (Copilot, #35).
         parsed = ast.literal_eval(literal)
         locator(parsed)  # raises if it is not exactly one of xpath or css
+
+
+@pytest.mark.parametrize(
+    "phrase, sent",
+    [
+        ("took control of this browser", ""),
+        ("control of this browser was handed back", ""),
+    ],
+)
+def test_the_control_notice_phrases_are_what_the_server_sends(phrase, sent):
+    from kubed.selenium_flow.live.tunnels import HANDED_BACK, TAKEN
+
+    workspaces = (SKILL_DIR / "references/WORKSPACES.md").read_text().replace("\n", " ")
+    said = TAKEN.format(who="drk", at="14:02") if "took" in phrase else HANDED_BACK.format(at="14:02")
+    assert phrase in said
+    assert phrase in re.sub(r"\s+", " ", workspaces)

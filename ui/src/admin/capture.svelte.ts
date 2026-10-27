@@ -85,12 +85,12 @@ export class CaptureModel {
     return this.data && 'dropped' in this.data ? this.data.dropped ?? 0 : 0
   })
 
-  /* "Live · 12 messages", "Paused · 12 messages · 3 new", or the Captured line. */
+  /* "Stream · 12 messages", "Paused · 12 messages · 3 new", or the Captured line. */
   readonly footer = $derived.by(() => {
     const noun = this.kind === 'console' ? 'messages' : 'requests'
     const uri = 'workspace://' + this.kind
     if (this.mode === 'live') {
-      return `${this.paused ? 'Paused' : 'Live'} · ${num(this.seen)} ${noun}` + (this.paused ? ` · ${num(this.fresh)} new` : '')
+      return `${this.paused ? 'Paused' : 'Stream'} · ${num(this.seen)} ${noun}` + (this.paused ? ` · ${num(this.fresh)} new` : '')
     }
     const shown = num(this.visible.length)
     if (this.filter !== 'all' || this.text.trim()) return `${shown} of ${num(this.rows.length)} ${noun} · ${uri}`

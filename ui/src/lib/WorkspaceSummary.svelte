@@ -14,7 +14,7 @@
   <div class="row" style="margin-bottom:10px">
     <span class="bmark" title={s.browser || 'browser'}>{browserMark(s.browser)}</span>
     <strong class="grow">{s.name || s.owner || 'Workspace'}</strong>
-    {#if s.live}<span class="pill live">live</span>{:else}<span class="pill">idle</span>{/if}
+    {#if s.live}<span class="pill live">open</span>{:else}<span class="pill">idle</span>{/if}
     {#if s.live && s.recording}<span class="pill rec">● REC</span>{/if}
     {#if s.capture}{#if s.capturing}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
   </div>

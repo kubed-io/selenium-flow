@@ -15,7 +15,7 @@ test('a card: mark, name pill, id, live, meta, url (L3, frozen selector)', () =>
   expect(card.querySelector('.bmark')).toHaveAttribute('title', 'chrome')
   expect(card.querySelector('span.pill.name')).toHaveTextContent('claudecode')
   expect(card.querySelector('.mono')).toHaveTextContent('abc')
-  expect(card.querySelector('.pill.live')).toHaveTextContent('live')
+  expect(card.querySelector('.pill.live')).toHaveTextContent('open')
   expect(card).toHaveTextContent('chrome 140 · 2 screenshots · 1 file')
   expect(card.querySelector('.url')).toHaveTextContent('https://x.y/')
   expect(idle.querySelector('.mono')).toHaveTextContent('no browser')

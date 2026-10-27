@@ -23,6 +23,6 @@
   {#if live}<button onclick={() => (m.paused ? m.resume() : m.pause())}>{m.paused ? 'Resume' : 'Pause'}</button>{/if}
   <span class="switch">
     <button aria-pressed={!live} onclick={() => void m.captured()}>Captured</button>
-    <button aria-pressed={live} onclick={() => m.live()}>{live ? (m.paused ? '● Paused' : '● Live') : 'Live'}</button>
+    <button aria-pressed={live} onclick={() => m.live()}>{live ? (m.paused ? '● Paused' : '● Stream') : 'Stream'}</button>
   </span>
 </div>

@@ -4,6 +4,8 @@
   import WorkspaceSummary from '../lib/WorkspaceSummary.svelte'
   import type { FileEntry, Folder, WorkspacesPayload } from '../lib/types'
   import { workspacePath, type Api } from './api'
+  import LivePane from './LivePane.svelte'
+  import { liveUnavailable } from './liveview.svelte'
   import FilesPane from './FilesPane.svelte'
   import { CAPTURE_OFF } from '../lib/capture'
   import CaptureConsolePane from './CaptureConsolePane.svelte'
@@ -19,7 +21,7 @@
   import { go, hashes, replace, type Tab } from './router.svelte'
   import { WorkspaceModel } from './workspace.svelte'
 
-  let { key, tab, flow, site, request, api, live, root }: {
+  let { key, tab, flow, site, request, api, live, root, liveScript, viewer }: {
     key: string
     tab: Tab
     flow: string | undefined
@@ -30,6 +32,10 @@
     api: Api
     live: Live
     root: string
+    /** Where the server serves noVNC's bundle from (BASE + '/live.js'). */
+    liveScript: string
+    /** The viewer's loader; a test passes its own. */
+    viewer?: () => Promise<{ RFB: never }>
   } = $props()
 
   // Rendered inside {#key route.key}: a workspace switch destroys this whole
@@ -270,6 +276,8 @@
   const captureOff = $derived(m.row.capture === false)
   const consoleTotal = $derived(m.row.captured ? String(m.row.captured.console) : '')
   const networkTotal = $derived(m.row.captured ? String(m.row.captured.network) : '')
+  const unavailable = $derived(liveUnavailable(m.row, live.data?.live_enabled))
+  const loadViewer = () => (viewer ?? (() => import(/* @vite-ignore */ liveScript)))()
   const flowsTotal = $derived(!m.flows || m.flowsBlanked ? '' : m.flows.enabled ? String((m.flows.flows || []).length) : 'off')
 </script>
 
@@ -321,6 +329,8 @@
             onclick={() => { if (!captureOff) go(hashes.pageConsole(key)) }}>Console <span id="consoleTotal" class="count">{consoleTotal}</span></button>
     <button id="tabNetwork" role="tab" aria-selected={tab === 'network'} aria-disabled={captureOff} title={captureOff ? CAPTURE_OFF : undefined} class:muted={captureOff}
             onclick={() => { if (!captureOff) go(hashes.network(key)) }}>Network <span id="networkTotal" class="count">{networkTotal}</span></button>
+    <button id="tabLive" role="tab" aria-selected={tab === 'live'} aria-disabled={!!unavailable} title={unavailable ?? undefined} class:muted={!!unavailable}
+            onclick={() => { if (!unavailable) go(hashes.live(key)) }}>Live</button>
   </div>
 
   <!-- Where a workspace opens. Blank until its row arrives, like the header:
@@ -343,6 +353,17 @@
   <SiteDataPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} {site} hidden={tab !== 'site-data'} />
   <HistoryPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} hidden={tab !== 'history'} />
   <!-- Not kept mounted: leaving the tab is what closes a live stream. -->
+  {#if tab === 'live'}
+    <div id="paneLive">
+      {#if !m.headed}
+        <p class="empty">Loading…</p>
+      {:else if unavailable}
+        <p class="empty">{unavailable}</p>
+      {:else}
+        <LivePane {api} {key} name={m.row.name ?? key} {root} load={loadViewer} />
+      {/if}
+    </div>
+  {/if}
   {#if tab === 'console' || tab === 'network'}
     <div id="paneCapture">
       {#if captureOff}

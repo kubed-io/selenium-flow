@@ -8,8 +8,12 @@
 
 <div id="workspacesView">
   <div class="row" style="margin-bottom:12px">
-    <strong class="grow">Live workspaces</strong>
-    <span id="live" class={['pill', live.badge.cls]} title="Updates arrive as they happen">{#if live.badge.cls === 'live'}<span class="dot" aria-hidden="true"></span>{/if}{live.badge.text}</span>
+    <strong class="grow">Workspaces</strong>
+    {#if live.badge.cls === 'live'}
+      <span id="live" class="dot live" role="img" aria-label="Updates arrive as they happen" title="Updates arrive as they happen"></span>
+    {:else}
+      <span id="live" class={['pill', live.badge.cls]} title="Updates arrive as they happen">{live.badge.text}</span>
+    {/if}
   </div>
   <div id="workspaces">
     {#if live.error}

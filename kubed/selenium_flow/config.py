@@ -271,6 +271,31 @@ class CaptureSettings(Section):
     )
 
 
+class LiveSettings(Section):
+    """The admin UI's live view: selenium-flow proxies a session's VNC stream
+    and answers its password itself (spec 2026-10-27-live-view)."""
+
+    enabled: bool = Field(
+        True, description="Offer the admin UI's live view of a browser."
+    )
+    password_file: str | None = Field(
+        None,
+        description="The file holding the Grid's VNC password, read at every connect.",
+    )
+    # At least 15: the page's heartbeat is fixed at 10 s, so a shorter grace
+    # would drop a viewer whose tab is in plain sight.
+    grace: int = Field(
+        30,
+        ge=15,
+        description="Seconds a live viewer may send no presence before it is dropped.",
+    )
+
+    @field_validator("password_file")
+    @classmethod
+    def _blank_is_unset(cls, value):
+        return (value or "").strip() or None
+
+
 class RecordingSettings(Section):
     enabled: bool = Field(
         False, description="The Grid's recordings reach recording.dir."
@@ -475,6 +500,10 @@ class Settings(Section):
     capture: CaptureSettings = Field(
         default_factory=CaptureSettings,
         description="Console and network capture, for open_session(capture=true).",
+    )
+    live: LiveSettings = Field(
+        default_factory=LiveSettings,
+        description="The admin UI's live view of a browser.",
     )
     secrets: SecretsSettings = Field(
         default_factory=SecretsSettings, description="Where secrets are read from."

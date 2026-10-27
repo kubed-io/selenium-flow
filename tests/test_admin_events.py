@@ -196,7 +196,9 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
 
         listing = await _request(app, "GET", "/admin/workspaces")
         assert len(counted) == asked, "a fresh broadcast was computed again"
-        assert {"workspaces": listing["workspaces"]} == json.loads(sink[0])
+        assert {
+            key: listing[key] for key in ("workspaces", "live_enabled")
+        } == json.loads(sink[0])
 
         # Ending a browser changes the list, so the listing after it is new.
         def end_browser(caller):

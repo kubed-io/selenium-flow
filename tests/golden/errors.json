@@ -119,6 +119,12 @@
     },
     "status": 503
   },
+  "SocketClosed": {
+    "body": {
+      "error": "socket closed (it went wrong)"
+    },
+    "status": 503
+  },
   "StaleElementReferenceException": {
     "body": {
       "error": "it went wrong; For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#staleelementreferenceexception"

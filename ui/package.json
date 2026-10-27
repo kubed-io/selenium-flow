@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('../kubed/selenium_flow/http/static', {recursive: true, force: true})\"",
-    "build": "npm run clean && vite build --mode admin && vite build --mode app",
-    "dev": "npm run clean && (vite build --mode admin --watch & vite build --mode app --watch)",
+    "build": "npm run clean && vite build --mode admin && vite build --mode app && vite build --mode live",
+    "dev": "npm run clean && (vite build --mode admin --watch & vite build --mode app --watch & vite build --mode live --watch)",
     "test": "vitest run",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "lint": "eslint .",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "2.0.3",
+    "@novnc/novnc": "1.7.0",
     "marked": "18.1.1"
   },
   "devDependencies": {

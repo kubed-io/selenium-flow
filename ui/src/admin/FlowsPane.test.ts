@@ -29,7 +29,7 @@ function setup(routes = {}, flow: string | undefined = 'login') {
     ...routes,
   })
   const live = new Live(api, '')
-  const r = render(WorkspaceDetail, { key: 'k', tab: 'flows', flow, api, live, root: '' })
+  const r = render(WorkspaceDetail, { key: 'k', tab: 'flows', flow, api, live, root: '', liveScript: '' })
   return { ...r, ...net, live }
 }
 // jsdom has no scrollIntoView; every test gets a spy.
