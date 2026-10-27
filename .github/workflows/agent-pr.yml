@@ -296,7 +296,7 @@ jobs:
         # the review agent posts as github-actions[bot]: its threads count
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282,github-actions
         session_key: pr-${{ needs.route.outputs.number }}
-        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/coder.json
         allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
         claude_args: --strict-mcp-config
 
