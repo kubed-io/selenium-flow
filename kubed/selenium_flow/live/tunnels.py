@@ -58,8 +58,3 @@ class Tunnels:
 
     def controlling(self, workspace: str, who: str) -> bool:
         return self.controls.controlling(workspace, who)
-
-    def notice(self, workspace: str) -> str | None:
-        """The notice's sentence, or None; a hand-back is said once."""
-        said = self.controls.notice(workspace)
-        return None if said is None else said["hint"]

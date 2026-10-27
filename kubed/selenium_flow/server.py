@@ -379,7 +379,7 @@ class SeleniumMCP:
         self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
         # Before `failures`: the first added is outermost, so a failed call's
         # notice follows the sentence `Explained` has already written.
-        self.mcp.add_middleware(control.Notices(self.tunnels))
+        self.mcp.add_middleware(control.Notices(self.controls))
         failures.install(self.mcp)
         # The same workspaces the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.

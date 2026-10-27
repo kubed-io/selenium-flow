@@ -25,6 +25,7 @@ from kubed.selenium_flow.live.tunnels import Tunnels
 from kubed.selenium_flow.monitor.events import SessionEnded
 
 from .fakes import FakePeer
+from .test_live_tunnels import hint
 
 pytestmark = pytest.mark.unit
 
@@ -266,15 +267,15 @@ async def test_through_the_registry_control_waits_for_the_call_then_lands():
     task, _ = await start(tunnel, viewer, node, dial)
     viewer.feed(text(type="mode", mode="control"))
     assert json.loads(await viewer.next_sent())["mode"] == "requested"
-    assert tunnels.notice("w1").startswith("drk asked for control")
+    assert hint(tunnels, "w1").startswith("drk asked for control")
     behind.value = True
     assert json.loads(await viewer.next_sent())["mode"] == "control"
-    assert tunnels.notice("w1").startswith("drk has control")
+    assert hint(tunnels, "w1").startswith("drk has control")
     viewer.feed(key("b"))
     assert await node.next_sent() == key("b")
     tunnel.end(VIEWER_LEFT)
     await task
-    assert tunnels.notice("w1").startswith("control of this browser was handed back")
+    assert hint(tunnels, "w1").startswith("control of this browser was handed back")
 
 
 async def test_the_grace_ends_a_quiet_tunnel_with_4000():
@@ -539,10 +540,10 @@ async def test_a_control_ask_before_the_handshake_is_answered_watch(caplog):
         viewer.feed(text(type="mode", mode="control"))  # the node has not spoken
         assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "watch"}
         assert tunnel.mode == "watch"
-        assert tunnels.notice("w1") is None
+        assert hint(tunnels, "w1") is None
         tunnel.end(Ending(4003, "Authentication failed"))
         await task
-    assert tunnels.notice("w1") is None
+    assert hint(tunnels, "w1") is None
     assert "switched" not in caplog.text
 
 
@@ -566,12 +567,12 @@ async def test_control_is_handed_back_before_a_stalled_viewer_closes(monkeypatch
     tunnels.add(GRID_ID, tunnel)
     task, _ = await start(tunnel, viewer, node, dial)
     await granted(viewer)
-    assert tunnels.notice("w1").startswith("drk has control")
+    assert hint(tunnels, "w1").startswith("drk has control")
     tunnel.end(NOBODY)
     await asyncio.wait_for(viewer.closing.wait(), 1)
     assert not task.done()  # the close is still pending
     assert not tunnels.controlling("w1", "drk")
-    assert tunnels.notice("w1").startswith("control of this browser was handed back")
+    assert hint(tunnels, "w1").startswith("control of this browser was handed back")
     assert (await asyncio.wait_for(task, 1)) == NOBODY
 
 
