@@ -3492,6 +3492,13 @@
               "null"
             ]
           },
+          "version": {
+            "description": "The browser version the Grid started at the last open; settings.version is the one asked for. Null when the Grid did not say.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "window": {
             "description": "Window size as WxH, when one is known.",
             "type": [

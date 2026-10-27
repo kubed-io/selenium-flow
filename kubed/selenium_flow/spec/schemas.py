@@ -115,6 +115,14 @@ RESPONSES = {
                     " Null when the Grid did not say."
                 ),
             },
+            "version": {
+                "type": ["string", "null"],
+                "description": (
+                    "The browser version the Grid started at the last open;"
+                    " settings.version is the one asked for. Null when the Grid"
+                    " did not say."
+                ),
+            },
             "store": {"type": "string", "enum": ["memory", "redis"]},
             "settings": {"type": "object"},
             "site_data": {

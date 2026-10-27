@@ -37,6 +37,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
 from .. import faults
+from ..core.session_caps import SOURCES
 from ..urls import origin_of, page_of, without_userinfo
 
 if TYPE_CHECKING:
@@ -137,6 +138,17 @@ class Workspace:
     # poll would be activity that keeps it from ever being reaped; ``window``
     # is what was asked for.
     window_seen: str | None = None
+    # What this session's open sent: [{"key", "value", "sources"}], written at
+    # every open and reopen, for the admin's Capabilities section only. Never
+    # reused: the next open recomputes it (spec 2026-10-26, ruling 7).
+    sent: list = field(default_factory=list)
+    # What the Grid says ran: {"version", "node", "live_view"}, each None
+    # when it did not say. Kept when the session ends, like `sent`.
+    ran: dict | None = None
+    # How the last session ended, {"at", "by": "admin" | "caller"}, or None:
+    # set by `end_browser`, cleared by the next open. A reap writes nothing,
+    # because nothing watches a plain session.
+    ended: dict | None = None
 
     @property
     def url(self) -> str:
@@ -187,6 +199,9 @@ class Workspace:
                 opened_by=_opener(data.get("opened_by")),
                 grid_timeout=_timeout(data.get("grid_timeout")),
                 window_seen=_size(data.get("window_seen")),
+                sent=_sent(data.get("sent")),
+                ran=_ran(data.get("ran")),
+                ended=_ended(data.get("ended")),
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -253,13 +268,15 @@ class Workspace:
         """The same record, its reopen report handed to a caller."""
         return replace(self, reopened={})
 
-    def detached(self) -> Workspace:
+    def detached(self, ended: dict | None = None) -> Workspace:
         """The same record with no browser, keeping the context it had.
 
         Not a delete: the browser choice and the last page are what the next
-        open is meant to inherit, so ending a browser must not take them.
+        open is meant to inherit, so ending a browser must not take them. What
+        the last session sent and ran stay too: the admin's idle card shows the
+        last browser. ``ended`` says how it ended.
         """
-        return replace(self, session_id="")
+        return replace(self, session_id="", ended=ended)
 
 
 def _opener(value) -> dict | None:
@@ -268,6 +285,43 @@ def _opener(value) -> dict | None:
         return None
     name = value.get("username")
     return {"kind": value["kind"], "username": name if isinstance(name, str) else None}
+
+
+def _sent(raw) -> list:
+    """A stored ``sent``: the entries with a string key and known sources."""
+    if not isinstance(raw, list):
+        return []
+    return [
+        {"key": e["key"], "value": e.get("value"), "sources": list(e["sources"])}
+        for e in raw
+        if isinstance(e, dict)
+        and isinstance(e.get("key"), str)
+        and isinstance(e.get("sources"), list)
+        and e["sources"]
+        and all(s in SOURCES for s in e["sources"])
+    ]
+
+
+def _ran(raw) -> dict | None:
+    """A stored ``ran``, each fact None when it is not the right type."""
+    if not isinstance(raw, dict):
+        return None
+    version, node, live = raw.get("version"), raw.get("node"), raw.get("live_view")
+    return {
+        "version": version if isinstance(version, str) else None,
+        "node": node if isinstance(node, str) else None,
+        "live_view": live if isinstance(live, bool) else None,
+    }
+
+
+def _ended(raw) -> dict | None:
+    """A stored ``ended``: a time and who ended it, or None."""
+    if not isinstance(raw, dict) or raw.get("by") not in ("admin", "caller"):
+        return None
+    at = raw.get("at")
+    if isinstance(at, bool) or not isinstance(at, (int, float)):
+        return None
+    return {"at": float(at), "by": raw["by"]}
 
 
 def _size(raw) -> str | None:

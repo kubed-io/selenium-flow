@@ -98,7 +98,23 @@ class RecordingActions:
         self.opened_urls.append(url)
         self.opened_settings.append(dict(kwargs))
         self.grid.alive.add(session_id)
-        return {"session_id": session_id, "url": url or "about:blank"}
+        # What a real open reports for the workspace only: what was sent and
+        # what ran (`actions.OPEN_PRIVATE`). `open_browser` keeps them off
+        # what a caller is told.
+        sent = [
+            {
+                "key": "browserName",
+                "value": kwargs.get("browser") or "chrome",
+                "sources": ["option"],
+            }
+        ]
+        ran = {"version": "100.0", "node": f"node-{self.opened}", "live_view": True}
+        return {
+            "session_id": session_id,
+            "url": url or "about:blank",
+            "sent": sent,
+            "ran": ran,
+        }
 
     def end_browser(self, session_id):
         self.closed.append(session_id)
