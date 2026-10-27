@@ -36,6 +36,18 @@ class NotFound(LookupError):
     """The thing the caller named is not there: a 404, with its own words."""
 
 
+class Controlled(Exception):
+    """A person holds this workspace's browser; a 409 (spec 2026-10-27-live-control).
+
+    Its message is the refusal sentence, which names who has control, since
+    when, and `await_control`: the request was well formed, and the
+    workspace's state forbids it now, so the same call succeeds after the
+    hand-back (ruling 12)."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
 class NoSession(ValueError):
     """The caller's workspace has no session open: a 400, since the fix is the
     caller's — call ``open_session`` — unless the call says otherwise

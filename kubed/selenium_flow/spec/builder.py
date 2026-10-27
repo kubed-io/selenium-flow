@@ -231,6 +231,7 @@ async def build_spec(
                     "401": _error("Missing or wrong bearer token."),
                     "413": _error(TOO_LARGE),
                     "404": _error(NOT_FOUND.get(action, GONE_BROWSER)),
+                    "409": _error(CONTROLLED),
                     "500": _error("Something failed that this server did not expect."),
                     "503": _error(
                         "The Grid could not serve this — unreachable, or no free "
@@ -282,6 +283,7 @@ async def build_spec(
                 },
                 "400": _error(RESOURCE_400.get(action, RESOURCE_400[""])),
                 "401": _error("Missing or wrong bearer token."),
+                "409": _error(CONTROLLED),
                 "413": _error(TOO_LARGE),
                 "503": _error(RESOURCE_503.get(action, RESOURCE_503[""])),
             },
@@ -595,6 +597,11 @@ TOO_LARGE = (
 GONE_BROWSER = (
     "No such browser session. It ended, the Grid reaped it, "
     "or the id was never real. Open a new one and retry."
+)
+# What a 409 means: the request is fine, a person has the browser for now.
+CONTROLLED = (
+    "A person holds this workspace's browser in the live view. Call POST "
+    "/browser/await-control, then retry."
 )
 NOT_FOUND = {
     "network_body": (

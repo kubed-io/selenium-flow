@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
+from kubed.selenium_flow.core.capabilities import ENDPOINTS, UNDER_CONTROL, method_for
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
@@ -93,6 +93,17 @@ def test_every_route_maps_to_a_real_action(actions):
 def test_route_table_covers_every_action():
     """The commands. The resource's own two are asserted separately, below."""
     assert set(ENDPOINTS.values()) == EXPECTED
+
+
+def test_what_answers_under_control():
+    """While a person holds the browser, only what changes nothing on the page
+    answers (spec 2026-10-27-live-control, rulings 11 and 21); every other row
+    is refused."""
+    assert {n for n, v in UNDER_CONTROL.items() if v == "answers"} == {
+        "extract", "outline", "screenshot", "print", "network_body"
+    }  # await_control joins in Task 9
+    assert set(UNDER_CONTROL.values()) == {"answers", "refused"}
+    assert set(UNDER_CONTROL) == EXPECTED | RESOURCE_ACTIONS
 
 
 async def test_tool_names_match_the_action_names(server):

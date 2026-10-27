@@ -625,3 +625,82 @@ def test_a_failure_with_no_ending_is_still_itself():
         workspaces.act(
             Caller(NAMED), lambda s: actions.extract(s, selector={"css": "h1"})
         )
+
+
+# ---- the mark: control waits for the calls before it, holding no thread ------
+#
+# Spec 2026-10-27-live-control, ruling 25: the grant of control waits until
+# every call that asked before it has had its turn, by polling from the event
+# loop - so taking a place in the queue must never wait, and never hold a thread.
+
+
+def holding(browser):
+    """Hold ``browser``'s turn in a thread until the returned event is set."""
+    held, release = threading.Event(), threading.Event()
+
+    def run():
+        with locks.driving(browser):
+            held.set()
+            release.wait(5)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert held.wait(5), "the holder never took its turn"
+    return thread, release
+
+
+def test_a_mark_on_an_idle_browser_has_passed_at_once():
+    assert locks.behind("g1")()
+
+
+def test_a_mark_passes_when_the_call_before_it_lets_go():
+    thread, release = holding("g1")
+    passed = locks.behind("g1")
+    assert not passed()
+    release.set()
+    thread.join(5)
+    assert not thread.is_alive()
+    assert passed()
+
+
+def test_a_call_after_the_mark_does_not_wait_for_it():
+    """The mark is a ticket nobody will take: the queue skips it, so a call
+    that asked after it runs the moment the call before it lets go."""
+    holder, release = holding("g1")
+    passed = locks.behind("g1")
+    turns = locks._holds["g1"].lock
+    took = threading.Event()
+
+    def after():
+        with locks.driving("g1"):
+            took.set()
+
+    later = threading.Thread(target=after)
+    later.start()
+    # Until the later call holds a ticket behind the mark (internals: the one
+    # deterministic sign that it is waiting on the lock).
+    deadline = time.monotonic() + 5
+    while turns._next < 3:
+        assert time.monotonic() < deadline, "the later call never queued"
+        time.sleep(0.001)
+    assert not took.is_set()
+
+    release.set()
+    assert took.wait(5), "the call after the mark waited for it"
+    holder.join(5)
+    later.join(5)
+    assert not holder.is_alive() and not later.is_alive()
+    assert passed()
+
+
+def test_a_mark_holds_no_thread():
+    holder, release = holding("g1")
+    try:
+        before = threading.active_count()
+        passed = locks.behind("g1")
+        assert threading.active_count() == before
+        assert not passed()
+    finally:
+        release.set()
+        holder.join(5)
+    assert passed()

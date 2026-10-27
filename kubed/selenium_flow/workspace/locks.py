@@ -40,6 +40,7 @@ sessions would be the first thing to break anyway.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from contextlib import contextmanager
 from weakref import WeakValueDictionary
 
@@ -97,6 +98,28 @@ class Turns:
             self._serving += 1
             self._skip_abandoned()
 
+    def mark(self) -> int:
+        """Take a place in the queue and give it up at once; never waits.
+
+        The ticket is abandoned as it is taken, so the queue skips it: nothing
+        waits for the mark, and a call that asks after it runs as soon as the
+        calls before it are done. Whoever marked learns that moment from
+        `passed`, by asking rather than by holding a thread here (spec
+        2026-10-27-live-control, ruling 25). Any thread may mark, the owner
+        included; a mark never makes its thread the owner.
+        """
+        with self._changed:
+            ticket = self._next
+            self._next += 1
+            self._abandoned.add(ticket)
+            self._skip_abandoned()
+            return ticket
+
+    def passed(self, ticket: int) -> bool:
+        """Whether every call that asked before ``ticket`` has had its turn."""
+        with self._changed:
+            return self._serving > ticket
+
     def _skip_abandoned(self) -> None:
         while self._serving in self._abandoned:
             self._abandoned.discard(self._serving)
@@ -149,6 +172,18 @@ def driving(browser: str):
             # answered as the ending, a 404 like any dead browser.
             cancel.check()
             raise
+
+
+def behind(browser: str) -> Callable[[], bool]:
+    """Mark ``browser``'s queue now; ask the callable whether the mark has passed.
+
+    It answers True once every call that asked before the mark has had its
+    turn, and calls that ask after it never wait for it. The callable keeps the
+    hold alive, so the queue it marked is the one it reads (the registry is weak).
+    """
+    turn = hold(browser)
+    ticket = turn.lock.mark()
+    return lambda: turn.lock.passed(ticket)
 
 
 def interrupt(browser: str) -> None:

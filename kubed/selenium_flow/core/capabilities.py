@@ -22,6 +22,10 @@ flow runner and the wiki need to know about one is a column of its row here:
   rather than only the page, so every surface asks ``Workspaces.reshape``;
 * ``library_arg`` names an argument that carries the caller's own library: a
   flow run injects it, and no request may set it.
+* ``under_control`` says whether it answers or is refused (a 409) while a
+  person holds the browser in the live view (spec 2026-10-27-live-control);
+* ``waits`` marks the call that waits, served by a body of its own on both
+  surfaces rather than through the recipe.
 
 What is *not* here is the prompt. A tool's parameters and docstring are its
 schema and its description, and they stay literal Python in ``mcp/tools.py``
@@ -36,6 +40,7 @@ it carries are built by ``core.annotations`` beside it, which imports nothing.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from .annotations import hints, reads
 
@@ -58,6 +63,13 @@ class Capability:
     # The ``Actions`` method asked, with the workspace's name and the call's
     # arguments, when no session is open (`Workspaces.act`'s ``closed``).
     closed: str | None = None
+    # While a person holds the browser in the live view (spec
+    # 2026-10-27-live-control, ruling 11): ``answers`` for what changes nothing
+    # on the page, ``refused`` - a 409 naming `await_control` - for the rest.
+    under_control: Literal["answers", "refused"] = "refused"
+    # Served by a body of its own on both surfaces rather than through the
+    # recipe: a call that waits, which no lock or refusal may stand in front of.
+    waits: bool = False
 
 
 # ---- what each one answers -------------------------------------------------
@@ -375,6 +387,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="extract",
         http_method="POST",
         annotations=hints("Read an element", read_only=True, idempotent=True),
+        under_control="answers",
         response=_page(
             html={"type": "string", "description": "innerHTML of the matched element."},
             text={"type": "string", "description": "Visible text of the element."},
@@ -421,6 +434,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="outline",
         http_method="POST",
         annotations=hints("Map the page's elements", read_only=True, idempotent=True),
+        under_control="answers",
         response=_page(
             count={"type": "integer", "description": "How many elements are listed."},
             total={
@@ -487,6 +501,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="screenshot",
         http_method="POST",
         annotations=hints("Capture a screenshot"),
+        under_control="answers",
         response=_page(
             image={"type": "string", "format": "byte", "description": "Base64 PNG."},
             width={"type": "integer", "description": "Image width in pixels."},
@@ -570,6 +585,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="print",
         http_method="POST",
         annotations=hints("Print the page"),
+        under_control="answers",
         response=_page(
             file={"$ref": "#/components/schemas/FileEntry"},
             format={"type": "string", "enum": ["pdf", "html"]},
@@ -627,6 +643,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="network-body",
         http_method="POST",
         annotations=reads("Fetch a response body"),
+        under_control="answers",
         response=BODY_RESPONSE,
         visibility=("model", "app"),
         closed="network_body_closed",
@@ -676,3 +693,6 @@ ENDPOINTS = {row.route: row.name for row in CAPABILITIES if row.route}
 
 # Per action, the argument that carries the caller's library. See `upload_file`.
 LIBRARY_ARG = {row.name: row.library_arg for row in CAPABILITIES if row.library_arg}
+
+# Per action, whether it answers or is refused while a person holds the browser.
+UNDER_CONTROL = {row.name: row.under_control for row in CAPABILITIES}
