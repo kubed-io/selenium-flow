@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **`open_session` takes `version` and raw `capabilities`**, and `session.capabilities` sends a default with every browser; the admin UI's new Session tab shows what was asked, what ran and what was sent.
+- Fixed: Firefox accepts a self-signed certificate only with `insecure=true`, like Chrome.
 - The Flows tab opens a flow's panel beside the flow you picked, and a link to a flow scrolls to it.
 - Fixed: reading a file from a workspace returns its real media type.
 - Capture masks the `Authorization` and cookie values it has seen when a page echoes them; one too long to mask is counted as `unmasked`.

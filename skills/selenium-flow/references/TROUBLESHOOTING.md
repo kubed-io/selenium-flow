@@ -181,6 +181,63 @@ browser when a session is asked for. The first `open_session` after a quiet spel
 can take a minute while one boots. Only a failing `open_session` means something
 is wrong.
 
+## No Grid node took this browser
+
+`open_session` failed with *no Grid node took this browser before the Grid gave
+up waiting: it asked for chrome 152, kubed:pool=headless …*. The Grid queued the
+request and no node took it before its own timeout (often 300 s). The server
+waits exactly as long as the Grid does, so a node that was still booting had
+its chance.
+
+The message lists what was asked for. The usual cause is one of them: a
+`version` no node offers, or a capability no node class carries. Drop the odd
+one (`version="latest"`, `capabilities={}`) and open again, or ask whoever runs
+the Grid what it offers; its console lists the nodes that are up. If nothing
+unusual was asked for, every node was busy: see *Running out of slots*.
+
+## The Grid node refused the browser
+
+A node took the request and could not start the browser.
+
+- *the Grid node refused this browser: … The usual cause is what this open
+  asked for: capabilities … and version …* is a **400**. The node's own reason is
+  quoted, and one of the things you asked for is the likely cause. Open again
+  without it: `capabilities={}` forgets the raw ones, `version="latest"` the
+  version. Sending the same request again will fail the same way.
+- *the Grid node could not start this browser: … Nothing this open asked for is
+  unusual, so trying again may succeed* is a **503**. The node had trouble of
+  its own, so try once more after a moment.
+
+## Sending a capability no option covers
+
+`open_session(capabilities={...})` sends extra W3C capabilities to the Grid as
+given, best effort. Use it only when no option in
+`skill://selenium-flow/references/WORKSPACES.md` (*Choosing the browser*) does
+the job: a node class (`{"kubed:pool": "headless"}`), a browser flag
+(`{"goog:chromeOptions": {"args": ["--lang=fr"]}}`), a Firefox pref.
+
+- **It is remembered whole.** Every later `open_session()` sends it again, and
+  so does a reopen after the Grid reaps the browser. `capabilities={}` forgets
+  it.
+- **A key an option controls is refused**, before anything is ended, with the
+  option to use instead: *browserName cannot be sent in capabilities: use
+  browser= instead*. The same goes for `browserVersion` (`version=`),
+  `acceptInsecureCerts` (`insecure=`), `se:recordVideo` and `se:videoName`
+  (`record=`), `timeouts` (`page_load_timeout=` / `script_timeout=`), and the
+  three the server needs for itself: `unhandledPromptBehavior`,
+  `se:downloadsEnabled`, `webSocketUrl`.
+- **Browser options are merged, not replaced.** Your `args` are added to the
+  server's own and your `prefs` beside them. Where both set the same pref, the
+  server's wins, because its tools depend on it, and the result's `ignored`
+  names each of yours that lost. `args` must be a list of strings and `prefs`
+  an object, or the open is refused.
+- **A key you send replaces the operator's default** for the same key, which
+  is how you pick another node class.
+
+A remembered capability that a newer server controls itself is refused when
+the browser is reopened, with *clear it with open_session(capabilities={})*:
+do exactly that.
+
 ## Running out of slots
 
 The Grid's capacity is shared. An unclosed browser holds a slot until its idle

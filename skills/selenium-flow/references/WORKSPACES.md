@@ -74,6 +74,37 @@ A workspace expires after a day unused. Nothing removes one before that, and the
 name reappears the moment you call again, because the name comes from your own
 URL or header rather than from anything stored.
 
+## Choosing the browser
+
+`open_session` takes a small set of named options. Each is a choice the server
+already knows how to treat, so reach for them before anything else:
+
+| Option | Does | Next `open_session()` |
+|---|---|---|
+| `browser` | `chrome` (default) or `firefox` | keeps it |
+| `version` | the browser version to ask the Grid for, such as `"152"` | keeps it, unless you switch browser |
+| `width`, `height` | the window | keeps them |
+| `page_load_timeout`, `script_timeout` | bounds on a hanging page or script | keeps them |
+| `insecure` | `true` accepts a self-signed certificate; that browser gets no saved site data | keeps it |
+| `record` | films the browser | **asks again** |
+| `capture` | keeps the console and network | **asks again** |
+
+**A version is a request, not a promise.** `version="152"` matches any 152
+build the Grid offers, `"152.0.7977.82"` only that one. The result's `version`
+is the one that actually ran, and `workspace://current` says it too: read it
+rather than assume. The Grid cannot fetch a version it does not have, so if no
+node offers it the open fails after the Grid's own wait
+(`skill://selenium-flow/references/TROUBLESHOOTING.md`, *No Grid node took
+this browser*).
+
+`version="latest"` forgets a remembered version, and so does switching browser:
+Chrome's 152 means nothing to Firefox. Name a version in the same call as the
+switch to keep one.
+
+For anything no option covers there is `capabilities`, the last resort; it is
+described in `skill://selenium-flow/references/TROUBLESHOOTING.md`, *Sending a
+capability no option covers*.
+
 ## The Grid can still take the session away
 
 Browsers are reaped after an idle timeout. You do not have to handle it: the
