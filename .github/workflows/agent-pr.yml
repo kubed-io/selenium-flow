@@ -335,12 +335,37 @@ jobs:
         app_slug: ${{ steps.app.outputs.app-slug }}
 
     - name: Commit
+      id: commit
       if: steps.msg.outputs.message != ''
       uses: kubed-io/actions/git/commit@main
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ needs.route.outputs.head }}
         message: ${{ steps.msg.outputs.message }}
+        # the App cannot write workflow files, and one in the commit refuses all of it
+        ignore: .github/workflows/**
+
+    # the reply was posted before the commit: it says what the commit left out, or that
+    # it failed, so it never claims work the branch does not have
+    - name: Say What Was Left Out
+      if: >-
+        always() && steps.agent.outputs.comment_id != '' &&
+        (steps.commit.outcome == 'failure' || (steps.commit.outputs.ignored != '' && steps.commit.outputs.ignored != '[]'))
+      uses: actions/github-script@v9
+      env:
+        COMMENT_ID: ${{ steps.agent.outputs.comment_id }}
+        IGNORED: ${{ steps.commit.outputs.ignored }}
+        FAILED: ${{ steps.commit.outcome == 'failure' }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      with:
+        github-token: ${{ steps.app.outputs.token }}
+        script: |
+          const id = Number(process.env.COMMENT_ID);
+          const { data: comment } = await github.rest.issues.getComment({ ...context.repo, comment_id: id });
+          const note = process.env.FAILED === 'true'
+            ? `> [!CAUTION]\n> **This run's commit failed, so nothing above is on the branch.** See [the run](${process.env.RUN_URL}).`
+            : `> [!WARNING]\n> **Not committed:** ${JSON.parse(process.env.IGNORED).map((p) => `\`${p}\``).join(', ')}. This job's token can't write workflow files, so Dr K commits them.`;
+          await github.rest.issues.updateComment({ ...context.repo, comment_id: id, body: `${comment.body}\n\n${note}` });
 
     # after the commit, so the checks and the review start once, on the final commit; on
     # the App's token, so ready_for_review wakes agent-review.yml
