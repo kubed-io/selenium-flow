@@ -41,11 +41,12 @@ jobs:
       run: npm --prefix ui run build
     # page() inlines six of these; a code-split chunk would be a file the page
     # never loads. live.js is the seventh: loaded, not inlined, and it must keep
-    # noVNC's MPL-2.0 banner through the minifier.
-    - name: Seven Files
+    # noVNC's MPL-2.0 banner through the minifier. live.js.LICENSE.txt is the
+    # eighth: noVNC's full licence texts, beside it.
+    - name: Eight Files
       run: |
         actual="$(cd kubed/selenium_flow/http/static && ls -A | sort | tr '\n' ' ')"
-        expected="admin.css admin.html admin.js app.css app.html app.js live.js "
+        expected="admin.css admin.html admin.js app.css app.html app.js live.js live.js.LICENSE.txt "
         if [ "$actual" != "$expected" ]; then
           echo "::error::expected '$expected', the build wrote '$actual'"
           exit 1
