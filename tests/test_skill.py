@@ -306,22 +306,30 @@ def test_every_documented_selector_is_one_the_server_would_accept():
 @pytest.mark.parametrize(
     "phrase, sent",
     [
-        pytest.param(
-            "took control of this browser",
-            "",
-            marks=pytest.mark.xfail(strict=True, reason="Task 11 restates the skill"),
-        ),
-        ("control of this browser was handed back", ""),
+        ("has control of this browser since", "HELD"),
+        ("asked for control of this browser at", "REQUESTED"),
+        ("control of this browser was handed back", "HANDED_BACK"),
+        ("'s control; call again.", "STILL"),
     ],
 )
 def test_the_control_notice_phrases_are_what_the_server_sends(phrase, sent):
-    from kubed.selenium_flow.live.control import HANDED_BACK, HELD
+    """The skill quotes what an agent will match a result against: a phrase it
+    teaches must be one the server says, in the sentence it says it in."""
+    from kubed.selenium_flow.live import control
 
-    workspaces = (SKILL_DIR / "references/WORKSPACES.md").read_text().replace("\n", " ")
-    said = (
-        HELD.format(who="drk", at="14:02")
-        if "took" in phrase
-        else HANDED_BACK.format(at="14:02")
-    )
+    workspaces = (SKILL_DIR / "references/WORKSPACES.md").read_text()
+    said = getattr(control, sent).format(who="drk", at="14:02")
     assert phrase in said
     assert phrase in re.sub(r"\s+", " ", workspaces)
+
+
+@pytest.mark.parametrize("sent", ["HELD", "STILL"])
+def test_the_control_sentences_the_skill_quotes_whole_are_the_servers(sent):
+    """A fragment survives a clause dropped from the code's sentence; the
+    example quoted whole does not."""
+    from kubed.selenium_flow.live import control
+
+    workspaces = re.sub(
+        r"\s+", " ", (SKILL_DIR / "references/WORKSPACES.md").read_text()
+    )
+    assert getattr(control, sent).format(who="kelly", at="14:02") in workspaces

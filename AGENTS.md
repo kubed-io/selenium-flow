@@ -136,7 +136,8 @@ anyone else. On top of it:
   tool hands the page an instruction the page is free to interpret** — `interact`,
   `press_key`, `dialog`, `execute_script`. A click is not destructive in itself and can
   place an order, and this server cannot tell which. Of the browser actions `extract`,
-  `outline` and `network_body` are the read-only ones; `screenshot` is not, because it writes a file, and a
+  `outline` and `network_body` are the read-only ones, with `await_control`, which only
+  waits; `screenshot` is not, because it writes a file, and a
   tool cannot be read-only only sometimes. `list_resources` and `read_resource` are reads
   too, and are the ones easiest to forget — they only appear for a client that cannot read
   resources, so a listing taken in the default mode proves nothing about them.
@@ -154,7 +155,9 @@ anyone else. On top of it:
   (`browser.go`), said as the host and nothing of the browser's text, which quotes the
   URL — and hedged "or a host it redirected to", because a redirect to a dead host fails
   in the same words; a refused connection, a timeout or a bad certificate stays 500. A dead browser is **404** — the fix is
-  specific and automatable, call `/browser/open`. An unreachable or full Grid is **503**.
+  specific and automatable, call `/browser/open`. A browser a person holds in the live
+  view is **409** (`faults.Controlled`): the request is sound, the workspace's state
+  forbids it now, and the same call succeeds after the hand-back. An unreachable or full Grid is **503**.
   Anything unrecognised stays **500**, deliberately: "the caller's fault" is the dangerous
   guess about a failure we do not understand, because it tells a client to stop retrying
   something that may be ours. Add a new status only alongside the `responses` block in
@@ -443,20 +446,24 @@ a workflow's workspace expired underneath it.
 
 **One browser-driving call at a time per session** (`workspace/locks.py`). The
 record was always safe — every write is a compare-and-set — but two action
-sequences interleaved on one browser are not, so `Recipe.run` holds the
-session's lock from the reconnect to the page state and a second call waits its
-turn: no 409, no timeout of its own. A bound write holds it from the page read
+sequences interleaved on one browser are not, so every call takes its turn at
+its host — reads included — and holds the session's lock from before it begins
+to after it ends (`Workspaces._said`, ruling 33 of the
+[live control spec](docs/superpowers/specs/2026-10-27-live-control-design.md)),
+so a call's window is its own; a second call waits its turn, with no timeout of
+its own. The turn comes first and the control check after it, so a call queued
+before a person asked for Control is refused (409) when its turn comes, never
+begun. A bound write holds it from the page read
 through the keystrokes, so nothing navigates or switches frames between the
 leash check and the typing; a flow holds it per step, never for the run, and
 the lock is first come, first served, so a call that asks during a step runs
-before the next one. `end_browser` and `open_session` take no lock, and nothing
-that only reads does: `end_browser` sets the cancel the holder watches
+before the next one. `end_browser` and `open_session` take no lock, and are
+checked for control directly; nor does a resource read. `end_browser` sets the cancel the holder watches
 (`core/cancel.py`), so a long `assert` lets go instead of making the call that
 exists to stop it wait — a direct call with `cancel.Ended` ("the browser was
 ended while this call was waiting", a 404 like any dead browser), a flow with
 its own cancellation. Keyed by the browser's Grid id, reentrant, fair, weak,
-and process-local — one replica (see "Scaling"). With capture on, `Workspaces.act` holds the
-lock for the whole call so a call's window is its own, and a refused call then waits its turn.
+and process-local — one replica (see "Scaling").
 
 A waiting call holds one of the 40 worker threads that FastMCP's sync tools and
 Starlette's routes share (anyio's default limiter), and it does not notice its
@@ -476,6 +483,7 @@ the trap.
 | The workspace record: name -> context and Grid id | the workspace store (memory, or Redis) | only with Redis |
 | The workspace's files: flows, kept files, screenshots, recordings | `DATA_DIR/workspaces/<name>/` | yes, on a volume |
 | Captured console and network | this process's memory, behind `capture.ttl` | no |
+| Who holds Control, and `await_control`'s tasks | this process's memory (Docket on `memory://`) | no |
 
 **The browser is the one that matters, and this server does not hold it.**
 It lives on the Grid, and the record naming it lives in the store, so a pod can
@@ -582,6 +590,9 @@ or the leak `caller_key` existed to prevent comes straight back.
 
 - Capture is an open choice like `record`: `open_session(capture=true)`, replayed after a reap,
   never inherited. It subscribes before the first page, after a restore.
+- Capture is one of the monitor's reasons, with a sink of its own: it is never handed the
+  events control asked for, and a connection held only for control is not capture, so
+  `capturing` stays false (live control spec, ruling 28).
 - The buffer is per workspace, in memory: 1 000 console entries and 1 000 requests, the last 5
   navigations, gone `capture.ttl` after its last entry, discarded by an explicit open without
   capture. Successful static requests and `debug` entries are counted, not kept.
@@ -628,9 +639,9 @@ and the store expires mappings via its own TTL. Do not add a scheduler.
 
 **One bounded wait is allowed:** a task that waits for something this server
 was told to expect, and ends when nothing is owed — the admin broadcast
-(while a page listens), the recordings collector (while a recording is owed)
-and the session monitor (while a session is watched). A loop that tidies is
-still not.
+(while a page listens), the recordings collector (while a recording is owed),
+the session monitor (while a session is watched) and a Control grant's poll
+(while a request waits its turn). A loop that tidies is still not.
 
 **The Grid reaps; we let it.** A held subscription on a busy page would keep
 its browser alive forever (measured: 2.2× the timeout and counting), so a
@@ -654,6 +665,12 @@ which it still owes something. It says so on a bus: `session.opened`,
   holds it. No subscriber logs the `session_id`.
 - **Publishing never blocks a call.** A subscriber is a function run on the
   loop, with a bounded queue; one that falls behind loses events, counted.
+- **A watch is owed for reasons, and each reason has its own sink**
+  (`sinks={"capture": …, "control": …}` in `server.py`; live control spec,
+  R7). One held connection serves them all, subscribing what each owes, and a
+  sink hears only what its own reason asked for — its events, `attached`,
+  `lost` — so capture is never handed control's, and a workspace that owes
+  only control opens no capture buffer.
 - **`/status` is the truth about liveness, the socket is not.** Gone is two
   listings; a socket that drops is one miss.
 - **The registry and the bus are process memory**, like the per-session lock:
@@ -747,9 +764,68 @@ a WebSocket this server proxies to the hub's `/session/<id>/se/vnc`
   non-ASCII keystrokes once its spare keycodes run out (ruling 31, measured).
   It refuses while the agent has a frame selected, because frame switches are
   sticky.
-- **A person in Control is on every MCP result for that workspace**
-  (`mcp/control.py`, ruling 35); HTTP results carry none. The state is the
-  tunnels' and is process memory: one replica, and a restart forgets it.
+
+**A person in Control holds the browser** (`live/control.py`, `live/pages.py`,
+`mcp/control.py`, `mcp/waiting.py`; the
+[live control spec](docs/superpowers/specs/2026-10-27-live-control-design.md)).
+Their keystrokes and an agent's clicks on one page are a race nobody can read,
+so while they hold it agents wait.
+
+- **The gate comes after the turn.** Clicking Control *requests* it; from then
+  the workspace counts as controlled, and every host — MCP, HTTP, a flow step —
+  takes its turn on the session's lock and then asks (`Calls.begin`), so a call
+  already queued is refused when its turn comes and a refused call is never
+  begun: no in-flight count, no `call.finished` (rulings 14, 32, 33). The
+  refusal is one sentence naming `await_control`: a 409 over HTTP, a tool
+  error over MCP. A
+  flow stops at a refused step whatever its `onError`, since every later step
+  would be refused too. `open_session` and `end_browser` are checked directly;
+  the admin's End still works and releases control. The person's paste is
+  never refused.
+- **Reads answer.** The `under_control` column of `CAPABILITIES` says which:
+  `extract`, `outline`, `screenshot`, `print`, `network_body` and
+  `await_control`, plus everything that never touches the browser. A read whose
+  `url` would navigate, or a screenshot that would resize (`width`, `height`,
+  `full_page`), is refused before it moves anything; `execute_script` and
+  `assert` run the caller's JavaScript, so they act.
+- **The grant is a mark, not a thread.** Control is granted once every call
+  that asked for the lock before the request has had its turn: a ticket
+  abandoned in the lock's queue (`locks.behind`), polled from the loop every
+  0.1 s. A thread blocked on the lock would sit in the default executor behind
+  a 900 s `assert`, and the loop's shutdown joins that executor (ruling 25).
+- **The pages are `control`'s, on its own sink.** While Control is held the
+  monitor owes the `control` reason, heard on the connection it holds for
+  capture or one it opens, never a second; `live/pages.py` is the sink. The
+  grant waits up to `ATTACH_TIMEOUT` for following to start, so no page is
+  missed, and grants unfollowed if BiDi cannot. The pages go into the
+  hand-back's summary and nowhere else: not History, not a log line.
+- **The notice is structured.** An MCP result carries
+  `structuredContent.control` and its `hint` as text, because Claude Code shows
+  a model only the structured content of a result that has some; a hand-back
+  is said once. HTTP successes carry none — an HTTP caller learns from the 409
+  (ruling 18) — a refusal carries no second notice, and a task's stub passes
+  untouched.
+- **`await_control` is a task where the client can, and a capped poll where it
+  cannot.** Task support is `optional`, polled every second, uncapped. Without
+  Tasks it blocks with progress on the 15 s heartbeat and answers at
+  `live.await_cap` (90 s, no lower than 30) with "call again": under Claude
+  Code's two-minute move to the background. The HTTP long poll has the same
+  cap and holds no worker thread. It writes nothing to History and is not a
+  flow step.
+- **Docket stays in memory**, `TasksExtension(url="memory://")` named in code
+  so a stray `FASTMCP_DOCKET_URL` cannot move it: what a task waits for is
+  process memory anyway, so Redis would only re-run it after a restart to
+  return at once (ruling 9).
+- **A task's worker has no request**, so `?workspace=` never reaches it.
+  `clients.Carry` writes the caller's name into the private header
+  `x-selenium-flow-workspace` at submission, dropping any copy a client sent,
+  and refuses a task submitted unnamed (ruling 31).
+- **Stopping lets the waiters go first.** FastMCP leaves the extensions before
+  the server's lifespan, and Docket's worker waits for its tasks as it stops,
+  so `mcp/waiting.Tasks` runs `Controls.stop` ahead of it; a waiter answers
+  "the server is stopping" and reads nothing.
+- **Control is process memory**, like the tunnels: one replica, and a restart
+  forgets every episode.
 
 ### Everything to read is a resource, named by its URI
 
@@ -1018,6 +1094,10 @@ without: a second replica would let two calls drive one browser at once.
 The session monitor's watches and the bus are process memory too: a second replica would watch nothing the first opened.
 
 The capture buffers and the held connections are process memory too.
+
+So are the live view's tunnels, the control episodes and Docket's tasks: a
+second replica would let an agent drive a browser a person holds through the
+first, and a `tasks/get` that lands on it finds no task.
 
 ## Gotchas
 

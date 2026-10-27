@@ -116,6 +116,7 @@ Load only what the task needs.
 |---|---|
 | Naming a workspace, sharing one, or recovering a dead browser | `skill://selenium-flow/references/WORKSPACES.md` |
 | Asking for a browser version, or a capability no option covers | `skill://selenium-flow/references/WORKSPACES.md` |
+| A person took control, or a call was refused for it | `skill://selenium-flow/references/WORKSPACES.md` |
 | Getting content out of a page, choosing a selector | `skill://selenium-flow/references/READING_PAGES.md` |
 | Clicking, hovering, typing, uploading, dialogs, scrolling, waiting | `skill://selenium-flow/references/INTERACTION.md` |
 | A timeout, an empty screenshot, a click that did nothing | `skill://selenium-flow/references/TROUBLESHOOTING.md` |

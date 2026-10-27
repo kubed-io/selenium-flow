@@ -146,15 +146,64 @@ person will watch.
 
 ## When a person takes control
 
-A person can take control of your workspace's browser from the admin page. While
-one has, every tool result for your workspace ends with a notice that begins
-with who has control (a name, or "a person") and `took control of this browser`: someone is at the keyboard of
-this browser and may be typing in it right now. Stop, and ask the user before
-your next action, because a click or a keystroke of yours lands on top of theirs.
+A person can take control of your workspace's browser from the admin's live
+view — to sign in, solve a captcha, fix something by hand. While they hold it the
+browser is theirs: **every call that would change it is refused**, and you wait
+for them to hand it back.
 
-When the last of them leaves, the next result says `control of this browser was
-handed back`, once. The page may have changed under you, so look at it again,
-with `extract` or `outline`, before carrying on from what you remember.
+**A refusal is one sentence** (over HTTP, a 409):
+
+> kelly has control of this browser since 14:02 UTC. Call await_control (POST /browser/await-control), which returns when they hand back.
+
+If they have only asked so far, it reads `kelly asked for control of this
+browser at 14:02 UTC. …` and ends the same way. A person the server has no name
+for is "a person". Do not retry the refused call, and do not reach for another
+tool to get round it — every tool that acts is refused the same way. Call
+`await_control()`.
+
+**Every successful MCP result says it too**, while it lasts: a `control` field,
+`{"state", "who", "since", "hint"}`, with the `hint` as a line of text. A call
+that fails for another reason carries the `hint` as text after its error.
+
+| `state` | Means | Do |
+|---|---|---|
+| `requested` | a person asked while this call ran; the browser is theirs once it ends | call `await_control` next |
+| `held` | a person has it now; this call was a read, which still answers | call `await_control` before anything that acts |
+| `handed_back` | `control of this browser was handed back at 14:20 UTC`, since your last result; said once | call `await_control` for what they did, or look at the page before carrying on |
+
+**Reads still answer**: `extract`, `outline`, `screenshot`, `print`,
+`network_body`, every resource, the flow library and `keep_file`. A read is
+refused when it would move the page or the window — a `url` the browser is not
+on, because that navigates, and a `screenshot` with `width`, `height` or
+`full_page`, because that resizes. `execute_script` and `assert` run your
+JavaScript, so they count as acting; so do `open_session` and `end_browser`.
+
+**`await_control()` takes no arguments and returns when they hand back.** A
+client that runs MCP background tasks gets one, which waits as long as it takes.
+Any other gets a blocking call that answers after about 90 seconds with
+`handed_back: false` and `still in kelly's control; call again.` — so call it
+again, until it hands back. With nobody in control it answers at once:
+`control: null`, or the hand-back you had not been told of yet.
+
+What it hands back is what they did:
+
+| Field | Holds |
+|---|---|
+| `handed_back` | true when they handed back; false at the cap, with nobody in control, or when the server is stopping (`message` says to call again once it is back) |
+| `control` | who had it, `since`, `until`, and `held_for` in seconds |
+| `page` | the URL and title the browser is on now |
+| `visited` | every page they reached, oldest first: the last whole, earlier ones origin and path; at most 100, with `dropped` counting what went before. Absent when their pages could not be followed, and `message` says so |
+| `outline` | the current page's elements, as `outline` lists them |
+| `ended` | true when the browser ended while they had it: there is no page, call `open_session` |
+| `message` | the whole of it in one sentence |
+
+`page_error` stands in for `page` and `outline` when the page could not be read.
+**Read the summary before you carry on**: you are rarely where you left off —
+signed in now, a step further on, or on another site.
+
+**A flow stops at a refused step**, whatever its `onError` says. A flow cannot
+wait for a person and `await_control` is not a step: call it yourself, then
+decide from its summary whether to run the flow again.
 
 ## Your library is your name too
 
