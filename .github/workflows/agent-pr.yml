@@ -323,6 +323,7 @@ jobs:
     # docs/ is the wiki: it is pushed first, with git, and then the code and the wiki's
     # pointer go in one commit through the API, signed
     - name: Push the Wiki
+      id: wiki
       if: steps.msg.outputs.message != ''
       uses: kubed-io/actions/git/submodule@main
       with:
@@ -346,12 +347,13 @@ jobs:
     - name: Say What Was Left Out
       if: >-
         always() && steps.agent.outputs.comment_id != '' &&
-        (steps.commit.outcome == 'failure' || (steps.commit.outputs.ignored != '' && steps.commit.outputs.ignored != '[]'))
+        (steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' ||
+          (steps.commit.outputs.ignored != '' && steps.commit.outputs.ignored != '[]'))
       uses: actions/github-script@v9
       env:
         COMMENT_ID: ${{ steps.agent.outputs.comment_id }}
         IGNORED: ${{ steps.commit.outputs.ignored }}
-        FAILED: ${{ steps.commit.outcome == 'failure' }}
+        FAILED: ${{ steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       with:
         github-token: ${{ steps.app.outputs.token }}
