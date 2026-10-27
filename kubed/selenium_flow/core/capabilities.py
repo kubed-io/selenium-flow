@@ -225,6 +225,19 @@ CAPABILITIES: tuple[Capability, ...] = (
                     "type": "string",
                     "description": "The browser this session is running.",
                 },
+                "version": {
+                    "type": ["string", "null"],
+                    "description": "The browser version the Grid started.",
+                },
+                "ignored": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Vendor-block entries in capabilities that "
+                        "selenium-flow's own settings overrode. Present only "
+                        "when there were some."
+                    ),
+                },
                 **PAGE_STATE,
                 "site_data": SITE_DATA_HINT,
                 "width": {"type": "integer", "description": "Window width in use."},
