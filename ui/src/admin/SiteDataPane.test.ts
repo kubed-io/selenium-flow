@@ -46,7 +46,7 @@ const base = {
 function setup(routes = {}) {
   const net = fakeFetch({ ...base, 'GET /admin/workspaces/k/site-data': { body: SITES }, ...routes })
   const live = new Live(api, '')
-  const r = render(WorkspaceDetail, { key: 'k', tab: 'site-data', flow: undefined, api, live, root: '' })
+  const r = render(WorkspaceDetail, { key: 'k', tab: 'site-data', flow: undefined, api, live, root: '', liveScript: '' })
   return { ...r, ...net, live }
 }
 const sections = (c: HTMLElement) => [...c.querySelectorAll('#paneSiteData section.section')] as HTMLElement[]

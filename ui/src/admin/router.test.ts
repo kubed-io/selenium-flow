@@ -67,3 +67,9 @@ test('the router reads the two capture tabs and a request', () => {
   expect(hashes.network('k')).toBe('#/workspaces/k/network')
   expect(hashes.request('k', '1.1')).toBe('#/workspaces/k/network/1.1')
 })
+
+test('the Live tab has a route of its own', () => {
+  expect(parse('#/workspaces/k/live')).toMatchObject({ view: 'workspace', key: 'k', tab: 'live' })
+  expect(hashes.live('a b')).toBe('#/workspaces/a%20b/live')
+  expect(parse(hashes.live('a b'))).toMatchObject({ key: 'a b', tab: 'live' })
+})
