@@ -102,19 +102,15 @@ jobs:
           else if (run?.event === 'pull_request_review') stage = byOwner || actor === process.env.COPILOT_ID ? 'code' : 'none';
           else if (!pushed) stage = 'code';
           else stage = pr.draft && (byOwner || byApp) && !finished ? 'code' : 'none';
-          // what an event with no words means: the code agent's turn
-          const reasons = {
-            review: 'A review came in. Apply receiving-code-review to every unresolved thread in reviews.md: fix it, or decline it with evidence, and answer each one in `threads`.',
-            ci: 'The checks failed on your last commit. `.issue/checks/report.md` has each failing job: its failed steps, annotations and the end of its log. Find the cause, fix it, run that check here, and commit.',
-          };
-          // said in the turn: a role's "read the skills first" is lost on a session that
-          // resumes the plan's conversation
-          const skills = '`subagent-driven-development`, `test-driven-development`, `receiving-code-review` and `verification-before-completion` from the `superpowers` server';
-          const how = 'by subagent-driven development: an implementer subagent, then the spec and code-quality reviewer subagents.';
+          // what an event with no words means: the code agent's turn. The words are kb
+          // prompts in the superpowers library (cluster mcp/mcp-kb/prompts/superpowers),
+          // sent as slash commands, so the methodology's own text drives each turn
+          const turn = (name) => `/mcp__superpowers__superpowers_${name}`;
+          const reasons = { review: turn('review-came-in'), ci: turn('checks-failed') };
           let prompt = '';
           if (dispatched) prompt = reasons[e.client_payload?.reason] || `Woken by ${e.client_payload?.reason || 'a dispatch'}: see what needs doing.`;
-          else if (labelled) prompt = `The plan is approved. First read ${skills}, then do the first task ${how}`;
-          else if (pushed) prompt = `Your last push landed. If this session has not read ${skills} yet, read them first. Then do the next task ${how}`;
+          else if (labelled) prompt = turn('plan-approved');
+          else if (pushed) prompt = turn('next-task');
           core.setOutput('stage', stage);
           core.setOutput('number', String(number));
           core.setOutput('head', pr.head.ref);
