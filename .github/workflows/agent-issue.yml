@@ -92,7 +92,8 @@ jobs:
         agent: .issue/roles/claude/agents/spec.md
         schema: .issue/roles/claude/agents/spec.schema.json
         opt_in_label: agent
-        prompt: ${{ github.event_name == 'issues' && github.event.label.name == 'spec' && 'Write the draft spec on the branch now.' || '' }}
+        # the `spec` label's turn is a kb prompt (superpowers library)
+        prompt: ${{ github.event_name == 'issues' && github.event.label.name == 'spec' && '/mcp__superpowers__superpowers_spec-draft' || '' }}
         session_key: issue-${{ github.event.issue.number }}
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
         allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
@@ -247,7 +248,7 @@ jobs:
         number: ${{ needs.handoff.outputs.pull_request }}
         agent: .issue/roles/claude/agents/plan.md
         schema: .issue/roles/claude/agents/plan.schema.json
-        prompt: The spec is approved. Write the spec and plan of record.
+        prompt: /mcp__superpowers__superpowers_spec-approved
         header: "📄 Plan · [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }})"
         session_key: pr-${{ needs.handoff.outputs.pull_request }}
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
