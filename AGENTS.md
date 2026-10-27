@@ -787,7 +787,12 @@ so while they hold it agents wait.
   `await_control`, plus everything that never touches the browser. A read whose
   `url` would navigate, or a screenshot that would resize (`width`, `height`,
   `full_page`), is refused before it moves anything; `execute_script` and
-  `assert` run the caller's JavaScript, so they act.
+  `assert` run the caller's JavaScript, so they act. That check runs inside
+  the action and cannot tell whether Control was asked for before the call
+  began, so a read already running when a person asks, which then navigates
+  or resizes, is refused part-way (409) rather than finishing first as
+  ruling 1 has it: the agent awaits control and calls again, and the person's
+  page never moves under them.
 - **The grant is a mark, not a thread.** Control is granted once every call
   that asked for the lock before the request has had its turn: a ticket
   abandoned in the lock's queue (`locks.behind`), polled from the loop every
@@ -820,10 +825,13 @@ so while they hold it agents wait.
   `clients.Carry` writes the caller's name into the private header
   `x-selenium-flow-workspace` at submission, dropping any copy a client sent,
   and refuses a task submitted unnamed (ruling 31).
-- **Stopping lets the waiters go first.** FastMCP leaves the extensions before
+- **Stopping never waits on a waiter.** FastMCP leaves the extensions before
   the server's lifespan, and Docket's worker waits for its tasks as it stops,
-  so `mcp/waiting.Tasks` runs `Controls.stop` ahead of it; a waiter answers
-  "the server is stopping" and reads nothing.
+  so `mcp/waiting.Tasks` runs `Controls.stop` ahead of it; a waiter still
+  running then answers "the server is stopping" and reads nothing. Few are:
+  FastMCP runs uvicorn with `timeout_graceful_shutdown` 2, which cancels a
+  blocking call or long poll before the lifespan ends, and a task's answer
+  goes with the in-memory Docket. What matters is that the stop is prompt.
 - **Control is process memory**, like the tunnels: one replica, and a restart
   forgets every episode.
 

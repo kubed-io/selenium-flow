@@ -189,7 +189,7 @@ What it hands back is what they did:
 
 | Field | Holds |
 |---|---|
-| `handed_back` | true when they handed back; false at the cap, with nobody in control, or when the server is stopping (`message` says to call again once it is back) |
+| `handed_back` | true when they handed back; false at the cap, with nobody in control, or when the server is stopping (`message` says to call again once it is back; a stop more often just drops the call) |
 | `control` | who had it, `since`, `until`, and `held_for` in seconds |
 | `page` | the URL and title the browser is on now |
 | `visited` | every page they reached, oldest first: the last whole, earlier ones origin and path; at most 100, with `dropped` counting what went before. Absent when their pages could not be followed, and `message` says so |

@@ -617,3 +617,99 @@ async def test_a_resume_that_times_out_still_backs_off(both, clock, monkeypatch)
     with pytest.raises(BidiUnavailable):
         await asyncio.to_thread(monitor.attach, "w1", GID, "capture", resume=True)
     await until(lambda: monitor.backing_off(GID))
+
+
+# ---- capture joining a hold control opened, and leaving it (final review) -----
+
+
+@pytest.fixture
+async def told(clock):
+    """Both reasons, each to a recording sink, so ``again`` is seen."""
+    FakeConnection.reset()
+    capture, pages = FakeSink(), PagesSink()
+    monitor = Monitor(
+        LocalBus(), listing=lambda: (1, {GID: 300}), socket_url=lambda s: f"ws://x/{s}",
+        events_for={"capture": capture_module.EVENTS, "control": pages_module.EVENTS},
+        collectors_for={"capture": capture_module.COLLECTOR},
+        connect=FakeConnection, sinks={"capture": capture, "control": pages}, clock=clock,
+    )
+    monitor.bus.start()
+    await monitor.start()
+    try:
+        yield monitor, capture, pages
+    finally:
+        await monitor.stop()
+        await monitor.bus.stop()
+        FakeConnection.reset()
+
+
+NAVIGATED = "browsingContext.navigationStarted"  # capture's, not control's
+
+
+async def test_capture_owed_after_a_control_only_hold_joins_it(told):
+    """`_extend`'s joining branch: the one place capture's collector is added
+    and its sink told `attached` on a connection control opened."""
+    monitor, capture, pages = told
+    await monitor.attach_here("w1", GID, "control")
+    [conn] = FakeConnection.made
+    assert conn.collectors == [] and not monitor.capturing(GID)
+    await asyncio.to_thread(monitor.attach, "w1", GID, "capture", browser="chrome")
+    assert FakeConnection.made == [conn]  # no second connection
+    assert conn.collectors == [capture_module.COLLECTOR]
+    assert capture.calls == [("attached", "w1", GID, "chrome", "top-1", False)]
+    assert monitor.capturing(GID)
+    started = {"context": "top-1", "navigation": "n1", "url": "https://a.example/"}
+    await conn.emit(NAVIGATED, started)
+    assert capture.calls[-1] == ("ingest", "w1", GID, NAVIGATED, started)
+    loaded = {"context": "top-1", "url": "https://a.example/"}
+    await conn.emit(LOAD, loaded)
+    assert pages.calls == [
+        ("attached", "w1", GID, "", "top-1", False),
+        ("subscribed", "w1", GID),
+        ("ingest", "w1", GID, LOAD, loaded),
+    ]
+    assert ("ingest", "w1", GID, LOAD, loaded) not in capture.calls
+
+
+async def test_control_taken_after_capture_lapsed_holds_both_on_one_connection(told, clock):
+    """The reviewer's path: capture lapsed at the deadline, a person takes
+    Control. The hold control opens owes capture too, so capture is held
+    again on it (``again``, replay aligned) and the agent's next call resumes
+    nothing: no third connection."""
+    monitor, capture, _pages = told
+    await lapsed(monitor, clock)
+    await monitor.attach_here("w1", GID, "control")
+    assert len(FakeConnection.made) == 2
+    conn = FakeConnection.made[1]
+    assert conn.collectors == [capture_module.COLLECTOR] and monitor.capturing(GID)
+    assert capture.calls[-2:] == [
+        ("attached", "w1", GID, "", "top-1", True), ("replayed", "w1", GID)
+    ]
+    calls = calls_for(monitor, clock)
+    begun = await asyncio.to_thread(calls.begin, "w1", GID, tool="extract")
+    await asyncio.to_thread(calls.end, begun, tool="extract", surface="mcp", browser="")
+    assert len(FakeConnection.made) == 2
+
+
+async def test_capture_let_go_while_control_stays_keeps_the_connection_for_control(told):
+    monitor, capture, pages = told
+    await asyncio.to_thread(monitor.attach, "w1", GID, "capture", browser="chrome")
+    await monitor.attach_here("w1", GID, "control")
+    [conn] = FakeConnection.made
+    monitor.release(GID, "capture")
+    assert capture.calls[-1] == ("detached", "w1", GID)
+    assert not monitor.capturing(GID) and monitor.connection(GID) is conn
+    assert ("detached", "w1", GID) not in pages.calls
+    started = {"context": "top-1", "navigation": "n1", "url": "https://a.example/"}
+    await conn.emit(NAVIGATED, started)
+    assert capture.calls[-1] == ("detached", "w1", GID)  # capture hears nothing now
+    loaded = {"context": "top-1", "url": "https://a.example/"}
+    await conn.emit(LOAD, loaded)
+    assert pages.calls[-1] == ("ingest", "w1", GID, LOAD, loaded)
+    # The collector is the connection's until it closes: nothing removes it
+    # on a release, and the close does (no production path lets capture go
+    # while the session lives; it is owed until the session ends).
+    assert conn.collectors == [capture_module.COLLECTOR]
+    monitor.release(GID, "control")
+    await until(lambda: conn.closed)
+    assert conn.closed_clean

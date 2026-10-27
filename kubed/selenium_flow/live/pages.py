@@ -34,10 +34,14 @@ import asyncio
 import contextlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from ..bidi import REPLY_TIMEOUT, Connection
+from ..bidi import REPLY_TIMEOUT
 from ..urls import origin_of
 from ..workspace.store import HISTORY_CAP
+
+if TYPE_CHECKING:
+    from ..bidi import Connection
 
 LOAD = "browsingContext.load"
 HISTORY = "browsingContext.historyUpdated"
