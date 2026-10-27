@@ -891,7 +891,10 @@ class Monitor:
 
     async def _run(self) -> None:
         try:
-            while self.watches:
+            # `_stopping` as well as the cancel: Python 3.11's wait_for returns
+            # normally when a cancel lands after a wake finished its wait, so
+            # the cancel alone can be lost and `stop` would wait for ever.
+            while self.watches and not self._stopping:
                 # Replaced before the look, so a wake during it is not lost.
                 self._nudge = asyncio.Event()
                 try:

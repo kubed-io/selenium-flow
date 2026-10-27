@@ -89,7 +89,9 @@ profile = [
   "py-spy>=0.4.2",
 ]
 test = [
-  "pytest",
+  # pytest-benchmark 5.3.0 reads Function._nodeid, which pytest 9.2 removed:
+  # every benchmark errors at setup. Lift this once pytest-benchmark follows.
+  "pytest<9.2",
   "pytest-asyncio",
   # Shuffled order finds the test that leans on another; -n 2 --dist loadfile
   # (.github/workflows/test.yml) keeps each module on one worker.

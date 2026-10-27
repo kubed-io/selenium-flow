@@ -501,6 +501,22 @@ async def test_stop_survives_a_watch_ending_while_it_closes(parts):
     assert first.closed == 1 and OTHER not in monitor.watches
 
 
+async def test_stop_right_after_a_wake_still_ends_the_loop(parts):
+    # Python 3.11's wait_for loses a cancel that lands once what it waits on
+    # is done: a release wakes the loop, and stop's cancel then came back as
+    # a normal return, so the loop looked again and stop waited on it for ever.
+    monitor, _listing, _clock, _heard = parts
+    monitor.tick = 60  # parked in its wait, not mid-look, when the wake lands
+    await monitor.start()
+    monitor.watch(GID, "a", "recording")
+    monitor.watch(GID, "a", "control")
+    await asyncio.sleep(0.05)
+    monitor.release(GID, "control")
+    stopping = asyncio.ensure_future(monitor.stop())
+    done, _ = await asyncio.wait({stopping}, timeout=2)
+    assert done == {stopping} and not monitor.running
+
+
 async def test_watch_and_ended_from_worker_threads(parts):
     monitor, _listing, _clock, heard = parts
     await monitor.start()
