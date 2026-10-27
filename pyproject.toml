@@ -27,7 +27,7 @@ classifiers = [
 authors = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
 maintainers = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
 dependencies = [
-  "fastmcp>=4.0.0,<5",
+  "fastmcp[tasks]>=4.1.4,<5",
   "selenium>=4.48.0,<5",
   "requests>=2.32.0",
   "pyyaml>=6.0",
