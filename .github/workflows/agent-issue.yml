@@ -137,6 +137,7 @@ jobs:
       contents: read
     env:
       BRANCH: issue-${{ github.event.issue.number }}
+      DEFAULT: ${{ github.event.repository.default_branch }}
     outputs:
       pull_request: ${{ steps.pr.outputs.number }}
       branch: ${{ env.BRANCH }}
@@ -160,29 +161,30 @@ jobs:
         branch: ${{ env.BRANCH }}
         issue: ${{ github.event.issue.number }}
 
-    # the plan starts from today's main. A spec branch holds only wiki pointer commits, so it
-    # starts over on main and the commit below points docs at the wiki, which has the spec;
-    # merging would conflict on that pointer. Anything else on the branch gets main merged in.
-    - name: Fresh from Main
+    # the plan starts from the default branch as it is today. A spec branch holds only wiki
+    # pointer commits, so it starts over there and the commit below points docs at the wiki,
+    # which has the spec; merging would conflict on that pointer. Anything else on the branch
+    # gets the default branch merged in.
+    - name: Fresh from the Default Branch
       env:
         GH_TOKEN: ${{ steps.app.outputs.token }}
       run: |
-        compare="repos/${GITHUB_REPOSITORY}/compare/main...${BRANCH}"
+        compare="repos/${GITHUB_REPOSITORY}/compare/${DEFAULT}...${BRANCH}"
         [ "$(gh api "$compare" --jq .behind_by)" = 0 ] && exit 0
         if [ "$(gh api "$compare" --jq '[.files[].filename] | unique | join(",")')" = docs ]; then
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH}" \
-            -f sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)" -F force=true --silent
-        elif ! gh api "repos/${GITHUB_REPOSITORY}/merges" -f base="$BRANCH" -f head=main \
-            -f commit_message="Merge main into ${BRANCH}" --silent; then
-          echo "::warning::main could not be merged into ${BRANCH}; the plan starts from the branch as it is"
+            -f sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${DEFAULT}" --jq .sha)" -F force=true --silent
+        elif ! gh api "repos/${GITHUB_REPOSITORY}/merges" -f base="$BRANCH" -f head="$DEFAULT" \
+            -f commit_message="Merge ${DEFAULT} into ${BRANCH}" --silent; then
+          echo "::warning::${DEFAULT} could not be merged into ${BRANCH}; the plan starts from the branch as it is"
         fi
 
-    # GitHub opens no PR on a branch with nothing beyond main
-    - name: Ahead of Main
+    # GitHub opens no PR on a branch with nothing beyond its base
+    - name: Ahead of the Default Branch
       id: ahead
       env:
         GH_TOKEN: ${{ steps.app.outputs.token }}
-      run: echo "by=$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${BRANCH}" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
+      run: echo "by=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${DEFAULT}...${BRANCH}" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
 
     - name: Checkout
       if: steps.ahead.outputs.by == '0'
