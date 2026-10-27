@@ -160,6 +160,23 @@ jobs:
         branch: ${{ env.BRANCH }}
         issue: ${{ github.event.issue.number }}
 
+    # the plan starts from today's main. A spec branch holds only wiki pointer commits, so it
+    # starts over on main and the commit below points docs at the wiki, which has the spec;
+    # merging would conflict on that pointer. Anything else on the branch gets main merged in.
+    - name: Fresh from Main
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+      run: |
+        compare="repos/${GITHUB_REPOSITORY}/compare/main...${BRANCH}"
+        [ "$(gh api "$compare" --jq .behind_by)" = 0 ] && exit 0
+        if [ "$(gh api "$compare" --jq '[.files[].filename] | unique | join(",")')" = docs ]; then
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH}" \
+            -f sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)" -F force=true --silent
+        elif ! gh api "repos/${GITHUB_REPOSITORY}/merges" -f base="$BRANCH" -f head=main \
+            -f commit_message="Merge main into ${BRANCH}" --silent; then
+          echo "::warning::main could not be merged into ${BRANCH}; the plan starts from the branch as it is"
+        fi
+
     # GitHub opens no PR on a branch with nothing beyond main
     - name: Ahead of Main
       id: ahead
@@ -172,15 +189,22 @@ jobs:
       uses: actions/checkout@v7
       with:
         ref: ${{ env.BRANCH }}
+        submodules: true
         persist-credentials: false
 
-    - name: Empty Commit
+    # the wiki's head has every spec pushed so far, this issue's among them
+    - name: Point at the Wiki
+      if: steps.ahead.outputs.by == '0'
+      run: git submodule update --remote docs
+
+    - name: Start Commit
       if: steps.ahead.outputs.by == '0'
       uses: kubed-io/actions/git/commit@main
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
         message: "Start #${{ github.event.issue.number }}"
+        files: docs
         allow_empty: true
 
     - name: Pull Request
