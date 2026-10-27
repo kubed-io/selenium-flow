@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import struct
@@ -6,6 +7,7 @@ import struct
 import pytest
 
 from kubed.selenium_flow.faults import SocketClosed
+from kubed.selenium_flow.live import tunnel as tunnel_module
 from kubed.selenium_flow.live.rfb import RFB_38
 from kubed.selenium_flow.live.tunnel import (
     BAD_CONTROL,
@@ -15,6 +17,7 @@ from kubed.selenium_flow.live.tunnel import (
     NOBODY,
     STOPPING,
     VIEWER_LEFT,
+    Ending,
     Tunnel,
 )
 from kubed.selenium_flow.live.tunnels import Tunnels
@@ -422,3 +425,71 @@ async def test_a_reason_from_outside_is_one_capped_line_in_the_log(caplog):
     (line,) = caplog.messages
     assert "\n" not in line and "bad?news" in line
     assert len(line) < 400
+
+
+async def test_a_control_ask_before_the_handshake_is_answered_watch(caplog):
+    tunnel, viewer, _node, dial = make()
+    tunnels = Tunnels()
+    tunnels.add(GRID_ID, tunnel)
+    with caplog.at_level(logging.INFO, logger=LOG):
+        task = asyncio.create_task(tunnel.run(dial, b"secret"))
+        assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "watch"}
+        viewer.feed(text(type="mode", mode="control"))  # the node has not spoken
+        assert json.loads(await viewer.next_sent()) == {"type": "mode", "mode": "watch"}
+        assert tunnel.mode == "watch"
+        assert tunnels.controlled("w1") is None and tunnels.notice("w1") is None
+        tunnel.end(Ending(4003, "Authentication failed"))
+        await task
+    assert tunnels.notice("w1") is None
+    assert "switched" not in caplog.text
+
+
+class Stalled(FakePeer):
+    """A viewer whose close waits on a transport that never drains."""
+
+    def __init__(self):
+        super().__init__()
+        self.closing = asyncio.Event()
+
+    async def close(self, code=1000, reason=""):
+        self.closing.set()
+        await asyncio.Event().wait()
+
+
+async def test_control_is_handed_back_before_a_stalled_viewer_closes(monkeypatch):
+    monkeypatch.setattr(tunnel_module, "CLOSE_TIMEOUT", 0.3)
+    viewer = Stalled()
+    tunnel, viewer, node, dial = make(viewer)
+    tunnels = Tunnels()
+    tunnels.add(GRID_ID, tunnel)
+    task, _ = await start(tunnel, viewer, node, dial)
+    await in_control(viewer)
+    assert tunnels.notice("w1").startswith("drk took control")
+    tunnel.end(NOBODY)
+    await asyncio.wait_for(viewer.closing.wait(), 1)
+    assert not task.done()  # the close is still pending
+    assert tunnels.controlled("w1") is None
+    assert tunnels.notice("w1").startswith("control of this browser was handed back")
+    assert (await asyncio.wait_for(task, 1)) == NOBODY
+
+
+async def test_a_node_that_never_speaks_ends_4002_within_the_timeout(monkeypatch):
+    monkeypatch.setattr(tunnel_module, "HANDSHAKE_TIMEOUT", 0.2)
+    tunnel, viewer, node, dial = make()
+    ending = await asyncio.wait_for(tunnel.run(dial, b"secret"), 1)
+    assert ending == Ending(4002, "the Grid's VNC server did not answer")
+    assert viewer.closed == (4002, "the Grid's VNC server did not answer")
+    assert node.closed == (1000, "")
+
+
+async def test_a_viewer_that_never_answers_ends_4003_within_the_timeout(monkeypatch):
+    monkeypatch.setattr(tunnel_module, "HANDSHAKE_TIMEOUT", 0.3)
+    tunnel, viewer, node, dial = make()
+    node_side = asyncio.create_task(vnc_node(node))
+    ending = await asyncio.wait_for(tunnel.run(dial, b"secret"), 1)
+    node_side.cancel()
+    with contextlib.suppress(asyncio.CancelledError, TimeoutError, AssertionError):
+        await node_side
+    assert ending == Ending(4003, "the viewer did not finish the VNC handshake")
+    assert viewer.closed == (4003, "the viewer did not finish the VNC handshake")
+    assert node.closed == (1000, "")

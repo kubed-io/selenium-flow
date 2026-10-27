@@ -27,6 +27,12 @@ from . import audit
 from .rfb import SHARED, Bytes, Gate, Mode, Refused, server_handshake, viewer_handshake
 
 HEARTBEAT = 10.0
+# Both handshakes together: a node that accepts the socket and never speaks,
+# or a viewer that never answers, would otherwise hold the tab on "connecting".
+HANDSHAKE_TIMEOUT = 15.0
+# How long closing the viewer may take: a stalled peer can hold uvicorn's
+# send, and nothing waits on the close but the audit line.
+CLOSE_TIMEOUT = 5.0
 CONTROL_CAP = 1024
 REASON_CAP = 123  # a WebSocket close reason is 123 bytes at most
 UVICORN_STOPPING = 1012
@@ -50,6 +56,8 @@ NOBODY = Ending(4000, "nobody was watching")
 BROWSER_ENDED = Ending(4001, "the browser ended")
 GRID_CLOSED = Ending(4002, "the Grid closed the live view")
 BAD_CONTROL = Ending(4006, "bad control message")
+NODE_SILENT = Ending(4002, "the Grid's VNC server did not answer")
+VIEWER_SILENT = Ending(4003, "the viewer did not finish the VNC handshake")
 STOPPING = Ending(1001, "the server is stopping")
 VIEWER_LEFT = Ending(1000, "the viewer closed")
 BROKEN = Ending(1011, "the live view failed")
@@ -83,6 +91,8 @@ class Tunnel:
         self.session = session
         self.mode: Mode = "watch"
         self.on_mode: Callable[[], None] = lambda: None
+        # Called once the tunnel is over, before either socket is closed.
+        self.on_end: Callable[[], None] = lambda: None
         self._grace = grace
         self._touch = touch
         self._may_control = may_control
@@ -173,7 +183,8 @@ class Tunnel:
             self._present()
         elif kind == "mode" and message.get("mode") in ("watch", "control"):
             wanted: Mode = message["mode"]
-            if wanted == "control" and not self._may_control():
+            # Nobody can see the screen until the tunnel pipes: Control waits.
+            if wanted == "control" and (not self._piping or not self._may_control()):
                 wanted = "watch"
             changed = wanted != self.mode
             self.mode = wanted
@@ -205,10 +216,16 @@ class Tunnel:
                 raise Refused(GRID_CLOSED.code, GRID_CLOSED.reason) from None
             self._upstream = upstream
             frames = _Frames(upstream)
+            silent = NODE_SILENT
             try:
-                await server_handshake(frames.read, upstream.send, password)
-                await viewer_handshake(self._bytes.read, self._to_viewer)
-                await upstream.send(SHARED)
+                async with asyncio.timeout(HANDSHAKE_TIMEOUT):
+                    await server_handshake(frames.read, upstream.send, password)
+                    silent = VIEWER_SILENT
+                    await viewer_handshake(self._bytes.read, self._to_viewer)
+                    silent = NODE_SILENT
+                    await upstream.send(SHARED)
+            except TimeoutError:  # before OSError, which it is a kind of
+                raise Refused(silent.code, silent.reason) from None
             except (SocketClosed, OSError):
                 raise Refused(GRID_CLOSED.code, GRID_CLOSED.reason) from None
             async with self._out:
@@ -260,6 +277,7 @@ class Tunnel:
                 ]
                 await self._ended.wait()
         finally:
+            self.on_end()
             if self._timer is not None:
                 self._timer.cancel()
             for task in tasks:
@@ -274,8 +292,10 @@ class Tunnel:
             with contextlib.suppress(SocketClosed, OSError):
                 await self._upstream.close(1000)
         if not self._viewer_gone:
-            with contextlib.suppress(SocketClosed, OSError):
-                await self.viewer.close(ending.code, _cut(ending.reason))
+            with contextlib.suppress(SocketClosed, OSError, TimeoutError):
+                await asyncio.wait_for(
+                    self.viewer.close(ending.code, _cut(ending.reason)), CLOSE_TIMEOUT
+                )
         if self._opened_at is not None:
             audit.left(
                 self.who,

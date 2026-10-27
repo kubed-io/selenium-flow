@@ -197,6 +197,45 @@ def test_an_unreadable_password_file_closes_4003(hub, tmp_path):
     assert gone.code == 4003
 
 
+@pytest.mark.parametrize(
+    "name, enabled, reason",
+    [
+        ("w1", False, "the live view is switched off"),
+        ("idle", True, "this workspace has no browser open"),
+        ("novnc", True, "this browser has no live view"),
+    ],
+)
+def test_a_4004_refusal_is_a_refused_audit_line(hub, caplog, name, enabled, reason):
+    client = TestClient(build(enabled=enabled).mcp.http_app())
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.live"):
+        gone = closed_with(
+            client, f"/admin/workspaces/{name}/live/socket", headers=AUTH
+        )
+    assert (gone.code, gone.reason) == (4004, reason)
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert [r.getMessage() for r in warnings] == [
+        f"live: refused admin the live view of {name}: {reason}"
+    ]
+
+
+def test_an_unreadable_password_file_is_a_warning_naming_the_path(
+    hub, tmp_path, caplog
+):
+    missing = tmp_path / "missing"
+    server = build(password_file=str(missing))
+    client = TestClient(server.mcp.http_app())
+    url = mint(client)
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.live"):
+        gone = closed_with(client, url)
+    assert (gone.code, gone.reason) == (4003, "the VNC password file cannot be read")
+    said = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert f"live: the VNC password file {missing} cannot be read" in said
+    assert (
+        "live: refused admin the live view of w1: "
+        "the VNC password file cannot be read"
+    ) in said
+
+
 def test_a_refusal_is_logged_without_the_link(client, caplog):
     with caplog.at_level("INFO"):
         closed_with(client, SOCKET + "?exp=1&sig=00")
@@ -353,6 +392,28 @@ def test_paste_in_control_types_and_audits_a_count(client, server, typing, caplo
     assert "pasted 7 characters into w1" in caplog.text
     assert all("hunter2" not in r.getMessage() for r in caplog.records)
     assert "hunter2" not in repr(server.workspaces.store.get("w1"))
+
+
+def test_a_paste_reads_the_store_off_the_event_loop(
+    client, server, typing, monkeypatch
+):
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    store = server.workspaces.store
+    real = store.get
+    on_loop = []
+
+    def get(key):
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(key)
+        except RuntimeError:
+            pass  # a worker thread: no loop of its own
+        return real(key)
+
+    monkeypatch.setattr(store, "get", get)
+    answered = client.post(PASTE, json={"text": "hi"}, headers=AUTH)
+    assert answered.status_code == 200
+    assert on_loop == []
 
 
 def test_a_refused_paste_logs_no_text(client, server, typing, caplog):

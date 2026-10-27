@@ -50,6 +50,8 @@ class Tunnels:
     def add(self, grid_id: str, tunnel: Tunnel) -> None:
         self._by_grid.setdefault(grid_id, []).append(tunnel)
         tunnel.on_mode = lambda: self._moded(tunnel)
+        # Control is handed back when the tunnel ends, not once its sockets close.
+        tunnel.on_end = lambda: self._release(tunnel)
 
     def discard(self, grid_id: str, tunnel: Tunnel) -> None:
         tunnels = self._by_grid.get(grid_id, [])

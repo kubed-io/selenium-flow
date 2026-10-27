@@ -32,7 +32,7 @@
 
   const closePaste = () => { pasting = false; refused = '' }
   // The popover is only ever for Control: a drop or a switch to Watch closes it.
-  $effect(() => { if (!control) closePaste() })
+  $effect(() => { if (!up || !control) closePaste() })
 
   async function send() {
     if (!view || sending) return
@@ -59,16 +59,16 @@
 
 {#snippet toggle()}
   <span class="switch">
-    <button type="button" aria-pressed={!control} aria-label="Watch" title="Watch" onclick={() => view?.ask('watch')}>👁️</button>
-    <button type="button" aria-pressed={control} aria-label="Control" title="Control" onclick={() => view?.ask('control')}>🖱️</button>
+    <button type="button" aria-pressed={!control} aria-label="Watch" title="Watch" disabled={!up} onclick={() => view?.ask('watch')}>👁️</button>
+    <button type="button" aria-pressed={control} aria-label="Control" title="Control" disabled={!up} onclick={() => view?.ask('control')}>🖱️</button>
   </span>
 {/snippet}
 
 {#snippet paste()}
   <span class="pastewrap">
-    <button type="button" aria-label="Paste" disabled={!control} onclick={() => (pasting ? closePaste() : (pasting = true))}
-            title={control ? 'Paste' : 'Paste types into the browser in Control'}>📋</button>
-    {#if pasting && control}
+    <button type="button" aria-label="Paste" disabled={!up || !control} onclick={() => (pasting ? closePaste() : (pasting = true))}
+            title={up && control ? 'Paste' : 'Paste types into the browser in Control'}>📋</button>
+    {#if pasting && up && control}
       <div class="popover">
         <textarea placeholder="Paste" bind:value={text}></textarea>
         <p class="small muted">Types at the cursor in the browser</p>

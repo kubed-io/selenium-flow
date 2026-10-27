@@ -38,6 +38,19 @@ test('connecting reads connecting, with the controls dimmed', async () => {
   expect(container.querySelector('.screen')).toHaveClass('connecting')
 })
 
+test('the toggle and paste are disabled until connected, whatever mode is said', async () => {
+  await setup()
+  sock().say('{"type":"mode","mode":"control"}')
+  await vi.waitFor(() => expect(screen.getByRole('button', { name: /Control/ })).toHaveAttribute('aria-pressed', 'true'))
+  expect(screen.getByRole('button', { name: /Watch/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Control/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Paste/ })).toBeDisabled()
+  await connect()
+  expect(screen.getByRole('button', { name: /Watch/ })).toBeEnabled()
+  expect(screen.getByRole('button', { name: /Control/ })).toBeEnabled()
+  expect(screen.getByRole('button', { name: /Paste/ })).toBeEnabled()
+})
+
 test('the paste button is greyed in Watch with its tooltip', async () => {
   await setup(); await connect()
   const btn = screen.getByRole('button', { name: /Paste/ })

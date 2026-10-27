@@ -96,6 +96,7 @@ anyone else. On top of it:
   workflow commits them to the wiki and moves the branch's `docs/` pointer. Write like the
   specs already there; `docs/saga/` is history, cited, never extended.
 - **You never commit.** What you leave changed is committed after you answer.
+- **You never edit `.github/`.** A person commits workflow changes.
 
 ## Rules
 
@@ -729,7 +730,8 @@ a WebSocket this server proxies to the hub's `/session/<id>/se/vnc`
   whole RFB messages and passed through an allowlist of noVNC's own: Watch
   forwards only what asks for pictures, an unknown type closes `4005`, and
   SetEncodings loses ExtendedMouseButtons. ClientInit is replaced with
-  `shared`, so a viewer never takes the browser from the agent's screen.
+  `shared`, so one viewer connecting never drops the other viewers or the
+  Grid UI's own view.
 - **`dial()` is the one socket opener, and `live/` is plain**: no Starlette, no
   `websockets`, listed in `test_boundaries`. The route adapts both sides.
 - **The socket is mounted through FastMCP's `_additional_http_routes`**, a
@@ -748,7 +750,6 @@ a WebSocket this server proxies to the hub's `/session/<id>/se/vnc`
 - **A person in Control is on every MCP result for that workspace**
   (`mcp/control.py`, ruling 35); HTTP results carry none. The state is the
   tunnels' and is process memory: one replica, and a restart forgets it.
-- **`.github/` is never edited by the agent workflow**; a person commits workflow changes.
 
 ### Everything to read is a resource, named by its URI
 

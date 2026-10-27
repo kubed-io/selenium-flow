@@ -227,7 +227,8 @@ def mount(
             status = errors.status_for(exc)
             log.info("paste refused (%s): %s", status, type(exc).__name__)
             return JSONResponse({"error": PASTE_FAILED}, status_code=status)
-        record = workspaces.store.get(key)
+        # The store may be Redis: read it in the threadpool, never on the loop.
+        record = await run_in_threadpool(workspaces.store.get, key)
         session = audit.session_label(record.opened_at if record else 0)
         audit.pasted(who, key, session, done["typed"])
         return JSONResponse(done)
@@ -276,11 +277,14 @@ def mount(
             return
         record, why = await run_in_threadpool(look, key)
         if why is not None:
+            audit.refused(who, key, why)
             await _refuse(websocket, NOT_AVAILABLE, why)
             return
         try:
             password = await run_in_threadpool(read_password, live.password_file)
         except LiveRefused as refused:
+            audit.unreadable(live.password_file or "")
+            audit.refused(who, key, refused.reason)
             await _refuse(websocket, refused.code, refused.reason)
             return
         grid_id = record.session_id

@@ -107,6 +107,14 @@ def refused(who: str | None, workspace: str, why: str) -> None:
     )
 
 
+def unreadable(path: str) -> None:
+    """The configured VNC password file cannot be read: the path is
+    configuration, never the password."""
+    log.warning(
+        "live: the VNC password file %s cannot be read", clean(path, REASON_CAP)
+    )
+
+
 def failed(workspace: str, error: BaseException) -> None:
     """An unexpected failure, by its type alone: its message may quote a URL."""
     log.warning(
