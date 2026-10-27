@@ -54,9 +54,12 @@ extract(selector={"xpath": "//h1"})
 extract(url="https://example.com/settings", selector={"xpath": "//main"})
 ```
 
-Start wide, then narrow. `//body` on an unfamiliar page is still far cheaper
-than a screenshot and tells you the structure; once you know it, use a specific
-selector so the result stays small.
+`extract` returns the element's whole text **and** HTML, with no cap: `body` on
+a simple page is a few KB, and on an app like Grafana it is over 150,000
+characters, more than you can read in one result. On an unfamiliar page,
+`outline` first to see its structure, then `extract` the one element that holds
+your answer. For a list of items, one `execute_script` that returns just their
+names is smaller than either.
 
 Cheap orientation checks worth knowing:
 
@@ -67,8 +70,16 @@ extract(selector={"xpath": "//h1"})      # did the expected page load
 
 ## execute_script for batches and anything computed
 
-One `execute_script` beats five `extract` calls. Use `return` to send a value
-back; anything JSON-serialisable comes through.
+One `execute_script` beats five `extract` calls when you already know what to
+read. Use `return` to send a value back; anything JSON-serialisable comes
+through.
+
+A script is the right tool for reading many rows at once, computed style, page
+state (`location`, storage) and scrolling. It is the wrong one for *finding*
+things: a `querySelectorAll(...).find(e => e.innerText...)` hunt for a button or
+a panel is `outline(text="...")`, which also says whether the thing can be used.
+And it never waits: read after a tool has waited for the page, not instead of
+one.
 
 ```
 execute_script(script="return [...document.querySelectorAll('.row')].map(r => r.innerText)")
