@@ -171,6 +171,7 @@ class SeleniumMCP:
         self.actions.hide = self.capture.hidden
         # The capture resources read it (`show`, `network_body`).
         self.actions.capture = self.capture
+        self.actions.control = self.controls
 
         # Recordings (recordings spec): the Grid films, the operator delivers to
         # the inbox, the collector files. Built before the workspaces, which tell

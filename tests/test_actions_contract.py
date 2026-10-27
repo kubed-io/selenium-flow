@@ -828,3 +828,71 @@ def test_an_unwritable_temp_directory_is_a_server_fault_naming_it(
     assert str(gone) in str(caught.value)
     assert "TMPDIR" in str(caught.value)
     assert status_for(caught.value) == 500
+
+
+# ---- a person in Control: reads that would move the page or window ---------
+
+
+class _Held:
+    """A control that refuses the one Grid id it holds, as `Controls.refusal` does."""
+
+    def __init__(self, held="abc"):
+        self.held, self.asked = held, []
+
+    def refusal(self, session_id, tool):
+        from kubed.selenium_flow.faults import Controlled
+
+        self.asked.append((session_id, tool))
+        if session_id == self.held:
+            return Controlled("a person has control of this browser")
+        return None
+
+
+def _calls(driver, name):
+    return [entry for entry in driver.log if entry[0] == name]
+
+
+def test_extract_on_the_current_url_answers_while_controlled(actions, scripted):
+    driver = scripted(scripts={"readyState": "complete"})
+    actions.control = _Held()
+    actions.extract("abc", selector={"css": "#x"}, url=driver.current_url)
+    assert not _calls(driver, "get")
+
+
+def test_extract_naming_another_url_is_refused_before_it_navigates(actions, scripted):
+    from kubed.selenium_flow.faults import Controlled
+
+    driver = scripted(scripts={"readyState": "complete"})
+    actions.control = held = _Held()
+    with pytest.raises(Controlled):
+        actions.extract("abc", selector={"css": "#x"}, url="https://other.test/")
+    assert not _calls(driver, "get")
+    assert held.asked == [("abc", "navigate")]
+
+
+def test_a_screenshot_with_a_width_is_refused_while_controlled(actions, scripted):
+    from kubed.selenium_flow.faults import Controlled
+
+    driver = scripted()
+    actions.control = held = _Held()
+    with pytest.raises(Controlled):
+        actions.screenshot("abc", width=400, save=False)
+    assert not _calls(driver, "set_window_size")
+    assert held.asked == [("abc", "resize")]
+
+
+def test_a_full_page_screenshot_is_refused_while_controlled(actions, scripted):
+    from kubed.selenium_flow.faults import Controlled
+
+    driver = scripted()
+    actions.control = held = _Held()
+    with pytest.raises(Controlled):
+        actions.screenshot("abc", full_page=True, save=False)
+    assert not _calls(driver, "set_window_size")
+    assert held.asked == [("abc", "resize")]
+
+
+def test_a_plain_screenshot_answers_while_controlled(actions, scripted):
+    scripted()
+    actions.control = _Held()
+    assert actions.screenshot("abc", save=False)["image"]
