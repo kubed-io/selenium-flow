@@ -20,8 +20,11 @@ on:
 permissions:
   contents: read
 
+# Called by pr.yml, a run's own group: two pr.yml runs land together (a push and Mark
+# Ready), and a ref group let the draft one cancel the real checks here. pr.yml's own
+# group decides what supersedes what.
 concurrency:
-  group: integration-${{ github.ref }}
+  group: integration-${{ github.event_name == 'pull_request' && github.run_id || github.ref }}
   cancel-in-progress: true
 
 env:
