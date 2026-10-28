@@ -76,6 +76,22 @@ class Unresolved(Exception):
         )
 
 
+UNTRUSTED = (
+    "the site's certificate is not trusted: for a site with a self-signed "
+    "certificate, open_session(insecure=true); "
+    "an insecure browser gets no saved site data"
+)
+
+
+class Untrusted(Exception):
+    """A page whose certificate the browser does not trust: a 400 that says what
+    to do. It carries a fixed sentence and never the browser's own text, which
+    quotes the URL, credentials included."""
+
+    def __init__(self):
+        super().__init__(UNTRUSTED)
+
+
 # How each browser reports a page whose host has no address in DNS: Chrome's
 # net error, and the error page Firefox says it reached. Only this one: a
 # refused connection, a timeout or a bad certificate can be the network's or

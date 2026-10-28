@@ -154,7 +154,7 @@ anyone else. On top of it:
   `//nope` will not contain it on the retry. So is a URL whose host does not resolve
   (`browser.go`), said as the host and nothing of the browser's text, which quotes the
   URL — and hedged "or a host it redirected to", because a redirect to a dead host fails
-  in the same words; a refused connection, a timeout or a bad certificate stays 500. A dead browser is **404** — the fix is
+  in the same words; a refused connection or a timeout stays 500, and so does a certificate failure the browser reports only as text (`net::ERR_CERT_*`); an `InsecureCertificateException` is a 400, and `browser.go` says `faults.Untrusted`'s sentence (open with `insecure=true`) and nothing of the browser's text; a bare one from another command is a 400 carrying its own message. A dead browser is **404** — the fix is
   specific and automatable, call `/browser/open`. A browser a person holds in the live
   view is **409** (`faults.Controlled`): the request is sound, the workspace's state
   forbids it now, and the same call succeeds after the hand-back. An unreachable or full Grid is **503**.

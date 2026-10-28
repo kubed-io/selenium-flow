@@ -653,7 +653,7 @@ def _grid_says(status: int):
 
 
 def _raised(cls):
-    return cls("it said no")
+    return cls() if cls is faults.Untrusted else cls("it said no")
 
 
 STATUS_TABLE = (

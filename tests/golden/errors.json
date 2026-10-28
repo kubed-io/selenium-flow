@@ -35,6 +35,12 @@
     },
     "status": 404
   },
+  "InsecureCertificateException": {
+    "body": {
+      "error": "it went wrong"
+    },
+    "status": 400
+  },
   "InvalidArgumentException": {
     "body": {
       "error": "it went wrong"
@@ -152,6 +158,12 @@
   "Unresolved": {
     "body": {
       "error": "the host nonexistent.invalid, or a host it redirected to, did not resolve: check the URL"
+    },
+    "status": 400
+  },
+  "Untrusted": {
+    "body": {
+      "error": "the site's certificate is not trusted: for a site with a self-signed certificate, open_session(insecure=true); an insecure browser gets no saved site data"
     },
     "status": 400
   },

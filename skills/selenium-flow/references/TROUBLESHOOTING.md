@@ -156,9 +156,12 @@ itself is in `revealed_by`. Click that.
 
 ## A certificate error
 
-The browser refuses a self-signed certificate. When you know the site is served
-with one, reopen with `open_session(insecure=true)`. It is remembered for the
-workspace, so do not use it for a site that does not need it.
+The browser refuses a self-signed certificate, and the call fails with "the
+site's certificate is not trusted: for a site with a self-signed certificate,
+open_session(insecure=true); an insecure browser gets no saved site data". When
+you know the site is served with one, reopen with `open_session(insecure=true)`.
+It is remembered for the workspace, so do not use it for a site that does not
+need it.
 
 ## Everything is slow or a session will not open
 
