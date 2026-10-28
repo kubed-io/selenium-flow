@@ -66,65 +66,14 @@ jobs:
     # Before `plan approved`: Dr K's comments and reviews are plan turns. After it: his
     # comments and reviews, the label, a review by Copilot, an `agent-code` dispatch, and a
     # push to the draft by the agent or Dr K are code turns; a push whose commit says
-    # `Agent: done` is not. Anything else is nothing.
+    # `Agent: done` is not. Anything else is nothing. Each turn's words are a kb prompt.
     - name: Route
       id: route
-      uses: actions/github-script@v9
-      env:
-        OWNER_ID: "4399427"
-        APP_ID: "235398881"
-        COPILOT_ID: "175728472"
+      uses: kubed-io/actions/pr-route@main
       with:
-        script: |
-          const e = context.payload;
-          const run = e.workflow_run;
-          const dispatched = context.eventName === 'repository_dispatch';
-          const number = run ? (run.pull_requests[0]?.number || 0)
-            : Number(dispatched ? e.client_payload?.pull_request : (e.issue?.number || e.pull_request?.number)) || 0;
-          core.setOutput('stage', 'none');
-          if (!number) return;
-          const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
-          const ours = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
-          if (pr.state !== 'open' || !ours || !pr.head.ref.startsWith('issue-')) return;
-          const approved = pr.labels.some((l) => l.name === 'plan approved');
-          const labelled = context.eventName === 'pull_request_target';
-          const actor = String((run ? run.triggering_actor : e.sender).id);
-          const byOwner = actor === process.env.OWNER_ID;
-          const byApp = actor === process.env.APP_ID;
-          const pushed = run?.event === 'pull_request';
-          // the run that finished the plan said so on its commit: its push wakes nothing
-          const { data: head } = await github.rest.repos.getCommit({ ...context.repo, ref: pr.head.sha });
-          const finished = /^Agent: done$/m.test(head.commit.message);
-          let stage = 'none';
-          if (dispatched) stage = approved ? 'code' : 'none';
-          else if (!approved) stage = byOwner && !pushed ? 'plan' : 'none';
-          // a review wakes the code agent when it is Dr K's or Copilot's: the agent's own
-          // thread replies arrive as reviews too, by the App, and must not wake it again
-          else if (run?.event === 'pull_request_review') stage = byOwner || actor === process.env.COPILOT_ID ? 'code' : 'none';
-          else if (!pushed) stage = 'code';
-          else stage = pr.draft && (byOwner || byApp) && !finished ? 'code' : 'none';
-          // what an event with no words means: the code agent's turn. The words are kb
-          // prompts in the superpowers library (cluster mcp/mcp-kb/prompts/superpowers),
-          // sent as slash commands, so the methodology's own text drives each turn
-          const turn = (name) => `/mcp__superpowers__superpowers_${name}`;
-          const reasons = { review: turn('review-came-in'), ci: turn('checks-failed') };
-          let prompt = '';
-          if (dispatched) prompt = reasons[e.client_payload?.reason] || `Woken by ${e.client_payload?.reason || 'a dispatch'}: see what needs doing.`;
-          else if (labelled) prompt = turn('plan-approved');
-          else if (pushed) prompt = turn('next-task');
-          core.setOutput('stage', stage);
-          core.setOutput('number', String(number));
-          core.setOutput('head', pr.head.ref);
-          core.setOutput('prompt', prompt);
-          // a dispatched event (checks failed, a review) is the point of its run: its prompt
-          // is the whole turn, and anything unread is the next one. A slash command only
-          // works at the start of a turn, so it cannot follow the thread's messages
-          core.setOutput('prompt_when', dispatched ? 'always' : 'quiet');
-          // the checks run whose report the code job downloads
-          const runId = dispatched && e.client_payload?.reason === 'ci' ? Number(e.client_payload?.run_id) || 0 : 0;
-          core.setOutput('run_id', runId ? String(runId) : '');
-          // the approval label takes the PR over; anything else waits its turn
-          core.setOutput('takeover', String(labelled));
+        owner: "4399427"
+        app: "235398881"
+        copilot: "175728472"
 
   plan:
     name: Plan
