@@ -25,6 +25,7 @@ export function liveUnavailable(row: WorkspaceRow, liveEnabled: boolean | undefi
   if (liveEnabled === false) return 'no live view · switched off'
   if (browserState(row) === 'unknown') return 'no live view · grid not answering'
   if (!row.live) return 'no live view · no browser'
+  if (row.headless) return 'no live view · headless'
   if (row.ran?.live_view !== true) return 'no live view · this Grid has no VNC'
   return null
 }

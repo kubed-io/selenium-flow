@@ -44,6 +44,7 @@ export interface WorkspaceRow {
   /** Whether the Grid listing answered; the same on every row of one payload. */
   grid_listed?: boolean
   insecure?: boolean
+  headless?: boolean
   set_by?: Record<string, SetBy>
   attached?: boolean
   started?: number | null
