@@ -432,7 +432,7 @@ survives a session is the context, and that is the point:
   the whole stored set.
 - Every write that changes a record's `settings` keeps `set_by`'s keys equal to
   them, or a Redis read (`Workspace.from_json`) drops the settings and lets go of
-  the browser (ruling 14).
+  the browser (ruling 14 of the [session touch-ups spec](docs/superpowers/specs/2026-10-27-session-touch-ups-design.md)).
 - Ending a session from the admin UI therefore costs the caller nothing but the
   browser's live state. It never removes the workspace.
 
