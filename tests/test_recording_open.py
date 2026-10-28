@@ -93,6 +93,38 @@ def test_record_without_recording_set_up_is_a_400_and_opens_nothing():
     assert m.actions.calls == []
 
 
+def test_record_with_headless_in_the_same_call_is_a_400_and_opens_nothing():  # ruling 4
+    m = manager(Recorder())
+    with pytest.raises(ValueError) as exc:
+        m.open_browser(caller(), record=True, headless=True)
+    assert str(exc.value) == workspaces_module.HEADLESS_RECORD
+    assert m.actions.calls == []
+
+
+def test_record_on_a_remembered_headless_says_where_it_came_from_and_keeps_the_browser():
+    m = manager(Recorder())
+    m.open_browser(caller(), headless=True)
+    with pytest.raises(ValueError) as exc:
+        m.open_browser(caller(), record=True)
+    assert str(exc.value) == workspaces_module.HEADLESS_RECORD_REMEMBERED
+    assert m.actions.grid.alive == {"grid0001"} and len(m.actions.calls) == 1
+
+
+def test_headless_false_lets_a_remembered_headless_workspace_record():
+    m = manager(Recorder())
+    m.open_browser(caller(), headless=True)
+    assert m.open_browser(caller(), record=True, headless=False)["recording"] is True
+    assert m.actions.calls[-1]["headless"] is False
+    m.open_browser(caller())
+    assert m.actions.calls[-1]["headless"] is False
+
+
+def test_recording_off_is_said_before_headless():
+    with pytest.raises(ValueError) as exc:
+        manager(None).open_browser(caller(), record=True, headless=True)
+    assert str(exc.value) == workspaces_module.RECORDING_OFF
+
+
 def test_record_sends_the_capability_and_tells_the_collector():
     rec = Recorder()
     m = manager(rec)

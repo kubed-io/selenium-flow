@@ -82,6 +82,18 @@ RECORDING_OFF = (
 
 CAPTURE_OFF = "Capture is not set up on this server."
 
+# A headless browser draws nothing for the recorder to film (spec
+# 2026-10-28-headless, ruling 4). The second says where headless came from
+# when this call did not pass it, so the caller knows what to clear.
+HEADLESS_RECORD = (
+    "a headless browser draws nothing to film: "
+    "record=true cannot be asked with headless=true"
+)
+HEADLESS_RECORD_REMEMBERED = (
+    "this workspace's browser is headless, remembered from an earlier open: "
+    "pass headless=false to record"
+)
+
 # `settle`'s default page: the one the result itself reports.
 FROM_RESULT = object()
 
@@ -1043,6 +1055,12 @@ class Workspaces:
         settings = resolved.settings
         if settings.get("record") and self.recordings is None:
             raise ValueError(RECORDING_OFF)
+        if settings.get("record") and settings.get("headless"):
+            coerce = settings_module.SETTINGS["headless"][2]
+            passed = coerce(wanted.get("headless")) is not None
+            raise ValueError(
+                HEADLESS_RECORD if passed else HEADLESS_RECORD_REMEMBERED
+            )
         if settings.get("capture") and not self._can_capture():
             raise ValueError(CAPTURE_OFF)
         # An owned key or a vendor block a merge cannot add to: a 400 before
