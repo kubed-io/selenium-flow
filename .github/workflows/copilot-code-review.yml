@@ -47,8 +47,20 @@ jobs:
     name: Copilot Review Setup
     runs-on: ubuntu-26.04
     permissions:
-      contents: read
+      contents: write
+      # the hand-back: an agent-code dispatch (contents write) about this run (actions read)
+      actions: read
     steps:
+
+    # Copilot reviews only when Dr K asks it. Its review lands after this job ends, and
+    # nothing it triggers directly runs (GitHub holds them), so this step's post sends
+    # agent-code with reason `copilot` as the job ends; agent-pr.yml waits for the review
+    # and the code agent answers it, as it answers the review agent's
+    - name: Hand Back
+      uses: kubed-io/actions/hand-back@main
+      with:
+        event_type: agent-code
+        reason: copilot
 
     # Shallow, and no submodules. The reviewer wants the files as they are, not
     # a buildable checkout — and the wiki submodule is a second repository whose
