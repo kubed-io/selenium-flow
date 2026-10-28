@@ -62,3 +62,9 @@ test('a card wears the capture pills after live and idle', () => {
   expect(screen.getByText('capture paused')).toHaveClass('pill', 'capture-paused')
   expect(screen.getAllByText(/capture/)).toHaveLength(2)
 })
+
+test('an unlisted row shows capture as on (ruling 5)', () => {
+  render(WorkspaceList, { data: { workspaces: [{ key: 'k', attached: true, grid_listed: false, live: false, capture: true, capturing: false }] } })
+  expect(screen.getByText('● capture')).toBeInTheDocument()
+  expect(screen.queryByText('capture paused')).toBeNull()
+})

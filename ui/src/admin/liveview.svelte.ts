@@ -1,5 +1,6 @@
 import type { RFB } from '../live'
 import type { WorkspaceRow } from '../lib/types'
+import { browserState } from '../lib/format'
 import { workspacePath, type Api } from './api'
 
 export type LiveState = 'connecting' | 'connected' | 'disconnected'
@@ -22,6 +23,7 @@ const NO_SCRIPT = 'no live view · this page could not load the viewer'
 /* Why the tab is greyed, or null. Hover text, in the order a person would fix them. */
 export function liveUnavailable(row: WorkspaceRow, liveEnabled: boolean | undefined): string | null {
   if (liveEnabled === false) return 'no live view · switched off'
+  if (browserState(row) === 'unknown') return 'no live view · grid not answering'
   if (!row.live) return 'no live view · no browser'
   if (row.ran?.live_view !== true) return 'no live view · this Grid has no VNC'
   return null

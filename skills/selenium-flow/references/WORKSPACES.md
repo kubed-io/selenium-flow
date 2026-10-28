@@ -66,7 +66,7 @@ name your workspace and drive your browser.
 
 That is the whole point of choosing it yourself. A reconnect, a client restart,
 a new process a week later — call with `?workspace=research-bot` again and you
-are back where you were: the same settings, and when you call `open_session()`,
+are back where you were: the settings you passed are remembered (the rest are read afresh), and when you call `open_session()`,
 the page you left.
 
 A workspace expires after a day unused. Nothing removes one before that, and the
@@ -80,13 +80,17 @@ already knows how to treat, so reach for them before anything else:
 
 | Option | Does | Next `open_session()` |
 |---|---|---|
-| `browser` | `chrome` (default) or `firefox` | keeps it |
-| `version` | the browser version to ask the Grid for, such as `"152"` | keeps it, unless you switch browser |
-| `width`, `height` | the window | keeps them |
-| `page_load_timeout`, `script_timeout` | bounds on a hanging page or script | keeps them |
-| `insecure` | `true` accepts a self-signed certificate; that browser gets no saved site data | keeps it |
+| `browser` | `chrome` (default) or `firefox` | keeps it if you passed it |
+| `version` | the browser version to ask the Grid for, such as `"152"` | keeps it if you passed it, unless you switch browser |
+| `width`, `height` | the window | keeps them if you passed them |
+| `page_load_timeout`, `script_timeout` | bounds on a hanging page or script | keeps them if you passed them |
+| `insecure` | `true` accepts a self-signed certificate; that browser gets no saved site data | keeps it if you passed it |
 | `record` | films the browser | **asks again** |
 | `capture` | keeps the console and network | **asks again** |
+
+What you leave out comes from the server's and your connection's defaults at
+each open, so a change there reaches you at your next `open_session()`. A version
+passed without a browser keeps the browser it ran on.
 
 **A version is a request, not a promise.** `version="152"` matches any 152
 build the Grid offers, `"152.0.7977.82"` only that one. The result's `version`
@@ -125,9 +129,9 @@ coming before a step that depends on unsaved state, do that step first.
 including after a failure — an abandoned session holds one of the Grid's few
 slots until it times out.
 
-**It does not end your workspace.** The workspace keeps the browser choice and
-the page you were on, so `open_session()` with no arguments later comes back on
-the same browser at the same page.
+**It does not end your workspace.** The workspace keeps the settings you passed
+and the page you were on, so `open_session()` with no arguments later returns to
+that page; anything you did not pass comes from the current defaults.
 
 What *is* gone is the session's downloads. The Grid keeps that store per
 browser and deletes it with the browser, so `keep_file` anything you still

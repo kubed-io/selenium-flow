@@ -16,7 +16,7 @@ one tab, not sending independent requests, and that shapes everything below:
   you leave open holds a slot until it is reaped, so ending it is capacity, not
   politeness.
 - **Your workspace outlives the browser.** The workspace is the named box that
-  keeps your browser choice, last page, files, flows and saved sign-ins; the
+  keeps the options you passed, last page, files, flows and saved sign-ins; the
   session is the live browser in it, at most one. A session that goes away
   (reaped when idle, ended by you or an operator) costs nothing:
   `open_session()` with no arguments puts you back where you were.

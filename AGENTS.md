@@ -408,8 +408,8 @@ The two used to be one word, and the split is what most of `workspace/` is
 about.
 
 A **workspace** is a record in the store (`Workspace` in `workspace/store.py`),
-keyed by **the name its caller chose**: the browser choice and window it last
-opened with, where it has been, its saved site data, and — while a session is
+keyed by **the name its caller chose**: the settings it last opened with (each with its
+source, `set_by`), where it has been, its saved site data, and — while a session is
 open — the Grid id of that session's browser (`session_id`). On disk it is also
 `DATA_DIR/workspaces/<name>/`: its flows, kept files, screenshots and
 recordings. `Workspaces` in `workspace/workspaces.py` is what every surface goes
@@ -425,9 +425,14 @@ survives a session is the context, and that is the point:
 - `resolve` reports a workspace whose browser is gone exactly like one that
   never had a session, so the agent takes the branch it already knows: call
   `open_session`.
-- `open_session` with no arguments inherits that context — same browser, same
-  window, back to the page it was on. The settings cascade is where this lives:
-  env < client default < **this workspace's last values** < explicit argument.
+- `open_session` with no arguments goes back to the page it was on, with the
+  settings read fresh: env < client default < **what this workspace's caller
+  passed before** < explicit argument. Every value is stored with its source
+  (`set_by`); an explicit open carries over only the caller's, and a reap replays
+  the whole stored set.
+- Every write that changes a record's `settings` keeps `set_by`'s keys equal to
+  them, or a Redis read (`Workspace.from_json`) drops the settings and lets go of
+  the browser (ruling 14).
 - Ending a session from the admin UI therefore costs the caller nothing but the
   browser's live state. It never removes the workspace.
 

@@ -513,7 +513,7 @@ def mount(
                     # Whether the listing answered, the same on every row: an
                     # unlisted row's `live` is a guess, so its stored `record`
                     # setting stands in rather than a failed listing turning
-                    # the badge off (spec 2026-10-28, ruling 5).
+                    # the badge off (spec 2026-10-27-session-touch-ups, ruling 5).
                     "grid_listed": grid_listed,
                     "recording": bool(
                         (live or (sid and not grid_listed))

@@ -16,8 +16,8 @@
     <span class="bmark" title={s.browser || 'browser'}>{browserMark(s.browser)}</span>
     <strong class="grow">{s.name || s.owner || 'Workspace'}</strong>
     {#if state === 'open'}<span class="pill live">open</span>{:else}<span class="pill">{state}</span>{/if}
-    {#if s.live && s.recording}<span class="pill rec">● REC</span>{/if}
-    {#if s.capture}{#if s.capturing}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
+    {#if s.recording}<span class="pill rec">● REC</span>{/if}
+    {#if s.capture}{#if s.capturing || state === 'unknown'}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
   </div>
   <div class="lastpage masthead">
     <div class="k small muted">last page</div>

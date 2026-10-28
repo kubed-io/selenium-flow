@@ -285,8 +285,8 @@ class Workspace:
     def detached(self, ended: dict | None = None) -> Workspace:
         """The same record with no browser, keeping the context it had.
 
-        Not a delete: the browser choice and the last page are what the next
-        open is meant to inherit, so ending a browser must not take them. What
+        Not a delete: the last page and the settings (with their sources) are
+        what the next open reads from, so ending a browser must not take them. What
         the last session sent and ran stay too: the admin's idle card shows the
         last browser. ``ended`` says how it ended.
         """

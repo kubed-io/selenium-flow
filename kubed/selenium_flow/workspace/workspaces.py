@@ -398,7 +398,8 @@ class Workspaces:
             status["site_data"] = saved
         # A record with no browser is an ordinary state, not a broken one: the
         # Grid reaped it or an admin ended it, and the context it left behind is
-        # what the next open_session inherits.
+        # what the next open_session reads (it carries over only the caller's own
+        # settings).
         status["live"] = (
             self.actions.grid.is_alive(record.session_id) if record.attached else False
         )
@@ -499,7 +500,7 @@ class Workspaces:
         if record is None or not record.attached:
             # Detached reads the same as absent on purpose. A caller is told it
             # has no browser and calls open_session, which is the one path that
-            # opens one — and which now inherits this record's browser and page.
+            # opens one — and which takes what the caller passed, and the page.
             raise faults.NoSession(
                 f"no session is open in workspace {name!r} yet: call open_session "
                 "first. It takes the window size and timeouts this session "

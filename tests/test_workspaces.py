@@ -2154,5 +2154,6 @@ def test_an_upgraded_record_asks_for_open_session_and_keeps_its_site_data():
         ws.resolve(NAMED)
     assert ws.actions.closed == []  # left for the Grid to reap
     ws.open_browser(Caller(NAMED))
+    assert ws.actions.closed == []
     assert ws.actions.opened_settings[-1]["site_data"] == saved
     assert ws.store.get(NAMED).history[-1]["origin"] == "https://a.test"

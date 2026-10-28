@@ -18,7 +18,7 @@
         <span class="pill name">{workspaceLabel(s)}</span>
         <span class="mono grow small muted">{s.session_id || 'no browser'}</span>
         {#if state === 'open'}<span class="pill live">open</span>{:else}<span class="pill">{state}</span>{/if}
-        {#if s.capture}{#if s.capturing}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
+        {#if s.capture}{#if s.capturing || state === 'unknown'}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
       </div>
       <div class="small muted" style="margin-top:6px">{metaLine(s)}</div>
       {#if s.url}<div class="small muted url">{s.url}</div>{/if}

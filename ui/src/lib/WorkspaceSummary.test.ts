@@ -52,3 +52,10 @@ test('an attached row the Grid did not list reads unknown', () => {
   expect(screen.getByText('unknown')).toBeInTheDocument()
   expect(screen.queryByText('idle')).toBeNull()
 })
+
+test('an unlisted row keeps its REC and capture badges (ruling 5)', () => {
+  render(WorkspaceSummary, { data: { key: 'k', attached: true, grid_listed: false, live: false, recording: true, capture: true, capturing: false } })
+  expect(screen.getByText('● REC')).toBeInTheDocument()
+  expect(screen.getByText('● capture')).toBeInTheDocument()
+  expect(screen.queryByText('capture paused')).toBeNull()
+})

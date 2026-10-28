@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Fixed: an explicit `open_session()` picks up changed server and connection defaults, and carries over only what you passed.
+- On upgrading, workspaces forget their remembered settings and the browser they held, once; their history, saved site data and files stay.
+- Fixed: an untrusted certificate is a 400 that says to use `insecure=true`.
+- The Session tab's WORKSPACE card shows where each setting came from, and INSECURE.
 - Fixed: the skill's examples call real tools, and it is a fifth shorter.
 - **Watch, or take the keyboard of, a workspace's live browser** from the admin UI's new Live tab; the agent is told while a person has control.
 - **A person who takes Control in the live view holds the browser**: agents are refused until they hand back, and `await_control` waits for it.
