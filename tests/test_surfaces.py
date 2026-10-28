@@ -162,6 +162,14 @@ async def test_tools_declare_real_parameter_schemas(server):
     assert "ctx" not in props
 
 
+async def test_open_session_takes_headless_as_an_optional_boolean(server):
+    opened = await server.mcp.get_tool("open_session")
+    assert opened.parameters["properties"]["headless"]["anyOf"] == [
+        {"type": "boolean"}, {"type": "null"},
+    ]
+    assert "headless" not in opened.parameters.get("required", [])
+
+
 @pytest.mark.parametrize("resources", ["on", "off"])
 async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resources):
     """A client reads these to decide whether to ask the user first.

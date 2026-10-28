@@ -384,6 +384,7 @@ def register(
         page_load_timeout: int | None = None,
         script_timeout: int | None = None,
         insecure: bool | None = None,
+        headless: bool | None = None,
         record: bool | None = None,
         capture: bool | None = None,
         capabilities: dict[str, JsonValue] | None = None,
@@ -405,13 +406,17 @@ def register(
           that version, and the result's version says which one ran;
           version="latest" forgets a remembered one, and switching browser forgets
           it too.
-        - width and height set the window when layout matters; the headless
-          default is narrow. page_load_timeout bounds a navigation that hangs,
+        - width and height set the window when layout matters; the default
+          window is narrow. page_load_timeout bounds a navigation that hangs,
           script_timeout a script. insecure=true accepts a self-signed certificate;
           use it only for a site you know has one, and an insecure browser gets no
           saved site data. Everything above is remembered when you pass it; one you
           leave out comes from the server's and your connection's defaults, read at
           each open.
+        - headless=true opens a browser that draws nothing on the node's screen, which
+          is quicker. It cannot be recorded and nobody can watch it live, and sites'
+          bot checks spot it more easily, so leave it off for real sites. Remembered
+          like the options above until you pass headless=false.
         - record=true films this browser's whole life as a video; it appears under
           workspace://files/recordings shortly after it ends. A person watches it,
           so only when one will — it costs the Grid. capture=true keeps what the
@@ -442,6 +447,7 @@ def register(
             page_load_timeout=page_load_timeout,
             script_timeout=script_timeout,
             insecure=insecure,
+            headless=headless,
             record=record,
             capture=capture,
             capabilities=capabilities,
@@ -599,7 +605,7 @@ def register(
     ) -> dict:
         """Resize the browser window.
 
-        Set a size before judging anything visual: the headless default is small and
+        Set a size before judging anything visual: the default window is small and
         varies between Grid nodes. The size sticks to the workspace, so a browser
         reopened after the Grid reaps it comes back at this size.
         """

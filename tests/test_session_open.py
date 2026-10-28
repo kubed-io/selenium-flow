@@ -219,3 +219,41 @@ def test_a_refused_x_version_is_a_400_naming_it():
 
 def test_a_refused_explicit_version_is_a_400():
     assert open_over_http(json={"version": "152"}).status_code == 400
+
+
+# ---- headless, a named option (spec 2026-10-28-headless) ----------------------
+
+
+@pytest.mark.parametrize("browser, arg, block", [
+    ("chrome", "--headless=new", "goog:chromeOptions"),
+    ("firefox", "-headless", "moz:firefoxOptions"),
+])
+def test_headless_sends_the_browsers_own_flag_and_says_so(browser, arg, block):
+    grid = Grid(RAN)
+    result = Actions(grid).open_session(browser=browser, headless=True)
+    assert arg in grid.built.send[block]["args"]
+    assert result["settings"]["headless"] is True
+
+
+@pytest.mark.parametrize("given", [False, None, "false"])
+def test_headful_sends_no_flag(given):
+    grid = Grid(RAN)
+    result = Actions(grid).open_session(headless=given)
+    sent = grid.built.send.get("goog:chromeOptions", {}).get("args", [])
+    assert not any("headless" in a for a in sent)
+    assert "headless" not in result["settings"]
+
+
+def test_headless_over_http_reaches_the_open():
+    server = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+    )
+    grid = Grid(RAN)
+    server.actions.grid = grid
+    response = TestClient(server.mcp.http_app()).post(
+        "/browser",
+        headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": "h"},
+        json={"headless": True},
+    )
+    assert response.status_code == 200, response.text
+    assert "--headless=new" in grid.built.send["goog:chromeOptions"]["args"]
