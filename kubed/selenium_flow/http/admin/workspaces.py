@@ -403,9 +403,11 @@ def mount(
         # One Grid listing for the whole payload rather than a liveness call per
         # row: the answer for every workspace is in it, and it is one round trip.
         running: dict = {}
+        grid_listed = True
         try:
             running = {s["session_id"]: s for s in actions.grid.sessions()}
         except Exception as exc:  # noqa: BLE001 - the rows are still worth showing
+            grid_listed = False
             log.info("could not read the grid: %s", faults.message(exc))
 
         # Once per payload, not once per row: it is the same answer for every
@@ -508,7 +510,18 @@ def mount(
                     "session_id": sid or None,
                     "attached": bool(sid),
                     "live": live,
-                    "recording": bool(live and (record.settings or {}).get("record")),
+                    # Whether the listing answered, the same on every row: an
+                    # unlisted row's `live` is a guess, so its stored `record`
+                    # setting stands in rather than a failed listing turning
+                    # the badge off (spec 2026-10-28, ruling 5).
+                    "grid_listed": grid_listed,
+                    "recording": bool(
+                        (live or (sid and not grid_listed))
+                        and (record.settings or {}).get("record")
+                    ),
+                    "insecure": bool((record.settings or {}).get("insecure")),
+                    # Where each setting came from; admin payload only.
+                    "set_by": dict(record.set_by),
                     **capture_facts(workspaces, key, record, live),
                     "url": record.url or None,
                     "browser": (record.settings or {}).get("browser")

@@ -778,3 +778,34 @@ def test_a_row_from_before_sessions_kept_anything_reads_as_none(client, server):
     row = admin_row(client, server, [])
     assert row["sent"] == [] and row["ran"] is None and row["ended"] is None
     assert row["asked_version"] is None
+
+
+def _admin_payload(client, sessions):
+    with (
+        patch.object(browser.Grid, "sessions", **sessions),
+        patch.object(browser.Grid, "files", return_value=[]),
+    ):
+        return client.get("/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}).json()
+
+
+def test_a_failed_grid_listing_is_said_and_a_recording_stays_on(client, server):
+    server.workspaces.store.set("w", Workspace(
+        session_id="s9", settings={"record": True}, set_by={"record": "caller"}))
+    row = _admin_payload(client, {"side_effect": requests.ConnectionError("down")})["workspaces"][0]
+    assert row["grid_listed"] is False and row["live"] is False and row["recording"] is True
+
+
+def test_a_listing_that_answered_says_so(client, server):
+    server.workspaces.store.set("w", Workspace(
+        session_id="s9", settings={"record": True}, set_by={"record": "caller"}))
+    row = _admin_payload(client, {"return_value": []})["workspaces"][0]
+    assert row["grid_listed"] is True and row["recording"] is False
+
+
+def test_the_row_carries_insecure_and_each_settings_source(client, server):
+    server.workspaces.store.set("w", Workspace(
+        session_id="", settings={"browser": "firefox", "insecure": True},
+        set_by={"browser": "config", "insecure": "caller"}))
+    row = _admin_payload(client, {"return_value": []})["workspaces"][0]
+    assert row["insecure"] is True
+    assert row["set_by"] == {"browser": "config", "insecure": "caller"}

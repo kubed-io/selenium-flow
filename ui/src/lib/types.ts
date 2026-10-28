@@ -30,6 +30,8 @@ export interface SentCapability {
   sources: ('flow' | 'config' | 'option' | 'raw')[]
 }
 
+export type SetBy = 'config' | 'client' | 'caller'
+
 export interface WorkspaceRow {
   key: string
   name?: string | null
@@ -39,6 +41,10 @@ export interface WorkspaceRow {
   session_id?: string | null
   live?: boolean
   recording?: boolean
+  /** Whether the Grid listing answered; the same on every row of one payload. */
+  grid_listed?: boolean
+  insecure?: boolean
+  set_by?: Record<string, SetBy>
   attached?: boolean
   started?: number | null
   node?: string | null
