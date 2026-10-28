@@ -13,6 +13,7 @@ import pytest
 
 from kubed.selenium_flow.core.session_caps import (
     GRID_SIDE,
+    HEADLESS_ARGS,
     OWNED,
     QUEUE_TIMEOUT,
     SOURCES,
@@ -488,3 +489,45 @@ def test_raw_keys_are_blamed_without_naming_a_config_version():
 
 def test_latest_has_no_origin():
     assert build("chrome", version="latest", version_from="client").version_from is None
+
+
+@pytest.mark.parametrize("block", ["goog:chromeOptions", "moz:firefoxOptions"])
+@pytest.mark.parametrize("arg", ["--headless", "--headless=new", "--headless=old", "-headless", "-HEADLESS", "headless"])
+@pytest.mark.parametrize("browser", ["chrome", "firefox"])
+def test_a_headless_arg_is_refused_in_either_block_on_either_browser(block, arg, browser):  # ruling 6
+    said = f"{block}.args {arg} cannot be sent in capabilities: use headless=true or headless=false instead"
+    with pytest.raises(ValueError, match=re.escape(said)):
+        build(browser, raw={block: {"args": ["--lang=fr", arg]}})
+
+
+def test_moz_headless_in_env_is_refused_whatever_its_value():
+    for value in ("1", "0", ""):
+        with pytest.raises(ValueError, match=re.escape(
+                "moz:firefoxOptions.env.MOZ_HEADLESS cannot be sent in capabilities: use headless=true")):
+            check({"moz:firefoxOptions": {"env": {"MOZ_HEADLESS": value}}})
+
+
+def test_args_that_only_look_like_headless_pass():
+    check({"goog:chromeOptions": {"args": ["--headless-mode-x", "--no-headless-thing", "--lang=headless"]}})
+
+
+def test_a_headless_flag_in_config_names_session_capabilities():
+    with pytest.raises(ValueError, match=re.escape(
+            "goog:chromeOptions.args --headless cannot be sent in session.capabilities: use headless=")):
+        build("chrome", config={"goog:chromeOptions": {"args": ["--headless"]}})
+
+
+def test_a_remembered_headless_flag_says_how_to_clear_it():
+    with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
+        check({"moz:firefoxOptions": {"args": ["-headless"]}}, remembered=True)
+
+
+def test_two_headless_flags_are_named_in_one_refusal():
+    with pytest.raises(ValueError) as refused:
+        check({"goog:chromeOptions": {"args": ["--headless"]}, "moz:firefoxOptions": {"env": {"MOZ_HEADLESS": "1"}}})
+    assert "goog:chromeOptions.args --headless" in str(refused.value)
+    assert "moz:firefoxOptions.env.MOZ_HEADLESS" in str(refused.value)
+
+
+def test_the_headless_args_are_each_browsers_own():  # ruling 7
+    assert HEADLESS_ARGS == {"chrome": "--headless=new", "firefox": "-headless"}

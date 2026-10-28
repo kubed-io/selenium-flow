@@ -285,6 +285,7 @@ class Actions:
         video_name=None,
         site_data=None,
         capabilities=None,
+        headless=None,
         *,
         version_from: str = "call",
         on_created=None,
@@ -326,6 +327,7 @@ class Actions:
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
+        headless = as_bool(headless, False)
         record = as_bool(record, False)
         capture = as_bool(capture, False)
         # What is sent is decided once, in `session_caps`. Built before
@@ -338,6 +340,7 @@ class Actions:
             video_name=video_name,
             config=self.config_capabilities,
             raw=capabilities,
+            option_args=[session_caps.HEADLESS_ARGS[name]] if headless else (),
             version_from=version_from,
         )
         try:
@@ -364,6 +367,7 @@ class Actions:
                 page_load_timeout=page_load_timeout,
                 script_timeout=script_timeout,
                 insecure=insecure,
+                headless=headless,
                 record=record,
                 capture=capture,
                 site_data=site_data,
@@ -400,6 +404,7 @@ class Actions:
         page_load_timeout,
         script_timeout,
         insecure: bool,
+        headless: bool,
         record: bool,
         capture: bool,
         site_data,
@@ -487,6 +492,8 @@ class Actions:
             applied["script_timeout"] = as_int(script_timeout, 0)
         if insecure:
             applied["insecure"] = True
+        if headless:
+            applied["headless"] = True
         if record:
             applied["record"] = True
         if capture:

@@ -246,7 +246,7 @@ resize(width=1400, height=900)
 
 Window size is one of the few things changeable after the browser is open, so it
 is its own tool rather than only an `open_session` argument. Reach for it when
-layout matters and the browser was opened for you. The headless default is
+layout matters and the browser was opened for you. The default window is
 narrow and varies between Grid nodes, so set it before judging anything visual.
 
 ## Scrolling is execute_script

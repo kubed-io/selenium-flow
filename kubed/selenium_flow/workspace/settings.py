@@ -2,9 +2,9 @@
 
 These can be set when a browser opens: which browser it is and which version,
 its window size, the two timeouts WebDriver lets you change after creation,
-whether it accepts an insecure site, whether it is recorded or captured, and
-the raw capabilities nothing else covers. Most can come from four places, and
-the useful part is the order:
+whether it accepts an insecure site, whether it runs headless, whether it is
+recorded or captured, and the raw capabilities nothing else covers. Most can
+come from four places, and the useful part is the order:
 
     server default (config: session.*)  <  client default (param/header)  <
     what this workspace's caller passed before  <  explicit
@@ -138,6 +138,9 @@ SETTINGS = {
     "script_timeout": ("script_timeout", "x-script-timeout", _as_int),
     # Explicit only (§F3.8): no parameter, no header, no default.
     "insecure": (None, None, _as_flag),
+    # Explicit only, like insecure: no parameter, no header, no default, and not
+    # in FROM_CONFIG. Remembered until `headless=false` is passed.
+    "headless": (None, None, _as_flag),
     # Explicit only, like insecure: no parameter, no header, no default. Stored
     # so a reap replays it, but `open_browser` never inherits it (recordings
     # spec, ruling 3): video is costly, and ending the browser ends it.

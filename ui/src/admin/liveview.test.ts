@@ -246,6 +246,14 @@ test('says why there is no live view', () => {
   expect(liveUnavailable({ key: 'k', live: true }, true)).toBe('no live view · this Grid has no VNC')
 })
 
+test('a headless browser has no live view, said after no browser and before the Grid', () => {
+  const headless = { key: 'k', live: true, headless: true, ran: { version: null, node: null, live_view: true } }
+  expect(liveUnavailable(headless, true)).toBe('no live view · headless')
+  expect(liveUnavailable({ ...headless, ran: { version: null, node: null, live_view: false } }, true)).toBe('no live view · headless')
+  expect(liveUnavailable({ ...headless, live: false }, true)).toBe('no live view · no browser')
+  expect(liveUnavailable(headless, false)).toBe('no live view · switched off')
+})
+
 test('a Grid that did not answer is not a browser that ended (ruling 5)', () => {
   const unlisted = { key: 'k', attached: true, grid_listed: false, live: false }
   expect(liveUnavailable(unlisted, true)).toBe('no live view · grid not answering')

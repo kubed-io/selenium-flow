@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **`open_session(headless=true)`** opens a browser that draws nothing on screen, remembered until `headless=false`; it cannot be recorded or watched live.
 - Fixed: an explicit `open_session()` picks up changed server and connection defaults, and carries over only what you passed.
 - On upgrading, workspaces forget their remembered settings and the browser they held, once; their history, saved site data and files stay.
 - Fixed: an untrusted certificate is a 400 that says to use `insecure=true`.

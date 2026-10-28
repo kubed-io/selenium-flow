@@ -1825,6 +1825,86 @@ def test_version_and_capabilities_are_remembered_and_carried():
     assert carried["capabilities"] == {"kubed:pool": "a"}
 
 
+def test_headless_is_remembered_and_carried():  # ruling 2
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.open_browser(Caller(NAMED), headless=True)
+    workspaces.open_browser(Caller(NAMED))
+    assert actions.opened_settings[-1]["headless"] is True
+    assert workspaces.store.get(NAMED).set_by["headless"] == "caller"
+
+
+def test_an_explicit_false_beats_a_remembered_true_and_is_remembered():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.open_browser(Caller(NAMED), headless=True)
+    workspaces.open_browser(Caller(NAMED), headless="false")
+    workspaces.open_browser(Caller(NAMED))
+    assert actions.opened_settings[-1]["headless"] is False
+
+
+def test_a_reap_replays_headless():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.store.set(
+        NAMED,
+        Workspace(
+            session_id="dead",
+            settings={"browser": "chrome", "headless": True},
+            set_by={"browser": "caller", "headless": "caller"},
+        ),
+    )
+    workspaces.resolve(NAMED)
+    assert actions.opened_settings[-1]["headless"] is True
+
+
+def test_headless_is_read_from_no_parameter_and_no_header():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    caller = Caller.from_request(
+        {"workspace": [NAMED], "headless": ["true"]}, {"x-headless": ["true"]}
+    )
+    workspaces.open_browser(caller)
+    assert "headless" not in actions.opened_settings[-1]
+
+
+RAW_HEADLESS = {"moz:firefoxOptions": {"args": ["-headless"]}}
+
+
+def test_a_remembered_raw_headless_flag_is_refused_on_an_explicit_open():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    actions.grid.alive.add("held")
+    workspaces.store.set(
+        NAMED,
+        Workspace(
+            session_id="held",
+            settings={"browser": "chrome", "capabilities": RAW_HEADLESS},
+            set_by={"browser": "caller", "capabilities": "caller"},
+        ),
+    )
+    with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
+        workspaces.open_browser(Caller(NAMED), browser="firefox")
+    assert actions.closed == [] and actions.opened == 0
+    assert "held" in actions.grid.alive
+
+
+def test_a_reap_refuses_a_remembered_raw_headless_flag():
+    actions = RecordingActions()
+    workspaces = manager(actions)
+    workspaces.store.set(
+        NAMED,
+        Workspace(
+            session_id="dead",
+            settings={"browser": "firefox", "capabilities": RAW_HEADLESS},
+            set_by={"browser": "caller", "capabilities": "caller"},
+        ),
+    )
+    with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
+        workspaces.resolve(NAMED)
+    assert actions.opened == 0
+
+
 def test_an_empty_object_and_latest_clear_what_was_remembered():
     actions = RecordingActions()
     workspaces = manager(actions)

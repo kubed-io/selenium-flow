@@ -25,6 +25,7 @@
     ['browser', `${browser} · ${asked}`, sources('browser', 'version')],
     ['window', windowSize(row.window), sources('width', 'height')],
     ['insecure', row.insecure ? 'on' : null, sources('insecure')],
+    ['headless', row.headless ? 'on' : null, sources('headless')],
     ['record', (row.live || unlisted) && row.recording ? 'on' : null, []],
     ['capture', row.live ? captureFact(row) : unlisted ? (row.capture ? 'on' : 'off') : null, []],
   ] as [string, unknown, SetBy[]][]).filter(([, v]) => v))

@@ -158,6 +158,15 @@ test('INSECURE shows only when on, idle too', () => {
   expect(fact(off.container, 'workspaceCard', 'insecure')).toBeUndefined()
 })
 
+test('HEADLESS shows only when on, idle too, with its source', () => {
+  const on = render(SessionPane, { row: { ...LIVE, live: false, attached: false, headless: true, set_by: { headless: 'caller' } }, hidden: false })
+  expect(fact(on.container, 'workspaceCard', 'headless')).toBe('on')
+  expect(pillsOf(on.container, 'headless').map((p) => p.textContent)).toEqual(['caller'])
+  on.unmount()
+  const off = render(SessionPane, { row: { ...LIVE, headless: false }, hidden: false })
+  expect(fact(off.container, 'workspaceCard', 'headless')).toBeUndefined()
+})
+
 test('CAPTURE reads off', () => {
   const { container } = render(SessionPane, { row: { ...LIVE, capture: false, capturing: false }, hidden: false })
   expect(fact(container, 'workspaceCard', 'capture')).toBe('off')

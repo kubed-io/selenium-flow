@@ -802,6 +802,14 @@ def test_a_listing_that_answered_says_so(client, server):
     assert row["grid_listed"] is True and row["recording"] is False
 
 
+def test_the_row_says_whether_the_browser_is_headless(client, server):
+    server.workspaces.store.set("a", Workspace(
+        session_id="", settings={"headless": True}, set_by={"headless": "caller"}))
+    server.workspaces.store.set("b", Workspace(session_id=""))
+    rows = _admin_payload(client, {"return_value": []})["workspaces"]
+    assert [row["headless"] for row in sorted(rows, key=lambda r: r["key"])] == [True, False]
+
+
 def test_the_row_carries_insecure_and_each_settings_source(client, server):
     server.workspaces.store.set("w", Workspace(
         session_id="", settings={"browser": "firefox", "insecure": True},

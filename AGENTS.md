@@ -734,6 +734,9 @@ which it still owes something. It says so on a bus: `session.opened`,
   with one rename at boot (`flows/store.from_settings`), and both present stops
   the boot naming both. Retired names refused at boot: `FLOW_DATA_DIR`,
   `SESSION_STORE`, `SESSION_TTL`, and `session.store` / `session.ttl` in the file.
+- `record=true` with `headless` is a 400 before anything ends, in words that say
+  whether headless was passed or remembered; a headless flag in raw or config
+  capabilities is refused, so the named option is the only way to it.
 
 ### The live view: a tunnel this server owns
 
@@ -769,6 +772,9 @@ a WebSocket this server proxies to the hub's `/session/<id>/se/vnc`
   non-ASCII keystrokes once its spare keycodes run out (ruling 31, measured).
   It refuses while the agent has a frame selected, because frame switches are
   sticky.
+- **A headless browser has no live view**: `look()` refuses it on the record's
+  `settings.headless`, never on `ran.live_view`, which stays what the Grid said (a
+  headless browser on a node with a screen still reports VNC).
 
 **A person in Control holds the browser** (`live/control.py`, `live/pages.py`,
 `mcp/control.py`, `mcp/waiting.py`; the
