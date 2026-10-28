@@ -136,22 +136,15 @@ jobs:
         disallowed_tools: Bash,NotebookEdit
         claude_args: --strict-mcp-config
 
-    # the spec and plan live under docs/: the wiki first, with git; then its pointer in one signed commit
-    - name: Push the Wiki
-      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
-      uses: kubed-io/actions/git/submodule@main
+    # the spec and plan live under docs/: the wiki first, then its pointer in one signed commit
+    - name: Land the Plan
+      uses: kubed-io/actions/issue-agent/land@main
       with:
-        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
-
-    - name: Commit the Plan
-      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
-      uses: kubed-io/actions/git/commit@main
-      with:
-        token: ${{ steps.app.outputs.token }}
         branch: ${{ needs.route.outputs.head }}
-        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        output: ${{ steps.agent.outputs.output }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
         files: docs
 
   code:
@@ -264,80 +257,26 @@ jobs:
         allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
         claude_args: --strict-mcp-config
 
-    # the run that finishes the plan marks its commit, so the push wakes nothing
-    - name: Commit Message
-      id: msg
-      env:
-        OUTPUT: ${{ steps.agent.outputs.output }}
-      run: |
-        json="${OUTPUT:-}"
-        [ -n "$json" ] || json='{}'
-        message=$(jq -r '.commit_message // ""' <<<"$json")
-        done=$(jq -r '.done // false' <<<"$json")
-        if [ "$done" = true ] && [ -n "$message" ]; then message="$message"$'\n\nAgent: done'; fi
-        { echo 'message<<COMMIT_MESSAGE'; echo "$message"; echo 'COMMIT_MESSAGE'; } >> "$GITHUB_OUTPUT"
-        echo "done=$done" >> "$GITHUB_OUTPUT"
-
-    # docs/ is the wiki: it is pushed first, with git, and then the code and the wiki's
-    # pointer go in one commit through the API, signed
-    - name: Push the Wiki
-      id: wiki
-      if: steps.msg.outputs.message != ''
-      uses: kubed-io/actions/git/submodule@main
+    # the commit (the wiki, then the code and its pointer, signed), a note on the reply if
+    # it did not land, and the PR ready on the run that finishes the plan, whose commit
+    # says `Agent: done` so its push wakes nothing. On the App's token, so ready_for_review
+    # starts the checks and the review once, on the final commit
+    - name: Land the Task
+      id: land
+      uses: kubed-io/actions/issue-agent/land@main
       with:
-        message: ${{ steps.msg.outputs.message }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
-
-    - name: Commit
-      id: commit
-      if: steps.msg.outputs.message != ''
-      uses: kubed-io/actions/git/commit@main
-      with:
-        token: ${{ steps.app.outputs.token }}
         branch: ${{ needs.route.outputs.head }}
-        message: ${{ steps.msg.outputs.message }}
+        output: ${{ steps.agent.outputs.output }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
         # the App cannot write workflow files, and one in the commit refuses all of it
         ignore: .github/workflows/**
-
-    # the reply was posted before the commit: it says what the commit left out, or that
-    # it failed, so it never claims work the branch does not have
-    - name: Say What Was Left Out
-      if: >-
-        always() && steps.agent.outputs.comment_id != '' &&
-        (steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' ||
-          (steps.commit.outputs.ignored != '' && steps.commit.outputs.ignored != '[]'))
-      uses: actions/github-script@v9
-      env:
-        COMMENT_ID: ${{ steps.agent.outputs.comment_id }}
-        IGNORED: ${{ steps.commit.outputs.ignored }}
-        FAILED: ${{ steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' }}
-        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      with:
-        github-token: ${{ steps.app.outputs.token }}
-        script: |
-          const id = Number(process.env.COMMENT_ID);
-          const { data: comment } = await github.rest.issues.getComment({ ...context.repo, comment_id: id });
-          const note = process.env.FAILED === 'true'
-            ? `> [!CAUTION]\n> **This run's commit failed, so nothing above is on the branch.** See [the run](${process.env.RUN_URL}).`
-            : `> [!WARNING]\n> **Not committed:** ${JSON.parse(process.env.IGNORED).map((p) => `\`${p}\``).join(', ')}. This job's token can't write workflow files, so Dr K commits them.`;
-          await github.rest.issues.updateComment({ ...context.repo, comment_id: id, body: `${comment.body}\n\n${note}` });
-
-    # after the commit, so the checks and the review start once, on the final commit; on
-    # the App's token, so ready_for_review wakes agent-review.yml
-    - name: Mark Ready
-      if: steps.msg.outputs.done == 'true'
-      env:
-        GH_TOKEN: ${{ steps.app.outputs.token }}
-        NUMBER: ${{ needs.route.outputs.number }}
-      run: |
-        if [ "$(gh pr view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true ]; then
-          gh pr ready "$NUMBER" --repo "$GITHUB_REPOSITORY"
-        fi
+        pull_request: ${{ needs.route.outputs.number }}
 
     # the plan built: the fix rounds that follow carry its summary, not every step of it
     - name: Compact the Session
-      if: steps.msg.outputs.done == 'true' && steps.agent.outputs.session_id != ''
+      if: steps.land.outputs.done == 'true' && steps.agent.outputs.session_id != ''
       # a session that could not be compacted is still a finished task
       continue-on-error: true
       env:

@@ -156,31 +156,15 @@ jobs:
     # the verdict is the check: only `looks good` passes it
     - name: Set the Check
       if: always()
-      uses: actions/github-script@v9
-      env:
-        NUMBER: ${{ needs.route.outputs.number }}
-        SHA: ${{ needs.route.outputs.sha }}
-        LAST: ${{ needs.route.outputs.last }}
-        OUTPUT: ${{ steps.agent.outputs.output }}
-        REVIEW_ID: ${{ steps.agent.outputs.review_id }}
-        COMMENT_ID: ${{ steps.agent.outputs.comment_id }}
+      uses: kubed-io/actions/review-route/verdict@main
       with:
-        script: |
-          const { NUMBER, SHA, LAST, OUTPUT, REVIEW_ID, COMMENT_ID } = process.env;
-          let verdict = '';
-          try { verdict = JSON.parse(OUTPUT || '{}').verdict || ''; } catch {}
-          const pr = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/pull/${NUMBER}`;
-          const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          const target_url = REVIEW_ID ? `${pr}#pullrequestreview-${REVIEW_ID}`
-            : COMMENT_ID ? `${pr}#issuecomment-${COMMENT_ID}` : run;
-          const [state, description] =
-            verdict === 'looks good' ? ['success', 'looks good']
-            : verdict === 'changes requested' && LAST === 'true' ? ['failure', 'changes requested, last review: over to Dr K']
-            : verdict ? ['failure', verdict]
-            : ['error', 'the review did not finish'];
-          await github.rest.repos.createCommitStatus({
-            ...context.repo, sha: SHA, state, description, target_url, context: process.env.CHECK,
-          });
+        check: ${{ env.CHECK }}
+        number: ${{ needs.route.outputs.number }}
+        sha: ${{ needs.route.outputs.sha }}
+        last: ${{ needs.route.outputs.last }}
+        output: ${{ steps.agent.outputs.output }}
+        review_id: ${{ steps.agent.outputs.review_id }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
 
     # a pointer, never the review: the code agent reads it from the PR
     - name: Wake the Code Agent
