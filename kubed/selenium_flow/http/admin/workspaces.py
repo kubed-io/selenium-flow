@@ -520,6 +520,7 @@ def mount(
                         and (record.settings or {}).get("record")
                     ),
                     "insecure": bool((record.settings or {}).get("insecure")),
+                    "headless": bool((record.settings or {}).get("headless")),
                     # Where each setting came from; admin payload only.
                     "set_by": dict(record.set_by),
                     **capture_facts(workspaces, key, record, live),

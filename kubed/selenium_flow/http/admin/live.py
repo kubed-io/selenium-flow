@@ -53,6 +53,7 @@ SWITCHED_OFF = "the live view is switched off"
 NO_BROWSER = "this workspace has no browser open"
 NOT_BUILT = "the live view is not built"
 NO_LIVE_VIEW = "this browser has no live view"
+HEADLESS = "this browser is headless: it has no live view"
 EXPIRED = "this live view link has expired: open the tab again"
 UNAUTHORIZED = "unauthorized"
 NEEDS_CONTROL = "paste needs Control: switch the live view to Control first"
@@ -144,6 +145,8 @@ def mount(
         record = workspaces.store.get(key)
         if record is None or not record.attached:
             return None, NO_BROWSER
+        if (record.settings or {}).get("headless"):
+            return None, HEADLESS
         if (record.ran or {}).get("live_view") is not True:
             return None, NO_LIVE_VIEW
         return record, None

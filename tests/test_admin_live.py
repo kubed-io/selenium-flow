@@ -57,6 +57,15 @@ def build(prefix="", token=TOKEN, **live):
         "novnc",
         Workspace(session_id="g-other", ran={"live_view": False}),
     )
+    store.set(
+        "headless",
+        Workspace(
+            session_id="g-headless",
+            ran={"live_view": True},
+            settings={"headless": True},
+            set_by={"headless": "caller"},
+        ),
+    )
     return server
 
 
@@ -106,6 +115,7 @@ def test_the_mint_is_behind_the_admin_door(client):
         ("w1", False, "the live view is switched off"),
         ("idle", True, "this workspace has no browser open"),
         ("novnc", True, "this browser has no live view"),
+        ("headless", True, "this browser is headless: it has no live view"),
     ],
 )
 def test_the_mint_refuses_with_404_and_a_reason(hub, name, enabled, reason):
@@ -203,6 +213,7 @@ def test_an_unreadable_password_file_closes_4003(hub, tmp_path):
         ("w1", False, "the live view is switched off"),
         ("idle", True, "this workspace has no browser open"),
         ("novnc", True, "this browser has no live view"),
+        ("headless", True, "this browser is headless: it has no live view"),
     ],
 )
 def test_a_4004_refusal_is_a_refused_audit_line(hub, caplog, name, enabled, reason):
