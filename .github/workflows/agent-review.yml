@@ -11,11 +11,13 @@ name: 🔍 Agent · Review
 #   `changes requested` dispatches `agent-code` (`reason: review`); the code agent's fix
 #   is a push, whose checks bring the next round; `looks good` passes the check.
 #
+# kubed-io/actions/review-route decides it. A commit that only merges main in, or only
+# applies a passing review's own suggestions from the PR's page, keeps the last verdict.
+#
 # The check is a commit status on the PR's head, never this job's own check run: runs on
 # workflow_run and repository_dispatch belong to main's commit, so they could not be the
 # PR's required check. The status is also the loop's memory: a head the review agent
-# already passed is never reviewed again, and every new commit starts without one;
-# a commit that changes nothing of the PR's own (Update branch) keeps the last verdict.
+# already passed is never reviewed again, and every new commit starts without one.
 # PRs the agents did not build get a passing status straight away, so the required check
 # never blocks them.
 #
@@ -66,121 +68,13 @@ jobs:
     # reads the PR and the run, sets statuses, dispatches; nothing of the PR is checked out
     - name: Route
       id: route
-      uses: actions/github-script@v9
-      env:
-        TRUSTED: 4399427,41898282,235398881
-        AGENT: "41898282"
-        OWNER: "4399427"
+      uses: kubed-io/actions/review-route@main
       with:
-        script: |
-          const e = context.payload;
-          const dispatched = context.eventName === 'repository_dispatch';
-          const run = e.workflow_run;
-          for (const k of ['number', 'sha', 'last']) core.setOutput(k, '');
-          if (run?.conclusion === 'cancelled') return core.info('cancelled: a newer push has its own run');
-          let number = Number(dispatched ? e.client_payload?.pull_request : run?.pull_requests?.[0]?.number) || 0;
-          // a fork's run names no PR: find it by its head
-          if (!number && run) {
-            const { data: prs } = await github.rest.pulls.list({ ...context.repo, state: 'open', head: `${run.head_repository?.owner?.login}:${run.head_branch}` });
-            number = prs.find((p) => p.head.sha === run.head_sha)?.number || 0;
-          }
-          if (!number) return;
-          const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
-          if (pr.state !== 'open' || pr.draft) return;
-          const sha = pr.head.sha;
-          if (run && run.head_sha !== sha) return core.info(`${run.head_sha} is no longer the head`);
-          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          const status = (state, description, target_url = runUrl) => github.rest.repos.createCommitStatus({
-            ...context.repo, sha, state, description, target_url, context: process.env.CHECK,
-          });
-
-          const ours = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
-          const approved = pr.labels.some((l) => l.name === 'plan approved');
-          if (!ours || !pr.head.ref.startsWith('issue-') || !approved) {
-            await status('success', 'not built by the agents');
-            return;
-          }
-
-          // the checks: a run without the collector's report ran none (a label, a draft)
-          let checks = 'unknown';
-          if (run) {
-            const { data } = await github.rest.actions.listWorkflowRunArtifacts({ ...context.repo, run_id: run.id, name: 'checks-report' });
-            if (!data.artifacts.length) return core.info('no checks ran in this run');
-            checks = run.conclusion === 'success' ? 'passed' : 'failed';
-          }
-
-          // the review agent's own statuses are the memory: one per commit it judged
-          const mineOn = async (ref) => {
-            const { data } = await github.rest.repos.listCommitStatusesForRef({ ...context.repo, ref, per_page: 100 });
-            return data.find((s) => s.context === process.env.CHECK && String(s.creator?.id) === process.env.AGENT);
-          };
-          const failedChecks = (s) => /^checks failed/.test(s?.description || '');
-          const mine = await mineOn(sha);
-          if (mine?.state === 'success') return core.info(`${sha} already passed`);
-          // a head is judged once; a dispatch asks again, and checks that turn green again
-          // (a re-run) bring the review the red ones held back
-          if (mine && !dispatched && !(failedChecks(mine) && checks === 'passed')) return core.info(`${sha} already ${mine.state}`);
-          const actor = String((run ? run.triggering_actor : e.sender)?.id);
-          if (!process.env.TRUSTED.split(',').includes(actor)) return core.info(`${actor} cannot start an agent`);
-
-          // the earlier commits, newest first, with the review agent's status on each
-          const commits = (await github.paginate(github.rest.pulls.listCommits, { ...context.repo, pull_number: number, per_page: 100 }))
-            .map((c) => c.sha).filter((c) => c !== sha).reverse();
-          const judged = [];
-          for (const ref of commits) {
-            const s = await mineOn(ref);
-            if (s && (s.state === 'success' || s.state === 'failure')) judged.push({ ref, ...s });
-          }
-          const VERDICT = /^(looks good|changes requested|needs a human)$|^changes requested, last review/;
-
-          // red: the code agent gets the run, the review waits for green
-          if (checks === 'failed') {
-            const fixes = judged.filter(failedChecks).length;
-            const max = Number(process.env.MAX_FIXES);
-            if (fixes >= max) {
-              await status('failure', `needs a human: checks failed on ${fixes + 1} commits`, run.html_url);
-              return;
-            }
-            await status('failure', `checks failed (fix ${fixes + 1} of ${max})`, run.html_url);
-            await github.rest.repos.createDispatchEvent({
-              ...context.repo, event_type: 'agent-code',
-              client_payload: { pull_request: number, reason: 'ci', run_id: run.id },
-            });
-            return core.info(`checks failed: agent-code dispatched with run ${run.id}`);
-          }
-
-          // what the PR itself changes at a commit, blind to line numbers, so merging main
-          // in leaves it as it was; null when GitHub's compare is cut off at 300 files
-          const changes = async (ref) => {
-            const { data } = await github.rest.repos.compareCommitsWithBasehead({ ...context.repo, basehead: `${pr.base.ref}...${ref}` });
-            if ((data.files?.length || 0) >= 300) return null;
-            return data.files.map((f) => `${f.status} ${f.filename} ${f.previous_filename || ''}\n${
-              f.patch == null ? `blob ${f.sha}` : f.patch.replace(/^@@[^@]*@@/gm, '@@')}`).sort().join('\n');
-          };
-          // a commit that only brings main in (Update branch) keeps the last verdict
-          const prior = judged.find((s) => VERDICT.test(s.description) || /^no changes since /.test(s.description));
-          if (prior && !dispatched) {
-            const [now, then] = await Promise.all([changes(sha), changes(prior.ref)]);
-            if (now !== null && now === then) {
-              const verdict = prior.description.replace(/^no changes since \w+: /, '');
-              await status(prior.state, `no changes since ${prior.ref.slice(0, 7)}: ${verdict}`, prior.target_url);
-              return core.info(`${sha} changes nothing of the PR's since ${prior.ref}`);
-            }
-          }
-
-          // reviews so far: commits with a verdict of the review agent's own, not a carried one
-          const done = judged.filter((s) => VERDICT.test(s.description)).length;
-          const max = Number(process.env.MAX_REVIEWS);
-          // Dr K's own dispatch is never capped
-          const capped = !(dispatched && actor === process.env.OWNER);
-          if (capped && done >= max) {
-            await status('failure', `needs a human: ${done} reviews without a pass`);
-            return;
-          }
-          await status('pending', `reviewing (${done + 1} of ${max})`);
-          core.setOutput('number', String(number));
-          core.setOutput('sha', sha);
-          core.setOutput('last', String(capped && done + 1 >= max));
+        check: ${{ env.CHECK }}
+        trusted: 4399427,41898282,235398881
+        owner: "4399427"
+        max_reviews: ${{ env.MAX_REVIEWS }}
+        max_fixes: ${{ env.MAX_FIXES }}
 
   review:
     name: Review
