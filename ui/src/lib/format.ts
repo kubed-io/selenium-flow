@@ -149,9 +149,19 @@ export function duration(seconds: number): string {
 /* The summary's CAPTURE fact; null for a server that predates the field. */
 export function captureFact(s: WorkspaceRow): string | null {
   if (s.capture === undefined) return null
-  if (!s.capture) return 'off · open_session(capture=true) turns it on'
+  if (!s.capture) return 'off'
   if (s.capturing) return `on · receiving · ${s.captured?.network ?? 0} requests · ${s.captured?.console ?? 0} console entries`
   if (s.live) return 'on · paused · resumes on the next call'
   const t = s.capture_ttl ?? 0
   return `on · kept ${t % 3600 === 0 ? t / 3600 + ' h' : Math.round(t / 60) + ' min'} after the last entry · resumes when the browser reopens`
+}
+
+/* A window as a person reads it: 1400×1000, not the 1400x1000 the server keeps. */
+export const windowSize = (w?: string | null): string | null => (w ? w.replace('x', '×') : null)
+
+/* What a workspace list or masthead pill says: a browser the Grid's listing
+   could not confirm is neither open nor idle. */
+export function browserState(row: WorkspaceRow): 'open' | 'idle' | 'unknown' {
+  if (row.live) return 'open'
+  return row.attached && row.grid_listed === false ? 'unknown' : 'idle'
 }

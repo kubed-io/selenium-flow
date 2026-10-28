@@ -23,6 +23,12 @@ test('a card: mark, name pill, id, live, meta, url (L3, frozen selector)', () =>
   expect(idle.querySelector('.pill.name')).toHaveTextContent('stdio')
 })
 
+test('an attached row the Grid did not list reads unknown', () => {
+  const { container } = render(WorkspaceList, { data: { workspaces: [{ key: 'k', attached: true, grid_listed: false, live: false }] } })
+  expect(container.querySelector('.card .pill:not(.name)')).toHaveTextContent('unknown')
+  expect(container.querySelector('.pill.live')).toBeNull()
+})
+
 test('picking is optional; without it the cards are plain (L3)', async () => {
   const onpick = vi.fn()
   const r1 = render(WorkspaceList, { data: { workspaces: [row] }, onpick })

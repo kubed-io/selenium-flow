@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte'
 import { expect, test, vi } from 'vitest'
 import ContextView from './ContextView.svelte'
 
-const base = { workspace: 'mine', browser: 'firefox', url: 'https://example.com/a', live: true, window: '1280x800',
+const base = { workspace: 'mine', browser: 'firefox', url: 'https://example.com/a', live: true, window: '1400x1000',
   principal: { kind: 'oidc', username: 'drk' }, site_data: { sites: 2 } }
 
 test('a live workspace: name, mark, pill, link, window, principal, sites', () => {
@@ -11,7 +11,7 @@ test('a live workspace: name, mark, pill, link, window, principal, sites', () =>
   expect(container.querySelector('.bmark')).toHaveTextContent('🦊')
   expect(screen.getByText('open')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'https://example.com/a' })).toHaveAttribute('rel', 'noopener noreferrer')
-  expect(screen.getByText('1280x800')).toBeInTheDocument()
+  expect(screen.getByText('1400×1000')).toBeInTheDocument()
   expect(screen.getByText('drk')).toBeInTheDocument()
 })
 

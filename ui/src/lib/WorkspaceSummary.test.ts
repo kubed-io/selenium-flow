@@ -46,3 +46,9 @@ test('the masthead pill reads open for a browser and idle for none', () => {
   expect(screen.getByText('idle')).toHaveClass('pill')
   expect(screen.queryByText('open')).toBeNull()
 })
+
+test('an attached row the Grid did not list reads unknown', () => {
+  render(WorkspaceSummary, { data: { key: 'k', attached: true, grid_listed: false, live: false } })
+  expect(screen.getByText('unknown')).toBeInTheDocument()
+  expect(screen.queryByText('idle')).toBeNull()
+})

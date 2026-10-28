@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { captureFact, idle } from '../lib/format'
-  import type { SentCapability, WorkspaceRow } from '../lib/types'
+  import { captureFact, idle, windowSize } from '../lib/format'
+  import type { SentCapability, SetBy, WorkspaceRow } from '../lib/types'
   import Section from './Section.svelte'
 
   /* The Session tab (spec 2026-10-26-session-capabilities, design/session.md):
@@ -16,14 +16,18 @@
 
   /* What a next explicit open_session() carries over, and while a browser is
      open, what it is doing. RECORD and CAPTURE are not carried (ruling 11). */
+  const unlisted = $derived(Boolean(row.attached && row.grid_listed === false))
+  const sources = (...keys: string[]): SetBy[] =>
+    [...new Set(keys.map((k) => row.set_by?.[k]).filter((s): s is SetBy => Boolean(s)))]
   const workspace = $derived(([
-    ['key', row.name ? null : row.key],
-    ['held by', row.name ? null : row.owner],
-    ['browser', `${browser} · ${asked}`],
-    ['window', row.window],
-    ['record', row.live && row.recording ? 'on' : null],
-    ['capture', row.live ? captureFact(row) : null],
-  ] as [string, unknown][]).filter(([, v]) => v))
+    ['key', row.name ? null : row.key, []],
+    ['held by', row.name ? null : row.owner, []],
+    ['browser', `${browser} · ${asked}`, sources('browser', 'version')],
+    ['window', windowSize(row.window), sources('width', 'height')],
+    ['insecure', row.insecure ? 'on' : null, sources('insecure')],
+    ['record', (row.live || unlisted) && row.recording ? 'on' : null, []],
+    ['capture', row.live ? captureFact(row) : unlisted ? (row.capture ? 'on' : 'off') : null, []],
+  ] as [string, unknown, SetBy[]][]).filter(([, v]) => v))
 
   /* How the last session ended. Only an End this server saw has a time;
      a browser the Grid no longer lists was reaped, and nothing watched it. */
@@ -46,8 +50,8 @@
     ['id', row.session_id],
     ['node', row.ran?.node ?? row.node],
     ['started', row.started ? new Date(row.started * 1000).toLocaleString() : null],
-    ['idle timeout', idle(row.grid_timeout, row.live)],
-    row.live ? ['live view', liveView] : ['ended', ended()],
+    ['idle timeout', idle(row.grid_timeout, row.live || unlisted)],
+    unlisted ? ['grid', 'not answering'] : row.live ? ['live view', liveView] : ['ended', ended()],
   ] as [string, unknown][]).filter(([, v]) => v))
 
   /* A vendor block reads as what it holds, never its values: `args 1 · prefs 6`. */
@@ -71,8 +75,8 @@
   <div class="groups">
     <div class="group" id="workspaceCard">
       <div class="label">workspace</div>
-      {#each workspace as [k, v] (k)}
-        <div class="fact"><div class="k">{k}</div><div class="v">{v}</div></div>
+      {#each workspace as [k, v, srcs] (k)}
+        <div class="fact"><div class="k">{k}</div><div class="v">{v}</div>{#if srcs.length}<span class="pills">{#each srcs as s (s)}<span class={['pill', 'src', s]}>{s}</span>{/each}</span>{/if}</div>
       {/each}
     </div>
     {#if opened}
@@ -85,7 +89,7 @@
     {/if}
   </div>
 
-  <Section id="capabilitiesSection" title="Capabilities" count={sent.length} collapsed>
+  <Section id="capabilitiesSection" fold={`capabilities:${row.key}`} title="Capabilities" count={sent.length} collapsed>
     {#each sent as entry (entry.key)}
       <div class="cap mono">
         <span class="ck">{entry.key}</span>
@@ -105,4 +109,5 @@
   .ck { color: var(--muted); word-break: break-all; }
   .cv { word-break: break-all; }
   .pills { display: flex; gap: 4px; justify-content: flex-end; }
+  .fact > .pills { justify-content: flex-start; margin-top: 4px; }
 </style>
