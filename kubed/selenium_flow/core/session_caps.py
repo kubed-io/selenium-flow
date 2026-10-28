@@ -62,6 +62,18 @@ OWNED = {
     "timeouts": "use page_load_timeout= and script_timeout= instead",
 }
 
+# Headless is an option, not a raw flag: selenium-flow must know a browser is
+# headless to refuse record and the live view, and a flag in the vendor block
+# hides it. So the option owns every spelling of the flag (rulings 6, 7).
+HEADLESS_ARGS = {CHROME: "--headless=new", FIREFOX: "-headless"}
+HEADLESS_OWNED = "use headless=true or headless=false instead"
+
+
+def _headless(arg: str) -> bool:
+    """Whether ``arg`` is a spelling of the headless flag, in either browser."""
+    return arg.lstrip("-").split("=", 1)[0].lower() == "headless"
+
+
 REMEMBERED = (
     "; this workspace remembers it, so clear it with open_session(capabilities={})"
 )
@@ -178,7 +190,7 @@ def check(
     where: str = "capabilities",
     remembered: bool = False,
 ) -> None:
-    """Refuse an owned key, or a vendor block a merge cannot add to.
+    """Refuse an owned key, a headless flag, or a vendor block a merge cannot add to.
 
     Raised as a ``ValueError`` (a 400) before anything opens or ends: a
     rejected argument must cost nothing. ``where`` names the object in the
@@ -205,6 +217,26 @@ def check(
             raise ValueError(f"{block}.args in {where} must be a list of strings")
         if "prefs" in value and not isinstance(value["prefs"], Mapping):
             raise ValueError(f"{block}.prefs in {where} must be an object")
+    flags = []
+    for block in VENDOR.values():
+        value = raw.get(block)
+        if not isinstance(value, Mapping):
+            continue
+        flags += [
+            f"{block}.args {arg} cannot be sent in {where}: {HEADLESS_OWNED}"
+            for arg in value.get("args", ())
+            if _headless(arg)
+        ]
+        env = value.get("env")
+        moz = block == VENDOR[FIREFOX] and isinstance(env, Mapping)
+        if moz and "MOZ_HEADLESS" in env:
+            flags.append(
+                f"{block}.env.MOZ_HEADLESS cannot be sent in {where}: "
+                + HEADLESS_OWNED
+            )
+    if flags:
+        suffix = REMEMBERED if remembered else ""
+        raise ValueError("; ".join(flag + suffix for flag in flags))
 
 
 def _version(version: str | None) -> str | None:
@@ -274,7 +306,8 @@ def build(
     """The capabilities an open of ``browser`` sends, and each one's sources.
 
     ``option_args`` is what a named option adds to the browser's own args
-    (ruling 29); nothing passes it yet, and #86's ``headless`` will. Raises
+    (ruling 29); it is what ``headless`` adds (``HEADLESS_ARGS`` for the
+    browser). Raises
     ``ValueError`` for an owned key or a vendor block of the wrong shape in
     ``config`` or ``raw``. Never mutates its inputs, and nothing it returns
     shares an object with them.

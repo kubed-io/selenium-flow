@@ -489,6 +489,13 @@ def test_an_owned_key_in_session_capabilities_stops_the_boot():
     )
 
 
+def test_a_headless_flag_in_session_capabilities_stops_the_boot():  # ruling 6
+    with pytest.raises(ConfigError) as refused:
+        load([], {"SESSION_CAPABILITIES": '{"moz:firefoxOptions": {"args": ["-headless"]}}'})
+    assert "moz:firefoxOptions.args -headless cannot be sent in session.capabilities: " \
+           "use headless=true or headless=false instead" in str(refused.value)
+
+
 @pytest.mark.parametrize("value", ["not json", "[1, 2]", '"a string"'])
 def test_session_capabilities_that_are_not_an_object_stop_the_boot(value):
     with pytest.raises(ConfigError, match=r"session\.capabilities"):
