@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { browserMark, safeHref } from './format'
+  import { browserMark, browserState, safeHref } from './format'
   import type { WorkspaceRow } from './types'
 
   /* The masthead: which workspace, how it is, and where it was. The facts
@@ -7,6 +7,7 @@
      2026-10-26-session-capabilities); the pills stay here as they were. */
   let { data }: { data: WorkspaceRow | null } = $props()
   const s = $derived(data ?? ({ key: '' } as WorkspaceRow))
+  const state = $derived(browserState(s))
   const href = $derived(safeHref(s.url))
 </script>
 
@@ -14,9 +15,9 @@
   <div class="row" style="margin-bottom:10px">
     <span class="bmark" title={s.browser || 'browser'}>{browserMark(s.browser)}</span>
     <strong class="grow">{s.name || s.owner || 'Workspace'}</strong>
-    {#if s.live}<span class="pill live">open</span>{:else}<span class="pill">idle</span>{/if}
-    {#if s.live && s.recording}<span class="pill rec">● REC</span>{/if}
-    {#if s.capture}{#if s.capturing}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
+    {#if state === 'open'}<span class="pill live">open</span>{:else}<span class="pill">{state}</span>{/if}
+    {#if s.recording}<span class="pill rec">● REC</span>{/if}
+    {#if s.capture}{#if s.capturing || state === 'unknown'}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
   </div>
   <div class="lastpage masthead">
     <div class="k small muted">last page</div>

@@ -155,12 +155,13 @@ input[type=password], input[type=text] {
 .pill.capture { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .pill.capture-paused { color: var(--muted); }
 /* Where a value came from: a setting's layer on Settings, a capability's on
-   Session. Two vocabularies, one look: flow reads as default, option as env,
-   raw as args (design/session.md). */
+   Session, and on the WORKSPACE card the three of config, client and caller.
+   Two vocabularies, one look: flow reads as default, option and client as env,
+   raw and caller as args (design/session.md). */
 .pill.src.default, .pill.src.flow { color: var(--muted); }
 .pill.src.config { color: var(--accent); border-color: currentColor; }
-.pill.src.env, .pill.src.option { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.pill.src.args, .pill.src.raw { background: var(--ink); border-color: var(--ink); color: var(--panel); }
+.pill.src.env, .pill.src.option, .pill.src.client { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.pill.src.args, .pill.src.raw, .pill.src.caller { background: var(--ink); border-color: var(--ink); color: var(--panel); }
 .pill.ok { color: var(--ok); border-color: currentColor; }
 .pill.warn { color: var(--warn); border-color: currentColor; }
 

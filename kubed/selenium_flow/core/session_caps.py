@@ -137,6 +137,15 @@ def _flow_block(browser: str) -> dict:
     }
 
 
+# Where a version the caller owns came from, as a refusal says it (ruling 4).
+# "config" is the operator's, so it has no phrase: it is never blamed.
+VERSION_FROM = {
+    "client": "from X-Version or ?version=",
+    "call": "from this call's version=",
+    "remembered": 'remembered by this workspace (version="latest" forgets it)',
+}
+
+
 @dataclass(frozen=True)
 class Built:
     """What one open sends, and what the admin is shown about it."""
@@ -153,6 +162,9 @@ class Built:
     raw_keys: tuple[str, ...] = ()
     # The browserVersion sent, or None.
     version: str | None = None
+    # Whose that version is (a key of `VERSION_FROM`), set only when one is
+    # sent: `latest` has no origin. Never shown to a caller or logged.
+    version_from: str | None = None
 
 
 def _refusal(key: str, where: str, remembered: bool) -> str:
@@ -257,6 +269,7 @@ def build(
     config: Mapping[str, Any] | None = None,
     raw: Mapping[str, Any] | None = None,
     option_args: Sequence[str] = (),
+    version_from: str = "call",
 ) -> Built:
     """The capabilities an open of ``browser`` sends, and each one's sources.
 
@@ -265,6 +278,10 @@ def build(
     ``ValueError`` for an owned key or a vendor block of the wrong shape in
     ``config`` or ``raw``. Never mutates its inputs, and nothing it returns
     shares an object with them.
+
+    ``version_from`` says whose ``version`` is ("config", "client", "call" or
+    "remembered"); it is kept only when a version is sent, and decides whether
+    a node's refusal may blame the caller for it.
     """
     name = normalize_browser(browser)
     check(config, where="session.capabilities")
@@ -318,6 +335,7 @@ def build(
         ignored=ignored,
         raw_keys=tuple(raw),
         version=sent_version,
+        version_from=version_from if sent_version is not None else None,
     )
 
 
@@ -390,7 +408,8 @@ def not_created(said: str, built: Built) -> Exception | None:
     """What a ``SessionNotCreatedException`` saying ``said`` means for ``built``.
 
     A queue timeout is `NoNodeTook`; a node's refusal is `NodeRefused`, blamed
-    on the caller only when it asked for raw keys or a version (ruling 16);
+    on the caller only when it asked for raw keys or a version of the
+    caller's own (rulings 16, 4);
     the Grid's own failures are None, and the caller re-raises the original.
     Config capabilities are the operator's, so they never blame the caller.
     """
@@ -403,19 +422,26 @@ def not_created(said: str, built: Built) -> Exception | None:
     if any(text in said for text in GRID_SIDE):
         return None
     reason = _reason(said)
+    # A config version is the operator's: it never blames the caller.
+    callers_version = built.version is not None and built.version_from != "config"
     causes = []
     if built.raw_keys:
         causes.append(f"capabilities {', '.join(built.raw_keys)}")
-    if built.version is not None:
-        causes.append(f"version {built.version}")
+    if callers_version:
+        causes.append(f"version {built.version}, {VERSION_FROM[built.version_from]}")
     if causes:
         return NodeRefused(
             f"the Grid node refused this browser: {reason}. The usual cause is "
             f"what this open asked for: {' and '.join(causes)}; see {_SKILL}",
             blamed=True,
         )
+    ours = (
+        f"; the server's own session.version asks for {built.version}"
+        if built.version is not None
+        else ""
+    )
     return NodeRefused(
         f"the Grid node could not start this browser: {reason}. Nothing this "
-        "open asked for is unusual, so trying again may succeed",
+        f"open asked for is unusual, so trying again may succeed{ours}",
         blamed=False,
     )

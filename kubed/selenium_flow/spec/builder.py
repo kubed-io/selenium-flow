@@ -102,8 +102,9 @@ RESOURCE_400 = {
     "open_session": (
         "The request cannot succeed as sent — no workspace named, two names "
         "given, a setting that was rejected, a capability selenium-flow "
-        "controls, a vendor block of the wrong shape, or a browser a Grid "
-        "node refused for a capability or version you asked for."
+        "controls, a vendor block of the wrong shape, a browser a Grid "
+        "node refused for a capability or version you asked for, "
+        "or a first page whose certificate the browser does not trust."
     ),
 }
 RESOURCE_503 = {
@@ -224,8 +225,9 @@ async def build_spec(
                     # errors.py.
                     "400": _error(
                         "The request cannot succeed as sent — a missing field, "
-                        "a value that was rejected, or a locator that matched "
-                        "nothing before the wait ran out. Do not retry it "
+                        "a value that was rejected, a locator that matched "
+                        "nothing before the wait ran out, or a page whose certificate "
+                        "the browser does not trust. Do not retry it "
                         "unchanged."
                     ),
                     "401": _error("Missing or wrong bearer token."),

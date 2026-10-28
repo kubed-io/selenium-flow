@@ -15,6 +15,7 @@ from kubed.selenium_flow.core.browser import Grid, is_partial
 from kubed.selenium_flow.core.defaults import BROWSERS, normalize_browser
 from kubed.selenium_flow.core.session_caps import build
 from kubed.selenium_flow.workspace import settings as settings_module
+from kubed.selenium_flow.workspace.settings import resolve, sourced, version_from
 
 pytestmark = pytest.mark.unit
 
@@ -381,3 +382,66 @@ async def test_a_rejected_browser_does_not_cost_you_the_one_you_have(
     with pytest.raises(ValueError, match="safari"):
         open_session(browser="safari")
     assert ended == [], "the browser was ended before the argument was checked"
+
+
+def test_each_value_says_which_layer_it_came_from():
+    s = sourced({"width": 800}, defaults={"browser": "chrome", "height": 900},
+                client={"script_timeout": 5}, previous={"page_load_timeout": 30})
+    assert s.set_by == {"browser": "config", "height": "config", "script_timeout": "client",
+                        "page_load_timeout": "caller", "width": "caller"}
+
+
+def test_a_config_version_is_dropped_by_an_explicit_other_browser():  # ruling 2
+    s = sourced({"browser": "firefox"}, defaults={"version": "152"})
+    assert "version" not in s.settings and s.version_from is None
+
+
+def test_a_client_version_is_dropped_by_a_client_browser_other_than_configs():
+    s = sourced({}, defaults={"browser": "chrome"}, client={"browser": "firefox", "version": "9"})
+    assert s.settings["version"] == "9"  # same layer: stands
+    s = sourced({}, defaults={"browser": "chrome", "version": "152"}, client={"browser": "firefox"})
+    assert "version" not in s.settings
+
+
+def test_the_same_browser_keeps_the_version():
+    s = sourced({"browser": "chrome"}, defaults={"browser": "chrome", "version": "152"})
+    assert s.settings["version"] == "152" and s.version_from == "config"
+
+
+def test_a_version_in_the_same_call_stands():
+    s = sourced({"browser": "firefox", "version": "140"}, defaults={"version": "152"})
+    assert s.settings["version"] == "140" and s.version_from == "call"
+
+
+def test_a_remembered_version_says_so():
+    s = sourced({}, previous={"browser": "chrome", "version": "152"})
+    assert s.version_from == "remembered"
+
+
+def test_a_version_passed_alone_pins_the_browser_in_effect():  # ruling 12
+    s = sourced({"version": "152"}, defaults={})
+    assert s.settings["browser"] == "chrome" and s.set_by["browser"] == "caller"
+    s = sourced({"version": "152"}, client={"browser": "firefox"})
+    assert s.settings["browser"] == "firefox" and s.set_by["browser"] == "caller"
+
+
+def test_latest_pins_nothing():
+    s = sourced({"version": "latest"}, defaults={})
+    assert "browser" not in s.settings
+
+
+def test_a_pinned_version_does_not_follow_a_later_config_browser():  # Review Focus 5
+    first = sourced({"version": "152"}, defaults={})
+    kept = {k: v for k, v in first.settings.items() if first.set_by[k] == "caller"}
+    s = sourced({}, defaults={"browser": "firefox"}, previous=kept)
+    assert s.settings == {"browser": "chrome", "version": "152"}
+
+
+def test_resolve_is_sourceds_settings():
+    assert resolve({"width": 1}, defaults={"browser": "firefox"}) == {"browser": "firefox", "width": 1}
+
+
+def test_version_from_a_stored_source():
+    assert [version_from({"version": s}) for s in ("config", "client", "caller")] == \
+        ["config", "client", "remembered"]
+    assert version_from({}) is None

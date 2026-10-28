@@ -30,7 +30,7 @@ const fact = (c: HTMLElement, id: string, k: string) =>
 test('a live workspace: what was asked, and what the Grid gave', () => {
   const { container } = render(SessionPane, { row: LIVE, hidden: false })
   expect(fact(container, 'workspaceCard', 'browser')).toBe('firefox · 142')
-  expect(fact(container, 'workspaceCard', 'window')).toBe('1280x900')
+  expect(fact(container, 'workspaceCard', 'window')).toBe('1280×900')
   expect(fact(container, 'workspaceCard', 'record')).toBe('on')
   expect(fact(container, 'workspaceCard', 'capture')).toBe('on · receiving · 24 requests · 5 console entries')
   expect(fact(container, 'gridCard', 'browser')).toBe('firefox 142.0')
@@ -129,4 +129,64 @@ test('a row with no sent, ran or ended draws without error', () => {
 test('hidden hides the pane', () => {
   const { container } = render(SessionPane, { row: LIVE, hidden: true })
   expect(container.querySelector('#paneSession')).toHaveAttribute('hidden')
+})
+
+const pillsOf = (c: HTMLElement, k: string) =>
+  [...(([...(card(c, 'workspaceCard')?.querySelectorAll('.fact') ?? [])].find((f) => f.querySelector('.k')?.textContent === k))?.querySelectorAll('.pills .pill.src') ?? [])]
+
+test('each WORKSPACE row carries its sources as pills', () => {
+  const row = { ...LIVE, set_by: { browser: 'config', version: 'caller', width: 'client', height: 'client' } } as WorkspaceRow
+  const { container } = render(SessionPane, { row, hidden: false })
+  const b = pillsOf(container, 'browser')
+  expect(b.map((p) => p.textContent)).toEqual(['config', 'caller'])
+  expect(b[0]).toHaveClass('config')
+  expect(pillsOf(container, 'window').map((p) => p.textContent)).toEqual(['client'])
+  expect(fact(container, 'workspaceCard', 'browser')).toBe('firefox · 142')
+})
+
+test('a setting nobody set has no pill', () => {
+  const { container } = render(SessionPane, { row: { ...LIVE, set_by: {} }, hidden: false })
+  expect(card(container, 'workspaceCard')!.querySelector('.pill.src')).toBeNull()
+})
+
+test('INSECURE shows only when on, idle too', () => {
+  const on = render(SessionPane, { row: { ...LIVE, live: false, attached: false, insecure: true, set_by: { insecure: 'caller' } }, hidden: false })
+  expect(fact(on.container, 'workspaceCard', 'insecure')).toBe('on')
+  expect(pillsOf(on.container, 'insecure').map((p) => p.textContent)).toEqual(['caller'])
+  on.unmount()
+  const off = render(SessionPane, { row: { ...LIVE, insecure: false }, hidden: false })
+  expect(fact(off.container, 'workspaceCard', 'insecure')).toBeUndefined()
+})
+
+test('CAPTURE reads off', () => {
+  const { container } = render(SessionPane, { row: { ...LIVE, capture: false, capturing: false }, hidden: false })
+  expect(fact(container, 'workspaceCard', 'capture')).toBe('off')
+})
+
+test('WINDOW reads with ×', () => {
+  const { container } = render(SessionPane, { row: LIVE, hidden: false })
+  expect(fact(container, 'workspaceCard', 'window')).toBe('1280×900')
+})
+
+test('a row the Grid did not list is neither reaped nor idle', () => {
+  const { container } = render(SessionPane, { row: { ...LIVE, live: false, grid_listed: false, capturing: false }, hidden: false })
+  expect(fact(container, 'gridCard', 'ended')).toBeUndefined()
+  expect(fact(container, 'gridCard', 'live view')).toBeUndefined()
+  expect(fact(container, 'gridCard', 'grid')).toBe('not answering')
+  expect(fact(container, 'gridCard', 'idle timeout')).toBe('300 s · read from the Grid node')
+  expect(fact(container, 'workspaceCard', 'capture')).toBe('on')
+  expect(fact(container, 'workspaceCard', 'record')).toBe('on')
+})
+
+test('the Capabilities fold is kept per workspace', async () => {
+  const open = (c: HTMLElement) => c.querySelector('#capabilitiesSection button.title')!.getAttribute('aria-expanded')
+  const a = render(SessionPane, { row: { ...LIVE, key: 'a' }, hidden: false })
+  await fireEvent.click(a.container.querySelector('#capabilitiesSection button.title')!)
+  expect(open(a.container)).toBe('true')
+  a.unmount()
+  const b = render(SessionPane, { row: { ...LIVE, key: 'b' }, hidden: false })
+  expect(open(b.container)).toBe('false')
+  b.unmount()
+  const again = render(SessionPane, { row: { ...LIVE, key: 'a' }, hidden: false })
+  expect(open(again.container)).toBe('true')
 })

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { browserMark, safeHref } from '../format'
+  import { browserMark, safeHref, windowSize } from '../format'
   import type { ContextData } from '../types'
 
   let { data, onshow }: { data: ContextData; onshow?: (uri: string) => void } = $props()
@@ -24,7 +24,7 @@
     {/if}
   </div>
   <div class="row" style="flex-wrap:wrap">
-    {#if data.window}<span class="pill">{data.window}</span>{/if}
+    {#if data.window}<span class="pill">{windowSize(data.window)}</span>{/if}
     {#if who}<span class="pill name">{who}</span>{/if}
   </div>
   {#if data.site_data || data.capture}

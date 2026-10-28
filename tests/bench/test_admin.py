@@ -91,6 +91,9 @@ def workspaces_payload(tmp_path_factory):
             session_id=sid,
             opened_at=1_760_000_000.0 + index,
             settings={"browser": "chrome", "width": 1440, "height": 900},
+            # Without a source for every setting, a Redis read drops the
+            # settings and the browser (ruling 14), and no row is live.
+            set_by={"browser": "caller", "width": "config", "height": "config"},
             site_data=jar(index),
         )
         for page in range(5):

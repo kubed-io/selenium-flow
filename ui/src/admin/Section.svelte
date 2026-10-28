@@ -4,7 +4,7 @@
   import { ms } from '../motion'
   import { folds } from './folds.svelte'
 
-  let { id, title, count, children, actions, summary, collapsed = false }: {
+  let { id, title, count, children, actions, summary, collapsed = false, fold = id }: {
     id: string
     title: string
     // Absent: no pill (a row that has nothing to count).
@@ -16,6 +16,9 @@
     // Closed until opened, for a section most visits never need (Capabilities).
     // A fold someone made still wins, as for every section.
     collapsed?: boolean
+    // The key into `folds`; defaults to `id`. A section whose state belongs to
+    // something else (one workspace's) names it here; the DOM id stays `id`.
+    fold?: string
   } = $props()
   // Persisted across remounts by id, in `folds` — the static page's sections
   // never remounted at all, so a fold stayed closed for the page's life; a
@@ -23,7 +26,7 @@
   // as it was left, not reopened. `untrack`: read once, at mount, on purpose
   // — `id` doesn't change under a live Section, and reopening later must go
   // through `toggle()`, not a re-read of `folds` chasing some other tab's fold.
-  let open = $state(untrack(() => folds[id] ?? !collapsed))
+  let open = $state(untrack(() => folds[fold] ?? !collapsed))
   // `data-open` (and so the global `.section[data-open=false] > .body {
   // display: none }` rule) has to follow what's actually on screen, not the
   // target state: setting it to "false" the instant `open` flips would hide
@@ -39,7 +42,7 @@
 
   function toggle() {
     open = !open
-    folds[id] = open
+    folds[fold] = open
     if (open) shown = true
   }
 </script>

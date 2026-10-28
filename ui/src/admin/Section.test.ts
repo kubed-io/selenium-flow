@@ -84,3 +84,15 @@ test('a collapsed section starts closed, and a fold the user made still wins', a
   const again = render(Harness, { collapsed: true })
   expect(again.container.querySelector('button.title')).toHaveAttribute('aria-expanded', 'true')
 })
+
+test('a fold key shared by two sections keeps one state; none uses the id', async () => {
+  Element.prototype.animate = (() => ({ cancel() {}, onfinish: null, currentTime: 0 })) as unknown as typeof Element.prototype.animate
+  const first = render(Harness, { id: 'oneSection', fold: 'shared' })
+  await fireEvent.click(first.container.querySelector('button.title')!)
+  first.unmount()
+  const second = render(Harness, { id: 'twoSection', fold: 'shared' })
+  expect(second.container.querySelector('button.title')).toHaveAttribute('aria-expanded', 'false')
+  second.unmount()
+  const own = render(Harness, { id: 'oneSection' })
+  expect(own.container.querySelector('button.title')).toHaveAttribute('aria-expanded', 'true')
+})

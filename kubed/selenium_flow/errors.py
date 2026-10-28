@@ -33,6 +33,7 @@ import urllib3.exceptions
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
     ElementNotInteractableException,
+    InsecureCertificateException,
     InvalidArgumentException,
     InvalidSelectorException,
     InvalidSessionIdException,
@@ -58,6 +59,7 @@ from .faults import (
     SocketClosed,
     TooLarge,
     Unresolved,
+    Untrusted,
 )
 
 # The caller asked for something that cannot happen as asked. Retrying the
@@ -75,6 +77,9 @@ CALLER = (
     # A page whose host has no address (`faults.unresolved`): the same request
     # fails the same way, wherever the lookup that failed was.
     Unresolved,
+    # A certificate the browser does not trust: the fix is `insecure=true`.
+    Untrusted,
+    InsecureCertificateException,
     TimeoutException,
     InvalidSelectorException,
     NoSuchElementException,

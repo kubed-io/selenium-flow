@@ -4111,7 +4111,7 @@
         "x-mcp-resource": "workspace://current"
       },
       "post": {
-        "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it returns to the same browser, window and page, which is\nthe right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nThe options, and what the next open_session() keeps:\n- browser is chrome (default) or firefox. version=\"152\" asks the Grid for\n  that version, and the result's version says which one ran;\n  version=\"latest\" forgets a remembered one, and switching browser forgets\n  it too. Both are remembered.\n- width and height set the window when layout matters; the headless\n  default is narrow. page_load_timeout bounds a navigation that hangs,\n  script_timeout a script. insecure=true accepts a self-signed certificate;\n  use it only for a site you know has one, and an insecure browser gets no\n  saved site data. All remembered.\n- record=true films this browser's whole life as a video; it appears under\n  workspace://files/recordings shortly after it ends. A person watches it,\n  so only when one will — it costs the Grid. capture=true keeps what the\n  page logs and fetches — workspace://console and workspace://network —\n  and a call that caused a page error says so in its result. An open\n  without capture=true forgets what was captured, so read those first when\n  you are debugging. Neither is kept: ask again for the next browser.\n- fresh=true starts on about:blank. Saved site data comes back by default;\n  restore_site_data=false opens without it and deletes it, which is how you\n  start as a new user.\n\ncapabilities is the last resort, only for something no option above covers:\nextra W3C capabilities sent to the Grid as given, best effort, and\nremembered whole; {} forgets them. A key an option controls is refused\nwith the option to use. Inside goog:chromeOptions or moz:firefoxOptions\nyour args and prefs are added to selenium-flow's, and the result's ignored\nlists any of yours that lost.",
+        "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it opens a browser from the server's and your connection's\ndefaults, plus the options you passed before, and goes back to the page you were\non: the right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nThe options:\n- browser is chrome (default) or firefox. version=\"152\" asks the Grid for\n  that version, and the result's version says which one ran;\n  version=\"latest\" forgets a remembered one, and switching browser forgets\n  it too.\n- width and height set the window when layout matters; the headless\n  default is narrow. page_load_timeout bounds a navigation that hangs,\n  script_timeout a script. insecure=true accepts a self-signed certificate;\n  use it only for a site you know has one, and an insecure browser gets no\n  saved site data. Everything above is remembered when you pass it; one you\n  leave out comes from the server's and your connection's defaults, read at\n  each open.\n- record=true films this browser's whole life as a video; it appears under\n  workspace://files/recordings shortly after it ends. A person watches it,\n  so only when one will — it costs the Grid. capture=true keeps what the\n  page logs and fetches — workspace://console and workspace://network —\n  and a call that caused a page error says so in its result. An open\n  without capture=true forgets what was captured, so read those first when\n  you are debugging. Neither is kept: ask again for the next browser.\n- fresh=true starts on about:blank. Saved site data comes back by default;\n  restore_site_data=false opens without it and deletes it, which is how you\n  start as a new user.\n\ncapabilities is the last resort, only for something no option above covers:\nextra W3C capabilities sent to the Grid as given, best effort, and\nremembered whole; {} forgets them. A key an option controls is refused\nwith the option to use. Inside goog:chromeOptions or moz:firefoxOptions\nyour args and prefs are added to selenium-flow's, and the result's ignored\nlists any of yours that lost.",
         "operationId": "open_session",
         "parameters": [
           {
@@ -4162,7 +4162,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — no workspace named, two names given, a setting that was rejected, a capability selenium-flow controls, a vendor block of the wrong shape, or a browser a Grid node refused for a capability or version you asked for."
+            "description": "The request cannot succeed as sent — no workspace named, two names given, a setting that was rejected, a capability selenium-flow controls, a vendor block of the wrong shape, a browser a Grid node refused for a capability or version you asked for, or a first page whose certificate the browser does not trust."
           },
           "401": {
             "content": {
@@ -4265,7 +4265,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -4388,7 +4388,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -4491,7 +4491,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -4614,7 +4614,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -4737,7 +4737,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -4860,7 +4860,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -4999,7 +4999,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5122,7 +5122,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5245,7 +5245,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5368,7 +5368,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5491,7 +5491,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5614,7 +5614,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5737,7 +5737,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5860,7 +5860,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -5983,7 +5983,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -6106,7 +6106,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -6267,7 +6267,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {
@@ -6390,7 +6390,7 @@
                 }
               }
             },
-            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, or a locator that matched nothing before the wait ran out. Do not retry it unchanged."
+            "description": "The request cannot succeed as sent — a missing field, a value that was rejected, a locator that matched nothing before the wait ran out, or a page whose certificate the browser does not trust. Do not retry it unchanged."
           },
           "401": {
             "content": {

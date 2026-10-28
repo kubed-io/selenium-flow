@@ -26,6 +26,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from selenium import webdriver
 from selenium.common.exceptions import (
+    InsecureCertificateException,
     TimeoutException,
     UnexpectedAlertPresentException,
     WebDriverException,
@@ -39,7 +40,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from urllib3.connection import HTTPConnection
 from urllib3.exceptions import ProtocolError
 
-from ..faults import Unresolved, unresolved
+from ..faults import Unresolved, Untrusted, unresolved
 from ..urls import normalize_url
 from . import probe
 from .defaults import (
@@ -748,10 +749,13 @@ def go(driver, url: str) -> None:
     unresolvable host in its own words, which `errors` would call ours (a 500)
     and which quote the URL on Firefox; `Unresolved` names the host and nothing
     else, and the browser's exception is dropped so no traceback carries it.
+    A certificate the browser does not trust is `Untrusted`, the same way.
     Any other failure is raised as it was.
     """
     try:
         driver.get(url)
+    except InsecureCertificateException:
+        raise Untrusted() from None
     except WebDriverException as exc:
         if not unresolved(exc):
             raise

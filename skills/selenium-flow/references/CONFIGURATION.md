@@ -135,6 +135,10 @@ server default (config: session.*)   <   client default (URL param / header)   <
 The header beats the parameter, as everywhere else here, because the header is
 in the credential an admin controls.
 
+A version set below a layer that names another browser is dropped: a header or
+an argument naming a browser other than the configured one discards
+`SESSION_VERSION`, so that browser opens at latest.
+
 `insecure` has no default anywhere: only `open_session(insecure=true)` sets it,
 for that session's browser. It accepts a self-signed certificate, and because
 that browser would accept any certificate, it gets none of the workspace's saved
@@ -159,7 +163,8 @@ command and plenty of environments already set it to a shell script, and as a
 
 Whichever browser a workspace opened with is stored with it, so when the Grid
 reaps an idle session and the next call transparently reopens one, it comes back
-as the same browser rather than the default one.
+as the same browser rather than the default one. An explicit `open_session()`
+keeps that browser only if you passed it.
 
 The Grid must actually offer the browser you ask for. If it has no Firefox
 node, a Firefox request waits in the session queue until the Grid gives up, and

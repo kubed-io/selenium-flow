@@ -246,6 +246,12 @@ test('says why there is no live view', () => {
   expect(liveUnavailable({ key: 'k', live: true }, true)).toBe('no live view · this Grid has no VNC')
 })
 
+test('a Grid that did not answer is not a browser that ended (ruling 5)', () => {
+  const unlisted = { key: 'k', attached: true, grid_listed: false, live: false }
+  expect(liveUnavailable(unlisted, true)).toBe('no live view · grid not answering')
+  expect(liveUnavailable(unlisted, false)).toBe('no live view · switched off')
+})
+
 test('builds ws: and wss: URLs from the page', () => {
   const at = (protocol: string, host: string) => ({ protocol, host }) as Location
   expect(socketUrl('/flow', '/flow/admin/x?a=1', at('https:', 'h.example'))).toBe('wss://h.example/flow/flow/admin/x?a=1')

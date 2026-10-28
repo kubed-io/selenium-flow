@@ -393,22 +393,25 @@ def register(
         """Start a session in this workspace, or come back to the one it had. Call it
         before anything else: nothing opens a browser for you.
 
-        With no arguments it returns to the same browser, window and page, which is
-        the right call after a browser was reaped or ended. Calling it while you
+        With no arguments it opens a browser from the server's and your connection's
+        defaults, plus the options you passed before, and goes back to the page you were
+        on: the right call after a browser was reaped or ended. Calling it while you
         hold a browser ends that one first, which is how you switch:
         open_session(browser="firefox"). Files that browser had and you did not keep
         go with it.
 
-        The options, and what the next open_session() keeps:
+        The options:
         - browser is chrome (default) or firefox. version="152" asks the Grid for
           that version, and the result's version says which one ran;
           version="latest" forgets a remembered one, and switching browser forgets
-          it too. Both are remembered.
+          it too.
         - width and height set the window when layout matters; the headless
           default is narrow. page_load_timeout bounds a navigation that hangs,
           script_timeout a script. insecure=true accepts a self-signed certificate;
           use it only for a site you know has one, and an insecure browser gets no
-          saved site data. All remembered.
+          saved site data. Everything above is remembered when you pass it; one you
+          leave out comes from the server's and your connection's defaults, read at
+          each open.
         - record=true films this browser's whole life as a video; it appears under
           workspace://files/recordings shortly after it ends. A person watches it,
           so only when one will — it costs the Grid. capture=true keeps what the

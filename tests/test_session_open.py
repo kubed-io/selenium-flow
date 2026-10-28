@@ -4,11 +4,16 @@ options, the operator's `session.capabilities` and the caller's raw object
 
 import pytest
 from selenium.common.exceptions import SessionNotCreatedException
+from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors
+from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.faults import NodeRefused, NoNodeTook
+from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
+
+from .conftest import TOKEN
 
 pytestmark = pytest.mark.unit
 
@@ -169,3 +174,48 @@ def test_the_workspace_result_never_carries_sent_or_ran():
     told = workspaces.open_browser(Caller.from_request({"workspace": ["w"]}, {}))
     assert "sent" not in told and "ran" not in told and "session_id" not in told
     assert told["version"] == "152.0.1"
+
+
+# ---- a refusal over HTTP: whose version is it? (ruling 4) ---------------------
+
+REFUSED = "session not created: no such version"
+
+
+def open_over_http(settings=None, headers=None, json=None):
+    """`POST /browser` on a real server whose Grid's node refuses the open."""
+    server = SeleniumMCP(
+        Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            auth={"token": TOKEN},
+            **(settings or {}),
+        )
+    )
+
+    def refuse(built):
+        raise SessionNotCreatedException(REFUSED)
+
+    server.grid.open = refuse
+    client = TestClient(server.mcp.http_app())
+    return client.post(
+        "/browser",
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "X-Workspace": "refused",
+            **(headers or {}),
+        },
+        json=json or {},
+    )
+
+
+def test_a_refused_config_version_is_a_503():
+    assert open_over_http({"session": {"version": "152"}}).status_code == 503
+
+
+def test_a_refused_x_version_is_a_400_naming_it():
+    response = open_over_http(headers={"X-Version": "152"})
+    assert response.status_code == 400
+    assert "from X-Version or ?version=" in response.json()["error"]
+
+
+def test_a_refused_explicit_version_is_a_400():
+    assert open_over_http(json={"version": "152"}).status_code == 400

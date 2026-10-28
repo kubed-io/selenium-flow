@@ -78,10 +78,10 @@ Every parameter, return field and trap worth knowing is one page per action in t
 
 ### 🧠 A workspace is not a browser
 
-The workspace outlives the sessions it holds — a session is the live browser open in it, one at a time. When the Grid reaps an idle one, or an operator ends one, the workspace keeps the browser choice, the window and the page it was on — so recovery is one call with no arguments:
+The workspace outlives the sessions it holds — a session is the live browser open in it, one at a time. When the Grid reaps an idle one, or an operator ends one, the workspace keeps the page it was on and the settings its caller passed — so recovery is one call with no arguments:
 
 ```
-open_session()      # same browser, same window, back where you were
+open_session()      # back where you were, with the settings you chose
 ```
 
 Workspaces expire on `WORKSPACE_TTL`, slid forward on every use; nothing else removes one. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Workspaces).

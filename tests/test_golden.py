@@ -282,6 +282,8 @@ def raised():
             out["requests.Timeout"] = cls("slow")
         elif cls is faults.Unresolved:
             out[cls.__name__] = cls("nonexistent.invalid")
+        elif cls is faults.Untrusted:
+            out[cls.__name__] = cls()
         else:
             out[cls.__name__] = cls("it went wrong")
     out["NodeRefused(blamed)"] = faults.NodeRefused("it went wrong", blamed=True)

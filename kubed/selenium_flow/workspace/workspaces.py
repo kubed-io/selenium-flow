@@ -62,7 +62,7 @@ from ..core import guidance, session_caps
 from ..core.actions import OPEN_PRIVATE, Actions
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
-from ..core.defaults import DEFAULT_BROWSER, normalize_browser
+from ..core.defaults import DEFAULT_BROWSER
 from ..monitor.monitor import ATTACH_FAILED
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
@@ -398,7 +398,8 @@ class Workspaces:
             status["site_data"] = saved
         # A record with no browser is an ordinary state, not a broken one: the
         # Grid reaped it or an admin ended it, and the context it left behind is
-        # what the next open_session inherits.
+        # what the next open_session reads (it carries over only the caller's own
+        # settings).
         status["live"] = (
             self.actions.grid.is_alive(record.session_id) if record.attached else False
         )
@@ -499,7 +500,7 @@ class Workspaces:
         if record is None or not record.attached:
             # Detached reads the same as absent on purpose. A caller is told it
             # has no browser and calls open_session, which is the one path that
-            # opens one — and which now inherits this record's browser and page.
+            # opens one — and which takes what the caller passed, and the page.
             raise faults.NoSession(
                 f"no session is open in workspace {name!r} yet: call open_session "
                 "first. It takes the window size and timeouts this session "
@@ -528,10 +529,19 @@ class Workspaces:
         # clear it: dropping it quietly would change the browser's shape
         # (spec 2026-10-26-session-capabilities, ruling 26).
         session_caps.check(replay.get("capabilities"), remembered=True)
+        # The whole stored set is replayed, whoever set each value, and each
+        # keeps its source: a config value stays the config's, so the next
+        # explicit open reads the config afresh, and a refused version is
+        # blamed on whoever set it (spec 2026-10-27-session-touch-ups,
+        # rulings 1, 4 and 11).
+        sources = {
+            k: record.set_by.get(k, settings_module.CALLER) for k in replay
+        }
         opened = self._opened(
             name,
             replay,
             url=record.url or None,
+            version_from=settings_module.version_from(sources),
             **(self._recorded(name, replay) if replay.get("record") else {}),
             **({"site_data": saved} if saved else {}),
             **replay,
@@ -547,6 +557,7 @@ class Workspaces:
             opened["session_id"],
             opened.get("url", record.url or ""),
             replay,
+            set_by=sources,
             replacing=record.session_id,
             report=opened.get("site_data"),
             grid_timeout=timeout,
@@ -990,6 +1001,11 @@ class Workspaces:
         be chosen, which is why it is never done implicitly. Shared by both
         surfaces for the same reason :meth:`act` is.
 
+        It opens with the cascade in `workspace.settings`: the config and the
+        client's defaults as they are now, then what this workspace's caller
+        passed before, then the arguments. Only the caller's values are carried
+        over, each stored with its source.
+
         It takes no turn on the browser (`workspace.locks`): it makes one rather
         than driving it, and the one it replaces goes through `end_browser`.
         So it is checked directly for a person's control of that one, before
@@ -997,11 +1013,15 @@ class Workspaces:
         """
         name = caller.name
         self._refuse(caller, "open_session")
-        # What this workspace was last using. It sits between the client's
-        # defaults and the explicit arguments: a caller that names nothing means
-        # "carry on where I was", which is a stronger signal than a server-wide
-        # default and a weaker one than an argument it just typed.
+        # What this workspace's caller passed before. It sits between the
+        # client's defaults and the explicit arguments: a caller that names
+        # nothing means "carry on where I was", which is a stronger signal than
+        # a default and a weaker one than an argument it just typed. Only the
+        # caller's own values carry over; the config and the client's headers
+        # are read afresh, so a changed one reaches the next open (spec
+        # 2026-10-27-session-touch-ups, ruling 1).
         previous = self.context(name)
+        sources = previous.get("set_by") or {}
         # Resolved BEFORE the browser being held is ended, because this
         # validates as well as merges: an explicit browser is checked strictly,
         # and doing it afterwards meant a typo in `browser=` quit a perfectly
@@ -1010,28 +1030,29 @@ class Workspaces:
             k: v
             for k, v in (previous.get("settings") or {}).items()
             if k not in ("record", "capture")
+            and sources.get(k) == settings_module.CALLER
         }
-        asked = wanted.get("browser")
-        if asked not in (None, "") and normalize_browser(asked) != normalize_browser(
-            inherited_settings.get("browser")
-        ):
-            # Another browser is another version: Chrome's 152 is not a
-            # Firefox the Grid has (spec 2026-10-26-session-capabilities,
-            # ruling 20). One asked for in the same call still stands.
-            inherited_settings.pop("version", None)
-        resolved = settings_module.resolve(
+        # `sourced` drops a version when a later layer names another browser
+        # (ruling 20 of the capabilities spec), this call's included.
+        resolved = settings_module.sourced(
             wanted,
             defaults=self.defaults,
             previous=inherited_settings,
             client=caller.defaults,
         )
-        if resolved.get("record") and self.recordings is None:
+        settings = resolved.settings
+        if settings.get("record") and self.recordings is None:
             raise ValueError(RECORDING_OFF)
-        if resolved.get("capture") and not self._can_capture():
+        if settings.get("capture") and not self._can_capture():
             raise ValueError(CAPTURE_OFF)
         # An owned key or a vendor block a merge cannot add to: a 400 before
-        # the held browser is ended, like a bad `browser=`.
-        session_caps.check(resolved.get("capabilities"))
+        # the held browser is ended, like a bad `browser=`. One this call did
+        # not pass is the workspace's, and the refusal says how to clear it
+        # (ruling 3).
+        session_caps.check(
+            settings.get("capabilities"),
+            remembered=wanted.get("capabilities") in (None, ""),
+        )
         # The caller's page, checked for the same reason. A remembered one is
         # where the browser already was, so it is not the caller's to check.
         if url:
@@ -1057,15 +1078,17 @@ class Workspaces:
             saved = {}
         opened = self._opened(
             name,
-            resolved,
+            settings,
             url=url or inherited,
-            **(self._recorded(name, resolved) if resolved.get("record") else {}),
+            version_from=resolved.version_from,
+            **(self._recorded(name, settings) if settings.get("record") else {}),
             **({"site_data": saved} if saved else {}),
-            **resolved,
+            **settings,
         )
         timeout = self._timeout_of(opened["session_id"])
         kept = self.remember(
-            name, opened["session_id"], opened.get("url", ""), resolved,
+            name, opened["session_id"], opened.get("url", ""), settings,
+            set_by=resolved.set_by,
             replacing=ended, forget_site_data=forgotten is not None,
             opened_by=caller.principal.opener() if caller.principal else None,
             grid_timeout=timeout,
@@ -1078,20 +1101,20 @@ class Workspaces:
             # the one the workspace holds, not the discarded one (Copilot, #50).
             # Its provisional note stays, so its video is deleted, not filed.
             return self._held(name)
-        if self.capture is not None and not resolved.get("capture"):
+        if self.capture is not None and not settings.get("capture"):
             # An explicit open without capture is a fresh start for it
             # (programme R9): what an earlier browser captured is not this one's.
             self.capture.discard(name)
         self._told(
-            "opened", name, kept, resolved.get("browser") or DEFAULT_BROWSER, timeout
+            "opened", name, kept, settings.get("browser") or DEFAULT_BROWSER, timeout
         )
         noted = None
-        if resolved.get("record"):
+        if settings.get("record"):
             try:
                 self.recordings.expect(
                     name,
                     opened["session_id"],
-                    resolved.get("browser") or DEFAULT_BROWSER,
+                    settings.get("browser") or DEFAULT_BROWSER,
                 )
             except (OSError, ValueError) as exc:
                 # ValueError: `InvalidName` from a link on the note's path. The
@@ -1109,8 +1132,8 @@ class Workspaces:
         # browser is reached, and it is not part of what a caller is told. So
         # are what was sent and what ran, which are the admin's.
         told = {k: v for k, v in opened.items() if k not in OPEN_PRIVATE}
-        told["recording"] = bool(resolved.get("record"))
-        told["capture"] = bool(resolved.get("capture"))
+        told["recording"] = bool(settings.get("record"))
+        told["capture"] = bool(settings.get("capture"))
         if noted:
             told["recording_error"] = noted
         return {"workspace": name, **told}
@@ -1148,13 +1171,16 @@ class Workspaces:
         window_seen: str | None = None,
         sent: list | None = None,
         ran: dict | None = None,
+        set_by: dict | None = None,
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
         The settings are stored because a reopen has to use the *same* browser,
         not a default one — swapping Firefox for Chrome, or a 1400x900 window
         for the node default, midway through a task would be a silent change of
-        shape. They are also what ``open_session`` with no arguments inherits.
+        shape. A reopen replays them all; ``open_session`` with no arguments
+        inherits only the caller's, and reads the config and the client's
+        defaults afresh (spec 2026-10-27-session-touch-ups, ruling 1).
 
         ``replacing`` is the browser this open ended or found dead. A record
         naming any other one was bound by an open that ran alongside this one,
@@ -1170,6 +1196,10 @@ class Workspaces:
         ``report`` is a silent reopen's site data report: the record holds it
         for this browser until `touch` hands it to the first result. Any other
         bind drops whatever an earlier reopen still held.
+
+        ``set_by`` says who set each of the settings, by key; a setting it
+        does not name is the caller's, which is what handing them in directly
+        means.
         """
         ttl = self.store.ttl
 
@@ -1185,6 +1215,10 @@ class Workspaces:
                 session_id=session_id,
                 opened_at=time.time(),
                 settings=dict(settings or {}),
+                set_by={
+                    k: (set_by or {}).get(k, settings_module.CALLER)
+                    for k in (settings or {})
+                },
                 site_data={} if forget_site_data or r is None else dict(r.site_data),
                 # Reset explicitly: any other bind drops an earlier reopen's report.
                 reopened={"browser": session_id, "report": report} if report else {},
@@ -1272,7 +1306,8 @@ class Workspaces:
             )
 
     def context(self, name: str) -> dict:
-        """The browser and page this workspace last had, for a reopen.
+        """The browser and page this workspace last had, for a reopen, with
+        who set each setting: an explicit open inherits only the caller's.
 
         Empty when there is no record, which is the same answer as "nothing to
         inherit" and lets ``open_session`` treat both alike.
@@ -1280,7 +1315,11 @@ class Workspaces:
         record = self.store.get(name)
         if record is None:
             return {}
-        return {"settings": dict(record.settings or {}), "url": record.url or ""}
+        return {
+            "settings": dict(record.settings or {}),
+            "set_by": dict(record.set_by),
+            "url": record.url or "",
+        }
 
     def visited(self, name: str) -> list[str]:
         """The origins this workspace has been to, newest first.
