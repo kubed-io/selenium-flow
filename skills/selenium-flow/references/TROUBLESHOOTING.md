@@ -180,7 +180,7 @@ is wrong.
 ## No Grid node took this browser
 
 `open_session` failed with *no Grid node took this browser before the Grid gave
-up waiting: it asked for chrome 152, kubed:pool=headless …*. The Grid queued the
+up waiting: it asked for chrome 152, kubed:pool=large …*. The Grid queued the
 request and no node took it before its own timeout (often 300 s). The server
 waits exactly as long as the Grid does, so a node that was still booting had
 its chance.
@@ -209,7 +209,7 @@ A node took the request and could not start the browser.
 `open_session(capabilities={...})` sends extra W3C capabilities to the Grid as
 given, best effort. Use it only when no option in
 `skill://selenium-flow/references/WORKSPACES.md` (*Choosing the browser*) does
-the job: a node class (`{"kubed:pool": "headless"}`), a browser flag
+the job: a node class (`{"kubed:pool": "large"}`), a browser flag
 (`{"goog:chromeOptions": {"args": ["--lang=fr"]}}`), a Firefox pref.
 
 - **It is remembered whole.** Every later `open_session()` sends it again, and
@@ -218,7 +218,8 @@ the job: a node class (`{"kubed:pool": "headless"}`), a browser flag
 - **A key an option controls is refused**, before anything is ended, with the
   option to use instead: *browserName cannot be sent in capabilities: use
   browser= instead*. The same goes for `browserVersion` (`version=`),
-  `acceptInsecureCerts` (`insecure=`), `se:recordVideo` and `se:videoName`
+  `acceptInsecureCerts` (`insecure=`), a headless flag in either browser's `args`
+  or `MOZ_HEADLESS` in Firefox's `env` (`headless=`), `se:recordVideo` and `se:videoName`
   (`record=`), `timeouts` (`page_load_timeout=` / `script_timeout=`), and the
   three the server needs for itself: `unhandledPromptBehavior`,
   `se:downloadsEnabled`, `webSocketUrl`.

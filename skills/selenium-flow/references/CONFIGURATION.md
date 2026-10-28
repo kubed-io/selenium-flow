@@ -144,6 +144,9 @@ for that session's browser. It accepts a self-signed certificate, and because
 that browser would accept any certificate, it gets none of the workspace's saved
 site data: sign in there afresh. Use it for the site that needs it.
 
+`headless` has no default either: only `open_session(headless=true)` sets it, and
+a headless flag in `session.capabilities` stops the boot.
+
 **`SESSION_PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a
 navigation can hang indefinitely, holding one of the Grid's few slots until
 the Grid reaps it. An unusable *client* value — the `?page_load_timeout=`

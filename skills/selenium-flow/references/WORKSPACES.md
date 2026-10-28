@@ -85,8 +85,13 @@ already knows how to treat, so reach for them before anything else:
 | `width`, `height` | the window | keeps them if you passed them |
 | `page_load_timeout`, `script_timeout` | bounds on a hanging page or script | keeps them if you passed them |
 | `insecure` | `true` accepts a self-signed certificate; that browser gets no saved site data | keeps it if you passed it |
+| `headless` | draws nothing on the node's screen, which is quicker; no recording, no live view | keeps it if you passed it |
 | `record` | films the browser | **asks again** |
 | `capture` | keeps the console and network | **asks again** |
+
+Choose `headless` for speed, or when nobody will watch; leave it off for real
+sites, whose bot checks spot it more easily. `record=true` on a headless browser
+is refused: pass `headless=false` to turn it off and record.
 
 What you leave out comes from the server's and your connection's defaults at
 each open, so a change there reaches you at your next `open_session()`. A version

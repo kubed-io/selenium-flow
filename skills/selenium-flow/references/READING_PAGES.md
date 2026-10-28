@@ -150,8 +150,8 @@ screenshot(full_page=true, width=1280)
 ```
 
 Prefer an element screenshot over a full page — it is smaller and it answers the
-question you actually asked. Set `width`/`height` when layout matters; headless
-defaults are small and vary between Grid nodes.
+question you actually asked. Set `width`/`height` when layout matters; the
+default window is small and varies between Grid nodes.
 
 Over MCP you get an image block you can see. Over HTTP you get base64 plus real
 pixel dimensions and a `bytes` count — a `bytes` value near zero means a blank
