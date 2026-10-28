@@ -53,8 +53,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # the Copilot wait clears the runs Copilot's reviews leave held
+      actions: write
     outputs:
-      stage: ${{ steps.route.outputs.stage }}
+      # Copilot's hand-back is a turn only when its review left something to answer
+      stage: ${{ (steps.route.outputs.reason != 'copilot' || steps.copilot.outputs.respond == 'true') && steps.route.outputs.stage || 'none' }}
       number: ${{ steps.route.outputs.number }}
       head: ${{ steps.route.outputs.head }}
       prompt: ${{ steps.route.outputs.prompt }}
@@ -74,6 +77,17 @@ jobs:
         owner: "4399427"
         app: "235398881"
         copilot: "175728472"
+
+    # Copilot's hand-back lands as its review run ends, a few seconds before the review
+    # itself: wait for the review of the head, and wake the code agent only if it left
+    # comments
+    - name: Wait for Copilot
+      id: copilot
+      if: steps.route.outputs.reason == 'copilot' && steps.route.outputs.stage == 'code'
+      uses: kubed-io/actions/issue-agent/review@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ steps.route.outputs.number }}
 
   plan:
     name: Plan
