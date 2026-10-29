@@ -16,10 +16,8 @@ A name arrives one of two ways, and they are the two things any client can set:
 2. **``?workspace=<name>``**, on the URL. The ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 
-The names from before, ``?session=`` and the ``X-`` headers (``X-Session-Key``
-and ``X-Workspace`` among them), are refused with the new spelling rather than
-ignored (specs 2026-10-09-workspaces-rename, ruling 1, and 2026-10-29-sf-headers,
-ruling 2).
+The old ``X-`` headers (``X-Workspace`` among them) are refused with the new
+spelling rather than ignored (spec 2026-10-29-sf-headers, ruling 2).
 
 **Both at once is refused**, rather than one quietly winning. A request
 carrying two names has two ideas about who is calling, and picking one hides
@@ -113,15 +111,12 @@ REPLACED_BEFORE_SAVE = (
 NAME_PARAM = "workspace"
 WORKSPACE_HEADER = "sf-workspace"
 
-# The names from before (specs 2026-10-09-workspaces-rename, ruling 1, and
-# 2026-10-29-sf-headers, ruling 2): refused, not ignored, so a client wired the
-# old way hears it on its first call rather than as "name your workspace".
+# The old X- names (spec 2026-10-29-sf-headers, ruling 2): refused, not
+# ignored, so a client wired the old way hears it on its first call rather than
+# as "name your workspace".
 # Keyed by the spelling a person reads; a request's headers are looked up by
 # the lowercase. The refusal follows this order.
-OLD_PARAM = "session"
-OLD_QUERY = "`?session=` is now `?workspace=`: rename it in the URL"
 OLD_HEADERS = {
-    "X-Session-Key": "Sf-Workspace",
     "X-Workspace": "Sf-Workspace",
     "X-Browser": "Sf-Browser",
     "X-Version": "Sf-Version",
@@ -225,9 +220,7 @@ class Caller:
                     named = valid_workspace_name(chosen[0])
                 except ValueError as exc:
                     refusal = exc
-        if _names(params.get(OLD_PARAM)):
-            named, named_by, refusal = "", "", ValueError(OLD_QUERY)
-        elif (renamed := _old_headers(headers)) is not None:
+        if (renamed := _old_headers(headers)) is not None:
             named, named_by, refusal = "", "", ValueError(renamed)
         said = (_last(params, CLIENT_PARAMS), _last(headers, CLIENT_HEADERS))
         flags = {}

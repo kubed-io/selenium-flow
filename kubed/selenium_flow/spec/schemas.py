@@ -209,8 +209,7 @@ WORKSPACE_PARAMETERS = [
             "Which workspace this call is about. What an admin pins inside a "
             "credential when one credential should mean one workspace. Sending "
             "this AND ?workspace= is a 400: two names is two ideas about who is "
-            "calling. Its old names, X-Workspace and X-Session-Key, are refused "
-            "with a 400."
+            "calling. Its old name, X-Workspace, is refused with a 400."
         ),
     },
     {
@@ -221,8 +220,7 @@ WORKSPACE_PARAMETERS = [
         "description": (
             "The same thing on the URL, for a caller that cannot set a header. "
             "Anything touching a browser needs one of the two; the flow library "
-            "falls back to the shared 'global' one, which is read-only. Its old "
-            "name, ?session=, is refused with a 400."
+            "falls back to the shared 'global' one, which is read-only."
         ),
     },
 ]

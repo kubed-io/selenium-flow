@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from kubed.selenium_flow import faults
 from kubed.selenium_flow.config import RedisSettings, WorkspaceSettings
 from kubed.selenium_flow.mcp import clients as clients_module
+from kubed.selenium_flow.names import GLOBAL_WORKSPACE
 from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.workspace.store import (
     DEFAULT_DB,
@@ -27,8 +28,8 @@ from kubed.selenium_flow.workspace.store import (
 )
 from kubed.selenium_flow.workspace.workspaces import (
     OLD_HEADERS,
-    OLD_QUERY,
     RENAMED,
+    UNNAMED,
     Caller,
     Workspaces,
     values_of,
@@ -93,11 +94,6 @@ def test_a_blank_old_header_is_no_header():
     assert caller_of(headers={"sf-workspace": "desk", "x-browser": "  "}).name == "desk"
 
 
-def test_x_session_key_points_straight_at_sf_workspace():  # ruling 10
-    with pytest.raises(ValueError, match=re.escape("`X-Session-Key` is now `Sf-Workspace`")):
-        caller_of(headers={"x-session-key": "desk"}).name  # noqa: B018
-
-
 def test_the_gateways_name_beside_a_callers_old_header_is_refused():  # Review Focus 1
     with pytest.raises(ValueError, match=re.escape("`X-Workspace` is now `Sf-Workspace`")):
         caller_of(headers={"sf-workspace": "kelly", "x-workspace": "desk"}).name  # noqa: B018
@@ -110,11 +106,32 @@ def test_an_old_version_header_is_refused_and_never_read():  # Review Focus 2, r
     assert "version" not in caller.defaults
 
 
-def test_the_old_query_keeps_precedence_over_old_headers():  # Review Focus 5
-    caller = caller_of({"session": "desk"}, {"x-browser": "chrome"})
+@pytest.mark.parametrize("params, headers", [({}, {"x-session-key": "desk"}), ({"session": "desk"}, {})])
+def test_a_session_name_is_no_name(params, headers):  # ruling 10, revised
+    caller = caller_of(params, headers)
     with pytest.raises(ValueError) as exc:
         caller.name  # noqa: B018
-    assert str(exc.value) == OLD_QUERY
+    assert str(exc.value) == UNNAMED
+    assert caller.library == GLOBAL_WORKSPACE
+
+
+@pytest.mark.parametrize("params, headers", [({"workspace": "desk"}, {"x-session-key": "other"}),
+                                             ({"workspace": "desk", "session": "other"}, {}),
+                                             ({"session": "other"}, {"sf-workspace": "desk"})])
+def test_a_session_name_beside_a_new_one_is_ignored(params, headers):  # ruling 10, revised
+    assert caller_of(params, headers).name == "desk"
+
+
+@pytest.mark.parametrize("path, headers", [("/browser?session=desk", {}), ("/browser", {"X-Session-Key": "desk"})])
+def test_a_session_name_is_unnamed_over_http(server, path, headers):
+    from starlette.testclient import TestClient
+
+    from .conftest import TOKEN
+
+    client = TestClient(server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}", **headers})
+    response = client.get(path)
+    assert response.status_code == 400
+    assert response.json() == {"error": UNNAMED}
 
 
 def test_x_mcp_resources_is_still_read():  # ruling 4
@@ -1507,8 +1524,6 @@ XW = "`X-Workspace` is now `Sf-Workspace`: rename the header"
 @pytest.mark.parametrize(
     "path, headers, error",
     [
-        ("/browser?session=desk", {}, OLD_QUERY),
-        ("/browser", {"X-Session-Key": "desk"}, "`X-Session-Key` is now `Sf-Workspace`: rename the header"),
         ("/browser", {"X-Workspace": "desk"}, XW),
         ("/browser", {"Sf-Workspace": "desk", "X-Browser": "chrome"}, "`X-Browser` is now `Sf-Browser`: rename the header"),
         ("/browser", {"X-WORKSPACE": "desk"}, XW),
@@ -1748,25 +1763,6 @@ def test_describe_has_no_principal_on_an_open_server():
 
 
 # ---- the names from before the rename are refused (ruling 1) ----------------
-
-def test_the_old_query_name_is_refused_naming_the_new_one():
-    caller = caller_of({"session": "desk"})
-    with pytest.raises(ValueError) as exc:
-        caller.name  # noqa: B018 - the refusal is the point
-    assert str(exc.value) == OLD_QUERY == (
-        "`?session=` is now `?workspace=`: rename it in the URL"
-    )
-
-
-def test_the_old_name_is_refused_even_beside_the_new_one():
-    caller = caller_of({"workspace": "desk", "session": "desk"})
-    with pytest.raises(ValueError, match="is now `\\?workspace=`"):
-        caller.name  # noqa: B018
-
-
-def test_a_blank_old_name_is_no_name_at_all():
-    assert caller_of({"session": "", "workspace": "desk"}).name == "desk"
-
 
 def test_the_new_names_name_the_workspace():
     assert caller_of({"workspace": "desk"}).name == "desk"
