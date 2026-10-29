@@ -219,15 +219,29 @@ def library_of(key: str) -> str | None:
         return None
 
 
-# The scheme every workspace resource had before the rename (spec
-# 2026-10-09-workspaces-rename, ruling 5). A saved flow may still name one.
-RETIRED_SCHEME = "session://"
+# URIs that moved, tried in order; the first match answers (spec
+# 2026-10-29-session-uris, ruling 11). A None is served: nothing to refuse.
+# The last row is the rename's (spec 2026-10-09-workspaces-rename, ruling 5):
+# a saved flow may still name a `session://` URI.
+MOVED: tuple[tuple[str, str | None], ...] = (
+    ("session://files/downloads", "session://downloads"),
+    ("session://downloads", None),
+    ("session://", "workspace://"),
+)
 
 
 def retired_uri(uri) -> None:
-    """Refuse a URI from before the rename, naming its new spelling."""
+    """Refuse a URI that has moved, naming its new spelling."""
     text = str(uri or "")
-    if text.startswith(RETIRED_SCHEME):
-        raise ValueError(
-            f"`{text}` is now `workspace://{text[len(RETIRED_SCHEME):]}`"
-        )
+    for old, new in MOVED:
+        if old.endswith("://"):
+            rest = text[len(old):] if text.startswith(old) else None
+        elif text == old or text.startswith(old + "/"):
+            rest = text[len(old):]
+        else:
+            rest = None
+        if rest is None:
+            continue
+        if new is not None:
+            raise ValueError(f"`{text}` is now `{new + rest}`")
+        return
