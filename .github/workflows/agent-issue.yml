@@ -45,6 +45,8 @@ jobs:
       # the `spec` label gives the agent a branch, and files that are committed
       WRITES: ${{ contains(github.event.issue.labels.*.name, 'spec') }}
       BRANCH: issue-${{ github.event.issue.number }}
+      # the agent-flow channel's token: n8n's messages reach the running turn
+      AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
     steps:
 
     - name: App Token
@@ -99,6 +101,7 @@ jobs:
         allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
         claude_args: --strict-mcp-config
+        live_messages: true
 
     # the draft spec lives under docs/: the wiki first, then its pointer in one signed commit
     - name: Land the Spec
@@ -228,6 +231,9 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      # the agent-flow channel's token: n8n's messages reach the running turn
+      AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
     steps:
 
     - name: App Token
@@ -275,6 +281,7 @@ jobs:
         allowed_tools: Read,Glob,Grep,Write,Edit
         disallowed_tools: Bash,NotebookEdit
         claude_args: --strict-mcp-config
+        live_messages: true
 
     # the plan and spec live under docs/: the wiki first, then its pointer in one signed commit
     - name: Land the Plan
