@@ -190,12 +190,12 @@ operator action in the [Admin UI](#-admin-ui) below.
 
 | Read it as | URI |
 |---|---|
-| a resource | `workspace://files` — Files, plus the three folders below |
+| a resource | `workspace://files` — Files, plus the two folders below |
 | a resource | `workspace://files/{name}` — one kept file, as bytes (a video: its entry) |
 | a resource | `workspace://files/screenshots`, `.../screenshots/{name}` |
 | a resource | `workspace://files/recordings`, `.../recordings/{name}` — an entry, never the video |
-| a resource | `workspace://files/downloads`, `.../downloads/{name}` |
-| JSON over HTTP | `GET /files`, `GET /files/screenshots`, `GET /files/recordings`, `GET /files/downloads` |
+| a resource | `session://downloads`, `session://downloads/{name}` — the open browser's downloads |
+| JSON over HTTP | `GET /files`, `GET /files/screenshots`, `GET /files/recordings`, `GET /browser/downloads` |
 | keep one, over HTTP | `PUT /files/{folder}/{name}/kept` — `screenshots`, `recordings` or `downloads` |
 
 Every entry carries a link to hand someone — signed and time-limited when the

@@ -204,9 +204,10 @@ with this server, so it describes this version of it.
 # still named by URI, so it is told how to read one rather than handed a
 # different vocabulary.
 READING_POINTER = """
-Everything this server has to read is a URI — workspace://current, flow://flows, \
-secret://secrets and the like, wherever a hint or an error names one. Read one \
-with read_resource(uri); list_resources shows them all.
+Everything this server has to read is a URI — workspace://current, \
+session://downloads, flow://flows, secret://secrets and the like, wherever a \
+hint or an error names one. Read one with read_resource(uri); list_resources \
+shows them all.
 """
 
 
@@ -640,9 +641,8 @@ def register(
         """Attach a file to a file input (selector). Give exactly one source:
 
         - text, for anything you wrote (JSON, CSV, markdown), with a filename;
-        - file, any file this workspace has, by its uri from workspace://files — a
-          screenshot, a download or a file in Files — without its bytes passing
-          through you;
+        - file, by its uri: a file in workspace://files or its folders, or a
+          download from session://downloads — without its bytes passing through you;
         - content, base64, for other binary.
 
         The page reads the type from the filename's extension, so name it

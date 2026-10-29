@@ -161,7 +161,7 @@ Firefox when the task is about Firefox. Downloads go with an ended browser, so
 | URI | Is |
 |---|---|
 | `workspace://current` | what you are holding |
-| `workspace://files` | Files' kept files, each with a link, and the three folders below |
+| `workspace://files` | Files' kept files, each with a link, and the two folders below |
 | `workspace://files/{name}` | one kept file |
 | `workspace://files/screenshots` | saved screenshots not yet kept |
 | `workspace://files/screenshots/{name}` | one of those |
