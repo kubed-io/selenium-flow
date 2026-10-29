@@ -312,7 +312,7 @@ jobs:
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
         schema: .issue/roles/claude/agents/plan.schema.json
         prompt: /mcp__superpowers__superpowers_spec-approved
-        header: "📄 Plan · [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }})"
+        header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
         session_key: pr-${{ needs.handoff.outputs.pull_request }}
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
         allowed_tools: Read,Glob,Grep,Write,Edit
