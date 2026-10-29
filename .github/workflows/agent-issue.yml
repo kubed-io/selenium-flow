@@ -132,6 +132,7 @@ jobs:
       if: env.WRITES == 'true'
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ env.BRANCH }}
@@ -300,6 +301,7 @@ jobs:
     - name: Land the Plan
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ needs.handoff.outputs.branch }}

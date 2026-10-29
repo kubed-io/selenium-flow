@@ -111,13 +111,25 @@ jobs:
       cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
     timeout-minutes: 30
     permissions:
+      issues: read
+      pull-requests: read
       contents: read
     env:
       # the agent-flow channel's token: n8n's messages reach the running turn
       AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
     steps:
 
+    # a queued turn routes again as it starts: the change may be finished or moved on (spec §12.8)
+    - name: Still a Turn
+      id: still
+      uses: kubed-io/actions/pr-route@main
+      with:
+        owner: "4399427"
+        app: "235398881"
+        copilot: "175728472"
+
     - name: App Token
+      if: steps.still.outputs.stage == 'plan'
       id: app
       uses: actions/create-github-app-token@v3
       with:
@@ -128,6 +140,7 @@ jobs:
         permission-issues: write
 
     - name: Checkout
+      if: steps.still.outputs.stage == 'plan'
       uses: actions/checkout@v7
       with:
         ref: ${{ needs.route.outputs.head }}
@@ -135,6 +148,7 @@ jobs:
         persist-credentials: false
 
     - name: Plan Agent
+      if: steps.still.outputs.stage == 'plan'
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
@@ -153,8 +167,10 @@ jobs:
 
     # the spec and plan live under docs/: the wiki first, then its pointer in one signed commit
     - name: Land the Plan
+      if: steps.still.outputs.stage == 'plan'
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ needs.route.outputs.head }}
@@ -173,6 +189,7 @@ jobs:
       cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
     timeout-minutes: 120
     permissions:
+      issues: read
       contents: read
       # the checks report, an artifact of pr.yml's run
       actions: read
@@ -185,7 +202,17 @@ jobs:
       AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
     steps:
 
+    # a queued turn routes again as it starts: the change may be finished or moved on (spec §12.8)
+    - name: Still a Turn
+      id: still
+      uses: kubed-io/actions/pr-route@main
+      with:
+        owner: "4399427"
+        app: "235398881"
+        copilot: "175728472"
+
     - name: App Token
+      if: steps.still.outputs.stage == 'code'
       id: app
       uses: actions/create-github-app-token@v3
       with:
@@ -194,8 +221,11 @@ jobs:
         permission-contents: write
         permission-pull-requests: write
         permission-issues: write
+        # pr-checks/rerun
+        permission-actions: write
 
     - name: Checkout
+      if: steps.still.outputs.stage == 'code'
       uses: actions/checkout@v7
       with:
         ref: ${{ needs.route.outputs.head }}
@@ -205,6 +235,7 @@ jobs:
 
     # CI tests the floor and the newest; the agent has both (python3.11), 3.14 the default
     - name: Setup Python
+      if: steps.still.outputs.stage == 'code'
       uses: actions/setup-python@v7
       with:
         python-version: |
@@ -212,19 +243,22 @@ jobs:
           3.14
 
     - name: Install
+      if: steps.still.outputs.stage == 'code'
       run: pip install --editable .[test,build]
 
     - name: Setup Node
+      if: steps.still.outputs.stage == 'code'
       uses: actions/setup-node@v7
       with:
         node-version: 26
 
     - name: Install UI Dependencies
+      if: steps.still.outputs.stage == 'code'
       run: npm --prefix ui ci
 
     # after the agents' checkout, into the gitignored scratch dir the agent reads
     - name: Checks Report
-      if: needs.route.outputs.run_id != ''
+      if: steps.still.outputs.stage == 'code' && (needs.route.outputs.run_id != '')
       uses: actions/download-artifact@v8
       with:
         name: checks-report
@@ -234,11 +268,13 @@ jobs:
 
     # what the checks found: the PR's code scanning alerts and the head's annotations
     - name: PR Checks
+      if: steps.still.outputs.stage == 'code'
       uses: kubed-io/actions/pr-checks@main
       with:
         number: ${{ needs.route.outputs.number }}
 
     - name: Code Agent
+      if: steps.still.outputs.stage == 'code'
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
@@ -268,9 +304,11 @@ jobs:
     # says `Agent: done` so its push wakes nothing. On the App's token, so ready_for_review
     # starts the checks and the review once, on the final commit
     - name: Land the Task
+      if: steps.still.outputs.stage == 'code'
       id: land
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ needs.route.outputs.head }}
@@ -280,9 +318,18 @@ jobs:
         ignore: .github/workflows/**
         pull_request: ${{ needs.route.outputs.number }}
 
+    # the agent judged the failed checks not this branch's: their failed jobs run once more;
+    # green brings the review, red again is Dr K's call
+    - name: Re-run the Checks
+      if: steps.still.outputs.stage == 'code' && needs.route.outputs.run_id != '' && fromJSON(steps.agent.outputs.output || '{}').rerun == true
+      uses: kubed-io/actions/pr-checks/rerun@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        run_id: ${{ needs.route.outputs.run_id }}
+
     # the plan built: the fix rounds that follow carry its summary, not every step of it
     - name: Compact the Session
-      if: steps.land.outputs.done == 'true' && steps.agent.outputs.session_id != ''
+      if: steps.still.outputs.stage == 'code' && (steps.land.outputs.done == 'true' && steps.agent.outputs.session_id != '')
       # a session that could not be compacted is still a finished task
       continue-on-error: true
       env:
