@@ -36,7 +36,7 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def test_the_resources_are_a_folder_and_three_sub_folders(srv):
+def test_the_resources_are_files_with_two_sub_folders_and_the_session_downloads(srv):
     async def go():
         async with Client(srv.mcp) as c:
             listed = {str(r.uri) for r in await c.list_resources()}
@@ -45,13 +45,13 @@ def test_the_resources_are_a_folder_and_three_sub_folders(srv):
     listed, templated = _run(go())
     assert {
         "workspace://files", "workspace://files/screenshots",
-        "workspace://files/recordings", "workspace://files/downloads",
+        "workspace://files/recordings", "session://downloads",
     } <= listed
     assert {
         "workspace://files/{name}",
         "workspace://files/screenshots/{name}",
         "workspace://files/recordings/{name}",
-        "workspace://files/downloads/{name}",
+        "session://downloads/{name}",
     } <= templated
 
 
@@ -119,7 +119,7 @@ def test_a_file_read_carries_its_own_media_type(srv, folder, name, expected):
     else:
         srv.workspaces.browser = lambda _: "abc"
         srv.actions.grid.read_file = lambda _session, _leaf: data
-        uri = f"workspace://files/downloads/{name}"
+        uri = f"session://downloads/{name}"
 
     async def go():
         async with Client(srv.mcp) as c:

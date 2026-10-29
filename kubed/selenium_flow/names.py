@@ -224,6 +224,7 @@ def library_of(key: str) -> str | None:
 # The last row is the rename's (spec 2026-10-09-workspaces-rename, ruling 5):
 # a saved flow may still name a `session://` URI.
 MOVED: tuple[tuple[str, str | None], ...] = (
+    ("workspace://files/downloads", "session://downloads"),
     ("session://files/downloads", "session://downloads"),
     ("session://downloads", None),
     ("session://", "workspace://"),

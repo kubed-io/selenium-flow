@@ -964,20 +964,15 @@
         "type": "object"
       },
       "FileFolder": {
-        "description": "One of the three folders named beside Files' own files.",
+        "description": "One of the two folders named beside Files' own files.",
         "properties": {
-          "browser": {
-            "description": "Present on downloads only: whether a browser is open to read them from.",
-            "type": "boolean"
-          },
           "count": {
             "type": "integer"
           },
           "name": {
             "enum": [
               "screenshots",
-              "recordings",
-              "downloads"
+              "recordings"
             ],
             "type": "string"
           },
@@ -1016,7 +1011,7 @@
         "type": "object"
       },
       "FileList": {
-        "description": "workspace://files: Files' own listing, and its three folders.",
+        "description": "workspace://files: Files' own listing, and its two folders.",
         "properties": {
           "count": {
             "type": "integer"
@@ -1387,12 +1382,8 @@
         "type": "object"
       },
       "FolderList": {
-        "description": "One folder's own listing: workspace://files/screenshots, /recordings or /downloads.",
+        "description": "One folder's own listing: workspace://files/screenshots, workspace://files/recordings or session://downloads.",
         "properties": {
-          "browser": {
-            "description": "Present on downloads only: whether a browser is open to read them from.",
-            "type": "boolean"
-          },
           "count": {
             "type": "integer"
           },
@@ -4572,6 +4563,99 @@
         "x-mcp-tool": "dialog"
       }
     },
+    "/browser/downloads": {
+      "get": {
+        "description": "Newest first, read from the browser itself. With no session open it is a 400 saying so: a download lives only as long as the browser that took it. A Grid failure from one that is open is a real fault and is not hidden.",
+        "operationId": "listDownloads",
+        "parameters": [
+          {
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "in": "header",
+            "name": "Sf-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderList"
+                }
+              }
+            },
+            "description": "The downloads of the session open in this workspace."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No session is open in this workspace: a download lives only as long as the browser that took it. Or an unusable workspace name."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong bearer token."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such browser session, or no such file in it. It ended, the Grid reaped it, or the id was never real."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Something failed that this server did not expect."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
+          }
+        },
+        "summary": "The downloads of the session open in this workspace.",
+        "tags": [
+          "browser"
+        ],
+        "x-mcp-resource": "session://downloads"
+      }
+    },
     "/browser/drag": {
       "post": {
         "description": "Drag an element onto another element (to), or by an offset in pixels (by_x, by_y); give one or the other. A range slider is by_x; a card into a column is to.\n\nThe pointer presses, glides and releases with short holds at each end, which drag libraries need. On Chrome this also completes native HTML5 drag-and-drop; on Firefox it does not, so a draggable=true element there may need the page's own fallback.",
@@ -6473,7 +6557,7 @@
     },
     "/files": {
       "get": {
-        "description": "Everything kept in Files, newest first, plus a count for workspace://files/screenshots, workspace://files/recordings and workspace://files/downloads — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either.",
+        "description": "Everything kept in Files, newest first, plus a count for workspace://files/screenshots and workspace://files/recordings — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either. The open browser's downloads are GET /browser/downloads.",
         "operationId": "listFiles",
         "parameters": [
           {
@@ -6504,7 +6588,7 @@
                 }
               }
             },
-            "description": "Files' own listing, and its three folders."
+            "description": "Files' own listing, and its two folders."
           },
           "400": {
             "content": {
@@ -6557,104 +6641,11 @@
             "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
           }
         },
-        "summary": "Files' own listing, and its three folders.",
+        "summary": "Files' own listing, and its two folders.",
         "tags": [
           "files"
         ],
         "x-mcp-resource": "workspace://files"
-      }
-    },
-    "/files/downloads": {
-      "get": {
-        "description": "Newest first, read from the browser itself. Answers empty rather than failing when there is no browser open; a Grid failure from one that is open is a real fault and is not hidden.",
-        "operationId": "listDownloads",
-        "parameters": [
-          {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
-            "in": "header",
-            "name": "Sf-Workspace",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
-            "in": "query",
-            "name": "workspace",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FolderList"
-                }
-              }
-            },
-            "description": "The downloads of the session open in this workspace."
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing or wrong bearer token."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "No such browser session, or no such file in it. It ended, the Grid reaped it, or the id was never real."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Something failed that this server did not expect."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
-          }
-        },
-        "summary": "The downloads of the session open in this workspace.",
-        "tags": [
-          "files"
-        ],
-        "x-mcp-resource": "workspace://files/downloads"
       }
     },
     "/files/recordings": {

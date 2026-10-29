@@ -13,7 +13,7 @@ import json
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
-from mcp.types import Implementation
+from mcp.types import Implementation, ResourceTemplateReference
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import clients as clients_module
@@ -147,7 +147,7 @@ async def test_an_image_comes_back_as_an_image(reader):
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII="
     )
     _serving(reader, png)
-    result = await read(reader, "workspace://files/downloads/shot.png")
+    result = await read(reader, "session://downloads/shot.png")
     assert result.content[0].type == "image"
     assert result.content[0].mime_type == "image/png"
 
@@ -157,11 +157,11 @@ async def test_any_other_binary_is_described_not_dumped(reader):
     with, spent out of its own context."""
     pdf = b"%PDF-1.4" + b"x" * 50_000
     _serving(reader, pdf)
-    result = await read(reader, "workspace://files/downloads/report.pdf")
+    result = await read(reader, "session://downloads/report.pdf")
     said = json.loads(result.content[0].text)
     assert said["binary"] is True and said["bytes"] == len(pdf)
     assert said["mime_type"] == "application/pdf"
-    assert "workspace://files" in said["read"]
+    assert "Read session://downloads for this file's link" in said["read"]
     assert len(result.content[0].text) < 1_000
 
 
@@ -257,11 +257,29 @@ async def test_a_person_picking_a_file_is_offered_their_own_files(reader):
     assert offered.values == ["report.pdf"]
 
 
+DOWNLOAD = ResourceTemplateReference(type="ref/resource", uri="session://downloads/{name}")
+
+
+async def test_download_names_complete_to_nothing_with_no_session(reader):  # Review Focus 5
+    reader.workspaces.browser = lambda name: ""
+    async with Client(reader.mcp) as c:
+        offered = await c.complete(DOWNLOAD, {"name": "name", "value": ""})
+    assert offered.values == []
+
+
+async def test_download_names_complete_from_the_open_browser(reader):
+    reader.workspaces.browser = lambda name: "abc"
+    reader.actions.grid.files = lambda session: [{"name": "export.csv", "size": 1}]
+    async with Client(reader.mcp) as c:
+        offered = await c.complete(DOWNLOAD, {"name": "name", "value": "exp"})
+    assert offered.values == ["export.csv"]
+
+
 async def test_an_svg_reads_back_as_the_text_it_is(reader):
     """An image to a browser, XML to a model — which cannot view it as a picture
     (Copilot, #39)."""
     _serving(reader, b"<svg xmlns='http://www.w3.org/2000/svg'><rect/></svg>")
-    result = await read(reader, "workspace://files/downloads/chart.svg")
+    result = await read(reader, "session://downloads/chart.svg")
     assert result.content[0].type == "text"
     assert result.content[0].text.startswith("<svg")
 

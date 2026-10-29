@@ -30,6 +30,8 @@ def test_show_names_the_new_spelling_of_an_old_uri():
 
 
 @pytest.mark.parametrize("old, new", [
+    ("workspace://files/downloads", "session://downloads"),
+    ("workspace://files/downloads/export.csv", "session://downloads/export.csv"),
     ("session://files/downloads/export.csv", "session://downloads/export.csv"),  # Review Focus 2
     ("session://files/a.png", "workspace://files/a.png"),
     ("session://console?level=error", "workspace://console?level=error"),

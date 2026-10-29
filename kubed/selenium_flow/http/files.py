@@ -41,17 +41,20 @@ action through the admin UI, where a person can see what they are deleting.
 read the workspace's record with ``Workspaces.browser(name)``, never
 ``Workspaces.resolve``: ``resolve`` would start a browser to answer a question
 about files, and a listing that did that would be the leak the status
-resource already refuses to be. With no browser attached, Downloads answers
-empty rather than failing, because that is the ordinary case and costs no
-Grid call at all — which is also why a genuine failure from a browser the
-record says is live is never swallowed.
+resource already refuses to be. Downloads are the session's, at
+``session://downloads``, and with no session open reading them is refused
+with ``NO_DOWNLOADS``, which costs no Grid call at all — while a genuine
+failure from a browser the record says is live is never swallowed. Only the
+admin's ``sections`` still answers an empty Downloads for an idle workspace,
+because the pane shows every section at once. ``root`` asks the Grid nothing.
 
-``screenshots`` and ``downloads`` are **reserved names inside Files**:
-without that rule, a file arriving there under either name could never be
-addressed by ``workspace://files/{name}``, since those two path segments
-already mean the folders. One arriving under a reserved name lands as
-``screenshots (1)`` or ``downloads (1)``, the same rule every other name
-clash in a folder follows.
+``screenshots``, ``recordings`` and ``downloads`` are **reserved names inside
+Files**: without that rule, a file arriving there under one of them could
+never be addressed by ``workspace://files/{name}``, since those path segments
+mean the folders, or meant one. One arriving under a reserved name lands as
+``screenshots (1)``, ``recordings (1)`` or ``downloads (1)``, the same rule
+every other name clash in a folder follows. A ``workspace://files/downloads``
+URI is refused, naming ``session://downloads`` (``names.MOVED``).
 
 Every address is offered three ways, because clients differ in what they
 accept: a resource (state to read, free for a client to pull into context), a
@@ -76,6 +79,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ..core.annotations import hints
+from ..faults import NoSession
 from ..mcp import clients
 from ..names import RESERVED_IN_FILES, candidates, retired_uri, valid_file_name
 from . import answer as answer_module
@@ -92,7 +96,9 @@ FILE_URI = "workspace://files/{name}"
 FOLDER_URI = {
     SCREENSHOTS: f"{ROOT_URI}/{SCREENSHOTS}",
     RECORDINGS: f"{ROOT_URI}/{RECORDINGS}",
-    DOWNLOADS: f"{ROOT_URI}/{DOWNLOADS}",
+    # The session's, not the workspace's: a download lives only as long as the
+    # browser that took it (spec 2026-10-29-session-uris).
+    DOWNLOADS: "session://downloads",
 }
 ITEM_URI = {k: v + "/{name}" for k, v in FOLDER_URI.items()}
 KEEP_TOOL = "keep_file"
@@ -106,7 +112,7 @@ SHAPES = (
     "workspace://files/<name> for a file in Files, "
     "workspace://files/screenshots/<name> for a screenshot, "
     "workspace://files/recordings/<name> for a recording, or "
-    "workspace://files/downloads/<name> for a download"
+    "session://downloads/<name> for a download"
 )
 
 # Path -> what it does. Its own table, like flowapi's: these are not browser
@@ -120,17 +126,18 @@ SHAPES = (
 # is where deleting anything belongs.
 FILE_ENDPOINTS = ("list", "screenshots", "downloads", "recordings", "keep")
 
-# The REST shape of each: method, and the path under the /files prefix. Read by
+# The REST shape of each: method, and the whole path under the mount. Read by
 # the routes and by the published spec, so the two cannot disagree (§F2.13).
-# `keep` names the folder in the path, because keeping is only ever offered for
-# the two folders a file can be kept OUT of — a Files URI already answers with
-# itself (§F4.7).
+# The downloads listing is the session's, so it is under /browser (spec
+# 2026-10-29-session-uris, ruling 9). `keep` names the folder in the path,
+# because keeping is only ever offered for the folders a file can be kept OUT
+# of — a Files URI already answers with itself (§F4.7).
 FILE_ROUTES = {
-    "list": ("get", ""),
-    "screenshots": ("get", "/screenshots"),
-    "downloads": ("get", "/downloads"),
-    "recordings": ("get", "/recordings"),
-    "keep": ("put", "/{folder}/{name}/kept"),
+    "list": ("get", "/files"),
+    "screenshots": ("get", "/files/screenshots"),
+    "downloads": ("get", "/browser/downloads"),
+    "recordings": ("get", "/files/recordings"),
+    "keep": ("put", "/files/{folder}/{name}/kept"),
 }
 
 # Raster images: shown as pictures, and served unsandboxed because a browser
@@ -149,10 +156,18 @@ OFF = (
 
 NOTHING = "nothing to list: this server keeps no files and holds no browser for you"
 
+# Raised as `faults.NoSession` by every read of the downloads, never by the
+# admin's `sections` (spec 2026-10-29-session-uris, ruling 8).
+NO_DOWNLOADS = (
+    "no session is open in this workspace; a download lives only as long as "
+    "the browser that took it"
+)
+
 DESCRIPTION = (
     "The files in Files: prints, and anything kept with keep_file. Also names "
-    "three folders — workspace://files/screenshots, workspace://files/recordings "
-    "and workspace://files/downloads — each with its own listing.\n\n"
+    "two folders — workspace://files/screenshots and workspace://files/recordings "
+    "— each with its own listing. The open browser's downloads are "
+    "session://downloads.\n\n"
     "Every entry carries its own uri, to keep with keep_file(uri), and a URL "
     "that opens in a browser for a while, so an image can be shown to someone "
     "rather than described to them."
@@ -179,14 +194,25 @@ def uri_of(folder: str, name: str) -> str:
 
 
 def parse_uri(uri) -> tuple[str, str]:
-    """``(folder, name)`` for a file's address, or a ValueError naming the shapes."""
+    """``(folder, name)`` for a file's address, or a ValueError naming the shapes.
+
+    A moved URI is refused with its new spelling first, so a saved flow naming
+    ``workspace://files/downloads/…`` is told where it went, not that it names
+    no file.
+    """
     retired_uri(uri)
     text = str(uri or "")
+    downloads = FOLDER_URI[DOWNLOADS] + "/"
+    if text.startswith(downloads):
+        leaf = text[len(downloads):]
+        if leaf and "/" not in leaf:
+            return DOWNLOADS, valid_file_name(unquote(leaf))
+        raise ValueError(f"{text!r} is not a file: use {SHAPES}")
     prefix = ROOT_URI + "/"
     parts = text[len(prefix):].split("/") if text.startswith(prefix) else []
     if len(parts) == 1 and parts[0] and parts[0] not in RESERVED:
         return FILES, valid_file_name(unquote(parts[0]))
-    if len(parts) == 2 and parts[0] in RESERVED and parts[1]:
+    if len(parts) == 2 and parts[0] in (SCREENSHOTS, RECORDINGS) and parts[1]:
         return parts[0], valid_file_name(unquote(parts[1]))
     raise ValueError(f"{text!r} is not a file: use {SHAPES}")
 
@@ -325,15 +351,6 @@ def listing_of(
     return sorted(described, key=lambda f: f.get("created") or 0, reverse=True)
 
 
-def downloads_count(actions, session_id: str) -> int:
-    """How many downloads a session has, without describing or signing any.
-
-    Same source and ``is_partial`` rule as ``listing_of``; ``root`` only wants
-    the count, and describing every download to get it is paid on every read.
-    """
-    return len(actions.grid.files(session_id)) if session_id else 0
-
-
 def root(
     actions,
     workspaces,
@@ -344,26 +361,21 @@ def root(
     mount: str = "",
     ttl: int = links.DEFAULT_TTL,
 ) -> dict:
-    """``workspace://files``: the Files section's own files, and its three folders.
+    """``workspace://files``: the Files section's own files, and its two folders.
 
     The two folders are named with a count each rather than expanded, so a
     caller who only wants to know whether there is anything to look at need
-    not pay for any listing.
+    not pay for any listing. Nothing here comes from the browser, so the Grid
+    is never asked: downloads are ``session://downloads`` (ruling 10).
     """
+    if store is None:
+        raise ValueError(OFF)
     owned = owner(store, name)
-    # Never `resolve`: see the module docstring.
-    target = workspaces.browser(name)
-    if not target and store is None:
-        raise ValueError(NOTHING)
     file_list = listing_of(
-        actions, store, FILES, owned, target, token, base, mount, ttl=ttl
+        actions, store, FILES, owned, "", token, base, mount, ttl=ttl
     )
-    screenshots_count = (
-        len(store.files(owned, SCREENSHOTS)) if store is not None and owned else 0
-    )
-    recordings_count = (
-        len(store.files(owned, RECORDINGS)) if store is not None and owned else 0
-    )
+    screenshots_count = len(store.files(owned, SCREENSHOTS)) if owned else 0
+    recordings_count = len(store.files(owned, RECORDINGS)) if owned else 0
     return {
         "workspace": owned or None,
         "count": len(file_list),
@@ -378,12 +390,6 @@ def root(
                 "name": RECORDINGS,
                 "uri": FOLDER_URI[RECORDINGS],
                 "count": recordings_count,
-            },
-            {
-                "name": DOWNLOADS,
-                "uri": FOLDER_URI[DOWNLOADS],
-                "count": downloads_count(actions, target),
-                "browser": bool(target),
             },
         ],
     }
@@ -400,27 +406,33 @@ def folder(
     mount: str = "",
     ttl: int = links.DEFAULT_TTL,
 ) -> dict:
-    """One section's own listing: Files, Screenshots or Downloads."""
+    """One section's own listing: Files, Screenshots, Recordings or Downloads.
+
+    Downloads are the session's: with none open they are refused with
+    ``NO_DOWNLOADS``, before anything else is asked. The other three are the
+    workspace's, and are ``OFF`` without a ``DATA_DIR``, browser or not.
+    """
     if which not in (FILES, SCREENSHOTS, RECORDINGS, DOWNLOADS):
         raise ValueError(f"{which!r} is not a file section: use {SHAPES}")
     owned = owner(store, name)
-    # Never `resolve`: see the module docstring.
-    target = workspaces.browser(name)
-    if not target and store is None:
-        raise ValueError(NOTHING)
+    target = ""
+    if which == DOWNLOADS:
+        # Never `resolve`: see the module docstring.
+        target = workspaces.browser(name)
+        if not target:
+            raise NoSession(NO_DOWNLOADS)
+    elif store is None:
+        raise ValueError(OFF)
     entries = listing_of(
         actions, store, which, owned, target, token, base, mount, ttl=ttl
     )
-    result = {
+    return {
         "workspace": owned or None,
         "folder": which,
         "uri": ROOT_URI if which == FILES else FOLDER_URI[which],
         "count": len(entries),
         "files": entries,
     }
-    if which == DOWNLOADS:
-        result["browser"] = bool(target)
-    return result
 
 
 def sections(
@@ -558,10 +570,7 @@ def keep(actions, workspaces, store, uri, name: str, session_id=None) -> dict:
         if session_id is None:
             session_id = workspaces.browser(name)
         if not session_id:
-            raise ValueError(
-                "a download is read from a browser, and none is open: "
-                "open_session first"
-            )
+            raise NoSession(NO_DOWNLOADS)
         data = actions.grid.read_file(session_id, leaf)
         landed = store.write_file(workspace, _unreserved(leaf), data, FILES)
         log.info("kept %s as %s/%s", uri, workspace, landed["name"])
@@ -614,7 +623,7 @@ def read_file(actions, workspaces, store, uri, name: str) -> tuple[str, bytes]:
     if folder_of == DOWNLOADS:
         target = workspaces.browser(name)
         if not target:
-            raise ValueError("a download is read from a browser, and none is open")
+            raise NoSession(NO_DOWNLOADS)
         return leaf, actions.grid.read_file(target, leaf)
     if store is None:
         raise ValueError(OFF)
@@ -679,7 +688,8 @@ FOLDER_DESCRIPTION = {
         "The downloads of the session open in this workspace. They belong to "
         "the browser and "
         f"disappear when it ends or the Grid reaps it; {KEEP_TOOL}(uri) copies "
-        f"one into {ROOT_URI} before that happens."
+        f"one into {ROOT_URI} before that happens. With no session open, "
+        "reading it says so."
     ),
 }
 
@@ -817,7 +827,8 @@ def register(
         name=KEEP_TOOL,
         description=(
             "Keep one file in Files, where it stays until a person deletes it.\n\n"
-            "uri is as workspace://files and its folders list it. A screenshot "
+            "uri is as workspace://files, its folders and session://downloads "
+            "list it. A screenshot "
             "or a recording moves out of its folder and lands beside a "
             "same-named file as name (1); a download is copied, since the "
             "browser keeps its own until it ends, and REPLACES a same-named "
@@ -842,25 +853,30 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
 
     Their own tree under ``/files``, for the reason ``/flows`` has one: these
     are not browser actions, and counting them as such would break the
-    one-to-one promise ``test_surfaces.py`` guards over those.
+    one-to-one promise ``test_surfaces.py`` guards over those. The downloads
+    listing is the one exception, at ``/browser/downloads``: a download is the
+    session's, so its listing sits with the browser it lives in (spec
+    2026-10-29-session-uris, ruling 9). Keeping one is still ``/files``'s.
 
     A file belongs to a workspace, so all of these name one the way everything
     else does — a header or ``?workspace=`` — and none takes an id.
 
-    The two literal GETs are registered before the one route with a path
-    parameter, so `/files/screenshots` and `/files/downloads` are never at the
+    The literal GETs are registered before the one route with a path
+    parameter, so `/files/screenshots` and `/files/recordings` are never at the
     mercy of a template that could otherwise be tried first.
     """
 
-    files_root = f"{prefix}/files"
+    def path(what: str) -> str:
+        return prefix + FILE_ROUTES[what][1]
 
     async def answer(request: Request, what: str, call) -> JSONResponse:
         """One request, answered the way every other tree answers one."""
-        return await answer_module.answer(request, token, f"files/{what}", call, log)
+        label = "browser/downloads" if what == "downloads" else f"files/{what}"
+        return await answer_module.answer(request, token, label, call, log)
 
-    @mcp.custom_route(files_root, methods=["GET"], name="files_list")
+    @mcp.custom_route(path("list"), methods=["GET"], name="files_list")
     async def list_files(request: Request) -> JSONResponse:
-        """Files' own listing, and the three folders beside it."""
+        """Files' own listing, and the two folders beside it."""
         return await answer(
             request,
             "list",
@@ -870,9 +886,7 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
             ),
         )
 
-    @mcp.custom_route(
-        files_root + "/screenshots", methods=["GET"], name="files_screenshots"
-    )
+    @mcp.custom_route(path("screenshots"), methods=["GET"], name="files_screenshots")
     async def list_screenshots(request: Request) -> JSONResponse:
         """This workspace's saved screenshots, not yet kept."""
         return await answer(
@@ -884,9 +898,7 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
             ),
         )
 
-    @mcp.custom_route(
-        files_root + "/downloads", methods=["GET"], name="files_downloads"
-    )
+    @mcp.custom_route(path("downloads"), methods=["GET"], name="browser_downloads")
     async def list_downloads(request: Request) -> JSONResponse:
         """The downloads of the session open in this workspace."""
         return await answer(
@@ -898,9 +910,7 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
             ),
         )
 
-    @mcp.custom_route(
-        files_root + "/recordings", methods=["GET"], name="files_recordings"
-    )
+    @mcp.custom_route(path("recordings"), methods=["GET"], name="files_recordings")
     async def list_recordings(request: Request) -> JSONResponse:
         """This workspace's recordings, not yet kept."""
         return await answer(
@@ -912,9 +922,7 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
             ),
         )
 
-    @mcp.custom_route(
-        files_root + "/{folder}/{name}/kept", methods=["PUT"], name="files_keep"
-    )
+    @mcp.custom_route(path("keep"), methods=["PUT"], name="files_keep")
     async def keep_route(request: Request) -> JSONResponse:
         """Keep a screenshot or a download beyond what made it. A PUT because
         keeping a name that is already kept is not a failure: a screenshot
