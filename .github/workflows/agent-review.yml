@@ -99,32 +99,12 @@ jobs:
       security-events: read
     steps:
 
-    # only to read the org's agents; the review itself goes on the built-in token
-    - name: Agents Token
-      id: roles
-      uses: actions/create-github-app-token@v3
-      with:
-        client-id: ${{ vars.GH_CLIENT_ID }}
-        private-key: ${{ secrets.GH_APP_KEY }}
-        repositories: .github-private
-        permission-contents: read
-
     - name: Checkout
       uses: actions/checkout@v7
       with:
         # the commit the check is for, even when the branch moves on meanwhile
         ref: ${{ needs.route.outputs.sha }}
         submodules: true
-        persist-credentials: false
-
-    # the org's agents; after the repo's checkout, which would clean them away
-    - name: Checkout the Agents
-      uses: actions/checkout@v7
-      with:
-        repository: kubed-io/.github-private
-        token: ${{ steps.roles.outputs.token }}
-        path: .issue/roles
-        sparse-checkout: claude
         persist-credentials: false
 
     # what the checks found: the PR's code scanning alerts and the head's annotations
@@ -139,19 +119,20 @@ jobs:
       with:
         github_token: ${{ github.token }}
         number: ${{ needs.route.outputs.number }}
-        agent: .issue/roles/claude/agents/review.md
-        schema: .issue/roles/claude/agents/review.schema.json
+        agent: ${{ env.CLAUDE_AGENTS }}/review/AGENT.md
+        schema: ${{ env.CLAUDE_AGENTS }}/review/schema.json
+        mcp: ${{ env.CLAUDE_AGENTS }}/review/mcp.json
+        allowed_tools: Read,Glob,Grep
+        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
         # the turn's words are a kb prompt (superpowers library)
         prompt: /mcp__superpowers__superpowers_review
         prompt_when: always
         header: "**Verdict: {{ output.verdict }}**"
         review: "true"
         threads: "false"
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
+        # the Checks job's dispatch is github-actions': Claude starts only for an allowed bot
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282,github-actions
         session_key: review-${{ needs.route.outputs.number }}
-        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
-        allowed_tools: Read,Glob,Grep
-        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
         claude_args: --strict-mcp-config
 
     # the verdict is the check: only `looks good` passes it
