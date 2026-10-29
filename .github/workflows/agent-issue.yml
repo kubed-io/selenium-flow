@@ -91,9 +91,6 @@ jobs:
         private-key: ${{ secrets.GH_APP_KEY }}
         permission-contents: write
         permission-issues: write
-        repositories: |
-          selenium-flow
-          .github-private
 
     - name: Branch
       if: env.WRITES == 'true'
@@ -110,31 +107,19 @@ jobs:
         submodules: true
         persist-credentials: false
 
-    # the org's agents; after the repo's checkout, which would clean them away
-    - name: Checkout the Agents
-      uses: actions/checkout@v7
-      with:
-        repository: kubed-io/.github-private
-        token: ${{ steps.app.outputs.token }}
-        path: .issue/roles
-        sparse-checkout: claude
-        persist-credentials: false
-
     - name: Spec Agent
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        agent: .issue/roles/claude/agents/spec.md
+        agent: spec
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
-        schema: .issue/roles/claude/agents/spec.schema.json
         opt_in_label: agent
         # the `spec` label's turn is a kb prompt (superpowers library)
         prompt: ${{ needs.route.outputs.prompt }}
         session_key: issue-${{ needs.route.outputs.number }}
-        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
         allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
         claude_args: --strict-mcp-config
@@ -280,9 +265,6 @@ jobs:
         permission-contents: write
         permission-pull-requests: write
         permission-issues: write
-        repositories: |
-          selenium-flow
-          .github-private
 
     - name: Checkout
       uses: actions/checkout@v7
@@ -291,34 +273,20 @@ jobs:
         submodules: true
         persist-credentials: false
 
-    # the org's agents; after the repo's checkout, which would clean them away
-    - name: Checkout the Agents
-      uses: actions/checkout@v7
-      with:
-        repository: kubed-io/.github-private
-        token: ${{ steps.app.outputs.token }}
-        path: .issue/roles
-        sparse-checkout: claude
-        persist-credentials: false
-
     - name: Plan Agent
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.handoff.outputs.pull_request }}
-        agent: .issue/roles/claude/agents/plan.md
+        agent: plan
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
-        schema: .issue/roles/claude/agents/plan.schema.json
         prompt: /mcp__superpowers__superpowers_spec-approved
         # the PR's opening post is always new, so a quiet prompt would never be sent
         prompt_when: always
         header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
         session_key: pr-${{ needs.handoff.outputs.pull_request }}
-        mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
-        allowed_tools: Read,Glob,Grep,Write,Edit
-        disallowed_tools: Bash,NotebookEdit
         claude_args: --strict-mcp-config
         live_messages: true
 
