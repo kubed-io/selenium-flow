@@ -130,7 +130,8 @@ jobs:
         header: "**Verdict: {{ output.verdict }}**"
         review: "true"
         threads: "false"
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
+        # the Checks job's dispatch is github-actions': Claude starts only for an allowed bot
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282,github-actions
         session_key: review-${{ needs.route.outputs.number }}
         claude_args: --strict-mcp-config
 
