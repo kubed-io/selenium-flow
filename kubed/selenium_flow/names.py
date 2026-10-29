@@ -50,8 +50,9 @@ SCREENSHOTS_DIR = "screenshots"
 RECORDINGS_DIR = "recordings"
 FOLDERS = (FILES_DIR, SCREENSHOTS_DIR, RECORDINGS_DIR)
 
-# The folder names a file in Files can never take, since workspace://files/<name>
-# would then mean the folder (§F4.6). One arriving under one lands as `name (1)`.
+# The names a file in Files can never take, since workspace://files/<name> would
+# then mean a folder, or meant one (`downloads`; §F4.6). One arriving under one
+# lands as `name (1)`.
 RESERVED_IN_FILES = frozenset({SCREENSHOTS_DIR, "downloads", RECORDINGS_DIR})
 
 # A Grid session id becomes a note's file name. The Grid hands us 32 hex or a
@@ -237,7 +238,7 @@ def retired_uri(uri) -> None:
     for old, new in MOVED:
         if old.endswith("://"):
             rest = text[len(old):] if text.startswith(old) else None
-        elif text == old or text.startswith(old + "/"):
+        elif text == old or text.startswith((old + "/", old + "?")):
             rest = text[len(old):]
         else:
             rest = None

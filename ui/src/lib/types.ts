@@ -250,7 +250,7 @@ export interface BodyResult {
   id: string; uri: string; mime: string; size: number | null; binary: boolean; text: string | null; truncated: boolean
 }
 
-export interface FolderRef { name: string; uri: string; count: number; browser?: boolean }
+export interface FolderRef { name: string; uri: string; count: number }
 
 export interface FilesRootData {
   workspace: string | null
@@ -265,7 +265,6 @@ export interface FolderData {
   uri: string
   count: number
   files: FileEntry[]
-  browser?: boolean
 }
 
 export interface FlowParam { type?: unknown; default?: unknown; description?: unknown }

@@ -32,6 +32,7 @@ def test_show_names_the_new_spelling_of_an_old_uri():
 @pytest.mark.parametrize("old, new", [
     ("workspace://files/downloads", "session://downloads"),
     ("workspace://files/downloads/export.csv", "session://downloads/export.csv"),
+    ("workspace://files/downloads?x=1", "session://downloads?x=1"),
     ("session://files/downloads/export.csv", "session://downloads/export.csv"),  # Review Focus 2
     ("session://files/a.png", "workspace://files/a.png"),
     ("session://console?level=error", "workspace://console?level=error"),
@@ -43,7 +44,7 @@ def test_a_moved_uri_names_where_it_is_now(old, new):  # ruling 11
 
 
 @pytest.mark.parametrize("uri", [
-    "session://downloads", "session://downloads/export.csv",
+    "session://downloads", "session://downloads/export.csv", "session://downloads?x=1",
     "workspace://files/downloads (1)", "workspace://files/screenshots/a.png",
 ])
 def test_a_served_uri_passes(uri):

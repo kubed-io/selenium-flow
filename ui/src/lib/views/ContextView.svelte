@@ -27,7 +27,7 @@
     {#if data.window}<span class="pill">{windowSize(data.window)}</span>{/if}
     {#if who}<span class="pill name">{who}</span>{/if}
   </div>
-  {#if data.site_data || data.capture}
+  {#if data.site_data || data.capture || data.live}
     <div class="chips">
       {#if data.capture}
         {#each [
@@ -51,6 +51,13 @@
       {:else}
         <span class="chip" title="Open isn't available in this client"><span>Site data</span><span class="pill">{data.site_data.sites}</span></span>
       {/if}
+      {/if}
+      {#if data.live}
+        {#if onshow}
+          <button type="button" class="chip" onclick={() => onshow('session://downloads')}><span>Downloads</span></button>
+        {:else}
+          <span class="chip" title="Open isn't available in this client"><span>Downloads</span></span>
+        {/if}
       {/if}
     </div>
   {/if}

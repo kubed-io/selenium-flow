@@ -85,7 +85,7 @@ const SITES = {
 test.each([
   ['context', { workspace: 'drk', url: 'https://example.com/', live: true }, 'drk'],
   ['files', { workspace: 's', count: 0, files: [], folders: [{ name: 'screenshots', uri: 'workspace://files/screenshots', count: 2 }] }, 'Screenshots'],
-  ['folder', { workspace: 's', folder: 'downloads', uri: 'workspace://files/downloads', count: 0, files: [] }, 'Downloads'],
+  ['folder', { workspace: 's', folder: 'downloads', uri: 'session://downloads', count: 0, files: [] }, 'Downloads'],
   ['flows', FLOWS.data, 'login'],
   ['flow', FLOW.data, 'navigate'],
   ['secrets', { workspace: 's', count: 1, secrets: [{ name: 'demo', keys: ['password'], restricted: false }] }, 'demo'],
