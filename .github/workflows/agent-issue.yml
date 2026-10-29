@@ -312,6 +312,8 @@ jobs:
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
         schema: .issue/roles/claude/agents/plan.schema.json
         prompt: /mcp__superpowers__superpowers_spec-approved
+        # the PR's opening post is always new, so a quiet prompt would never be sent
+        prompt_when: always
         header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
         session_key: pr-${{ needs.handoff.outputs.pull_request }}
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
