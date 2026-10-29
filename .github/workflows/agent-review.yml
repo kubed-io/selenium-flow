@@ -99,7 +99,24 @@ jobs:
       security-events: read
     steps:
 
+    # a queued review checks it is still wanted as it starts: when the head has moved on, that
+    # head's own checks dispatch its review (spec §12.8)
+    - name: Still Wanted
+      id: still
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUMBER: ${{ needs.route.outputs.number }}
+        SHA: ${{ needs.route.outputs.sha }}
+      run: |
+        head=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}" --jq .head.sha)
+        if [ "$head" = "$SHA" ]; then
+          echo "wanted=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::${SHA} is no longer the head (${head}): its checks dispatch its own review"
+        fi
+
     - name: Checkout
+      if: steps.still.outputs.wanted == 'true'
       uses: actions/checkout@v7
       with:
         # the commit the check is for, even when the branch moves on meanwhile
@@ -109,11 +126,13 @@ jobs:
 
     # what the checks found: the PR's code scanning alerts and the head's annotations
     - name: PR Checks
+      if: steps.still.outputs.wanted == 'true'
       uses: kubed-io/actions/pr-checks@main
       with:
         number: ${{ needs.route.outputs.number }}
 
     - name: Review Agent
+      if: steps.still.outputs.wanted == 'true'
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
@@ -137,12 +156,13 @@ jobs:
 
     # the verdict is the check: only `looks good` passes it
     - name: Set the Check
-      if: always()
+      if: steps.still.outputs.wanted == 'true' && (always())
       uses: kubed-io/actions/review-route/verdict@main
       with:
         check: ${{ env.CHECK }}
         number: ${{ needs.route.outputs.number }}
-        sha: ${{ needs.route.outputs.sha }}
+        # the commit the review ended on: the hook may have brought a push in (spec §12.5)
+        sha: ${{ steps.agent.outputs.reviewed_sha || needs.route.outputs.sha }}
         last: ${{ needs.route.outputs.last }}
         output: ${{ steps.agent.outputs.output }}
         review_id: ${{ steps.agent.outputs.review_id }}
@@ -151,8 +171,9 @@ jobs:
     # a pointer, never the review: the code agent reads it from the PR
     - name: Wake the Code Agent
       if: >-
+        steps.still.outputs.wanted == 'true' && (
         needs.route.outputs.last != 'true' &&
-        fromJSON(steps.agent.outputs.output || '{}').verdict == 'changes requested'
+        fromJSON(steps.agent.outputs.output || '{}').verdict == 'changes requested')
       env:
         GH_TOKEN: ${{ github.token }}
         NUMBER: ${{ needs.route.outputs.number }}
