@@ -155,7 +155,7 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         agent: .issue/roles/claude/agents/plan.md
         schema: .issue/roles/claude/agents/plan.schema.json
-        header: "📄 Plan · [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }})"
+        header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
         session_key: pr-${{ needs.route.outputs.number }}
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
