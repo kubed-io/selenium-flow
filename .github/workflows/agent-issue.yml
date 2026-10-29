@@ -113,7 +113,9 @@ jobs:
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        agent: spec
+        agent: ${{ env.CLAUDE_AGENTS }}/spec/AGENT.md
+        schema: ${{ env.CLAUDE_AGENTS }}/spec/schema.json
+        mcp_config: ${{ env.CLAUDE_AGENTS }}/spec/mcp.json
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
         opt_in_label: agent
@@ -279,7 +281,11 @@ jobs:
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.handoff.outputs.pull_request }}
-        agent: plan
+        agent: ${{ env.CLAUDE_AGENTS }}/plan/AGENT.md
+        schema: ${{ env.CLAUDE_AGENTS }}/plan/schema.json
+        mcp_config: ${{ env.CLAUDE_AGENTS }}/plan/mcp.json
+        allowed_tools: Read,Glob,Grep,Write,Edit
+        disallowed_tools: Bash,NotebookEdit
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
         prompt: /mcp__superpowers__superpowers_spec-approved

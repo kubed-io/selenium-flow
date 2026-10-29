@@ -140,7 +140,11 @@ jobs:
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        agent: plan
+        agent: ${{ env.CLAUDE_AGENTS }}/plan/AGENT.md
+        schema: ${{ env.CLAUDE_AGENTS }}/plan/schema.json
+        mcp_config: ${{ env.CLAUDE_AGENTS }}/plan/mcp.json
+        allowed_tools: Read,Glob,Grep,Write,Edit
+        disallowed_tools: Bash,NotebookEdit
         header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
         session_key: pr-${{ needs.route.outputs.number }}
@@ -240,7 +244,10 @@ jobs:
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        agent: code
+        agent: ${{ env.CLAUDE_AGENTS }}/code/AGENT.md
+        schema: ${{ env.CLAUDE_AGENTS }}/code/schema.json
+        mcp_config: ${{ env.CLAUDE_AGENTS }}/code/mcp.json
+        allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
         prompt: ${{ needs.route.outputs.prompt }}
         prompt_when: ${{ needs.route.outputs.prompt_when }}
         # the plan approved: the planning drafts give way to the code
