@@ -7,44 +7,77 @@ name: 🧭 Agent · Issue
 # turn. `spec approved` opens the draft PR from that branch, or from a new one with an
 # empty commit, and starts the plan on it.
 #
+# n8n decides when this runs: it drops the noise and sends what is a turn as an
+# `agent-issue` dispatch, a pointer the route job reads back from GitHub (spec §8.4).
+#
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
-# only GitHub's own event data can vouch for the sender. 4399427 is Dr K. Who else
-# counts inside a run comes from the claude runner's env.
+# only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
+# kubed-io App (n8n's dispatches). Who else counts inside a run comes from the claude
+# runner's env.
 
 on:
   issues:
     types: [labeled]
   issue_comment:
     types: [created]
+  repository_dispatch:
+    types: [agent-issue]
 
 permissions: {}
 
 jobs:
 
+  # what the event is for: a spec turn, the hand-off, or nothing, read back from GitHub
+  route:
+    name: Route
+    if: >-
+      (github.event_name != 'repository_dispatch' &&
+        github.event.sender.id == 4399427 &&
+        github.triggering_actor == 'kferrone' &&
+        !github.event.issue.pull_request &&
+        contains(github.event.issue.labels.*.name, 'agent') &&
+        (github.event_name == 'issue_comment' || contains(fromJSON('["agent","spec","spec approved"]'), github.event.label.name))) ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'agent-issue' &&
+        github.event.sender.id == 235398881)
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      stage: ${{ steps.route.outputs.stage }}
+      number: ${{ steps.route.outputs.number }}
+      label: ${{ steps.route.outputs.label }}
+      writes: ${{ steps.route.outputs.writes }}
+      prompt: ${{ steps.route.outputs.prompt }}
+      takeover: ${{ steps.route.outputs.takeover }}
+      title: ${{ steps.route.outputs.title }}
+    steps:
+
+    - name: Route
+      id: route
+      uses: kubed-io/actions/issue-route@main
+      with:
+        owner: "4399427"
+        app: "235398881"
+
   spec:
     name: Spec
-    if: >-
-      github.event.sender.id == 4399427 &&
-      github.triggering_actor == 'kferrone' &&
-      !github.event.issue.pull_request &&
-      contains(github.event.issue.labels.*.name, 'enhancement') &&
-      contains(github.event.issue.labels.*.name, 'agent') &&
-      !contains(github.event.issue.labels.*.name, 'spec approved') &&
-      (github.event_name == 'issue_comment' || github.event.label.name == 'agent' || github.event.label.name == 'spec')
+    needs: route
+    if: needs.route.outputs.stage == 'spec'
     runs-on: claude
     environment: claude
     # Dr K's comments wait their turn; a label takes the issue over
     concurrency:
-      group: agent-issue-${{ github.event.issue.number }}
-      cancel-in-progress: ${{ github.event_name == 'issues' }}
+      group: agent-issue-${{ needs.route.outputs.number }}
+      cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
     timeout-minutes: 30
     permissions:
       contents: read
       issues: write
     env:
       # the `spec` label gives the agent a branch, and files that are committed
-      WRITES: ${{ contains(github.event.issue.labels.*.name, 'spec') }}
-      BRANCH: issue-${{ github.event.issue.number }}
+      WRITES: ${{ needs.route.outputs.writes }}
+      BRANCH: issue-${{ needs.route.outputs.number }}
       # the agent-flow channel's token: n8n's messages reach the running turn
       AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
     steps:
@@ -67,7 +100,7 @@ jobs:
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
-        issue: ${{ github.event.issue.number }}
+        issue: ${{ needs.route.outputs.number }}
 
     - name: Checkout
       uses: actions/checkout@v7
@@ -91,12 +124,13 @@ jobs:
       uses: kubed-io/actions/issue-agent@main
       with:
         github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
         agent: .issue/roles/claude/agents/spec.md
         schema: .issue/roles/claude/agents/spec.schema.json
         opt_in_label: agent
         # the `spec` label's turn is a kb prompt (superpowers library)
-        prompt: ${{ github.event_name == 'issues' && github.event.label.name == 'spec' && '/mcp__superpowers__superpowers_spec-draft' || '' }}
-        session_key: issue-${{ github.event.issue.number }}
+        prompt: ${{ needs.route.outputs.prompt }}
+        session_key: issue-${{ needs.route.outputs.number }}
         mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
         allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
@@ -117,23 +151,19 @@ jobs:
 
   handoff:
     name: Hand Off
-    if: >-
-      github.event_name == 'issues' &&
-      github.event.label.name == 'spec approved' &&
-      github.event.sender.id == 4399427 &&
-      github.triggering_actor == 'kferrone' &&
-      contains(github.event.issue.labels.*.name, 'agent')
+    needs: route
+    if: needs.route.outputs.stage == 'handoff'
     runs-on: claude
     environment: claude
     # the approval takes the issue over from a spec turn still running
     concurrency:
-      group: agent-issue-${{ github.event.issue.number }}
+      group: agent-issue-${{ needs.route.outputs.number }}
       cancel-in-progress: true
     timeout-minutes: 10
     permissions:
       contents: read
     env:
-      BRANCH: issue-${{ github.event.issue.number }}
+      BRANCH: issue-${{ needs.route.outputs.number }}
       DEFAULT: ${{ github.event.repository.default_branch }}
     outputs:
       pull_request: ${{ steps.pr.outputs.number }}
@@ -156,7 +186,7 @@ jobs:
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
-        issue: ${{ github.event.issue.number }}
+        issue: ${{ needs.route.outputs.number }}
 
     # the plan starts from the default branch as it is today. A spec branch holds only wiki
     # pointer commits, so it starts over there and the commit below points docs at the wiki,
@@ -202,7 +232,7 @@ jobs:
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
-        message: "Start #${{ github.event.issue.number }}"
+        message: "Start #${{ needs.route.outputs.number }}"
         files: docs
         allow_empty: true
 
@@ -212,11 +242,11 @@ jobs:
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
-        title: ${{ github.event.issue.title }}
+        title: ${{ needs.route.outputs.title }}
         body: |
-          Closes #${{ github.event.issue.number }}
+          Closes #${{ needs.route.outputs.number }}
 
-          Starts from #${{ github.event.issue.number }}'s notes.
+          Starts from #${{ needs.route.outputs.number }}'s notes.
 
   plan:
     name: Plan

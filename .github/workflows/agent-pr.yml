@@ -51,6 +51,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # a relayed comment's author and the approval's labeler are read back from GitHub
+      issues: read
       # n8n relays this: Agent flow · intake (spec §8.4)
       # # the Copilot wait clears the runs Copilot's reviews leave held
       # actions: write
