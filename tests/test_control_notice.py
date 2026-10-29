@@ -158,9 +158,9 @@ def test_a_fresh_server_hears_nothing(server, tmp_path):
 
 def test_the_http_surface_is_unchanged(server):
     web = TestClient(server.mcp.http_app())
-    before = web.post("/browser", json={}, headers={"X-Workspace": "w1"})
+    before = web.post("/browser", json={}, headers={"Sf-Workspace": "w1"})
     held(server.tunnels, "w1", "drk", "control")
-    after = web.post("/browser", json={}, headers={"X-Workspace": "w1"})
+    after = web.post("/browser", json={}, headers={"Sf-Workspace": "w1"})
     assert (after.status_code, after.text) == (before.status_code, before.text)
     assert "control of this browser" not in after.text
     assert server.controls.notice("w1") is not None

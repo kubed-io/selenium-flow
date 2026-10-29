@@ -128,14 +128,14 @@ def _as_capabilities(value) -> dict | None:
 
 # name -> (query parameter, header, coercion)
 SETTINGS = {
-    "browser": ("browser", "x-browser", _as_client_browser),
+    "browser": ("browser", "sf-browser", _as_client_browser),
     # `browser`'s twin (ruling 10): a client may pin a version as it pins a
     # browser. `latest` clears a remembered one.
-    "version": ("version", "x-version", _as_version),
-    "width": ("width", "x-window-width", _as_int),
-    "height": ("height", "x-window-height", _as_int),
-    "page_load_timeout": ("page_load_timeout", "x-page-load-timeout", _as_int),
-    "script_timeout": ("script_timeout", "x-script-timeout", _as_int),
+    "version": ("version", "sf-version", _as_version),
+    "width": ("width", "sf-window-width", _as_int),
+    "height": ("height", "sf-window-height", _as_int),
+    "page_load_timeout": ("page_load_timeout", "sf-page-load-timeout", _as_int),
+    "script_timeout": ("script_timeout", "sf-script-timeout", _as_int),
     # Explicit only (§F3.8): no parameter, no header, no default.
     "insecure": (None, None, _as_flag),
     # Explicit only, like insecure: no parameter, no header, no default, and not

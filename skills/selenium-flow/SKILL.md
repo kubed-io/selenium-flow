@@ -24,7 +24,7 @@ one tab, not sending independent requests, and that shapes everything below:
 ## Before the first call
 
 **Your workspace is named by whoever connects.** The client's config adds
-`?workspace=<name>` to the server URL or sends an `X-Workspace` header (not
+`?workspace=<name>` to the server URL or sends an `Sf-Workspace` header (not
 both); over stdio it is `stdio`. No tool takes a session id and no result
 carries one: the same name always finds the same browser.
 

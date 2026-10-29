@@ -45,7 +45,7 @@ Every action is a tool **and** an endpoint, one to one, and a test fails the bui
 
 Twenty actions, each a tool **and** an endpoint: a request body *is* the tool's schema, nothing added, nothing taken away.
 
-> **Name your workspace** on either surface: `?workspace=<name>` or an `X-Workspace` header. There is no session id anywhere. See [Workspaces](#-workspaces).
+> **Name your workspace** on either surface: `?workspace=<name>` or an `Sf-Workspace` header. There is no session id anywhere. See [Workspaces](#-workspaces).
 
 | Action | Endpoint | |
 |---|---|---|
@@ -99,10 +99,10 @@ Workspaces expire on `WORKSPACE_TTL`, slid forward on every use; nothing else re
 | How to name it | Looks like | Use it when |
 |---|---|---|
 | **A URL parameter** | `…/mcp?workspace=research-bot` | the usual case: one credential, each caller named in its own URL |
-| **A header** | `X-Workspace: research-bot` | an operator pins one workspace to one credential, or a client only sends approved headers (Claude.ai custom connectors) |
+| **A header** | `Sf-Workspace: research-bot` | an operator pins one workspace to one credential |
 | **stdio** | nothing to do | one process serves one client, and it is named `stdio` |
 
-The old `?session=` and `X-Session-Key` are refused with a 400 naming the new spelling.
+The old `X-` headers (`X-Workspace`, `X-Browser`, …) are refused with a 400 naming the new spelling.
 
 **Sending both is a 400**: two names is two ideas about who is calling. Naming nothing is a 400 too, with a message saying how — except on the flow library, which falls back to the shared `global` one that everyone reads and nobody writes.
 
@@ -347,7 +347,7 @@ Leave `recordings/` where it is, then set `DATA_DIR` in place of `FLOW_DATA_DIR`
 The browser, the window size and the two timeouts resolve in order of increasing specificity:
 
 ```
-server default (config: session.*)  <  client default (?width= / X-Window-Width)  <  open_session argument
+server default (config: session.*)  <  client default (?width= / Sf-Window-Width)  <  open_session argument
 ```
 
 A bad *client* default is ignored and logged; a bad `session.*` in the config, env or args stops the boot, and an explicit `browser` argument fails loudly.
@@ -392,7 +392,7 @@ That starts the server **and** a standalone Grid for it to drive, with auth off:
 
 ```bash
 curl -X POST localhost:8000/browser \
-  -H 'X-Workspace: demo' -H 'Content-Type: application/json' \
+  -H 'Sf-Workspace: demo' -H 'Content-Type: application/json' \
   -d '{"url":"https://example.com","width":1280,"height":800}'
 ```
 

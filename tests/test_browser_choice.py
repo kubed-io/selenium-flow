@@ -200,7 +200,7 @@ class TestVersionAndCapabilities:
 
     def test_version_comes_from_the_client_and_latest_is_kept(self):
         assert settings_module.from_client({"version": "152"}, {})["version"] == "152"
-        assert settings_module.from_client({}, {"x-version": " 9 "})["version"] == "9"
+        assert settings_module.from_client({}, {"sf-version": " 9 "})["version"] == "9"
         assert "version" not in settings_module.from_client({"version": "  "}, {})
         resolved = settings_module.resolve(
             {"version": "Latest"}, previous={"version": "152"}
@@ -264,13 +264,13 @@ class TestTheSettingsCascade:
         assert settings_module.from_client({"browser": "firefox"}, {}) == {
             "browser": "firefox"
         }
-        assert settings_module.from_client({}, {"x-browser": "firefox"}) == {
+        assert settings_module.from_client({}, {"sf-browser": "firefox"}) == {
             "browser": "firefox"
         }
 
     def test_the_header_beats_the_query_parameter(self):
         resolved = settings_module.from_client(
-            {"browser": "chrome"}, {"x-browser": "firefox"}
+            {"browser": "chrome"}, {"sf-browser": "firefox"}
         )
         assert resolved == {"browser": "firefox"}
 
@@ -281,7 +281,7 @@ class TestTheSettingsCascade:
         the result names a browser at all."""
         assert (
             settings_module.from_client(
-                {"browser": "safari"}, {"x-browser": "nonsense"}
+                {"browser": "safari"}, {"sf-browser": "nonsense"}
             )
             == {}
         )

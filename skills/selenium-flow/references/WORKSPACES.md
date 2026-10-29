@@ -16,7 +16,7 @@ Name your workspace one of two ways, whichever your client can set:
 | How | Looks like | Use it when |
 |---|---|---|
 | A URL parameter | `…/mcp?workspace=research-bot` | you configure the server by URL — the usual case |
-| A header | `X-Workspace: research-bot` | an operator pins one workspace to one credential, or a client may only send approved headers, such as Claude.ai custom connectors |
+| A header | `Sf-Workspace: research-bot` | an operator pins one workspace to one credential |
 
 **Sending both is an error**, not a contest one of them wins. Two names is two
 ideas about who is calling, and quietly picking one hides that from whoever

@@ -36,7 +36,7 @@ WORKSPACE = "responsive"
 BUSY_SECONDS = 8
 # Generous: a shared runner is slow, and a stalled loop is BUSY_SECONDS.
 BUDGET_SECONDS = 1.0
-HEADERS = {"Authorization": f"Bearer {TOKEN}", "X-Workspace": WORKSPACE}
+HEADERS = {"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": WORKSPACE}
 
 
 # A slow answer must be recorded as a number, not raised as a TimeoutError.

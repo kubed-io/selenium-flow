@@ -29,7 +29,7 @@ read it in the vocabulary below.
 
 **The vocabulary, because it is easy to get wrong:**
 
-- A **workspace** is what a caller names (`?workspace=` / `X-Workspace`): the
+- A **workspace** is what a caller names (`?workspace=` / `Sf-Workspace`): the
   persistent box holding its flows, files, site data, history and the settings
   it opens browsers with. It is never deleted, only expires (`WORKSPACE_TTL`,
   sliding).
@@ -190,7 +190,7 @@ anyone else. On top of it:
   (`config.oidc_problem`).
 - **`oidc.client_id` and `oidc.admin_roles` come together, and only with the
   issuer**, checked in the same place (`config.oidc_problem`).
-- **Behind agentgateway, `X-Workspace` crosses and `?workspace=` does not.**
+- **Behind agentgateway, the gateway sets `Sf-Workspace`, from `?workspace=`, the caller's `Sf-Workspace` or the token's user, and drops the query string. A caller's old `X-` header crosses and is refused.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
   in-cluster Service, the ingress) can cause one. `OidcVerifier` floors that at one attempt
@@ -518,20 +518,15 @@ silent new identity.
 
 **The caller names itself, and nothing is ever invented** (§F2.12):
 
-1. **`X-Workspace`**, a header — what an admin pins inside a credential when
-   one credential should mean one workspace, and the one well-known header a
-   client that may only send approved headers (Claude.ai custom connectors) can
-   send. A repeated header with two values is refused; it reports
-   `named_by: header`.
+1. **`Sf-Workspace`**, a header — what an admin pins inside a credential when
+   one credential should mean one workspace, and what the gateway sets. A
+   repeated header with two values is refused; it reports `named_by: header`.
 2. **`?workspace=<name>`** on the URL — the ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 3. **stdio**, where one process serves one client, so the constant `stdio` is
    correct and needs no configuration.
 
-**The old names are refused, not ignored** (spec 2026-10-09, ruling 1):
-`X-Session-Key` or `?session=` anywhere in a request is a 400 naming the new
-spelling, even beside a new name, so a client wired the old way finds out on its
-first call rather than as "name your workspace". There are no aliases.
+**The old names are refused, not ignored** (spec 2026-10-29-sf-headers, rulings 2 and 9): any `X-` header that was ours (`X-Workspace`, `X-Browser`, `X-Version`, `X-Window-Width`, `X-Window-Height`, `X-Page-Load-Timeout`, `X-Script-Timeout`), anywhere in a request, is a 400 naming each new spelling, even beside a new name. `X-MCP-Resources` is shared with mcp-kb and keeps its name. There are no aliases. The session names from before 10-09, `X-Session-Key` and `?session=`, are retired: the server does not know them, so a request sending one names nothing by it (ruling 10, revised).
 
 **A header and `?workspace=` at once is a 400.** It used to be a precedence — the header won, on the
 reasoning that an admin's credential outranks a caller's URL — and Dr K replaced
@@ -834,7 +829,7 @@ so while they hold it agents wait.
   return at once (ruling 9).
 - **A task's worker has no request**, so `?workspace=` never reaches it.
   `clients.Carry` writes the caller's name into the private header
-  `x-selenium-flow-workspace` at submission, dropping any copy a client sent,
+  `sf-carried-workspace` at submission, dropping any copy a client sent,
   and refuses a task submitted unnamed (ruling 31).
 - **Stopping never waits on a waiter.** FastMCP leaves the extensions before
   the server's lifespan, and Docket's worker waits for its tasks as it stops,

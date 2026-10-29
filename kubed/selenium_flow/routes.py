@@ -16,7 +16,7 @@ results come from the same action signatures, so neither can accept something
 the other refuses.
 
 **The workspace is who is calling, never a body field and never a path
-segment** — ``X-Workspace`` or ``?workspace=``, read by
+segment** — ``Sf-Workspace`` or ``?workspace=``, read by
 ``Caller.from_request``. A browser is addressed by naming yourself, which is why
 there is one browser resource here rather than one per id: ``POST /browser``
 opens *yours*.

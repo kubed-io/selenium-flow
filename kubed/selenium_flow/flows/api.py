@@ -208,7 +208,7 @@ def writable(workspace: str) -> str:
             "and run what is in it, so a flow you changed or deleted would "
             "change or vanish under another workspace mid-run. Name your "
             "workspace and save into your own library — ?workspace=<name> on the "
-            "URL or the X-Workspace header. An operator moves a flow into "
+            "URL or the Sf-Workspace header. An operator moves a flow into "
             "global from the admin UI."
         )
     return workspace

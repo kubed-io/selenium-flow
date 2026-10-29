@@ -336,7 +336,7 @@ def example(
         '  -H "Authorization: Bearer $TOKEN" \\',
         # The workspace is a header on both surfaces — never a body field and
         # never a path segment — so every example shows it (§F2.13).
-        '  -H "X-Workspace: $WORKSPACE"',
+        '  -H "Sf-Workspace: $WORKSPACE"',
     ]
     if body:
         encoded = json.dumps(body, indent=2, ensure_ascii=False)
@@ -436,7 +436,7 @@ def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
 
 {parameters(spec, request)}
 
-Every call names its workspace: an `X-Workspace` header, or
+Every call names its workspace: an `Sf-Workspace` header, or
 `?workspace=<name>`. Sending both is refused. See [Workspaces](Workspaces).
 
 ## Returns
@@ -569,7 +569,7 @@ the same URIs with `read_resource`.
 
 {body}
 
-Every call names its workspace — an `X-Workspace` header or `?workspace=` on
+Every call names its workspace — an `Sf-Workspace` header or `?workspace=` on
 the URL. There is no session id anywhere; see [Workspaces](Workspaces).
 
 ---

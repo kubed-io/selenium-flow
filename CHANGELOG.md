@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **BREAKING:** request headers are now `Sf-Workspace`, `Sf-Browser`, `Sf-Version`, `Sf-Window-Width`, `Sf-Window-Height`, `Sf-Page-Load-Timeout` and `Sf-Script-Timeout`; the `X-` names are refused with a 400 naming the new one, and the retired `X-Session-Key` and `?session=` are no longer recognised.
 - **`open_session(headless=true)`** opens a browser that draws nothing on screen, remembered until `headless=false`; it cannot be recorded or watched live.
 - Fixed: an explicit `open_session()` picks up changed server and connection defaults, and carries over only what you passed.
 - On upgrading, workspaces forget their remembered settings and the browser they held, once; their history, saved site data and files stay.
@@ -45,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `network_body(id)` fetches a captured response body while the browser lives.
 - The admin UI's Console and Network tabs show what was captured, or everything live.
 - The admin UI can sign in with OIDC (`oidc.client_id`, `oidc.admin_roles`) for a person holding an admin role; the token still works.
-- **BREAKING:** what you name is a *workspace* now: `?workspace=` or `X-Workspace`, `workspace://…`, `WORKSPACE_STORE`/`WORKSPACE_TTL`, and results and the admin API say `workspace`; the old names are refused with the new one. A session is the browser open in it.
+- **BREAKING:** what you name is a *workspace* now: `?workspace=` or `Sf-Workspace`, `workspace://…`, `WORKSPACE_STORE`/`WORKSPACE_TTL`, and results and the admin API say `workspace`; the old `session://…`, `SESSION_STORE` and `SESSION_TTL` are refused with the new one. A session is the browser open in it.
 - **BREAKING:** `FLOW_DATA_DIR` is now `DATA_DIR`, and workspace folders live under `DATA_DIR/workspaces/` — move them there once.
 - `open_session(record=true)` records the browser; recordings appear under `workspace://files/recordings` and in the admin Files tab.
 - Skills-aware clients discover the embedded skill through the MCP Skills extension (`skills/list`, `skills/get`).

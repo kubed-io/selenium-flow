@@ -64,7 +64,7 @@ next call.
 ## "name your workspace"
 
 You called without naming one. Add `?workspace=<name>` to the server URL, or send
-an `X-Workspace` header — whichever your client can set. Any name of letters,
+an `Sf-Workspace` header — whichever your client can set. Any name of letters,
 digits, dots, dashes and underscores is fine except `stdio` and `global`, which
 are reserved. The same name always comes back to the same workspace.
 

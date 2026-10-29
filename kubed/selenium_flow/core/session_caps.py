@@ -152,7 +152,7 @@ def _flow_block(browser: str) -> dict:
 # Where a version the caller owns came from, as a refusal says it (ruling 4).
 # "config" is the operator's, so it has no phrase: it is never blamed.
 VERSION_FROM = {
-    "client": "from X-Version or ?version=",
+    "client": "from Sf-Version or ?version=",
     "call": "from this call's version=",
     "remembered": 'remembered by this workspace (version="latest" forgets it)',
 }

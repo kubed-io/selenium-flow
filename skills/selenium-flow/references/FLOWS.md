@@ -305,7 +305,7 @@ This depends on your workspace name, and it is not guessable from any schema.
 
 | You are | You save into | You can run |
 |---|---|---|
-| **named** (`?workspace=` / `X-Workspace`) | your own library | yours, plus the shared library |
+| **named** (`?workspace=` / `Sf-Workspace`) | your own library | yours, plus the shared library |
 | **stdio** | its own `stdio` library | its own, plus the shared library |
 | **unnamed**, or named `global` | nowhere — you cannot save | the shared library |
 

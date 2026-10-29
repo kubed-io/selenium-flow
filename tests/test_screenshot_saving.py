@@ -321,7 +321,7 @@ def test_print_over_http_keeps_the_file_for_the_workspace_that_asked(
     monkeypatch.setattr(keeping_server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     client = TestClient(
         keeping_server.mcp.http_app(),
-        headers={"Authorization": "Bearer tok", "X-Workspace": "desk"},
+        headers={"Authorization": "Bearer tok", "Sf-Workspace": "desk"},
     )
     response = client.post(
         "/browser/print", json={"format": "pdf", "landscape": True, "filename": "q3"}

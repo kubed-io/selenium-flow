@@ -110,7 +110,7 @@ async def current(server, bearer):
 
     transport = StreamableHttpTransport(
         "http://test/mcp",
-        headers={"Authorization": f"Bearer {bearer}", "X-Workspace": "desk"},
+        headers={"Authorization": f"Bearer {bearer}", "Sf-Workspace": "desk"},
         httpx_client_factory=factory,
     )
     async with app.router.lifespan_context(app), Client(transport) as client:

@@ -346,7 +346,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 def named(workspace: str | None = None) -> dict:
     """Headers for a caller that names its workspace, the way every surface does."""
-    return AUTH if workspace is None else {**AUTH, "X-Workspace": workspace}
+    return AUTH if workspace is None else {**AUTH, "Sf-Workspace": workspace}
 
 
 def test_the_endpoints_need_the_token(client):
@@ -385,7 +385,7 @@ def test_naming_the_workspace_twice_is_refused(client):
     response = client.get(
         "/flows",
         params={"workspace": "from-url"},
-        headers={**AUTH, "X-Workspace": "from-credential"},
+        headers={**AUTH, "Sf-Workspace": "from-credential"},
     )
     assert response.status_code == 400
     assert "once" in response.json()["error"]

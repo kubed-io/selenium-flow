@@ -285,7 +285,7 @@ def test_the_admins_end_is_never_refused_while_a_person_holds_control(
     auth = {"Authorization": f"Bearer {TOKEN}"}
     with patch.object(browser.Grid, "is_alive", return_value=True), \
             patch.object(browser.Grid, "quit") as quit_:
-        refused = client.delete("/browser", headers={**auth, "X-Workspace": KEY})
+        refused = client.delete("/browser", headers={**auth, "Sf-Workspace": KEY})
         assert refused.status_code == 409, refused.text
         quit_.assert_not_called()
         ended = client.delete(f"/admin/workspaces/{KEY}/session", headers=auth)

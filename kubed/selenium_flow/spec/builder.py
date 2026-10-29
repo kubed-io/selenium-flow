@@ -62,7 +62,7 @@ Every operation here is also an MCP tool at `{mount}/mcp`, backed by the same co
 the request schemas in this document are generated from those tools, so the two
 surfaces cannot describe different things.
 
-Name your workspace on every request — an `X-Workspace` header or
+Name your workspace on every request — an `Sf-Workspace` header or
 `?workspace=` — and every call is about that workspace's browser. Sending both
 is a 400, and so is sending neither on anything that touches a browser. There
 is no browser id in this API.
@@ -657,7 +657,7 @@ def _camel(name: str) -> str:
 # right for a read and is a *refusal* for a write, so advertising the same
 # default on both would hand a generated client a 400 it had no way to see
 # coming. It is still not `required`, because a caller naming itself through
-# the X-Workspace header legitimately omits it.
+# the Sf-Workspace header legitimately omits it.
 def _mcp_tools() -> tuple[dict, dict]:
     """The MCP side of each ``/flows`` and ``/files`` endpoint.
 

@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from kubed.selenium_flow import faults
 from kubed.selenium_flow.config import RedisSettings, WorkspaceSettings
 from kubed.selenium_flow.mcp import clients as clients_module
+from kubed.selenium_flow.names import GLOBAL_WORKSPACE
 from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.workspace.store import (
     DEFAULT_DB,
@@ -26,8 +27,9 @@ from kubed.selenium_flow.workspace.store import (
     from_settings,
 )
 from kubed.selenium_flow.workspace.workspaces import (
-    OLD_HEADER,
-    OLD_QUERY,
+    OLD_HEADERS,
+    RENAMED,
+    UNNAMED,
     Caller,
     Workspaces,
     values_of,
@@ -53,17 +55,94 @@ def test_a_name_in_the_query_string_is_the_workspace():
 
 
 def test_a_name_in_the_header_is_the_workspace_too():
-    caller = caller_of(headers={"x-workspace": "desk"})
+    caller = caller_of(headers={"sf-workspace": "desk"})
     assert (caller.name, caller.named_by) == ("desk", "header")
 
 
-def test_the_old_header_beside_x_workspace_is_refused_not_merged():
-    """X-Session-Key used to be the same header as X-Workspace by another name.
-    It names nothing now (ruling 1), so even with one value the pair is refused
-    rather than read as one name."""
-    caller = caller_of(headers={"x-session-key": "desk", "x-workspace": "desk"})
-    with pytest.raises(ValueError, match="`X-Session-Key` is now `X-Workspace`"):
-        caller.name  # noqa: B018 - the refusal is the point
+NEW = {"sf-workspace": "desk", "sf-browser": "firefox", "sf-version": "130",
+       "sf-window-width": "1400", "sf-window-height": "900",
+       "sf-page-load-timeout": "40", "sf-script-timeout": "20"}
+
+
+def test_each_new_header_is_read():
+    caller = caller_of(headers=NEW)
+    assert (caller.name, caller.named_by) == ("desk", "header")
+    assert caller.defaults == {"browser": "firefox", "version": "130", "width": 1400,
+                               "height": 900, "page_load_timeout": 40, "script_timeout": 20}
+
+
+@pytest.mark.parametrize("old, new", list(OLD_HEADERS.items()))
+def test_each_old_header_is_refused_naming_its_new_one_even_beside_it(old, new):  # rulings 2, 9
+    caller = caller_of(headers={"sf-workspace": "desk", old.lower(): "1"})
+    with pytest.raises(ValueError) as exc:
+        caller.name  # noqa: B018
+    assert str(exc.value) == RENAMED.format(old=old, new=new) == (
+        f"`{old}` is now `{new}`: rename the header")
+
+
+def test_several_old_headers_are_one_refusal_in_the_tables_order():
+    caller = caller_of(headers={"x-script-timeout": "5", "x-workspace": "desk", "x-browser": "chrome"})
+    with pytest.raises(ValueError) as exc:
+        caller.library  # noqa: B018
+    assert str(exc.value) == (
+        "`X-Workspace` is now `Sf-Workspace`: rename the header; "
+        "`X-Browser` is now `Sf-Browser`: rename the header; "
+        "`X-Script-Timeout` is now `Sf-Script-Timeout`: rename the header")
+
+
+def test_a_blank_old_header_is_no_header():
+    assert caller_of(headers={"sf-workspace": "desk", "x-browser": "  "}).name == "desk"
+
+
+def test_the_gateways_name_beside_a_callers_old_header_is_refused():  # Review Focus 1
+    with pytest.raises(ValueError, match=re.escape("`X-Workspace` is now `Sf-Workspace`")):
+        caller_of(headers={"sf-workspace": "kelly", "x-workspace": "desk"}).name  # noqa: B018
+
+
+def test_an_old_version_header_is_refused_and_never_read():  # Review Focus 2, ruling 11
+    caller = caller_of(headers={"sf-workspace": "desk", "x-version": "1.2"})
+    with pytest.raises(ValueError, match=re.escape("`X-Version` is now `Sf-Version`")):
+        caller.name  # noqa: B018
+    assert "version" not in caller.defaults
+
+
+@pytest.mark.parametrize("params, headers", [({}, {"x-session-key": "desk"}), ({"session": "desk"}, {})])
+def test_a_session_name_is_no_name(params, headers):  # ruling 10, revised
+    caller = caller_of(params, headers)
+    with pytest.raises(ValueError) as exc:
+        caller.name  # noqa: B018
+    assert str(exc.value) == UNNAMED
+    assert caller.library == GLOBAL_WORKSPACE
+
+
+@pytest.mark.parametrize("params, headers", [({"workspace": "desk"}, {"x-session-key": "other"}),
+                                             ({"workspace": "desk", "session": "other"}, {}),
+                                             ({"session": "other"}, {"sf-workspace": "desk"})])
+def test_a_session_name_beside_a_new_one_is_ignored(params, headers):  # ruling 10, revised
+    assert caller_of(params, headers).name == "desk"
+
+
+def test_a_session_name_beside_an_old_header_leaves_only_its_refusal():  # ruling 10, revised
+    caller = caller_of({"session": "desk"}, {"x-browser": "chrome"})
+    with pytest.raises(ValueError) as exc:
+        caller.name  # noqa: B018
+    assert str(exc.value) == "`X-Browser` is now `Sf-Browser`: rename the header"
+
+
+@pytest.mark.parametrize("path, headers", [("/browser?session=desk", {}), ("/browser", {"X-Session-Key": "desk"})])
+def test_a_session_name_is_unnamed_over_http(server, path, headers):  # ruling 10, revised
+    from starlette.testclient import TestClient
+
+    from .conftest import TOKEN
+
+    client = TestClient(server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}", **headers})
+    response = client.get(path)
+    assert response.status_code == 400
+    assert response.json() == {"error": UNNAMED}
+
+
+def test_x_mcp_resources_is_still_read():  # ruling 4
+    assert caller_of(headers={"sf-workspace": "desk", "x-mcp-resources": "off"}).flags == {"resources": "off"}
 
 
 def test_naming_it_twice_is_refused_rather_than_resolved():
@@ -71,7 +150,7 @@ def test_naming_it_twice_is_refused_rather_than_resolved():
     carrying both has two ideas about who is calling, and picking one hides that
     from whoever wired it up — including an admin who pinned a name in a
     credential and a caller that overrode it from the URL."""
-    caller = caller_of({"workspace": "from-url"}, {"x-workspace": "from-credential"})
+    caller = caller_of({"workspace": "from-url"}, {"sf-workspace": "from-credential"})
     with pytest.raises(ValueError, match="name your workspace once"):
         caller.name  # noqa: B018 - the refusal is the point
 
@@ -111,7 +190,7 @@ def test_a_caller_that_named_nothing_is_told_how_to():
     actions = RecordingActions()
     with pytest.raises(ValueError, match=r"\?workspace=") as raised:
         manager(actions).open_browser(caller_of())
-    assert "X-Workspace" in str(raised.value)
+    assert "Sf-Workspace" in str(raised.value)
     assert actions.opened == 0, "an unnamed caller must never open a browser"
 
 
@@ -1370,12 +1449,12 @@ def test_a_blank_name_is_no_name_at_all():
 
 
 def test_a_blank_header_does_not_make_two_names_of_a_query():
-    request = request_with("workspace=desk", {"X-Workspace": "   "})
+    request = request_with("workspace=desk", {"Sf-Workspace": "   "})
     assert named_in(request) == "desk"
 
 
 def test_the_header_name_is_matched_whatever_its_case():
-    for header in ("X-Workspace", "x-workspace", "X-WORKSPACE"):
+    for header in ("Sf-Workspace", "sf-workspace", "SF-WORKSPACE"):
         assert named_in(request_with(headers={header: "desk"})) == "desk"
 
 
@@ -1385,7 +1464,7 @@ def test_a_name_keeps_its_case_so_two_cases_are_two_workspaces():
 
 
 def test_a_header_and_a_query_are_two_names_even_over_http_requests():
-    request = request_with("workspace=a", {"x-workspace": "b"})
+    request = request_with("workspace=a", {"sf-workspace": "b"})
     with pytest.raises(ValueError, match="name your workspace once"):
         named_in(request)
     with pytest.raises(ValueError, match="name your workspace once"):
@@ -1407,8 +1486,8 @@ def test_a_query_that_names_two_workspaces_is_refused():
 
 
 def test_a_repeated_header_names_two_workspaces_too():
-    request = request_with(headers={"x-workspace": "a"})
-    request.scope["headers"].append((b"x-workspace", b"b"))
+    request = request_with(headers={"sf-workspace": "a"})
+    request.scope["headers"].append((b"sf-workspace", b"b"))
     with pytest.raises(ValueError) as raised:
         named_in(request)
     assert str(raised.value) == "the request names two workspaces: a, b"
@@ -1428,7 +1507,7 @@ def test_a_repeated_name_is_refused_on_the_library_path_too():
 def test_a_header_beside_a_repeated_query_is_still_naming_it_twice():
     """No precedence: the header does not settle which of the two queries
     counts, it is one more name, and the refusal is the existing one."""
-    request = request_with("workspace=a&workspace=b", {"x-workspace": "c"})
+    request = request_with("workspace=a&workspace=b", {"sf-workspace": "c"})
     with pytest.raises(ValueError, match="name your workspace once"):
         named_in(request)
 
@@ -1446,17 +1525,19 @@ def test_a_repeated_name_is_a_400_over_http(server):
     assert response.json() == {"error": "the request names two workspaces: a, b"}
 
 
+XW = "`X-Workspace` is now `Sf-Workspace`: rename the header"
+
+
 @pytest.mark.parametrize(
     "path, headers, error",
     [
-        ("/browser?session=desk", {}, "OLD_QUERY"),
-        ("/browser", {"X-Session-Key": "desk"}, "OLD_HEADER"),
+        ("/browser", {"X-Workspace": "desk"}, XW),
+        ("/browser", {"Sf-Workspace": "desk", "X-Browser": "chrome"}, "`X-Browser` is now `Sf-Browser`: rename the header"),
+        ("/browser", {"X-WORKSPACE": "desk"}, XW),
     ],
 )
 def test_an_old_name_is_a_400_over_http(server, path, headers, error):
     from starlette.testclient import TestClient
-
-    from kubed.selenium_flow.workspace import workspaces
 
     from .conftest import TOKEN
 
@@ -1466,7 +1547,18 @@ def test_an_old_name_is_a_400_over_http(server, path, headers, error):
     )
     response = client.get(path)
     assert response.status_code == 400
-    assert response.json() == {"error": getattr(workspaces, error)}
+    assert response.json() == {"error": error}
+
+
+def test_a_new_header_in_any_case_names_the_workspace_over_http(open_server, monkeypatch):
+    from starlette.testclient import TestClient
+
+    monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
+    response = TestClient(open_server.mcp.http_app()).get(
+        "/browser", headers={"SF-WORKSPACE": "desk"}
+    )
+    assert response.status_code == 200
+    assert response.json()["workspace"] == "desk"
 
 
 def test_a_client_setting_repeated_is_the_later_one():
@@ -1477,7 +1569,7 @@ def test_a_client_setting_repeated_is_the_later_one():
 
 
 def test_a_caller_carries_its_clients_defaults():
-    caller = caller_of({"workspace": "a", "width": "1400"}, {"x-browser": "firefox"})
+    caller = caller_of({"workspace": "a", "width": "1400"}, {"sf-browser": "firefox"})
     assert caller.defaults == {"width": 1400, "browser": "firefox"}
     assert Caller.stdio().defaults == {}
 
@@ -1494,7 +1586,7 @@ def test_off_http_resolve_applies_no_client_defaults():
 def test_an_open_uses_the_defaults_its_caller_brought():
     actions = RecordingActions()
     manager(actions).open_browser(
-        Caller.from_request({"workspace": ["a"]}, {"x-window-width": ["1400"]})
+        Caller.from_request({"workspace": ["a"]}, {"sf-window-width": ["1400"]})
     )
     assert actions.opened_settings == [{"width": 1400}]
 
@@ -1502,7 +1594,7 @@ def test_an_open_uses_the_defaults_its_caller_brought():
 def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch):
     """N12, as live control ruling 31 left it: off the request object, the
     headers are a background task's snapshot, and the name its submission
-    carried (`clients.CARRIED`) is the only one read - never an X-Workspace
+    carried (`clients.CARRIED`) is the only one read - never an Sf-Workspace
     the snapshot kept, and never the stdio constant."""
     import fastmcp.server.dependencies as dependencies
 
@@ -1523,16 +1615,16 @@ def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch
     monkeypatch.setattr(
         dependencies,
         "get_http_headers",
-        snapshot({"host": "test", "X-Workspace": "other", clients_module.CARRIED: "desk"}),
+        snapshot({"host": "test", "Sf-Workspace": "other", clients_module.CARRIED: "desk"}),
     )
     assert clients_module.request_values() == (
-        {}, {"host": ["test"], "x-workspace": ["desk"]}
+        {}, {"host": ["test"], "sf-workspace": ["desk"]}
     )
     caller = clients_module.caller()
     assert (caller.name, caller.named_by) == ("desk", "header")
 
     monkeypatch.setattr(
-        dependencies, "get_http_headers", snapshot({"host": "test", "X-Workspace": "desk"})
+        dependencies, "get_http_headers", snapshot({"host": "test", "Sf-Workspace": "desk"})
     )
     with pytest.raises(ValueError, match="name your workspace"):
         _ = clients_module.caller().name
@@ -1552,7 +1644,7 @@ def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch
 
 
 def test_describe_says_header_when_the_header_named_it():
-    caller = caller_of(headers={"x-workspace": "desk"})
+    caller = caller_of(headers={"sf-workspace": "desk"})
     assert manager().describe(caller)["named_by"] == "header"
 
 
@@ -1673,43 +1765,15 @@ def test_two_concurrent_calls_on_one_workspace_run_one_after_the_other():
 
 
 def test_describe_has_no_principal_on_an_open_server():
-    caller = Caller.from_request({}, {"x-workspace": ["desk"]})
+    caller = Caller.from_request({}, {"sf-workspace": ["desk"]})
     assert manager().describe(caller)["principal"] is None
 
 
-# ---- the names from before the rename are refused (ruling 1) ----------------
-
-def test_the_old_query_name_is_refused_naming_the_new_one():
-    caller = caller_of({"session": "desk"})
-    with pytest.raises(ValueError) as exc:
-        caller.name  # noqa: B018 - the refusal is the point
-    assert str(exc.value) == OLD_QUERY == (
-        "`?session=` is now `?workspace=`: rename it in the URL"
-    )
-
-
-def test_the_old_header_is_refused_naming_the_new_one():
-    caller = caller_of(headers={"x-session-key": "desk"})
-    with pytest.raises(ValueError) as exc:
-        caller.library  # noqa: B018
-    assert str(exc.value) == OLD_HEADER == (
-        "`X-Session-Key` is now `X-Workspace`: rename the header"
-    )
-
-
-def test_the_old_name_is_refused_even_beside_the_new_one():
-    caller = caller_of({"workspace": "desk", "session": "desk"})
-    with pytest.raises(ValueError, match="is now `\\?workspace=`"):
-        caller.name  # noqa: B018
-
-
-def test_a_blank_old_name_is_no_name_at_all():
-    assert caller_of({"session": "", "workspace": "desk"}).name == "desk"
-
+# ---- the new names name the workspace ---------------------------------------
 
 def test_the_new_names_name_the_workspace():
     assert caller_of({"workspace": "desk"}).name == "desk"
-    assert caller_of(headers={"x-workspace": "desk"}).name == "desk"
+    assert caller_of(headers={"sf-workspace": "desk"}).name == "desk"
 
 
 # ---- who opened the browser (spec 2026-10-09-admin-oidc, ruling 11) ---------
@@ -2107,7 +2171,7 @@ def test_a_dropped_client_header_no_longer_applies():
     """A header taken out of a client's config stops applying at its next
     open, instead of living on in the workspace it once opened."""
     ws = manager()
-    ws.open_browser(caller_of({"workspace": NAMED}, {"x-browser": "firefox"}))
+    ws.open_browser(caller_of({"workspace": NAMED}, {"sf-browser": "firefox"}))
     assert ws.actions.opened_settings[-1]["browser"] == "firefox"
     ws.open_browser(caller_of({"workspace": NAMED}))
     assert ws.actions.opened_settings[-1].get("browser") in (None, "chrome")
@@ -2137,11 +2201,11 @@ def test_a_reap_replays_the_whole_stored_set():
     assert ws.actions.opened_settings[-1] == {"width": 1200, "height": 600}
 
 
-def test_x_browser_beats_a_config_version():  # Review Focus 2
+def test_sf_browser_beats_a_config_version():  # Review Focus 2
     """Another browser is another version: the config's Chrome 152 is not
     sent to the Firefox a client's header asked for."""
     ws = Workspaces(RecordingActions(), MemoryStore(), defaults={"version": "152"})
-    ws.open_browser(caller_of({"workspace": NAMED}, {"x-browser": "firefox"}))
+    ws.open_browser(caller_of({"workspace": NAMED}, {"sf-browser": "firefox"}))
     last = ws.actions.opened_settings[-1]
     assert last["browser"] == "firefox" and "version" not in last
 
@@ -2216,7 +2280,7 @@ def test_the_version_origin_reaches_the_open():
 
 def test_a_client_version_reaches_the_open_as_the_clients():
     ws = manager()
-    ws.open_browser(caller_of({"workspace": NAMED}, {"x-version": "152"}))
+    ws.open_browser(caller_of({"workspace": NAMED}, {"sf-version": "152"}))
     assert ws.actions.opened_version_from[-1] == "client"
 
 

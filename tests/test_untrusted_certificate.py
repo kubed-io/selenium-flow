@@ -73,6 +73,6 @@ def test_over_http_open_session_is_a_400_with_the_sentence(tmp_path, monkeypatch
     driver = Untrusted()
     monkeypatch.setattr(server.actions.grid, "open", lambda *a, **k: driver)
     monkeypatch.setattr(server.actions.grid, "quit", lambda session_id: None)
-    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": "cert"})
+    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": "cert"})
     response = client.post("/browser", json={"url": URL})
     assert response.status_code == 400 and response.json() == {"error": UNTRUSTED}

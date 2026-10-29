@@ -63,9 +63,9 @@ async def test_every_operation_says_how_to_name_a_workspace(spec):
             continue
         for method, operation in operations.items():
             names = {p["name"] for p in operation.get("parameters", [])}
-            assert {"X-Workspace", "workspace"} <= names, f"{method} {path}"
-            # The old names are refused, so they are not published (ruling 1).
-            assert not {"X-Session-Key", "session"} & names, f"{method} {path}"
+            assert {"Sf-Workspace", "workspace"} <= names, f"{method} {path}"
+            # The old name is refused, so it is not published (ruling 2).
+            assert "X-Workspace" not in names, f"{method} {path}"
 
 
 async def test_request_schemas_are_the_tool_schemas(server, spec):
