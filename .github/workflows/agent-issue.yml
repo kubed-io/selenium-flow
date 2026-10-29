@@ -246,6 +246,8 @@ jobs:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
         title: ${{ needs.route.outputs.title }}
+        # the agents' PR: the label wakes the review agent, and switches the agents off
+        labels: agent
         body: |
           Closes #${{ needs.route.outputs.number }}
 

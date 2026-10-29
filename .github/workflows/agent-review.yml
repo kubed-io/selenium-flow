@@ -1,7 +1,8 @@
 name: 🔍 Agent · Review
 
-# The review agent, and the `Agent review` check it answers to. It wakes when pr.yml's
-# checks end (workflow_run), and when an `agent-review` dispatch asks again. For a PR the
+# The review agent, and the `Agent review` status it answers to. It wakes on the
+# `agent-review` dispatch: pr.yml's Checks job sends it when an `agent` PR's checks end
+# (`reason: checks`), and Dr K, the App or the review agent send it to ask again. For a PR the
 # agents built (head `issue-*`, plan approved), out of draft:
 #
 # - checks red: no review. The status fails as `checks failed`, and `agent-code` goes out
@@ -14,21 +15,21 @@ name: 🔍 Agent · Review
 # kubed-io/actions/review-route decides it. A commit that only merges main in, or only
 # applies a passing review's own suggestions from the PR's page, keeps the last verdict.
 #
-# The check is a commit status on the PR's head, never this job's own check run: runs on
-# workflow_run and repository_dispatch belong to main's commit, so they could not be the
-# PR's required check. The status is also the loop's memory: a head the review agent
-# already passed is never reviewed again, and every new commit starts without one.
-# PRs the agents did not build get a passing status straight away, so the required check
-# never blocks them.
+# The verdict is a commit status on the PR's head, never this job's own check run: a run on
+# repository_dispatch belongs to main's commit. It is not a required check; Dr K merges.
+# The status is also the loop's memory: a head the review agent already passed is never
+# reviewed again, and every new commit starts without one. A PR without the `agent` label
+# gets no status.
 #
 # The gates name ids, not variables: a job's `if` is decided before any runner, so only
 # GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
 # kubed-io App's bot (the code agent), 41898282 github-actions[bot].
 
 on:
-  workflow_run:
-    workflows: [🔀 PR]
-    types: [completed]
+  # pr.yml's Checks job dispatches this instead, for an `agent` PR only
+  # workflow_run:
+  #   workflows: [🔀 PR]
+  #   types: [completed]
   repository_dispatch:
     types: [agent-review]
 
