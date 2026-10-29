@@ -16,10 +16,11 @@ name: 🧭 Agent · Issue
 # runner's env.
 
 on:
-  issues:
-    types: [labeled]
-  issue_comment:
-    types: [created]
+  # n8n relays this: Agent flow · intake (spec §8.4)
+  # issues:
+  #   types: [labeled]
+  # issue_comment:
+  #   types: [created]
   repository_dispatch:
     types: [agent-issue]
 
