@@ -121,7 +121,7 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         agent: ${{ env.CLAUDE_AGENTS }}/review/AGENT.md
         schema: ${{ env.CLAUDE_AGENTS }}/review/schema.json
-        mcp_config: ${{ env.CLAUDE_AGENTS }}/review/mcp.json
+        mcp: ${{ env.CLAUDE_AGENTS }}/review/mcp.json
         allowed_tools: Read,Glob,Grep
         disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
         # the turn's words are a kb prompt (superpowers library)

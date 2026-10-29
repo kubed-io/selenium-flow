@@ -142,7 +142,7 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         agent: ${{ env.CLAUDE_AGENTS }}/plan/AGENT.md
         schema: ${{ env.CLAUDE_AGENTS }}/plan/schema.json
-        mcp_config: ${{ env.CLAUDE_AGENTS }}/plan/mcp.json
+        mcp: ${{ env.CLAUDE_AGENTS }}/plan/mcp.json
         allowed_tools: Read,Glob,Grep,Write,Edit
         disallowed_tools: Bash,NotebookEdit
         header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
@@ -246,7 +246,7 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         agent: ${{ env.CLAUDE_AGENTS }}/code/AGENT.md
         schema: ${{ env.CLAUDE_AGENTS }}/code/schema.json
-        mcp_config: ${{ env.CLAUDE_AGENTS }}/code/mcp.json
+        mcp: ${{ env.CLAUDE_AGENTS }}/code/mcp.json
         allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
         prompt: ${{ needs.route.outputs.prompt }}
         prompt_when: ${{ needs.route.outputs.prompt_when }}
