@@ -221,6 +221,8 @@ jobs:
         permission-contents: write
         permission-pull-requests: write
         permission-issues: write
+        # pr-checks/rerun
+        permission-actions: write
 
     - name: Checkout
       if: steps.still.outputs.stage == 'code'
@@ -315,6 +317,15 @@ jobs:
         # the App cannot write workflow files, and one in the commit refuses all of it
         ignore: .github/workflows/**
         pull_request: ${{ needs.route.outputs.number }}
+
+    # the agent judged the failed checks not this branch's: their failed jobs run once more;
+    # green brings the review, red again is Dr K's call
+    - name: Re-run the Checks
+      if: steps.still.outputs.stage == 'code' && needs.route.outputs.run_id != '' && fromJSON(steps.agent.outputs.output || '{}').rerun == true
+      uses: kubed-io/actions/pr-checks/rerun@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        run_id: ${{ needs.route.outputs.run_id }}
 
     # the plan built: the fix rounds that follow carry its summary, not every step of it
     - name: Compact the Session
