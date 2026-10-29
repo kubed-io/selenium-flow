@@ -3,8 +3,9 @@ name: 🔀 PR
 # Every gate a pull request must pass, in one run: PR Tasks here, the rest called from
 # their own workflows, and the `Checks` collector after them all. The collector gathers
 # what failed (steps, annotations, the end of the logs) into the `checks-report` artifact;
-# agent-review.yml, from main, reads it when this run ends and hands a failure to the code
-# agent or the PR to the review agent. The scanners (quality.yml), whose findings are
+# on a PR with the `agent` label it then sends the `agent-review` dispatch, and
+# agent-review.yml, from main, hands a failure to the code agent or the PR to the review
+# agent. A PR without the label wakes no agent. The scanners (quality.yml), whose findings are
 # alerts and never a failure, and wiki.yml run on their own triggers.
 #
 # PR Tasks: every PR must contribute a CHANGELOG entry, because that [Unreleased] section
@@ -141,8 +142,27 @@ jobs:
     permissions:
       actions: read
       checks: read
+      # the `agent-review` dispatch
+      contents: write
     steps:
 
     # what failed, for the code agent: the step summary and the checks-report artifact
     - name: Report
+      id: report
       uses: kubed-io/actions/pr-checks/report@main
+
+    # an agent's PR, its checks done: the review agent's turn (agent-review.yml, from main).
+    # The payload is a pointer: review-route reads the run back for the result and the actor
+    - name: Hand to the Review Agent
+      # a cancelled run is no verdict: its cancelled jobs would read as failed
+      if: "!cancelled() && contains(github.event.pull_request.labels.*.name, 'agent')"
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUMBER: ${{ github.event.pull_request.number }}
+        SHA: ${{ github.event.pull_request.head.sha }}
+        FAILED: ${{ steps.report.outputs.failed }}
+      run: |
+        gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=agent-review \
+          -F "client_payload[pull_request]=${NUMBER}" -f "client_payload[reason]=checks" \
+          -F "client_payload[run_id]=${GITHUB_RUN_ID}" -f "client_payload[sha]=${SHA}" \
+          -F "client_payload[failed]=${FAILED:-0}"
