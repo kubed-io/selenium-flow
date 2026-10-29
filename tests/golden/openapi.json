@@ -3948,7 +3948,7 @@
     }
   },
   "info": {
-    "description": "Drive a persistent browser on Selenium Grid over plain HTTP.\n\nEvery operation here is also an MCP tool at `/mcp`, backed by the same code —\nthe request schemas in this document are generated from those tools, so the two\nsurfaces cannot describe different things.\n\nName your workspace on every request — an `X-Workspace` header or\n`?workspace=` — and every call is about that workspace's browser. Sending both\nis a 400, and so is sending neither on anything that touches a browser. There\nis no browser id in this API.\n\n`POST /browser` opens yours, `DELETE /browser` ends it when you\nare finished — do that even after a failure, or it holds a Grid slot until it\ntimes out.\n",
+    "description": "Drive a persistent browser on Selenium Grid over plain HTTP.\n\nEvery operation here is also an MCP tool at `/mcp`, backed by the same code —\nthe request schemas in this document are generated from those tools, so the two\nsurfaces cannot describe different things.\n\nName your workspace on every request — an `Sf-Workspace` header or\n`?workspace=` — and every call is about that workspace's browser. Sending both\nis a 400, and so is sending neither on anything that touches a browser. There\nis no browser id in this API.\n\n`POST /browser` opens yours, `DELETE /browser` ends it when you\nare finished — do that even after a failure, or it holds a Grid slot until it\ntimes out.\n",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
@@ -3964,9 +3964,9 @@
         "operationId": "end_browser",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4065,9 +4065,9 @@
         "operationId": "currentWorkspace",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4126,9 +4126,9 @@
         "operationId": "open_session",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4229,9 +4229,9 @@
         "operationId": "assert",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4352,9 +4352,9 @@
         "operationId": "await_control",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4455,9 +4455,9 @@
         "operationId": "dialog",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4578,9 +4578,9 @@
         "operationId": "drag",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4701,9 +4701,9 @@
         "operationId": "extract",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4824,9 +4824,9 @@
         "operationId": "frame",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -4963,9 +4963,9 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5086,9 +5086,9 @@
         "operationId": "navigate",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5209,9 +5209,9 @@
         "operationId": "network_body",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5332,9 +5332,9 @@
         "operationId": "outline",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5455,9 +5455,9 @@
         "operationId": "press_key",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5578,9 +5578,9 @@
         "operationId": "print",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5701,9 +5701,9 @@
         "operationId": "resize",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5824,9 +5824,9 @@
         "operationId": "save_site_data",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -5947,9 +5947,9 @@
         "operationId": "screenshot",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6070,9 +6070,9 @@
         "operationId": "execute_script",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6193,9 +6193,9 @@
         "operationId": "upload_file",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6354,9 +6354,9 @@
         "operationId": "write",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6477,9 +6477,9 @@
         "operationId": "listFiles",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6570,9 +6570,9 @@
         "operationId": "listDownloads",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6663,9 +6663,9 @@
         "operationId": "listRecordings",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6756,9 +6756,9 @@
         "operationId": "listScreenshots",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6870,9 +6870,9 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -6984,9 +6984,9 @@
         "operationId": "listFlows",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -7065,9 +7065,9 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -7144,9 +7144,9 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -7223,9 +7223,9 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -7347,9 +7347,9 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -7529,9 +7529,9 @@
         "operationId": "flowSchema",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -7602,9 +7602,9 @@
         "operationId": "listSecrets",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -7675,9 +7675,9 @@
         "operationId": "listSiteData",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
@@ -7757,9 +7757,9 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Session-Key, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old names, X-Workspace and X-Session-Key, are refused with a 400.",
             "in": "header",
-            "name": "X-Workspace",
+            "name": "Sf-Workspace",
             "required": false,
             "schema": {
               "type": "string"
