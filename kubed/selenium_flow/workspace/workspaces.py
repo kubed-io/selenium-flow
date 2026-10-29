@@ -8,15 +8,18 @@ of how a browser is reached, held in the record beside the name.
 
 A name arrives one of two ways, and they are the two things any client can set:
 
-1. **``X-Workspace``**, a header — one Claude.ai custom connectors accept. What
-   an admin pins inside a credential when one credential should mean one
-   workspace.
+1. **``Sf-Workspace``**, a header — what an admin pins inside a credential when
+   one credential should mean one workspace. Behind agentgateway, the gateway
+   sets ``Sf-Workspace``, from ``?workspace=``, the caller's ``Sf-Workspace`` or
+   the token's user, and drops the query string. A caller's old ``X-`` header
+   crosses and is refused.
 2. **``?workspace=<name>``**, on the URL. The ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 
-The names from before the rename, ``X-Session-Key`` and ``?session=``, are
-refused with the new spelling rather than ignored (spec
-2026-10-09-workspaces-rename, ruling 1).
+The names from before, ``?session=`` and the ``X-`` headers (``X-Session-Key``
+and ``X-Workspace`` among them), are refused with the new spelling rather than
+ignored (specs 2026-10-09-workspaces-rename, ruling 1, and 2026-10-29-sf-headers,
+ruling 2).
 
 **Both at once is refused**, rather than one quietly winning. A request
 carrying two names has two ideas about who is calling, and picking one hides
@@ -108,15 +111,26 @@ REPLACED_BEFORE_SAVE = (
 # A client names its workspace with either of these. The query parameter is the
 # one most clients can set, since an MCP server is usually configured by URL.
 NAME_PARAM = "workspace"
-WORKSPACE_HEADER = "x-workspace"
+WORKSPACE_HEADER = "sf-workspace"
 
-# The names from before the rename (spec 2026-10-09-workspaces-rename, ruling
-# 1): refused, not ignored, so a client wired the old way hears it on its first
-# call rather than as "name your workspace".
+# The names from before (specs 2026-10-09-workspaces-rename, ruling 1, and
+# 2026-10-29-sf-headers, ruling 2): refused, not ignored, so a client wired the
+# old way hears it on its first call rather than as "name your workspace".
+# Keyed by the spelling a person reads; a request's headers are looked up by
+# the lowercase. The refusal follows this order.
 OLD_PARAM = "session"
-OLD_HEADER_NAME = "x-session-key"
 OLD_QUERY = "`?session=` is now `?workspace=`: rename it in the URL"
-OLD_HEADER = "`X-Session-Key` is now `X-Workspace`: rename the header"
+OLD_HEADERS = {
+    "X-Session-Key": "Sf-Workspace",
+    "X-Workspace": "Sf-Workspace",
+    "X-Browser": "Sf-Browser",
+    "X-Version": "Sf-Version",
+    "X-Window-Width": "Sf-Window-Width",
+    "X-Window-Height": "Sf-Window-Height",
+    "X-Page-Load-Timeout": "Sf-Page-Load-Timeout",
+    "X-Script-Timeout": "Sf-Script-Timeout",
+}
+RENAMED = "`{old}` is now `{new}`: rename the header"
 
 # The name a stdio caller has. One process, one client, so a constant is
 # exactly right and there is nothing to tell apart.
@@ -124,13 +138,13 @@ STDIO_NAME = "stdio"
 
 UNNAMED = (
     "name your workspace: add ?workspace=<name> to the URL, or send an "
-    "X-Workspace header. Every workspace here is named by whoever calls, and "
+    "Sf-Workspace header. Every workspace here is named by whoever calls, and "
     "the server does not invent one. The name is yours to choose and to reuse "
     "— calling again with the same name is how you get the same browser back."
 )
 
 BOTH = (
-    "name your workspace once: this request carries both an X-Workspace header "
+    "name your workspace once: this request carries both an Sf-Workspace header "
     "and ?workspace=, and they are two answers to one question. Send whichever "
     "one you control and drop the other."
 )
@@ -213,8 +227,8 @@ class Caller:
                     refusal = exc
         if _names(params.get(OLD_PARAM)):
             named, named_by, refusal = "", "", ValueError(OLD_QUERY)
-        elif _names(headers.get(OLD_HEADER_NAME)):
-            named, named_by, refusal = "", "", ValueError(OLD_HEADER)
+        elif (renamed := _old_headers(headers)) is not None:
+            named, named_by, refusal = "", "", ValueError(renamed)
         said = (_last(params, CLIENT_PARAMS), _last(headers, CLIENT_HEADERS))
         flags = {}
         for flag, (param_name, header_name) in FLAGS.items():
@@ -268,6 +282,17 @@ def _two_names(names: list[str]) -> str:
     """The refusal for a request that repeats its name with different values."""
     count = "two" if len(names) == 2 else str(len(names))
     return f"the request names {count} workspaces: {', '.join(names)}"
+
+
+def _old_headers(headers: Mapping[str, list[str]]) -> str | None:
+    """The one refusal naming every old header a request carries, in the table's
+    order, or None. A blank value is absent."""
+    found = [
+        RENAMED.format(old=old, new=new)
+        for old, new in OLD_HEADERS.items()
+        if _names(headers.get(old.lower()))
+    ]
+    return "; ".join(found) or None
 
 
 def _names(values) -> list[str]:

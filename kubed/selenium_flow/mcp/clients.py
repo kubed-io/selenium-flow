@@ -42,7 +42,7 @@ CLIENT_INFO_META = "io.modelcontextprotocol/clientInfo"
 # so ``?workspace=`` never reaches it: `Carry` writes the caller's name here as
 # the call is submitted, and only the no-request branch below reads it. A
 # client sending it is ignored on a request and overwritten at submission.
-CARRIED = "x-selenium-flow-workspace"
+CARRIED = "sf-carried-workspace"
 
 
 def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None:
@@ -71,7 +71,7 @@ def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None
     if not headers:
         return None
     # A task submitted over HTTP is named by what `Carry` wrote at submission,
-    # and by nothing else: never by an X-Workspace the snapshot kept, and never
+    # and by nothing else: never by an Sf-Workspace the snapshot kept, and never
     # the stdio constant (§F2.12). Without it the worker is unnamed.
     values = {k.lower(): [v] for k, v in headers.items()}
     carried = values.pop(CARRIED, None)

@@ -167,13 +167,13 @@ def test_a_known_body_after_end_browser_is_404_over_http(admin_client, fed):
     naming why, never the "call open_session first" 400 — opening one cannot
     bring the body back."""
     r = admin_client.post("/browser/network-body", json={"id": "1.1"},
-                          headers={**AUTH, "X-Workspace": "ws"})
+                          headers={**AUTH, "Sf-Workspace": "ws"})
     assert r.status_code == 404 and r.json()["error"] == BODY_CLOSED
 
 
 def test_an_unknown_body_id_with_no_session_stays_400_over_http(admin_client, fed):
     r = admin_client.post("/browser/network-body", json={"id": "9.9"},
-                          headers={**AUTH, "X-Workspace": "ws"})
+                          headers={**AUTH, "Sf-Workspace": "ws"})
     assert r.status_code == 400 and "open_session" in r.json()["error"]
 
 

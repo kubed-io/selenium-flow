@@ -44,7 +44,7 @@ WORKSPACE = "desktop"
 @pytest.fixture
 def client(server, monkeypatch):
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
-    return TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
+    return TestClient(server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def open_client(open_server, monkeypatch):
     the sentinel for "the input was accepted".
     """
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
-    return TestClient(open_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
+    return TestClient(open_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
 
 
 @pytest.mark.parametrize(
@@ -151,7 +151,7 @@ def test_a_browser_action_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(server.workspaces, "act", act)
-    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
+    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
     response = client.post(
         "/browser/navigate",
         json={"url": "https://example.com"},
@@ -172,7 +172,7 @@ def test_a_flow_run_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(flow_api, "run_for", run_for)
-    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
+    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
     response = client.post(
         "/flows/login/runs", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
     )
@@ -226,7 +226,7 @@ def test_post_browser_takes_version_and_capabilities(open_server, monkeypatch):
         return {"workspace": caller.name}
 
     monkeypatch.setattr(open_server.workspaces, "open_browser", opened)
-    client = TestClient(open_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE})
+    client = TestClient(open_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
     response = client.post(
         "/browser", json={"version": "152", "capabilities": {"kubed:pool": "a"}}
     )
@@ -763,21 +763,22 @@ def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
     assert body["principal"] is None, "an open server has no principal"
 
 
-def test_x_workspace_names_the_workspace_over_http(open_server, monkeypatch):
-    """A Claude.ai custom connector can send X-Workspace, and only approved
-    headers, which is why it is the one header that names a workspace."""
+def test_sf_workspace_names_the_workspace_over_http(open_server, monkeypatch):
+    """What an operator pins inside a credential, and what the gateway sets from
+    `?workspace=`, the caller's `Sf-Workspace` or the token's user. Claude.ai
+    never sends it."""
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     bare = TestClient(open_server.mcp.http_app())
-    body = bare.get("/browser", headers={"X-Workspace": "claude-web"}).json()
+    body = bare.get("/browser", headers={"Sf-Workspace": "claude-web"}).json()
     assert body["workspace"] == "claude-web"
 
 
-def test_x_workspace_and_a_query_name_is_a_400(open_server, monkeypatch):
+def test_sf_workspace_and_a_query_name_is_a_400(open_server, monkeypatch):
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     bare = TestClient(open_server.mcp.http_app())
-    response = bare.get("/browser?workspace=b", headers={"X-Workspace": "a"})
+    response = bare.get("/browser?workspace=b", headers={"Sf-Workspace": "a"})
     assert response.status_code == 400
-    assert "X-Workspace" in response.json()["error"]
+    assert "Sf-Workspace" in response.json()["error"]
 
 
 def test_the_browser_resource_says_admin_to_the_token(client):

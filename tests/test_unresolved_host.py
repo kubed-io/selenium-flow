@@ -281,7 +281,7 @@ async def open_over_mcp(server, monkeypatch) -> str:
 
 
 def open_over_http(server):
-    client = TestClient(server.mcp.http_app(), headers={"X-Workspace": "dns"})
+    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": "dns"})
     return client.post("/browser", json={"url": URL})
 
 

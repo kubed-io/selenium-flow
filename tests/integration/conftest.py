@@ -168,7 +168,7 @@ async def browser(server):
     a flow that signs in must find the sign-in form."""
     transport = StreamableHttpTransport(
         f"{server}/mcp",
-        headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": WORKSPACE},
+        headers={"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": WORKSPACE},
     )
     async with Client(transport) as client:
         await client.call_tool("open_session", {"width": 1280, "height": 900, "restore_site_data": False})

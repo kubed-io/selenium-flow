@@ -434,12 +434,26 @@ async def test_a_request_naming_two_workspaces_is_refused_at_submission(server):
     async with over_http(
         server,
         "http://test/mcp?workspace=w1",
-        headers={"X-Workspace": "w2"},
+        headers={"Sf-Workspace": "w2"},
     ) as client:
         with pytest.raises(ToolError, match="did not run as a task"):
             await call_tool_task(client, "await_control")
         with pytest.raises(ToolError, match="name your workspace once"):
             await client.call_tool("await_control")
+
+
+async def test_an_old_header_lists_tools_and_refuses_the_first_call(server):
+    async with over_http(server, "http://test/mcp", headers={"X-Workspace": "w1"}, mode="legacy") as client:
+        assert await client.list_tools()
+        result = await client.call_tool("await_control", raise_on_error=False)
+    assert result.is_error
+    assert "`X-Workspace` is now `Sf-Workspace`" in result.content[0].text
+
+
+async def test_a_task_with_an_old_header_is_refused_at_submission(server):
+    async with over_http(server, "http://test/mcp?workspace=w1", headers={"X-Browser": "chrome"}) as client:
+        with pytest.raises(ToolError, match="did not run as a task"):
+            await call_tool_task(client, "await_control")
 
 
 async def test_the_carried_header_is_ignored_on_a_request(server):
@@ -471,7 +485,7 @@ async def test_a_worker_with_no_carried_name_is_unnamed_never_stdio(
     server, monkeypatch
 ):
     """Should a task ever reach its worker without the carried name, the
-    snapshot's own X-Workspace does not name it and neither does stdio."""
+    snapshot's own Sf-Workspace does not name it and neither does stdio."""
 
     async def through(self, context, call_next):
         return await call_next(context)
@@ -480,7 +494,7 @@ async def test_a_worker_with_no_carried_name_is_unnamed_never_stdio(
     hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "kelly", "control"))
     hand_back(await hold(server))
     async with over_http(
-        server, "http://test/mcp", headers={"X-Workspace": "w1"}
+        server, "http://test/mcp", headers={"Sf-Workspace": "w1"}
     ) as client:
         task = await call_tool_task(client, "await_control")
         with pytest.raises(ToolError, match="name your workspace"):
@@ -543,7 +557,7 @@ async def test_the_long_poll_answers_the_same_summary(server, monkeypatch):
     began = entered(server, monkeypatch)
     async with web(server) as client:
         call = asyncio.create_task(
-            client.post("/browser/await-control", headers={"X-Workspace": "w1"})
+            client.post("/browser/await-control", headers={"Sf-Workspace": "w1"})
         )
         await began.wait()
         await asyncio.sleep(0.05)
@@ -572,7 +586,7 @@ async def test_the_long_poll_answers_at_the_cap(server, monkeypatch):
     monkeypatch.setattr(answer_module, "run_in_threadpool", no_thread)
     async with web(server) as client:
         response = await client.post(
-            "/browser/await-control", headers={"X-Workspace": "w1"}
+            "/browser/await-control", headers={"Sf-Workspace": "w1"}
         )
     assert response.status_code == 200, response.text
     assert response.json()["handed_back"] is False

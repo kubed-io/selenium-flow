@@ -126,7 +126,7 @@ async def connect(mcp: FastMCP, mode: str = "auto"):
 
     transport = StreamableHttpTransport(
         "http://test/mcp?workspace=q1",
-        headers={"X-Workspace": "desk", CARRIED: "spoofed"},
+        headers={"Sf-Workspace": "desk", CARRIED: "spoofed"},
         httpx_client_factory=factory,
     )
     async with (
@@ -180,7 +180,7 @@ async def test_the_worker_has_no_request_but_the_headers():
     assert seen.worker["request"] is False
     headers = seen.worker["headers"]
     assert headers[CARRIED] == "w1"  # set by middleware, the client's overwritten
-    assert headers["x-workspace"] == "desk"  # the client's own header crosses
+    assert headers["sf-workspace"] == "desk"  # the client's own header crosses
     # No URL is carried, so `?workspace=` is lost to the worker.
     assert "q1" not in str(headers)
 

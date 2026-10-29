@@ -77,7 +77,7 @@ def test_a_client_version_and_a_config_version_reach_the_open():
     open as keywords: the open has to take them."""
     grid = Grid()
     workspaces = Workspaces(Actions(grid), defaults={"version": "150"})
-    caller = Caller.from_request({"workspace": ["w"]}, {"x-version": ["152"]})
+    caller = Caller.from_request({"workspace": ["w"]}, {"sf-version": ["152"]})
     workspaces.open_browser(caller)
     assert grid.built.send["browserVersion"] == "152"
     workspaces.open_browser(Caller.from_request({"workspace": ["v"]}, {}))
@@ -200,7 +200,7 @@ def open_over_http(settings=None, headers=None, json=None):
         "/browser",
         headers={
             "Authorization": f"Bearer {TOKEN}",
-            "X-Workspace": "refused",
+            "Sf-Workspace": "refused",
             **(headers or {}),
         },
         json=json or {},
@@ -212,9 +212,9 @@ def test_a_refused_config_version_is_a_503():
 
 
 def test_a_refused_x_version_is_a_400_naming_it():
-    response = open_over_http(headers={"X-Version": "152"})
+    response = open_over_http(headers={"Sf-Version": "152"})
     assert response.status_code == 400
-    assert "from X-Version or ?version=" in response.json()["error"]
+    assert "from Sf-Version or ?version=" in response.json()["error"]
 
 
 def test_a_refused_explicit_version_is_a_400():
@@ -252,7 +252,7 @@ def test_headless_over_http_reaches_the_open():
     server.actions.grid = grid
     response = TestClient(server.mcp.http_app()).post(
         "/browser",
-        headers={"Authorization": f"Bearer {TOKEN}", "X-Workspace": "h"},
+        headers={"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": "h"},
         json={"headless": True},
     )
     assert response.status_code == 200, response.text

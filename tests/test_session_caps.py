@@ -467,7 +467,7 @@ def test_a_config_version_alone_is_not_the_callers():
 @pytest.mark.parametrize(
     "origin, said",
     [
-        ("client", "version 152, from X-Version or ?version="),
+        ("client", "version 152, from Sf-Version or ?version="),
         ("call", "version 152, from this call's version="),
         (
             "remembered",

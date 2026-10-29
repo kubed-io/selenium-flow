@@ -68,7 +68,7 @@ def kept_server(tmp_path):
 def client(kept_server):
     """Every request names its workspace, the way this surface says to (§F2.13)."""
     return TestClient(
-        kept_server.mcp.http_app(), headers={"X-Workspace": WORKSPACE}
+        kept_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
     )
 
 

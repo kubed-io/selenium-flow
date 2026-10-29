@@ -28,7 +28,7 @@ from .conftest import TOKEN
 pytestmark = pytest.mark.unit
 
 WORKSPACE = "answer-check"
-AUTH = {"Authorization": f"Bearer {TOKEN}", "X-Workspace": WORKSPACE}
+AUTH = {"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": WORKSPACE}
 
 # One write on each JSON tree — the browser actions, the files surface, the
 # flows surface — with the method each is actually served at. REST means these
@@ -153,7 +153,7 @@ def _probe(token, seen):
 def test_a_rest_caller_is_the_admin_when_there_is_a_token(token, principal):
     """Only a token holder gets past the check, so that is who is calling."""
     seen = []
-    headers = {"X-Workspace": WORKSPACE}
+    headers = {"Sf-Workspace": WORKSPACE}
     if token:
         headers["Authorization"] = f"Bearer {TOKEN}"
     answered = TestClient(_probe(token, seen)).post("/p", json={}, headers=headers)
