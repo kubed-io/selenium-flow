@@ -211,7 +211,7 @@ def test_a_refused_config_version_is_a_503():
     assert open_over_http({"session": {"version": "152"}}).status_code == 503
 
 
-def test_a_refused_x_version_is_a_400_naming_it():
+def test_a_refused_sf_version_is_a_400_naming_it():
     response = open_over_http(headers={"Sf-Version": "152"})
     assert response.status_code == 400
     assert "from Sf-Version or ?version=" in response.json()["error"]

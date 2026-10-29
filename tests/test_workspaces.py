@@ -122,8 +122,15 @@ def test_a_session_name_beside_a_new_one_is_ignored(params, headers):  # ruling 
     assert caller_of(params, headers).name == "desk"
 
 
+def test_a_session_name_beside_an_old_header_leaves_only_its_refusal():  # ruling 10, revised
+    caller = caller_of({"session": "desk"}, {"x-browser": "chrome"})
+    with pytest.raises(ValueError) as exc:
+        caller.name  # noqa: B018
+    assert str(exc.value) == "`X-Browser` is now `Sf-Browser`: rename the header"
+
+
 @pytest.mark.parametrize("path, headers", [("/browser?session=desk", {}), ("/browser", {"X-Session-Key": "desk"})])
-def test_a_session_name_is_unnamed_over_http(server, path, headers):
+def test_a_session_name_is_unnamed_over_http(server, path, headers):  # ruling 10, revised
     from starlette.testclient import TestClient
 
     from .conftest import TOKEN
@@ -1762,7 +1769,7 @@ def test_describe_has_no_principal_on_an_open_server():
     assert manager().describe(caller)["principal"] is None
 
 
-# ---- the names from before the rename are refused (ruling 1) ----------------
+# ---- the new names name the workspace ---------------------------------------
 
 def test_the_new_names_name_the_workspace():
     assert caller_of({"workspace": "desk"}).name == "desk"
@@ -2194,7 +2201,7 @@ def test_a_reap_replays_the_whole_stored_set():
     assert ws.actions.opened_settings[-1] == {"width": 1200, "height": 600}
 
 
-def test_x_browser_beats_a_config_version():  # Review Focus 2
+def test_sf_browser_beats_a_config_version():  # Review Focus 2
     """Another browser is another version: the config's Chrome 152 is not
     sent to the Firefox a client's header asked for."""
     ws = Workspaces(RecordingActions(), MemoryStore(), defaults={"version": "152"})

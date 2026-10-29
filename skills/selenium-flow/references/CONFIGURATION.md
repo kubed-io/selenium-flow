@@ -61,7 +61,7 @@ mount** when `ROUTE_PREFIX` is set, so `/flow/mcp` and `/flow/browser/*` for
     "url": "http://selenium-flow.<namespace>.svc.cluster.local:8000/mcp",
     "headers": {
       "Authorization": "Bearer <token>",
-      "X-Workspace": "my-client"
+      "Sf-Workspace": "my-client"
     }
   }
 }
@@ -87,7 +87,7 @@ the URL is written by whoever wires up the call, so two values mean two ideas.
 
 | Switch | Header | Parameter | Does |
 |---|---|---|---|
-| Workspace name | `X-Workspace` | `?workspace=<name>` | Names your workspace, so it holds your browser and survives a reconnect |
+| Workspace name | `Sf-Workspace` | `?workspace=<name>` | Names your workspace, so it holds your browser and survives a reconnect |
 | Resources | `X-MCP-Resources: off` or `on` | `?resources=off` or `on` | Whether this client is given `list_resources` and `read_resource`. Unset, VS Code gets them and other clients do not |
 
 Setting a workspace name is what gives you a browser and a library of your own, described in
@@ -125,12 +125,12 @@ server default (config: session.*)   <   client default (URL param / header)   <
 
 | Setting | Env | Parameter | Header |
 |---|---|---|---|
-| Browser | `SESSION_BROWSER` | `?browser=` | `X-Browser` |
-| Browser version | `SESSION_VERSION` | `?version=` | `X-Version` |
-| Window width | `SESSION_WIDTH` | `?width=` | `X-Window-Width` |
-| Window height | `SESSION_HEIGHT` | `?height=` | `X-Window-Height` |
-| Page load timeout (s) | `SESSION_PAGE_LOAD_TIMEOUT` | `?page_load_timeout=` | `X-Page-Load-Timeout` |
-| Script timeout (s) | `SESSION_SCRIPT_TIMEOUT` | `?script_timeout=` | `X-Script-Timeout` |
+| Browser | `SESSION_BROWSER` | `?browser=` | `Sf-Browser` |
+| Browser version | `SESSION_VERSION` | `?version=` | `Sf-Version` |
+| Window width | `SESSION_WIDTH` | `?width=` | `Sf-Window-Width` |
+| Window height | `SESSION_HEIGHT` | `?height=` | `Sf-Window-Height` |
+| Page load timeout (s) | `SESSION_PAGE_LOAD_TIMEOUT` | `?page_load_timeout=` | `Sf-Page-Load-Timeout` |
+| Script timeout (s) | `SESSION_SCRIPT_TIMEOUT` | `?script_timeout=` | `Sf-Script-Timeout` |
 
 The header beats the parameter, as everywhere else here, because the header is
 in the credential an admin controls.
@@ -150,7 +150,7 @@ a headless flag in `session.capabilities` stops the boot.
 **`SESSION_PAGE_LOAD_TIMEOUT` is the one worth setting.** Without it a
 navigation can hang indefinitely, holding one of the Grid's few slots until
 the Grid reaps it. An unusable *client* value — the `?page_load_timeout=`
-parameter or the `X-Page-Load-Timeout` header — is ignored rather than fatal,
+parameter or the `Sf-Page-Load-Timeout` header — is ignored rather than fatal,
 and `open_session` reports the settings it actually resolved to, so a typo
 there shows up as a missing setting rather than a mystery. A bad `session.*`
 value in the config file, the environment or the command line is different:
