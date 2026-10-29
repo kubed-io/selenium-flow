@@ -127,6 +127,8 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         agent: .issue/roles/claude/agents/spec.md
+        # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
         schema: .issue/roles/claude/agents/spec.schema.json
         opt_in_label: agent
         # the `spec` label's turn is a kb prompt (superpowers library)
@@ -304,6 +306,8 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.handoff.outputs.pull_request }}
         agent: .issue/roles/claude/agents/plan.md
+        # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
         schema: .issue/roles/claude/agents/plan.schema.json
         prompt: /mcp__superpowers__superpowers_spec-approved
         header: "📄 Plan · [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }})"
