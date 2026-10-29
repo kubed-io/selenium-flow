@@ -170,6 +170,7 @@ jobs:
       if: steps.still.outputs.stage == 'plan'
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ needs.route.outputs.head }}
@@ -305,6 +306,7 @@ jobs:
       id: land
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ needs.route.outputs.head }}
