@@ -141,7 +141,8 @@ jobs:
         agent: ${{ env.CLAUDE_AGENTS }}/review/AGENT.md
         schema: ${{ env.CLAUDE_AGENTS }}/review/schema.json
         mcp: ${{ env.CLAUDE_AGENTS }}/review/mcp.json
-        allowed_tools: Read,Glob,Grep
+        # Agent: the review prompt has a subagent security-review the diff
+        allowed_tools: Read,Glob,Grep,Agent
         disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
         # the turn's words are a kb prompt (superpowers library)
         prompt: /mcp__superpowers__superpowers_review
