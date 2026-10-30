@@ -1,9 +1,12 @@
 """A workspace's files as three sections, addressed by path (§F4.6, §F4.7)."""
 
 import json
+import re
 
 import pytest
+import requests
 
+from kubed.selenium_flow.faults import NoSession
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import files
 from kubed.selenium_flow.names import FILES_DIR, SCREENSHOTS_DIR
@@ -64,7 +67,7 @@ def store(tmp_path):
     [
         ("files", "report.pdf", "workspace://files/report.pdf"),
         ("screenshots", "shot.png", "workspace://files/screenshots/shot.png"),
-        ("downloads", "export.csv", "workspace://files/downloads/export.csv"),
+        ("downloads", "export.csv", "session://downloads/export.csv"),
         ("files", "Q3 summary (1).csv", "workspace://files/Q3%20summary%20%281%29.csv"),
     ],
 )
@@ -85,7 +88,8 @@ def test_a_literal_space_parses_like_its_escape():
     [
         "workspace://files",
         "workspace://files/screenshots",
-        "workspace://files/downloads",
+        "session://downloads",
+        "session://downloads/a/b",
         "workspace://files/a/b",
         "workspace://files/flows/x",
         "flow://flows/x",
@@ -100,7 +104,7 @@ def test_a_uri_that_names_no_file_is_refused_with_the_shapes(uri):
 # ---- listings -----------------------------------------------------------------
 
 
-def test_the_root_lists_files_and_names_three_folders(store):
+def test_the_root_lists_files_and_names_two_folders(store):
     store.write_file(S, "report.pdf", b"p")
     store.create_file(S, "shot.png", b"s", SCREENSHOTS_DIR)
     got = files.root(Actions(), FakeWorkspaces(), store, TOKEN, S)
@@ -109,54 +113,62 @@ def test_the_root_lists_files_and_names_three_folders(store):
     assert got["folders"] == [
         {"name": "screenshots", "uri": "workspace://files/screenshots", "count": 1},
         {"name": "recordings", "uri": "workspace://files/recordings", "count": 0},
-        {"name": "downloads", "uri": "workspace://files/downloads", "count": 2, "browser": True},
     ]
 
 
-def test_with_no_browser_the_downloads_folder_says_so(store):
-    got = files.root(Actions(), FakeWorkspaces(browser=""), store, TOKEN, S)
-    assert got["folders"][2] == {
-        "name": "downloads", "uri": "workspace://files/downloads", "count": 0, "browser": False,
-    }
+def test_a_moved_download_uri_says_where_it_went():  # Review Focus 1
+    with pytest.raises(ValueError, match=re.escape("is now `session://downloads/export.csv`")):
+        files.parse_uri("workspace://files/downloads/export.csv")
 
 
-def test_the_root_counts_downloads_without_describing_them(store, monkeypatch):
-    """Copilot: the root listing must count downloads from the Grid's own
-    listing, not by describing (and signing) every one of them just to throw
-    the descriptions away. A session with many downloads pays for that on
-    every ``workspace://files`` read, and it is real work: content-type
-    guessing, a folder-count, and an HMAC signature per entry.
+def test_the_root_never_asks_the_grid(store):  # ruling 10, Review Focus 4
+    class Down:
+        def files(self, _session_id):
+            raise requests.ConnectionError("grid down")
+    store.write_file(S, "report.pdf", b"p")
+    got = files.root(Actions(Down()), FakeWorkspaces(), store, TOKEN, S)
+    assert [f["name"] for f in got["files"]] == ["report.pdf"]
 
-    The in-flight file also proves the count still applies the partial-file
-    rule (``is_partial``, done by ``Grid.files`` itself) even though nothing
-    in ``root`` ever looks at the entries to filter them.
-    """
 
-    class PartialAwareGrid:
-        """Stands in for the real Grid.files, which already drops in-flight
-        downloads via ``is_partial`` before this module ever sees them."""
+def test_without_a_data_dir_files_is_off_even_with_a_browser():
+    for read in (lambda: files.root(Actions(), FakeWorkspaces(), None, TOKEN, S),
+                 lambda: files.folder(Actions(), FakeWorkspaces(), None, TOKEN, S, "screenshots")):
+        with pytest.raises(ValueError, match=re.escape(files.OFF)):
+            read()
 
-        def __init__(self):
-            self.entries = [
-                {"name": "export.csv", "size": 3, "creationTime": 2},
-                {"name": "export.csv.crdownload", "size": 0, "creationTime": 3},
-            ]
 
-        def files(self, session_id):
-            from kubed.selenium_flow.core.browser import is_partial
+def test_downloads_with_no_session_say_so(store):  # rulings 3, 8
+    idle = FakeWorkspaces(browser="")
+    for call in (
+        lambda: files.folder(Actions(), idle, store, TOKEN, S, "downloads"),
+        lambda: files.read_file(Actions(), idle, store, "session://downloads/export.csv", S),
+        lambda: files.keep(Actions(), idle, store, "session://downloads/export.csv", S),
+    ):
+        with pytest.raises(NoSession) as exc:
+            call()
+        assert str(exc.value) == files.NO_DOWNLOADS
 
-            return [e for e in self.entries if not is_partial(e["name"])]
 
-    def describe_must_not_see_downloads(folder, *a, **k):
-        if folder == files.DOWNLOADS:
-            raise AssertionError("root() must not describe downloads to count them")
-        return real_describe(folder, *a, **k)
+def test_downloads_with_no_store_and_no_session_say_no_session():
+    with pytest.raises(NoSession) as exc:
+        files.folder(Actions(), FakeWorkspaces(browser=""), None, TOKEN, S, "downloads")
+    assert str(exc.value) == files.NO_DOWNLOADS
 
-    real_describe = files.describe
-    monkeypatch.setattr(files, "describe", describe_must_not_see_downloads)
 
-    got = files.root(Actions(PartialAwareGrid()), FakeWorkspaces(), store, TOKEN, S)
-    assert got["folders"][2]["count"] == 1
+def test_downloads_with_no_store_still_list_from_an_open_browser():
+    got = files.folder(Actions(), FakeWorkspaces(), None, TOKEN, S, "downloads")
+    assert [f["name"] for f in got["files"]] == ["export.csv", "screenshots"]
+
+
+def test_the_downloads_listing_has_no_browser_flag(store):
+    got = files.folder(Actions(), FakeWorkspaces(), store, TOKEN, S, "downloads")
+    assert got["uri"] == "session://downloads" and "browser" not in got
+    assert got["files"][0]["keep_with"].startswith('keep_file("session://downloads/')
+
+
+def test_the_admins_sections_still_answer_with_no_browser(store):  # Review Focus 3
+    got = files.sections(Actions(), FakeWorkspaces(), store, TOKEN, S, session_id="")
+    assert got["downloads"] == [] and got["browser"] is False
 
 
 def test_every_entry_carries_its_own_uri_and_no_kept_flag(store):
@@ -226,7 +238,7 @@ def test_a_moved_screenshot_never_overwrites_a_kept_file(store):
 def test_keeping_a_download_copies_it_and_replaces_a_same_named_file(store):
     store.write_file(S, "export.csv", b"old copy")
     grid = Grid(data=b"fresh")
-    got = files.keep(Actions(grid), FakeWorkspaces(), store, "workspace://files/downloads/export.csv", S)
+    got = files.keep(Actions(grid), FakeWorkspaces(), store, "session://downloads/export.csv", S)
     assert got["uri"] == "workspace://files/export.csv"
     assert store.read_file(S, "export.csv") == b"fresh"
     assert grid.read == [("abc", "export.csv")]
@@ -234,7 +246,7 @@ def test_keeping_a_download_copies_it_and_replaces_a_same_named_file(store):
 
 @pytest.mark.parametrize("name", ["screenshots", "downloads"])
 def test_a_reserved_name_lands_beside_itself(store, name):
-    got = files.keep(Actions(), FakeWorkspaces(), store, f"workspace://files/downloads/{name}", S)
+    got = files.keep(Actions(), FakeWorkspaces(), store, f"session://downloads/{name}", S)
     assert got["name"] == f"{name} (1)"
 
 
@@ -250,8 +262,8 @@ def test_keeping_a_screenshot_that_is_gone_says_where_to_look(store):
 
 
 def test_keeping_a_download_with_no_browser_is_refused(store):
-    with pytest.raises(ValueError, match="browser"):
-        files.keep(Actions(), FakeWorkspaces(browser=""), store, "workspace://files/downloads/export.csv", S)
+    with pytest.raises(ValueError, match=re.escape(files.NO_DOWNLOADS)):
+        files.keep(Actions(), FakeWorkspaces(browser=""), store, "session://downloads/export.csv", S)
 
 
 def test_keeping_refuses_when_there_is_nowhere_to_keep():
@@ -330,7 +342,7 @@ def test_a_print_is_kept_in_files(store):
     [
         ("workspace://files/report.pdf", ("report.pdf", b"kept")),
         ("workspace://files/screenshots/shot.png", ("shot.png", b"png")),
-        ("workspace://files/downloads/export.csv", ("export.csv", b"from-grid")),
+        ("session://downloads/export.csv", ("export.csv", b"from-grid")),
     ],
 )
 def test_any_file_can_be_read_back_by_its_uri(store, uri, expected):

@@ -16,6 +16,12 @@ from . import clients
 
 RESOURCE_URI = "workspace://current"
 
+CAPTURE_KEPT = (
+    "What was captured is the workspace's, not the browser's: it stays readable "
+    "after the session ends, until capture.ttl passes with nothing new or "
+    "open_session is called without capture."
+)
+
 DESCRIPTION = (
     "The workspace this client named, and the session (browser) open in it.\n\n"
     "Returns the workspace name, which browser it is, the page it is on, the "
@@ -29,7 +35,7 @@ DESCRIPTION = (
     "capture says whether this workspace's browsers capture their console and "
     "network (open_session(capture=true)); capturing is whether that is "
     "happening right now \u2014 false while it is paused, until the next call; "
-    "captured counts what was kept since the last navigation.\n\n"
+    "captured counts what was kept since the last navigation. " + CAPTURE_KEPT + "\n\n"
     "Reading this never opens a browser: live is false when no session is open."
 )
 
@@ -121,7 +127,7 @@ CONSOLE_DESCRIPTION = (
     "over earlier pages. debug entries are counted, not kept. dropped, when "
     "present, counts events lost in a flood, so some may be missing. Present "
     "only for a workspace opened with open_session(capture=true); otherwise it "
-    "says so. Reading this never opens a browser."
+    "says so. Reading this never opens a browser. " + CAPTURE_KEPT
 )
 
 NETWORK_DESCRIPTION = (
@@ -133,7 +139,7 @@ NETWORK_DESCRIPTION = (
     "credentials too long to mask, which an echo may show. "
     "workspace://network/{id} shows one with its headers; network_body(id) "
     "fetches its response body while the browser lives. Credentials are shown "
-    "as \u2022\u2022\u2022."
+    "as \u2022\u2022\u2022. " + CAPTURE_KEPT
 )
 
 REQUEST_DESCRIPTION = (

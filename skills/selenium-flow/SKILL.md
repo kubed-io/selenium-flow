@@ -161,14 +161,14 @@ Firefox when the task is about Firefox. Downloads go with an ended browser, so
 | URI | Is |
 |---|---|
 | `workspace://current` | what you are holding |
-| `workspace://files` | Files' kept files, each with a link, and the three folders below |
+| `workspace://files` | Files' kept files, each with a link, and the two folders below |
 | `workspace://files/{name}` | one kept file |
 | `workspace://files/screenshots` | saved screenshots not yet kept |
 | `workspace://files/screenshots/{name}` | one of those |
 | `workspace://files/recordings` | recordings not yet kept, each with a link that plays it |
 | `workspace://files/recordings/{name}` | one of those, described; its link plays it |
-| `workspace://files/downloads` | the browser's downloads |
-| `workspace://files/downloads/{name}` | one of those, while the browser is open |
+| `session://downloads` | the open browser's downloads; with no session open it says so |
+| `session://downloads/{name}` | one of those |
 | `workspace://site-data` | the sites with saved cookies or storage, never a value |
 | `workspace://site-data/{site}` | one site's saved data; httpOnly values are masked |
 | `workspace://console` | what the page logged; needs `open_session(capture=true)` |

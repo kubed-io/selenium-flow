@@ -381,3 +381,19 @@ async def test_captured_dropped_says_it_counts_since_the_buffer_began(spec):
     captured = spec["components"]["schemas"]["WorkspaceStatus"]["properties"]["captured"]
     said = captured["properties"]["dropped"]["description"]
     assert "not since the last navigation" in said
+
+
+def test_the_downloads_listing_is_the_sessions(spec):  # ruling 9
+    operation = spec["paths"]["/browser/downloads"]["get"]
+    assert operation["x-mcp-resource"] == "session://downloads"
+    assert operation["tags"] == ["browser"]
+    assert "/files/downloads" not in spec["paths"]
+    assert "/files/{folder}/{name}/kept" in spec["paths"]
+
+
+def test_the_downloads_listing_says_its_own_400(spec):  # ruling 8
+    downloads = spec["paths"]["/browser/downloads"]["get"]["responses"]["400"]
+    screenshots = spec["paths"]["/files/screenshots"]["get"]["responses"]["400"]
+    assert "No session is open" in downloads["description"]
+    assert "DATA_DIR" not in downloads["description"]
+    assert "No session is open" not in screenshots["description"]

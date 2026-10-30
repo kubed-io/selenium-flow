@@ -37,6 +37,9 @@ read it in the vocabulary below.
   started by `open_session`, ended by `end_browser`, the admin's End or the
   Grid's reaper. It holds and controls the Grid's session (`session_id`). An idle
   workspace has no session.
+- `session://` names what dies with the session's browser: today only its
+  downloads, `session://downloads`. Everything the workspace keeps, captured
+  console and network included, is `workspace://` (spec 2026-10-29-session-uris).
 - Otherwise *session* means only the Grid's session or the MCP transport
   session, and the browser's sessionStorage keeps its name.
 
@@ -850,8 +853,10 @@ because a status read that opens a browser would be the original leak wearing a 
 reports the workspace **name** and whether a session is open, and never the Grid's id.
 
 A `session://` URI from before the rename — in a saved flow's `upload_file` step,
-say — is refused with its `workspace://` spelling, by every tool that takes a URI.
-Saved flows are not rewritten; the error names the fix.
+say — is refused with its `workspace://` spelling, and `workspace://files/downloads`
+with `session://downloads`, by every tool that takes a URI (spec
+2026-10-29-session-uris, ruling 11). `session://downloads` is the one `session://`
+URI served. Saved flows are not rewritten; the error names the fix.
 
 The same goes for the skill, the flow library, Files, Screenshots, Downloads and
 the secrets catalogue: each is a resource, and **every piece of text an agent

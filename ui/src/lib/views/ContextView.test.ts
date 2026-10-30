@@ -41,7 +41,8 @@ test('the Site data chip drills into the saved site data', async () => {
 test('without onshow the chip is not a button', () => {
   render(ContextView, { props: { data: { ...base, site_data: { sites: 2, uri: 'workspace://site-data' } } } })
   expect(screen.queryByRole('button')).toBeNull()
-  expect(screen.getByTitle("Open isn't available in this client")).toHaveTextContent('Site data')
+  expect(screen.getAllByTitle("Open isn't available in this client").map((e) => e.textContent)).toEqual(
+    [expect.stringContaining('Site data'), expect.stringContaining('Downloads')])
 })
 
 test('capture paused and the two chips', async () => {
@@ -73,6 +74,24 @@ test('REC and capturing pills; chips are inert without onshow', () => {
   expect(screen.getByText('● capture')).toHaveClass('pill', 'capture')
   expect(screen.queryByRole('button')).toBeNull()
   expect(screen.getAllByTitle("Open isn't available in this client").length).toBeGreaterThanOrEqual(2)
+})
+
+test('an open session offers its downloads', async () => {
+  const onshow = vi.fn()
+  const { getByRole } = render(ContextView, { props: { data: { ...base, live: true }, onshow } })
+  await fireEvent.click(getByRole('button', { name: 'Downloads' }))
+  expect(onshow).toHaveBeenCalledWith('session://downloads')
+})
+
+test('an idle workspace offers no downloads', () => {
+  const { queryByText } = render(ContextView, { props: { data: { ...base, live: false }, onshow: vi.fn() } })
+  expect(queryByText('Downloads')).toBeNull()
+})
+
+test('without onshow the Downloads chip is the disabled span', () => {
+  render(ContextView, { props: { data: { ...base, live: true, site_data: undefined } } })
+  expect(screen.queryByRole('button')).toBeNull()
+  expect(screen.getByTitle("Open isn't available in this client")).toHaveTextContent('Downloads')
 })
 
 test('no capture pills or chips when capture is off; REC needs a live browser', () => {

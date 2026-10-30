@@ -566,7 +566,7 @@
       "read_only_hint": false,
       "title": "Keep a file in Files"
     },
-    "description": "Keep one file in Files, where it stays until a person deletes it.\n\nuri is as workspace://files and its folders list it. A screenshot or a recording moves out of its folder and lands beside a same-named file as name (1); a download is copied, since the browser keeps its own until it ends, and REPLACES a same-named file in Files. The result is the file's new uri. upload_file(file=uri) puts any file back into a page.",
+    "description": "Keep one file in Files, where it stays until a person deletes it.\n\nuri is as workspace://files, its folders and session://downloads list it. A screenshot or a recording moves out of its folder and lands beside a same-named file as name (1); a download is copied, since the browser keeps its own until it ends, and REPLACES a same-named file in Files. The result is the file's new uri. upload_file(file=uri) puts any file back into a page.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1294,7 +1294,7 @@
       "read_only_hint": false,
       "title": "Attach a file to a file input"
     },
-    "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this workspace has, by its uri from workspace://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
+    "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, by its uri: a file in workspace://files or its folders, or a\n  download from session://downloads — without its bytes passing through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
