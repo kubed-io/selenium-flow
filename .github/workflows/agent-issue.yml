@@ -113,9 +113,8 @@ jobs:
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        agent: ${{ env.CLAUDE_AGENTS }}/spec/AGENT.md
+        settings: ${{ env.CLAUDE_AGENTS }}/spec/settings.json
         schema: ${{ env.CLAUDE_AGENTS }}/spec/schema.json
-        mcp: ${{ env.CLAUDE_AGENTS }}/spec/mcp.json
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
         opt_in_label: agent
@@ -124,7 +123,6 @@ jobs:
         session_key: issue-${{ needs.route.outputs.number }}
         allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
-        claude_args: --strict-mcp-config
         live_messages: true
 
     # the draft spec lives under docs/: the wiki first, then its pointer in one signed commit
@@ -282,19 +280,17 @@ jobs:
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.handoff.outputs.pull_request }}
-        agent: ${{ env.CLAUDE_AGENTS }}/plan/AGENT.md
+        settings: ${{ env.CLAUDE_AGENTS }}/plan/settings.json
         schema: ${{ env.CLAUDE_AGENTS }}/plan/schema.json
-        mcp: ${{ env.CLAUDE_AGENTS }}/plan/mcp.json
         allowed_tools: Read,Glob,Grep,Write,Edit
         disallowed_tools: Bash,NotebookEdit
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
-        prompt: /mcp__superpowers__superpowers_spec-approved
+        prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_spec-approved
         # the PR's opening post is always new, so a quiet prompt would never be sent
         prompt_when: always
         header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
         session_key: pr-${{ needs.handoff.outputs.pull_request }}
-        claude_args: --strict-mcp-config
         live_messages: true
 
     # the plan and spec live under docs/: the wiki first, then its pointer in one signed commit

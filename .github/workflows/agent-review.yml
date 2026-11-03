@@ -138,14 +138,13 @@ jobs:
       with:
         github_token: ${{ github.token }}
         number: ${{ needs.route.outputs.number }}
-        agent: ${{ env.CLAUDE_AGENTS }}/review/AGENT.md
+        settings: ${{ env.CLAUDE_AGENTS }}/review/settings.json
         schema: ${{ env.CLAUDE_AGENTS }}/review/schema.json
-        mcp: ${{ env.CLAUDE_AGENTS }}/review/mcp.json
         # Agent: the review prompt has a subagent security-review the diff
         allowed_tools: Read,Glob,Grep,Agent
         disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
         # the turn's words are a kb prompt (superpowers library)
-        prompt: /mcp__superpowers__superpowers_review
+        prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_review
         prompt_when: always
         header: "**Verdict: {{ output.verdict }}**"
         review: "true"
@@ -153,7 +152,6 @@ jobs:
         # the Checks job's dispatch is github-actions': Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282,github-actions
         session_key: review-${{ needs.route.outputs.number }}
-        claude_args: --strict-mcp-config
 
     # the verdict is the check: only `looks good` passes it
     - name: Set the Check
