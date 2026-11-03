@@ -1,0 +1,17 @@
+name: Agent Setup
+description: >
+  What the code agent needs past Python: Node and the UI's packages. kubed-io/actions'
+  agent-pr.yml runs it after the checkout and the Python install.
+
+runs:
+  using: composite
+  steps:
+
+  - name: Setup Node
+    uses: actions/setup-node@v7
+    with:
+      node-version: 26
+
+  - name: Install UI Dependencies
+    shell: bash
+    run: npm --prefix ui ci

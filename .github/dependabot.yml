@@ -14,7 +14,10 @@ updates:
 
 # GitHub Actions: keeps every `uses:` pin across workflows current.
 - package-ecosystem: github-actions
-  directory: /
+  # the workflows, and the composite action agent-pr.yml runs
+  directories:
+  - /
+  - /.github/actions/*
   schedule:
     interval: weekly
     day: monday

@@ -1,29 +1,7 @@
 name: 🔍 Agent · Review
 
-# The review agent, and the `Agent review` status it answers to. It wakes on the
-# `agent-review` dispatch: pr.yml's Checks job sends it when an `agent` PR's checks end
-# (`reason: checks`), and Dr K, the App or the review agent send it to ask again. For a PR the
-# agents built (head `issue-*`, plan approved), out of draft:
-#
-# - checks red: no review. The status fails as `checks failed`, and `agent-code` goes out
-#   with `reason: ci` and the run, whose `checks-report` artifact the code agent reads.
-# - checks green: one review: its summary, with line comments and suggestions under it,
-#   on the built-in token, so it is github-actions[bot]'s and not the code agent's.
-#   `changes requested` dispatches `agent-code` (`reason: review`); the code agent's fix
-#   is a push, whose checks bring the next round; `looks good` passes the check.
-#
-# kubed-io/actions/review-route decides it. A commit that only merges main in, or only
-# applies a passing review's own suggestions from the PR's page, keeps the last verdict.
-#
-# The verdict is a commit status on the PR's head, never this job's own check run: a run on
-# repository_dispatch belongs to main's commit. It is not a required check; Dr K merges.
-# The status is also the loop's memory: a head the review agent already passed is never
-# reviewed again, and every new commit starts without one. A PR without the `agent` label
-# gets no status.
-#
-# The gates name ids, not variables: a job's `if` is decided before any runner, so only
-# GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
-# kubed-io App's bot (the code agent), 41898282 github-actions[bot].
+# The review agent and the `Agent review` status: kubed-io/actions' agent-review.yml says
+# what they do.
 
 on:
   # pr.yml's Checks job dispatches this instead, for an `agent` PR only
@@ -35,146 +13,19 @@ on:
 
 permissions: {}
 
-env:
-  CHECK: Agent review
-  # reviews, and commits whose checks failed, on one PR before it is handed to Dr K
-  MAX_REVIEWS: 3
-  MAX_FIXES: 3
-
 jobs:
-
-  route:
-    name: Route
-    # any PR's checks get a status; only Dr K, the App and the review agent itself ask for
-    # a review by dispatch
-    if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request') ||
-      (github.event.action == 'agent-review' &&
-        (github.event.sender.id == 4399427 ||
-          github.event.sender.id == 41898282 ||
-          github.event.sender.id == 235398881))
-    runs-on: ubuntu-26.04
+  agent:
+    name: Agent
+    uses: kubed-io/actions/.github/workflows/agent-review.yml@main
+    secrets: inherit
     permissions:
-      # contents write is the `agent-code` dispatch's
+      # contents write is the `agent-code` dispatch's; the review, its comments, the notes
+      # and the status are github-actions[bot]'s
       contents: write
       actions: read
-      pull-requests: read
-      statuses: write
-    outputs:
-      number: ${{ steps.route.outputs.number }}
-      sha: ${{ steps.route.outputs.sha }}
-      last: ${{ steps.route.outputs.last }}
-    steps:
-
-    # reads the PR and the run, sets statuses, dispatches; nothing of the PR is checked out
-    - name: Route
-      id: route
-      uses: kubed-io/actions/review-route@main
-      with:
-        check: ${{ env.CHECK }}
-        trusted: 4399427,41898282,235398881
-        owner: "4399427"
-        max_reviews: ${{ env.MAX_REVIEWS }}
-        max_fixes: ${{ env.MAX_FIXES }}
-
-  review:
-    name: Review
-    needs: route
-    if: needs.route.outputs.number != ''
-    runs-on: claude
-    environment: claude
-    # one agent job per PR at a time, shared with agent-pr.yml
-    concurrency:
-      group: agent-pr-${{ needs.route.outputs.number }}
-    timeout-minutes: 45
-    permissions:
-      # contents write is the dispatch's; the review, its comments, the notes and the
-      # check are github-actions[bot]'s
-      contents: write
       pull-requests: write
       issues: write
       statuses: write
       # pr-checks: the alerts and the annotations
       checks: read
       security-events: read
-    steps:
-
-    # a queued review checks it is still wanted as it starts: when the head has moved on, that
-    # head's own checks dispatch its review (spec §12.8)
-    - name: Still Wanted
-      id: still
-      env:
-        GH_TOKEN: ${{ github.token }}
-        NUMBER: ${{ needs.route.outputs.number }}
-        SHA: ${{ needs.route.outputs.sha }}
-      run: |
-        head=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}" --jq .head.sha)
-        if [ "$head" = "$SHA" ]; then
-          echo "wanted=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "::notice::${SHA} is no longer the head (${head}): its checks dispatch its own review"
-        fi
-
-    - name: Checkout
-      if: steps.still.outputs.wanted == 'true'
-      uses: actions/checkout@v7
-      with:
-        # the commit the check is for, even when the branch moves on meanwhile
-        ref: ${{ needs.route.outputs.sha }}
-        submodules: true
-        persist-credentials: false
-
-    # what the checks found: the PR's code scanning alerts and the head's annotations
-    - name: PR Checks
-      if: steps.still.outputs.wanted == 'true'
-      uses: kubed-io/actions/pr-checks@main
-      with:
-        number: ${{ needs.route.outputs.number }}
-
-    - name: Review Agent
-      if: steps.still.outputs.wanted == 'true'
-      id: agent
-      uses: kubed-io/actions/issue-agent@main
-      with:
-        github_token: ${{ github.token }}
-        number: ${{ needs.route.outputs.number }}
-        settings: ${{ env.CLAUDE_AGENTS }}/review/settings.json
-        schema: ${{ env.CLAUDE_AGENTS }}/review/schema.json
-        # the turn's words are a kb prompt (superpowers library)
-        prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_review
-        prompt_when: always
-        header: "**Verdict: {{ output.verdict }}**"
-        review: "true"
-        threads: "false"
-        # the Checks job's dispatch is github-actions': Claude starts only for an allowed bot
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282,github-actions
-        session_key: review-${{ needs.route.outputs.number }}
-
-    # the verdict is the check: only `looks good` passes it
-    - name: Set the Check
-      if: steps.still.outputs.wanted == 'true' && (always())
-      uses: kubed-io/actions/review-route/verdict@main
-      with:
-        check: ${{ env.CHECK }}
-        number: ${{ needs.route.outputs.number }}
-        # the commit the review ended on: the hook may have brought a push in (spec §12.5)
-        sha: ${{ steps.agent.outputs.reviewed_sha || needs.route.outputs.sha }}
-        last: ${{ needs.route.outputs.last }}
-        output: ${{ steps.agent.outputs.output }}
-        review_id: ${{ steps.agent.outputs.review_id }}
-        comment_id: ${{ steps.agent.outputs.comment_id }}
-
-    # a pointer, never the review: the code agent reads it from the PR
-    - name: Wake the Code Agent
-      if: >-
-        steps.still.outputs.wanted == 'true' && (
-        needs.route.outputs.last != 'true' &&
-        fromJSON(steps.agent.outputs.output || '{}').verdict == 'changes requested')
-      env:
-        GH_TOKEN: ${{ github.token }}
-        NUMBER: ${{ needs.route.outputs.number }}
-        REVIEW_ID: ${{ steps.agent.outputs.review_id }}
-      run: |
-        gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=agent-code \
-          -F "client_payload[pull_request]=${NUMBER}" -f "client_payload[reason]=review" \
-          -f "client_payload[review_id]=${REVIEW_ID}"

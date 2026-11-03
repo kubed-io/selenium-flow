@@ -59,10 +59,15 @@ rules:
   # pr.yml calls this repository's own check workflows, and each gets the secrets it would
   # have had on its own `pull_request` trigger: `inherit` passes the same set, so a check
   # that starts using a secret needs no second edit in the caller. A fork's pull_request
-  # run gets no secrets either way.
+  # run gets no secrets either way. The agent workflows call kubed-io/actions' shared ones
+  # the same way, the convention of that repo's workflows; they run on a dispatch only,
+  # which always runs main's copy.
   secrets-inherit:
     ignore:
     - pr.yml
+    - agent-issue.yml
+    - agent-pr.yml
+    - agent-review.yml
 
   # `gh release create` in a script step would work, but softprops/action-gh-release
   # is the house standard across every kubed-io repo's publish.yml, and a release
