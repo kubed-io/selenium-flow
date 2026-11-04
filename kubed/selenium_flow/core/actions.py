@@ -962,9 +962,9 @@ class Actions:
           Base64-encoding text it just wrote is a wasted step it can get wrong.
         - ``content`` — base64, which binary needs and which is the only shape
           MCP tool arguments can carry.
-        - ``file`` — any file this workspace has, by its ``workspace://files`` uri
-          — a screenshot, a download, or a file in Files — from the library
-          ``workspace`` names. This closes the loop the file store never had: a
+        - ``file`` — any file this workspace has, by its ``workspace://files``
+          or ``session://downloads`` uri — a screenshot, a download, or a file
+          in Files. This closes the loop the file store never had: a
           browser could download a file or take a screenshot and there was no
           way to give it back to a page. Now a flow can download an export and
           upload it somewhere else, without the bytes ever passing through a
@@ -995,7 +995,7 @@ class Actions:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
                 "base64 bytes, or file for any file this workspace has, by its "
-                "workspace://files uri"
+                "workspace://files or session://downloads uri"
             )
         if len(sources) > 1:
             raise ValueError(

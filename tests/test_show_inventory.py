@@ -35,11 +35,11 @@ FORMS = {
     "workspace://files",
     "workspace://files/screenshots",
     "workspace://files/recordings",
-    "workspace://files/downloads",
+    "session://downloads",
     "workspace://files/{name}",
     "workspace://files/screenshots/{name}",
     "workspace://files/recordings/{name}",
-    "workspace://files/downloads/{name}",
+    "session://downloads/{name}",
     "flow://flows",
     "flow://flows/{name}",
     "flow://schema",
@@ -107,7 +107,7 @@ async def test_every_uri_the_server_serves_has_a_view(everything):
 
 
 # The one listed resource whose read is the Grid's: drawing it needs a browser.
-BROWSER = ("workspace://files/downloads",)
+BROWSER = ("session://downloads",)
 
 
 async def undrawn(server) -> dict[str, str]:

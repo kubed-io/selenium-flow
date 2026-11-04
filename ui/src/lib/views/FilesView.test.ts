@@ -5,8 +5,7 @@ import FilesView from './FilesView.svelte'
 const data = {
   workspace: 's', count: 1, files: [{ name: 'k.pdf', size: 5, url: 'https://example.com/k' }],
   folders: [{ name: 'screenshots', uri: 'workspace://files/screenshots', count: 4 },
-    { name: 'recordings', uri: 'workspace://files/recordings', count: 2 },
-    { name: 'downloads', uri: 'workspace://files/downloads', count: 1, browser: true }],
+    { name: 'recordings', uri: 'workspace://files/recordings', count: 2 }],
 }
 
 test('kept files in one horizontal row and a chip per folder; a chip drills in', async () => {
@@ -16,7 +15,7 @@ test('kept files in one horizontal row and a chip per folder; a chip drills in',
   expect(container.querySelector('section')).not.toHaveClass('row')
   const chip = screen.getByRole('button', { name: /Screenshots/ })
   expect(chip).toHaveTextContent('4')
-  expect(screen.getByRole('button', { name: /Downloads/ })).toHaveTextContent('1')
+  expect(screen.queryByRole('button', { name: /Downloads/ })).toBeNull()
   expect(screen.getByRole('button', { name: /Recordings/ })).toHaveTextContent('2')
   await fireEvent.click(chip)
   expect(onshow).toHaveBeenCalledWith('workspace://files/screenshots')
@@ -26,7 +25,7 @@ test('without onshow the chips are not buttons', () => {
   render(FilesView, { props: { data } })
   expect(screen.queryByRole('button')).toBeNull()
   expect(screen.getByText('Screenshots')).toBeInTheDocument()
-  expect(screen.getAllByTitle("Open isn't available in this client")).toHaveLength(3)
+  expect(screen.getAllByTitle("Open isn't available in this client")).toHaveLength(2)
 })
 
 test('a chip that opens carries no unavailable tooltip', () => {

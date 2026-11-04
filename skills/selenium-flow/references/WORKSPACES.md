@@ -138,7 +138,7 @@ slots until it times out.
 and the page you were on, so `open_session()` with no arguments later returns to
 that page; anything you did not pass comes from the current defaults.
 
-What *is* gone is the session's downloads. The Grid keeps that store per
+What *is* gone is the session's downloads, `session://downloads`. The Grid keeps that store per
 browser and deletes it with the browser, so `keep_file` anything you still
 need first. Screenshots and prints are never at risk this way — they land in
 your workspace's own files, `workspace://files/screenshots` and `workspace://files`,

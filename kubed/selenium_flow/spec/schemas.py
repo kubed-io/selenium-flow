@@ -704,7 +704,7 @@ FILE_SCHEMAS = {
     },
     "FileList": {
         "type": "object",
-        "description": "workspace://files: Files' own listing, and its three folders.",
+        "description": "workspace://files: Files' own listing, and its two folders.",
         "properties": {
             "workspace": {
                 "type": ["string", "null"],
@@ -723,28 +723,21 @@ FILE_SCHEMAS = {
     },
     "FileFolder": {
         "type": "object",
-        "description": "One of the three folders named beside Files' own files.",
+        "description": "One of the two folders named beside Files' own files.",
         "properties": {
             "name": {
                 "type": "string",
-                "enum": ["screenshots", "recordings", "downloads"],
+                "enum": ["screenshots", "recordings"],
             },
             "uri": {"type": "string"},
             "count": {"type": "integer"},
-            "browser": {
-                "type": "boolean",
-                "description": (
-                    "Present on downloads only: whether a browser is open to "
-                    "read them from."
-                ),
-            },
         },
     },
     "FolderList": {
         "type": "object",
         "description": (
-            "One folder's own listing: workspace://files/screenshots, /recordings "
-            "or /downloads."
+            "One folder's own listing: workspace://files/screenshots, "
+            "workspace://files/recordings or session://downloads."
         ),
         "properties": {
             "workspace": {"type": ["string", "null"]},
@@ -754,13 +747,6 @@ FILE_SCHEMAS = {
             },
             "uri": {"type": "string"},
             "count": {"type": "integer"},
-            "browser": {
-                "type": "boolean",
-                "description": (
-                    "Present on downloads only: whether a browser is open to "
-                    "read them from."
-                ),
-            },
             "files": {
                 "type": "array",
                 "items": {"$ref": "#/components/schemas/FileEntry"},
@@ -893,12 +879,12 @@ SITE_DATA_SCHEMAS = {
 _FILE_OPERATIONS = {
     "list": (
         "listFiles",
-        "Files' own listing, and its three folders.",
+        "Files' own listing, and its two folders.",
         "Everything kept in Files, newest first, plus a count for "
-        "workspace://files/screenshots, workspace://files/recordings and "
-        "workspace://files/downloads — each its "
-        "own listing, fetched separately so a caller who only wants to know "
-        "whether there is anything to look at need not pay for either.",
+        "workspace://files/screenshots and workspace://files/recordings — each "
+        "its own listing, fetched separately so a caller who only wants to know "
+        "whether there is anything to look at need not pay for either. The open "
+        "browser's downloads are GET /browser/downloads.",
         {"type": "object", "properties": {}},
         "FileList",
     ),
@@ -921,9 +907,10 @@ _FILE_OPERATIONS = {
     "downloads": (
         "listDownloads",
         "The downloads of the session open in this workspace.",
-        "Newest first, read from the browser itself. Answers empty rather than "
-        "failing when there is no browser open; a Grid failure from one that is "
-        "open is a real fault and is not hidden.",
+        "Newest first, read from the browser itself. With no session open it is "
+        "a 400 saying so: a download lives only as long as the browser that took "
+        "it. A Grid failure from one that is open is a real fault and is not "
+        "hidden.",
         {"type": "object", "properties": {}},
         "FolderList",
     ),

@@ -50,8 +50,9 @@ SCREENSHOTS_DIR = "screenshots"
 RECORDINGS_DIR = "recordings"
 FOLDERS = (FILES_DIR, SCREENSHOTS_DIR, RECORDINGS_DIR)
 
-# The folder names a file in Files can never take, since workspace://files/<name>
-# would then mean the folder (§F4.6). One arriving under one lands as `name (1)`.
+# The names a file in Files can never take, since workspace://files/<name> would
+# then mean a folder, or meant one (`downloads`; §F4.6). One arriving under one
+# lands as `name (1)`.
 RESERVED_IN_FILES = frozenset({SCREENSHOTS_DIR, "downloads", RECORDINGS_DIR})
 
 # A Grid session id becomes a note's file name. The Grid hands us 32 hex or a
@@ -219,15 +220,30 @@ def library_of(key: str) -> str | None:
         return None
 
 
-# The scheme every workspace resource had before the rename (spec
-# 2026-10-09-workspaces-rename, ruling 5). A saved flow may still name one.
-RETIRED_SCHEME = "session://"
+# URIs that moved, tried in order; the first match answers (spec
+# 2026-10-29-session-uris, ruling 11). A None is served: nothing to refuse.
+# The last row is the rename's (spec 2026-10-09-workspaces-rename, ruling 5):
+# a saved flow may still name a `session://` URI.
+MOVED: tuple[tuple[str, str | None], ...] = (
+    ("workspace://files/downloads", "session://downloads"),
+    ("session://files/downloads", "session://downloads"),
+    ("session://downloads", None),
+    ("session://", "workspace://"),
+)
 
 
 def retired_uri(uri) -> None:
-    """Refuse a URI from before the rename, naming its new spelling."""
+    """Refuse a URI that has moved, naming its new spelling."""
     text = str(uri or "")
-    if text.startswith(RETIRED_SCHEME):
-        raise ValueError(
-            f"`{text}` is now `workspace://{text[len(RETIRED_SCHEME):]}`"
-        )
+    for old, new in MOVED:
+        if old.endswith("://"):
+            rest = text[len(old):] if text.startswith(old) else None
+        elif text == old or text.startswith((old + "/", old + "?")):
+            rest = text[len(old):]
+        else:
+            rest = None
+        if rest is None:
+            continue
+        if new is not None:
+            raise ValueError(f"`{text}` is now `{new + rest}`")
+        return

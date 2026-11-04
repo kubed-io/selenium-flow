@@ -142,10 +142,10 @@ def test_every_action_with_an_endpoint_has_a_page():
         (
             "/browser",
             set(ENDPOINTS.values())
-            | {"open_session", "end_browser", "current_workspace"},
+            | {"open_session", "end_browser", "current_workspace", "list_downloads"},
         ),
         (("/flows", "/schemas/flow"), flowapi.FLOW_ENDPOINTS),
-        ("/files", files_module.FILE_ENDPOINTS),
+        ("/files", set(files_module.FILE_ENDPOINTS) - {"downloads"}),
         ("/secrets", ("list",)),
     ):
         found = {t for (p, _), t in tagged.items() if p.startswith(prefix)}

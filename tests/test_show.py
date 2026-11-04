@@ -9,6 +9,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.http.files import NO_DOWNLOADS
 from kubed.selenium_flow.mcp import apps, show
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
@@ -55,10 +56,10 @@ def secrets_server(tmp_path, named_caller):
         ("workspace://files", "files"),
         ("workspace://files/screenshots", "folder"),
         ("workspace://files/recordings", "folder"),
-        ("workspace://files/downloads", "folder"),
+        ("session://downloads", "folder"),
         ("workspace://files/screenshots/a.png", "file"),
         ("workspace://files/recordings/run.mp4", "file"),
-        ("workspace://files/downloads/report.csv", "file"),
+        ("session://downloads/report.csv", "file"),
         ("workspace://files/report.pdf", "file"),
         ("flow://flows", "flows"),
         ("flow://flows/login", "flow"),
@@ -100,7 +101,7 @@ async def test_capture_off_still_draws(flow_server):
     [
         ("workspace://files/screenshots/a.png", True),
         ("workspace://files/recordings/run.mp4", True),
-        ("workspace://files/downloads/report.csv", True),
+        ("session://downloads/report.csv", True),
         ("workspace://files/report.pdf", True),
         ("workspace://files/screenshots", False),
         ("workspace://site-data/app.example.com", False),
@@ -138,12 +139,15 @@ def test_anything_else_is_refused_naming_what_can_be_shown(uri):
         ("flow://flows/login", "flow"),
         ("flow://flows", "flows"),
         ("workspace://files", "files"),
-        ("workspace://files/downloads", "folder"),
+        ("session://downloads", "folder"),
         ("workspace://files/screenshots", "folder"),
         ("workspace://files/recordings", "folder"),
     ],
 )
-async def test_show_returns_the_resources_own_json(flow_server, uri, component):
+async def test_show_returns_the_resources_own_json(flow_server, uri, component, monkeypatch):
+    # A session is open: without one, session://downloads is refused.
+    monkeypatch.setattr(flow_server.workspaces, "browser", lambda name: "abc")
+    monkeypatch.setattr(flow_server.actions.grid, "files", lambda session_id: [])
     async with Client(flow_server.mcp) as c:
         shown = (await c.call_tool("show", {"uri": uri})).structured_content
         read = json.loads((await c.read_resource(uri))[0].text)
@@ -229,18 +233,20 @@ async def test_an_unshowable_uri_is_refused_through_the_client(flow_server):
     assert "flow://flows/{name}" in str(refused.value)
 
 
-async def test_showing_the_files_never_opens_a_browser(flow_server):
+async def test_showing_the_files_never_opens_a_browser(flow_server, monkeypatch):
     """Reading a listing must not call `Workspaces.resolve`: that opens a browser
-    when the record has none, the leak the status resource refuses to be."""
-    opened_before = flow_server.actions.grid
+    when the record has none, the leak the status resource refuses to be. With
+    no session, the downloads say so instead."""
+    monkeypatch.setattr(flow_server.workspaces, "resolve", never)
+    monkeypatch.setattr(flow_server.workspaces, "resolved", never)
     async with Client(flow_server.mcp) as c:
         files = (await c.call_tool("show", {"uri": "workspace://files"})).structured_content
-        folder = (await c.call_tool(
-            "show", {"uri": "workspace://files/downloads"}
-        )).structured_content
+        folder = await c.call_tool(
+            "show", {"uri": "session://downloads"}, raise_on_error=False
+        )
     assert files["data"]["files"] == []
-    assert folder["component"] == "folder"
-    assert flow_server.actions.grid is opened_before
+    assert folder.is_error
+    assert NO_DOWNLOADS in folder.content[0].text
 
 
 async def test_show_is_listed_only_for_a_client_that_renders_apps(built_ui, server):
@@ -412,11 +418,20 @@ async def test_a_download_is_drawn_from_the_grids_listing(flow_server, monkeypat
     monkeypatch.setattr(flow_server.actions.grid, "read_file", never)
     async with Client(flow_server.mcp) as c:
         shown = (await c.call_tool(
-            "show", {"uri": "workspace://files/downloads/report.csv"}
+            "show", {"uri": "session://downloads/report.csv"}
         )).structured_content
     assert shown["component"] == "file"
     assert shown["data"]["name"] == "report.csv"
     assert shown["data"]["keep_with"].startswith("keep_file(")
+
+
+async def test_a_moved_download_uri_is_refused_naming_where_it_went(flow_server):
+    async with Client(flow_server.mcp) as c:
+        result = await c.call_tool(
+            "show", {"uri": "workspace://files/downloads/report.csv"}, raise_on_error=False
+        )
+    assert result.is_error
+    assert "is now `session://downloads/report.csv`" in result.content[0].text
 
 
 async def test_a_file_the_listing_lacks_is_refused_naming_the_listing(flow_server):
