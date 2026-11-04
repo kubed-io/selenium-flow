@@ -9,6 +9,7 @@ from mcp.shared.exceptions import MCPError
 
 from kubed.selenium_flow.capture import OFF
 from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.mcp import resources
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
@@ -162,3 +163,10 @@ async def test_current_carries_the_capture_fields(server):
     current = await read(server, "workspace://current")
     assert current["capture"] is True
     assert "capturing" in current and "captured" in current
+
+
+async def test_the_capture_listings_say_they_outlive_the_browser(server):  # ruling 1
+    async with Client(server.mcp) as c:
+        listed = {str(r.uri): r.description for r in await c.list_resources()}
+    for uri in ("workspace://console", "workspace://network", "workspace://current"):
+        assert resources.CAPTURE_KEPT in listed[uri], uri

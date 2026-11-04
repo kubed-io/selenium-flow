@@ -964,20 +964,15 @@
         "type": "object"
       },
       "FileFolder": {
-        "description": "One of the three folders named beside Files' own files.",
+        "description": "One of the two folders named beside Files' own files.",
         "properties": {
-          "browser": {
-            "description": "Present on downloads only: whether a browser is open to read them from.",
-            "type": "boolean"
-          },
           "count": {
             "type": "integer"
           },
           "name": {
             "enum": [
               "screenshots",
-              "recordings",
-              "downloads"
+              "recordings"
             ],
             "type": "string"
           },
@@ -1016,7 +1011,7 @@
         "type": "object"
       },
       "FileList": {
-        "description": "workspace://files: Files' own listing, and its three folders.",
+        "description": "workspace://files: Files' own listing, and its two folders.",
         "properties": {
           "count": {
             "type": "integer"
@@ -1387,12 +1382,8 @@
         "type": "object"
       },
       "FolderList": {
-        "description": "One folder's own listing: workspace://files/screenshots, /recordings or /downloads.",
+        "description": "One folder's own listing: workspace://files/screenshots, workspace://files/recordings or session://downloads.",
         "properties": {
-          "browser": {
-            "description": "Present on downloads only: whether a browser is open to read them from.",
-            "type": "boolean"
-          },
           "count": {
             "type": "integer"
           },
@@ -4061,7 +4052,7 @@
         "x-mcp-tool": "end_browser"
       },
       "get": {
-        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation.\n\nReading this never opens a browser: live is false when no session is open.",
+        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nReading this never opens a browser: live is false when no session is open.",
         "operationId": "currentWorkspace",
         "parameters": [
           {
@@ -4570,6 +4561,99 @@
           "browser"
         ],
         "x-mcp-tool": "dialog"
+      }
+    },
+    "/browser/downloads": {
+      "get": {
+        "description": "Newest first, read from the browser itself. With no session open it is a 400 saying so: a download lives only as long as the browser that took it. A Grid failure from one that is open is a real fault and is not hidden.",
+        "operationId": "listDownloads",
+        "parameters": [
+          {
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "in": "header",
+            "name": "Sf-Workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderList"
+                }
+              }
+            },
+            "description": "The downloads of the session open in this workspace."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No session is open in this workspace: a download lives only as long as the browser that took it. Or an unusable workspace name."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Missing or wrong bearer token."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "No such browser session, or no such file in it. It ended, the Grid reaped it, or the id was never real."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Something failed that this server did not expect."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
+          }
+        },
+        "summary": "The downloads of the session open in this workspace.",
+        "tags": [
+          "browser"
+        ],
+        "x-mcp-resource": "session://downloads"
       }
     },
     "/browser/drag": {
@@ -6189,7 +6273,7 @@
     },
     "/browser/upload": {
       "post": {
-        "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, any file this workspace has, by its uri from workspace://files — a\n  screenshot, a download or a file in Files — without its bytes passing\n  through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
+        "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, by its uri: a file in workspace://files or its folders, or a\n  download from session://downloads — without its bytes passing through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
         "operationId": "upload_file",
         "parameters": [
           {
@@ -6473,7 +6557,7 @@
     },
     "/files": {
       "get": {
-        "description": "Everything kept in Files, newest first, plus a count for workspace://files/screenshots, workspace://files/recordings and workspace://files/downloads — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either.",
+        "description": "Everything kept in Files, newest first, plus a count for workspace://files/screenshots and workspace://files/recordings — each its own listing, fetched separately so a caller who only wants to know whether there is anything to look at need not pay for either. The open browser's downloads are GET /browser/downloads.",
         "operationId": "listFiles",
         "parameters": [
           {
@@ -6504,7 +6588,7 @@
                 }
               }
             },
-            "description": "Files' own listing, and its three folders."
+            "description": "Files' own listing, and its two folders."
           },
           "400": {
             "content": {
@@ -6557,104 +6641,11 @@
             "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
           }
         },
-        "summary": "Files' own listing, and its three folders.",
+        "summary": "Files' own listing, and its two folders.",
         "tags": [
           "files"
         ],
         "x-mcp-resource": "workspace://files"
-      }
-    },
-    "/files/downloads": {
-      "get": {
-        "description": "Newest first, read from the browser itself. Answers empty rather than failing when there is no browser open; a Grid failure from one that is open is a real fault and is not hidden.",
-        "operationId": "listDownloads",
-        "parameters": [
-          {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
-            "in": "header",
-            "name": "Sf-Workspace",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "description": "The same thing on the URL, for a caller that cannot set a header. Anything touching a browser needs one of the two; the flow library falls back to the shared 'global' one, which is read-only.",
-            "in": "query",
-            "name": "workspace",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FolderList"
-                }
-              }
-            },
-            "description": "The downloads of the session open in this workspace."
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "The request cannot succeed as sent — an unusable name, or a server with no DATA_DIR to keep files in. Do not retry it unchanged."
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Missing or wrong bearer token."
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "No such browser session, or no such file in it. It ended, the Grid reaped it, or the id was never real."
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Something failed that this server did not expect."
-          },
-          "503": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "The Grid could not serve this — unreachable, or failing. Worth retrying after a wait."
-          }
-        },
-        "summary": "The downloads of the session open in this workspace.",
-        "tags": [
-          "files"
-        ],
-        "x-mcp-resource": "workspace://files/downloads"
       }
     },
     "/files/recordings": {

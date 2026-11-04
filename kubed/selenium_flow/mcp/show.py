@@ -21,12 +21,14 @@ from fastmcp.tools import ToolResult
 from mcp.types import TextContent
 
 from ..core.annotations import reads
+from ..http import files
 from ..names import retired_uri
 
 TOOL = "show"
 
 FILES = "workspace://files"
-FOLDERS = ("screenshots", "recordings", "downloads")
+FOLDERS = ("screenshots", "recordings")
+DOWNLOADS = files.FOLDER_URI[files.DOWNLOADS]
 
 
 class View(NamedTuple):
@@ -68,6 +70,13 @@ VIEWS: tuple[View, ...] = (
         for folder in FOLDERS
     ),
     View(f"{FILES}/{{name}}", re.compile(rf"{FILES}/[^/]+"), "file", entry=True),
+    _exactly(DOWNLOADS, "folder"),
+    View(
+        f"{DOWNLOADS}/{{name}}",
+        re.compile(rf"{re.escape(DOWNLOADS)}/[^/]+"),
+        "file",
+        entry=True,
+    ),
     _exactly("flow://flows", "flows"),
     View("flow://flows/{name}", re.compile(r"flow://flows/[^/]+"), "flow"),
     _exactly("flow://schema", "document"),
@@ -141,9 +150,10 @@ def summary(uri: str, component: str, data) -> str:
 MARKDOWN = "text/markdown"
 
 DESCRIPTION = (
-    "Draw any resource this server serves - a workspace://, flow://, secret:// "
-    "or skill:// URI, as its resources and resource templates list them - for "
-    "the person to see. For you to read one, read the resource instead. The "
+    "Draw any resource this server serves - a workspace://, session://, flow://, "
+    "secret:// or skill:// URI, as its resources and resource templates list "
+    "them - for the person to see. For you to read one, read the resource "
+    "instead. The "
     "view the person is looking at is shared with you as context."
 )
 

@@ -557,9 +557,11 @@ def _named_in_path(template: str) -> list[dict]:
 
     Generic over the placeholder's name so a route with more than one — the
     file keep route names both a folder and a name — publishes all of them,
-    not just the first. `folder` is special-cased with the two values it may
-    ever hold, the same way `files.SCREENSHOTS`/`files.DOWNLOADS` narrow it at
-    the route itself — a generated client should not have to guess a third.
+    not just the first. `folder` is special-cased with the three values it may
+    ever hold — the folders a file can be kept out of, `files.SCREENSHOTS`,
+    `files.RECORDINGS` and `files.DOWNLOADS`, as the keep route narrows it —
+    so a generated client should not have to guess a fourth. The downloads
+    listing is `/browser/downloads`, but keeping one is still `/files`'s.
     """
     return [
         {
@@ -765,6 +767,17 @@ def _flow_paths(prefix: str = "") -> dict:
 # these dials the Grid, so they all carry its failure modes; deleting a kept
 # file never leaves this server, and is deliberately not here — it is an
 # operator action on the admin surface, with no tool and so no endpoint.
+# An operation whose commonest 400 is not the shared one, by its `FILE_ROUTES`
+# key. The downloads listing has nothing to do with DATA_DIR, and is refused
+# when no session is open (spec 2026-10-29-session-uris, ruling 8).
+_FILE_400 = {
+    "downloads": (
+        "No session is open in this workspace: a download lives only as long "
+        "as the browser that took it. Or an unusable workspace name."
+    ),
+}
+
+
 def _file_paths(prefix: str = "") -> dict:
     """A workspace's files as resources, from `files.FILE_ROUTES`."""
     from ..http.files import FILE_ROUTES
@@ -784,9 +797,12 @@ def _file_paths(prefix: str = "") -> dict:
                 },
             },
             "400": _error(
-                "The request cannot succeed as sent — an unusable name, or a "
-                "server with no DATA_DIR to keep files in. Do not retry it "
-                "unchanged."
+                _FILE_400.get(
+                    path,
+                    "The request cannot succeed as sent — an unusable name, or a "
+                    "server with no DATA_DIR to keep files in. Do not retry it "
+                    "unchanged.",
+                )
             ),
             "401": _error("Missing or wrong bearer token."),
             "404": _error(
@@ -806,7 +822,8 @@ def _file_paths(prefix: str = "") -> dict:
             "parameters": [*_named_in_path(template), *WORKSPACE_PARAMETERS],
             "summary": summary,
             "description": description,
-            "tags": ["files"],
+            # The downloads listing is the session's (ruling 9).
+            "tags": ["browser" if template.startswith("/browser") else "files"],
             "responses": responses,
         }
         if method in ("post", "put"):
@@ -819,7 +836,7 @@ def _file_paths(prefix: str = "") -> dict:
                     }
                 },
             }
-        paths.setdefault(f"{prefix}/files{template}", {})[method] = operation
+        paths.setdefault(f"{prefix}{template}", {})[method] = operation
     return paths
 
 

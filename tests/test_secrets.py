@@ -350,13 +350,19 @@ async def test_listing_secrets_never_returns_a_value(secret_server):
     assert "hunter2" not in str(result)
 
 
-async def test_nothing_readable_on_this_server_returns_a_secret_value(secret_server):
+async def test_nothing_readable_on_this_server_returns_a_secret_value(
+    secret_server, monkeypatch
+):
     """The hard rule, asserted across everything there is to read rather than
     assumed: every resource the server lists, read the way a client that cannot
     read resources reads it. If one ever grows a way to produce the value, this
     is what should fail.
     """
     from fastmcp import Client
+
+    # A session is open, so session://downloads answers rather than refusing.
+    monkeypatch.setattr(secret_server.workspaces, "browser", lambda name: "abc")
+    monkeypatch.setattr(secret_server.actions.grid, "files", lambda session_id: [])
 
     # A saved flow that BINDS the secret is the case that matters most: the
     # document names it, and must never carry it.

@@ -353,7 +353,7 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
     for path, (kind, target) in MCP_FOR.items():
         method, template = files.FILE_ROUTES[path]
         route = (
-            f"/files{template}"
+            template
             .replace("{folder}", "downloads")
             .replace("{name}", "report.pdf")
         )
@@ -402,7 +402,7 @@ async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
 def test_the_endpoints_need_the_token(client):
     for method, template in files.FILE_ROUTES.values():
         route = (
-            f"/files{template}"
+            template
             .replace("{folder}", "downloads")
             .replace("{name}", "report.pdf")
         )
@@ -423,12 +423,27 @@ def test_keep_then_list_over_http(client, live):
         assert kept.json()["uri"] == "workspace://files/report.pdf"
 
         body = client.get("/files", headers=AUTH).json()
+        downloads = client.get("/browser/downloads", headers=AUTH).json()
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
     assert body["workspace"] == WORKSPACE
     # The Grid still reports both — keeping a download is a copy, so the
     # original stays exactly where it was until the browser ends (§F1.10).
-    downloads = next(f for f in body["folders"] if f["name"] == "downloads")
-    assert downloads["name"] == "downloads" and downloads["count"] == 2
+    assert downloads["folder"] == "downloads" and downloads["count"] == 2
+
+
+def test_the_downloads_listing_is_under_browser(client, live):
+    with (
+        patch.object(browser.Grid, "is_alive", return_value=True),
+        patch.object(browser.Grid, "files", return_value=DOWNLOADS),
+    ):
+        response = client.get("/browser/downloads", headers=AUTH)
+        assert response.status_code == 200, response.text
+        assert response.json()["uri"] == "session://downloads"
+        assert client.get("/files/downloads", headers=AUTH).status_code != 200
+    live.workspaces.store.set(KEY, Workspace())
+    idle = client.get("/browser/downloads", headers=AUTH)
+    assert idle.status_code == 400
+    assert idle.json() == {"error": files.NO_DOWNLOADS}
 
 
 def test_an_unusable_name_is_a_400_over_http(client, live):
@@ -760,16 +775,15 @@ async def test_every_file_endpoint_is_in_the_published_contract(spec):
     """These paths are written by hand, so the list is held against the one the
     server actually binds — the guard the multipart upload schema lacked until
     it had already drifted."""
+    routes = set(files.FILE_ROUTES.values())
     published = {
         (method, path)
         for path, operations in spec["paths"].items()
         for method in operations
         if path.startswith("/files")
     }
-    assert published == {
-        (method, f"/files{template}")
-        for method, template in files.FILE_ROUTES.values()
-    }
+    assert published == {(m, t) for m, t in routes if t.startswith("/files")}
+    assert all(m in spec["paths"].get(t, {}) for m, t in routes)
 
 
 async def test_the_file_endpoints_are_tagged_apart(spec):
@@ -808,7 +822,7 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
     the contract has to say so, or a generated client writes no handling for the
     reaped browser it will certainly meet."""
     for method, template in files.FILE_ROUTES.values():
-        responses = spec["paths"][f"/files{template}"][method]["responses"]
+        responses = spec["paths"][template][method]["responses"]
         expected = {"200", "400", "401", "404", "500", "503"}
         if method in ("post", "put"):
             expected.add("413")  # a body can be over its cap

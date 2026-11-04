@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **BREAKING:** a browser's downloads are now `session://downloads` (and `GET /browser/downloads`); `workspace://files/downloads` is refused with the new spelling.
 - **BREAKING:** request headers are now `Sf-Workspace`, `Sf-Browser`, `Sf-Version`, `Sf-Window-Width`, `Sf-Window-Height`, `Sf-Page-Load-Timeout` and `Sf-Script-Timeout`; the `X-` names are refused with a 400 naming the new one, and the retired `X-Session-Key` and `?session=` are no longer recognised.
 - **`open_session(headless=true)`** opens a browser that draws nothing on screen, remembered until `headless=false`; it cannot be recorded or watched live.
 - Fixed: an explicit `open_session()` picks up changed server and connection defaults, and carries over only what you passed.

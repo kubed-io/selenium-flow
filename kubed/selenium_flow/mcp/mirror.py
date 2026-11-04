@@ -109,6 +109,23 @@ def _media_type(uri: str, declared: str | None) -> str:
     return guessed or declared or "application/octet-stream"
 
 
+# Where a binary file's link is listed, by the prefix of its URI.
+LINKED_FROM = (("workspace://files/", "workspace://files"),
+               ("session://downloads/", "session://downloads"))
+
+
+def _where_to_read(uri: str) -> str:
+    """What a model is told in place of bytes it cannot use."""
+    said = "Not returned: binary content is not text."
+    for prefix, listing in LINKED_FROM:
+        if uri.startswith(prefix):
+            return (
+                f"{said} Read {listing} for this file's link, which any HTTP "
+                "client can download."
+            )
+    return said
+
+
 def _binary(uri: str, data: bytes, media: str) -> TextContent | Image:
     if media in TEXTUAL or media.startswith("text/"):
         try:
@@ -125,13 +142,7 @@ def _binary(uri: str, data: bytes, media: str) -> TextContent | Image:
                 "mime_type": media,
                 "bytes": len(data),
                 "binary": True,
-                "read": (
-                    "Not returned: binary content is not text. Read "
-                    "workspace://files for this file's link, which any HTTP "
-                    "client can download."
-                    if uri.startswith("workspace://files/")
-                    else "Not returned: binary content is not text."
-                ),
+                "read": _where_to_read(uri),
             }
         ),
     )
