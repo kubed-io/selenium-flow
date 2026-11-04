@@ -4,15 +4,7 @@ name: 🛠️ Agent · Pull Request
 # they do.
 
 on:
-  # n8n relays this: Agent flow · intake (spec §8.4)
-  # issue_comment:
-  #   types: [created]
-  # pull_request_target:
-  #   types: [labeled]
-  # n8n relays this: Agent flow · intake (spec §8.4)
-  # workflow_run:
-  #   workflows: [Agent Relay]
-  #   types: [completed]
+  # n8n sends these (Agent flow · intake)
   repository_dispatch:
     types: [agent-code, agent-route]
 

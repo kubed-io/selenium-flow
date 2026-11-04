@@ -4,10 +4,7 @@ name: 🔍 Agent · Review
 # what they do.
 
 on:
-  # pr.yml's Checks job dispatches this instead, for an `agent` PR only
-  # workflow_run:
-  #   workflows: [🔀 PR]
-  #   types: [completed]
+  # pr.yml's Checks job sends it, for an `agent` PR only
   repository_dispatch:
     types: [agent-review]
 
