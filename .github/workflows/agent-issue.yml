@@ -5,7 +5,8 @@ name: 🧭 Agent · Issue
 on:
   # n8n sends it (Agent flow · intake)
   repository_dispatch:
-    types: [agent-issue]
+    # sub-issue-accepted: Dr K ticked a suggested sub-issue (spec 2026-11-03 R-M10)
+    types: [agent-issue, sub-issue-accepted]
 
 permissions: {}
 
