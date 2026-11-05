@@ -60,8 +60,10 @@ jobs:
         # job's token, not with a git remote.
         persist-credentials: false
 
-    # Assign the PR author to their own PR per .github/assign.yml.
+    # Assign the PR author to their own PR per .github/assign.yml. A bot (the
+    # App, Dependabot) can't be an assignee: GitHub answers Forbidden.
     - name: Auto Assign
+      if: github.event.pull_request.user.type != 'Bot'
       uses: kentaro-m/auto-assign-action@v2.0.2
       with:
         configuration-path: .github/assign.yml
