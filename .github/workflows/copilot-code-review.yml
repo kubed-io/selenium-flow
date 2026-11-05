@@ -48,7 +48,26 @@ jobs:
     runs-on: ubuntu-26.04
     permissions:
       contents: read
+      # the draft gate cancels this run
+      actions: write
     steps:
+
+    # Copilot reviews a draft as soon as it is asked, and Dr K opts a change in by asking on
+    # the draft. Cancelling this run stops that review; a failing step would not, since
+    # Copilot skips the rest of its setup and reviews anyway. The agent flow hides the
+    # "Copilot encountered an error" review the cancel leaves (kubed-io/actions review-route).
+    - name: Not on a Draft
+      if: github.event_name == 'dynamic'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        number=$(jq -r '.inputs.COPILOT_AGENT_PULL_REQUEST_NUMBER // empty' "$GITHUB_EVENT_PATH")
+        case "$number" in ''|*[!0-9]*) exit 0 ;; esac
+        if [ "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${number}" --jq .draft)" = true ]; then
+          echo "::notice::#${number} is a draft: Copilot reviews it once it is ready"
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/cancel"
+          sleep 300
+        fi
 
     # Shallow, and no submodules. The reviewer wants the files as they are, not
     # a buildable checkout — and the wiki submodule is a second repository whose
