@@ -578,8 +578,9 @@ or the leak `caller_key` existed to prevent comes straight back.
   `history[0].url`. A withheld URL (§F1.24) or a page with no origin records nothing. Only pages
   a call ended on are recorded; entries older than the workspace TTL go (the top one stays), at
   most `HISTORY_CAP` (100), so a save never reads an origin that has aged out.
-  Only the top entry keeps its whole URL; below it a URL keeps its origin and path, because a
-  query string or fragment carries OAuth codes and reset tokens.
+  Only the top entry keeps its whole URL; below it a URL keeps its origin, path and hash route
+  (never the route's query), because a query string or fragment carries OAuth codes and reset
+  tokens.
 - Other origins are reached through `spare.spare_tab`: a background tab whose requests a BiDi
   intercept answers with a marked blank page, so the site never loads. A save reads there; a
   restore writes there, then sets sessionStorage in the main tab the same way, all before the
@@ -893,7 +894,12 @@ only be made when someone asks. The handshake's instructions vary the same way (
 A flow's `sites` and `paths` are discovery, never a leash (spec
 2026-11-12-flow-sites-paths, ruling 8): nothing refuses a run for being
 elsewhere, and nothing is hidden from `flow://flows`. A flow with neither is
-never hinted (ruling 11), so a library saved before them stays quiet. The hint
+never hinted (ruling 11), so a library saved before them stays quiet. A page is
+host, port, path and hash route (`urls.page_key`, `urls.route_of`: a fragment
+starting with `/` or `!/`), one definition shared by matching, the hint and
+`ensure_url` (`urls.same_page`, which also compares both queries and
+userinfo and counts the root route `#/` as no route, where the page key keeps
+them apart); any other fragment is never read (spec 2026-11-13-hash-routes). The hint
 for an action's result is decided in `Workspaces.settle`: `_touch` compares
 `urls.page_key` before and after inside the store's `fn`, while `open_session`,
 an open that lost its race and `workspace://current` ask for the current page
@@ -1119,8 +1125,8 @@ screen it left. `Recipe.run` reads `performance.timeOrigin`, the URL and the tit
 reattached, before `url=` moves anything (`browser.document`), and `browser.landed`
 waits for the title, at most `TITLE_SETTLE` (1 s), only when the screen moved, the title
 did not and `timeOrigin` is the same. The screen is the path and the hash route
-(`browser.screen`: a fragment starting `/` or `!/`, with its own query, since Penpot
-names the open file there), so an anchor or a query mirrored by `replaceState` never
+(`browser.screen`: the route as `urls.route_of` reads it, with its own query, since
+Penpot names the open file there), so an anchor or a query mirrored by `replaceState` never
 waits; with a whole URL a search box paid the bound on every `write`. The price is an
 app that routes by the URL's query, or by a fragment without the `/` (`#home`): it
 reports the screen it left, as before #139; and a hash-routed search box

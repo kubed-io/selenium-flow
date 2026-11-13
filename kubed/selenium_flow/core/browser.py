@@ -44,7 +44,7 @@ from urllib3.connection import HTTPConnection
 from urllib3.exceptions import ProtocolError
 
 from ..faults import Unresolved, Untrusted, unresolved
-from ..urls import normalize_url
+from ..urls import route_of, route_query, same_page
 from . import probe
 from .defaults import (
     DEFAULT_GRID_URL,
@@ -824,15 +824,14 @@ def screen(url: str) -> tuple[str, str]:
     every keystroke. The cost is an app that routes by that query, or by a
     fragment without the ``/`` (``#home``): its new title is not waited for; and
     a hash-routed search box (``#/search?q=``) pays the wait.
-    #137's page key will say the same; when it lands, this is its path and route.
+    The route is `urls.route_of`'s, the one definition (``#!/a`` is ``/a``).
     """
     try:
-        parts = urlsplit(url)
+        path = urlsplit(url).path.rstrip("/")
     except ValueError:
         return url, ""
-    route = parts.fragment if parts.fragment.startswith(("/", "!/")) else ""
-    route, mark, query = route.partition("?")
-    return parts.path.rstrip("/"), route.rstrip("/") + mark + query
+    route, query = route_of(url) or "", route_query(url)
+    return path, route + ("?" + query if query else "")
 
 
 def landed(driver, before: dict | None, timeout: float = TITLE_SETTLE) -> dict:
@@ -939,10 +938,13 @@ def ensure_url(
     this page", and failing because the browser happens to be elsewhere makes
     every workflow carry its own navigation step.
 
+    A page is host, port, path, hash route, userinfo and both queries (the
+    real one and the route's own); a fragment that is not a route is ignored.
+
     ``before_going`` runs only when it is about to navigate, immediately before
     ``go``; it may raise to refuse.
     """
-    if normalize_url(driver.current_url) == normalize_url(url):
+    if same_page(driver.current_url, url):
         return False
     before_going()
     go(driver, url)

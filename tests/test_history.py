@@ -51,6 +51,14 @@ def test_a_page_with_no_origin_or_a_withheld_url_records_nothing():
         assert record.visited(nowhere, now=2.0).history == record.history
 
 
+def test_below_the_top_a_route_stays_and_a_token_goes():  # rulings 4, 9; Review Focus 2
+    record = Workspace().visited("https://p.test/#/workspace?file-id=F", now=1.0)
+    record = record.visited("https://o.test/cb#access_token=T", now=2.0)
+    record = record.visited("https://q.test/#!/home", now=3.0)
+    assert [v["url"] for v in record.history] == [
+        "https://q.test/#!/home", "https://o.test/cb", "https://p.test/#/workspace"]
+
+
 def test_only_the_current_page_keeps_its_query_and_fragment():
     # An OAuth callback's code, a reset link's token: values that only a reopen
     # of the current page could need.
