@@ -53,9 +53,11 @@ from .faults import (
     AssertionFailed,
     BidiUnavailable,
     Controlled,
+    NodeLost,
     NodeRefused,
     NoNodeTook,
     NotFound,
+    ScriptTimedOut,
     SocketClosed,
     TooLarge,
     Unresolved,
@@ -79,6 +81,9 @@ CALLER = (
     Unresolved,
     # A certificate the browser does not trust: the fix is `insecure=true`.
     Untrusted,
+    # A script past the session's script timeout: the same script times out
+    # again, and the caller can shorten it or raise the timeout.
+    ScriptTimedOut,
     InsecureCertificateException,
     TimeoutException,
     InvalidSelectorException,
@@ -101,7 +106,12 @@ CALLER = (
 # `Ended` is the same browser seen a moment earlier: `end_browser` ran while
 # this call was driving it, and the call let go rather than wait for the quit
 # to fail its next command. Which of the two it hits is timing, so both are 404.
-GONE = (InvalidSessionIdException, NoSuchDriverException, Ended)
+#
+# `NodeLost` is a browser whose Grid node stopped answering mid-call. The fix is
+# `open_session`, the same as a reaped browser. It is classified from the error
+# and not from a probe, because `Grid.is_alive` right after a crash can still say
+# alive: the hub answers 500, not `invalid session id`.
+GONE = (InvalidSessionIdException, NoSuchDriverException, Ended, NodeLost)
 
 # The Grid cannot serve this right now: unreachable, or out of free slots. Both
 # are worth retrying after a wait, which is exactly what 503 means, and neither

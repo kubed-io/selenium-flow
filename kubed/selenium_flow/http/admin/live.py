@@ -297,6 +297,16 @@ def mount(
             if monitor is not None:
                 monitor.touch(grid_id)
 
+        async def listed() -> bool | None:
+            """Whether the Grid still lists this browser, or None when the
+            listing failed. One ``GET /status``: a session command would be
+            activity, and keep a browser alive that should be reaped."""
+            try:
+                _nodes, running = await run_in_threadpool(actions.grid.listing)
+            except Exception:  # noqa: BLE001 - its words may quote the Grid id
+                return None
+            return grid_id in running
+
         tunnel = Tunnel(
             _Viewer(websocket),
             who=who,
@@ -304,6 +314,7 @@ def mount(
             session=audit.session_label(record.opened_at),
             grace=live.grace,
             touch=touch,
+            listed=listed,
         )
         tunnels.add(grid_id, tunnel)
         try:

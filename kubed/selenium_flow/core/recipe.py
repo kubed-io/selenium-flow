@@ -17,10 +17,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import contextmanager
 from typing import Any, NamedTuple
 
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import (
+    StaleElementReferenceException,
+    WebDriverException,
+)
 
+from .. import faults
 from ..urls import allowed_navigation
 from ..workspace import locks
 from . import browser
@@ -47,6 +52,24 @@ DIALOG_TIMEOUT = 10
 # off-screen element `scroll_to` is for - and clickable for anything that acts.
 PRESENCE = "presence"
 CLICKABLE = "clickable"
+
+
+@contextmanager
+def node_answering():
+    """Say so when the browser's Grid node stops answering mid-call.
+
+    The hub's own text quotes the node's address and the Grid's session id,
+    which no result or log line may carry, so the failure is replaced by
+    `faults.NodeLost` and dropped with its context. Everything else passes
+    through unchanged. Every road to a browser takes this: the recipe, and the
+    reads that skip it.
+    """
+    try:
+        yield
+    except WebDriverException as exc:
+        if not faults.lost(exc):
+            raise
+        raise faults.NodeLost() from None
 
 
 class At(NamedTuple):
@@ -124,7 +147,7 @@ class Recipe:
         if url:
             allowed_navigation(url)
 
-        with locks.driving(session_id):
+        with locks.driving(session_id), node_answering():
             driver = self.reconnect(session_id, url)
 
             read: list[dict] = []
