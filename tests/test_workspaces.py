@@ -2301,3 +2301,108 @@ def test_an_upgraded_record_asks_for_open_session_and_keeps_its_site_data():
     assert ws.actions.closed == []
     assert ws.actions.opened_settings[-1]["site_data"] == saved
     assert ws.store.get(NAMED).history[-1]["origin"] == "https://a.test"
+
+
+# ---- the flows for a page (spec 2026-11-12-flow-sites-paths) ----------------
+
+LOGIN_HINT = {
+    "name": "login", "uri": "flow://flows/login", "description": "d",
+    "parameters": ["email"], "required": ["email"],
+}
+
+
+def hinting(asked=None):
+    m = manager(RecordingActions())
+
+    def hints(name, url):
+        if asked is not None:
+            asked.append(url)
+        return [LOGIN_HINT] if "/login" in url else []
+
+    m.hints = hints
+    m.remember(NAMED, "abc", "http://localhost:8080/")
+    return m
+
+
+def test_a_new_page_hints_the_flows_there():  # rulings 6, 12
+    m = hinting()
+    result = {"url": "http://localhost:8080/login?next=/admin"}
+    m.settle(NAMED, result, browser="abc")
+    assert result["flows_here"] == [LOGIN_HINT]
+
+
+def test_a_query_change_is_not_a_new_page():  # ruling 18
+    asked = []
+    m = hinting(asked)
+    m.settle(NAMED, {"url": "http://localhost:8080/login?next=/admin"}, browser="abc")
+    result = {"url": "http://localhost:8080/login?next=/billing#x"}
+    m.settle(NAMED, result, browser="abc")
+    assert "flows_here" not in result and len(asked) == 1
+
+
+def test_a_new_page_with_nothing_for_it_carries_no_field():  # ruling 15
+    m = hinting()
+    result = {"url": "http://localhost:8080/about"}
+    m.settle(NAMED, result, browser="abc")
+    assert "flows_here" not in result
+
+
+def test_a_withheld_page_never_hints():  # ruling 6
+    m = hinting()
+    result = {"url": "http://localhost:8080/login?q=secret"}
+    m.settle(NAMED, result, browser="abc", url=None)
+    assert "flows_here" not in result
+
+
+def test_another_browsers_page_never_hints():
+    m = hinting()
+    result = {"url": "http://localhost:8080/login"}
+    m.settle(NAMED, result, browser="old")
+    assert "flows_here" not in result
+
+
+def test_a_page_that_does_not_parse_answers_as_ever():  # Review Focus 1
+    m = hinting()
+    result = {"url": "http://localhost:99999/login", "title": "t"}
+    m.settle(NAMED, result, browser="abc")
+    assert result == {"url": "http://localhost:99999/login", "title": "t"}
+
+
+def test_a_hint_that_fails_leaves_the_result_alone(caplog):  # ruling 24
+    m = hinting()
+    m.hints = lambda name, url: 1 / 0
+    result = {"url": "http://localhost:8080/login"}
+    m.settle(NAMED, result, browser="abc")
+    assert "flows_here" not in result and "ZeroDivisionError" in caplog.text
+
+
+def test_with_no_flow_store_nothing_is_hinted():
+    m = manager(RecordingActions())
+    m.remember(NAMED, "abc", "http://localhost:8080/")
+    result = {"url": "http://localhost:8080/login"}
+    m.settle(NAMED, result, browser="abc")
+    assert "flows_here" not in result
+
+
+def test_open_session_hints_for_the_page_it_opened_on():  # ruling 19
+    m = manager(RecordingActions())
+    m.hints = lambda name, url: [LOGIN_HINT] if "/login" in url else []
+    opened = m.open_browser(Caller(NAMED), url="http://localhost:8080/login")
+    assert opened["flows_here"] == [LOGIN_HINT]
+    again = m.open_browser(Caller(NAMED))
+    assert again["url"] == "http://localhost:8080/login"
+    assert again["flows_here"] == [LOGIN_HINT]
+
+
+def test_an_open_that_lost_the_race_hints_for_the_held_page():
+    m = hinting()
+    m.remember(NAMED, "abc", "http://localhost:8080/login")
+    assert m._held(NAMED)["flows_here"] == [LOGIN_HINT]
+
+
+def test_the_status_names_the_flows_for_its_page():  # ruling 25
+    m = hinting()
+    m.remember(NAMED, "abc", "http://localhost:8080/login")
+    assert m.describe(Caller(NAMED))["flows_here"] == [LOGIN_HINT]
+    m.remember(NAMED, "abc", "http://localhost:8080/about")
+    assert "flows_here" not in m.describe(Caller(NAMED))

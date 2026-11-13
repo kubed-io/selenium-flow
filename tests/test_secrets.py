@@ -859,6 +859,17 @@ def test_port_zero_is_a_port_and_not_the_default(tmp_path):
     assert catalogue.allows("app", "https://host/x") is False
 
 
+def recording(touched):
+    """A `Workspaces._touch` that notes each page and browser it is handed,
+    and answers as a touch with no reopen's report and nothing to hint."""
+
+    def touch(name, url, browser=None, **kw):
+        touched.append((url, browser))
+        return None, None
+
+    return touch
+
+
 async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     tmp_path, monkeypatch
 ):
@@ -899,10 +910,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         },
     )
     touched = []
-    monkeypatch.setattr(
-        server.workspaces, "touch",
-        lambda name, url, browser=None: touched.append((url, browser)),
-    )
+    monkeypatch.setattr(server.workspaces, "_touch", recording(touched))
 
     write = await server.mcp.get_tool("write")
     result = write.fn(
@@ -950,9 +958,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         },
     )
     touched = []
-    monkeypatch.setattr(
-        server.workspaces, "touch", lambda name, url, browser=None: touched.append((url, browser))
-    )
+    monkeypatch.setattr(server.workspaces, "_touch", recording(touched))
 
     write = await server.mcp.get_tool("write")
     write.fn(
@@ -989,10 +995,7 @@ def _direct(tmp_path, monkeypatch, write):
     )
     monkeypatch.setattr(server.actions, "write", write)
     touched = []
-    monkeypatch.setattr(
-        server.workspaces, "touch",
-        lambda name, url, browser=None: touched.append((url, browser)),
-    )
+    monkeypatch.setattr(server.workspaces, "_touch", recording(touched))
     return server, touched
 
 
@@ -1070,7 +1073,9 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         },
     )
     report = {"restored": ["nc.example.com"], "skipped": [], "uri": "workspace://site-data"}
-    monkeypatch.setattr(server.workspaces, "touch", lambda name, url, browser=None: report)
+    monkeypatch.setattr(
+        server.workspaces, "_touch", lambda name, url, browser=None, **kw: (report, None)
+    )
 
     write = await server.mcp.get_tool("write")
     result = write.fn(

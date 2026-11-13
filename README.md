@@ -35,7 +35,7 @@ workflow  ──── HTTP /browser ──▶ └──────────
 | **MCP** over Streamable HTTP | agents and MCP clients | `/mcp` |
 | **JSON** over HTTP | n8n HTTP nodes, curl, scripts, anything | `/browser/*` |
 
-Every action is a tool **and** an endpoint, one to one, and a test fails the build if that stops being true. They differ in one place: `screenshot` hands MCP an image block a vision model can *see*, and HTTP a base64 payload.
+Every action is a tool **and** an endpoint, one to one, enforced by a test. They differ in one place: `screenshot` hands MCP an image block a vision model can *see*, and HTTP a base64 payload.
 
 `GET /health` and `GET /openapi.yaml` need no credentials.
 
@@ -43,7 +43,7 @@ Every action is a tool **and** an endpoint, one to one, and a test fails the bui
 
 ## 🧰 Every action, both ways
 
-Twenty actions, each a tool **and** an endpoint: a request body *is* the tool's schema, nothing added, nothing taken away.
+Twenty actions, each a tool **and** an endpoint: a request body *is* the tool's schema.
 
 > **Name your workspace** on either surface: `?workspace=<name>` or an `Sf-Workspace` header. There is no session id anywhere. See [Workspaces](#-workspaces).
 
@@ -70,7 +70,7 @@ Twenty actions, each a tool **and** an endpoint: a request body *is* the tool's 
 | [`await_control`](https://github.com/kubed-io/selenium-flow/wiki/await_control) | `POST /browser/await-control` | Wait for a person to hand back ✋ |
 | [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `DELETE /browser` | Give the slot back, keep the workspace 🧹 |
 
-Every parameter, return field and trap worth knowing is one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from the live tool schemas. The same schemas are served at `GET /openapi.yaml`.
+Every parameter, return field and trap is one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from the live tool schemas.
 
 ### 🦊 Chrome or Firefox
 
@@ -88,13 +88,13 @@ Workspaces expire on `WORKSPACE_TTL`, slid forward on every use; nothing else re
 
 ### 🧭 About that `url` parameter
 
-`click`, `write`, `press_key`, `extract`, `screenshot` and `execute_script` all take an optional `url`, which is **not an assertion**: if the browser is elsewhere it goes there first, so you can jump straight to a page instead of clicking a path to it.
+`click`, `write`, `press_key`, `extract`, `screenshot` and `execute_script` all take an optional `url`, which is **not an assertion**: if the browser is elsewhere it goes there first, so you can jump straight to a page.
 
 ---
 
 ## 🍪 Workspaces
 
-**Every workspace is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name — there is no session id in the contract, so nothing to keep or pass.
+**Every workspace is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name; there is no session id to keep or pass.
 
 | How to name it | Looks like | Use it when |
 |---|---|---|
@@ -161,6 +161,12 @@ run_flow(name="sign-up", params={"email": "a@example.com"})
 ```
 
 A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each workspace keeps its own library, beside a shared one called `global` that every workspace can run and none can change. Set `DATA_DIR` to turn them on; workspaces live under `DATA_DIR/workspaces/<name>/`.
+
+A flow's `sites` and `paths` get it named in a result there:
+
+```json
+"flows_here": [{"name": "login", "uri": "flow://flows/login", "description": "Sign in", "parameters": ["email"], "required": ["email"]}]
+```
 
 ## 🔐 Secrets — typed, never shown
 

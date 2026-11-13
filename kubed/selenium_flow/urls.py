@@ -52,6 +52,31 @@ def origin_of(url: str) -> str:
     return f"{scheme}://{host}{shown}"
 
 
+def page_key(url: str | None) -> tuple[str, int, str] | None:
+    """``(host, port, path)`` of an http(s) page, or None; never raises.
+
+    The host is lowercased, IDNA-encoded and unbracketed, the port explicit or
+    its scheme's default, the path without a trailing ``/``. It runs inside a
+    store's compare-and-set, so a URL that will not parse is None, not an error.
+    """
+    try:
+        parts = urlsplit((url or "").strip())
+        scheme = parts.scheme.lower()
+        host = (parts.hostname or "").lower()
+        port = parts.port
+        if scheme not in WEB_SCHEMES or not host:
+            return None
+        if not host.isascii():
+            host = host.encode("idna").decode("ascii")
+        return (
+            host,
+            port if port is not None else DEFAULT_PORTS[scheme],
+            parts.path.rstrip("/"),
+        )
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 def host_of(url: str) -> str:
     try:
         return (urlsplit((url or "").strip()).hostname or "").lower()

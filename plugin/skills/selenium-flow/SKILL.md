@@ -36,6 +36,15 @@ whatever you had not saved (a sign-in, a half-filled form). To get somewhere
 else, pass `url=` to your next call. Reopen only to switch browser or change an
 option, or with no arguments after you are told you have no browser.
 
+**When a result names `flows_here`, a saved flow fits this page.** Run it with
+`run_flow` when its description is the task you were given and you have every
+name in its `required`: reading it first costs a call for nothing, and a failed
+run says what to read. Read its `uri` first when the description is unclear, a
+parameter is one you cannot fill, or it would write something you were not asked
+to write. Never run one just because it is there: it fits the page, not
+necessarily your task. `workspace://current` lists the same for the page you are
+on.
+
 **Everything to read is a URI**: `workspace://`, `flow://`, `secret://`,
 `skill://`. Read it the way your client reads MCP resources: in Claude Code that
 is `ReadMcpResourceTool` with server `selenium-flow`, which you may have to load
