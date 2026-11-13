@@ -894,7 +894,11 @@ only be made when someone asks. The handshake's instructions vary the same way (
 A flow's `sites` and `paths` are discovery, never a leash (spec
 2026-11-12-flow-sites-paths, ruling 8): nothing refuses a run for being
 elsewhere, and nothing is hidden from `flow://flows`. A flow with neither is
-never hinted (ruling 11), so a library saved before them stays quiet. The hint
+never hinted (ruling 11), so a library saved before them stays quiet. A page is
+host, port, path and hash route (`urls.page_key`, `urls.route_of`: a fragment
+starting with `/` or `!/`), one definition shared by matching, the hint and
+`ensure_url` (`urls.same_page`); any other fragment is never read (spec
+2026-11-13-hash-routes). The hint
 for an action's result is decided in `Workspaces.settle`: `_touch` compares
 `urls.page_key` before and after inside the store's `fn`, while `open_session`,
 an open that lost its race and `workspace://current` ask for the current page

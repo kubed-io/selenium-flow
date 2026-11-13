@@ -1290,7 +1290,7 @@
             "type": "object"
           },
           "paths": {
-            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. For an app that routes after #, add the route: /#/auth/* or /app/#/settings/**; an entry without # matches any route. The query is ignored, and so is any fragment that is not a route. Leave it out to match any path.",
             "items": {
               "type": "string"
             },
@@ -1592,7 +1592,7 @@
             "type": "object"
           },
           "paths": {
-            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. For an app that routes after #, add the route: /#/auth/* or /app/#/settings/**; an entry without # matches any route. The query is ignored, and so is any fragment that is not a route. Leave it out to match any path.",
             "items": {
               "type": "string"
             },
@@ -1686,7 +1686,7 @@
             "type": "object"
           },
           "paths": {
-            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. For an app that routes after #, add the route: /#/auth/* or /app/#/settings/**; an entry without # matches any route. The query is ignored, and so is any fragment that is not a route. Leave it out to match any path.",
             "items": {
               "type": "string"
             },
@@ -8236,7 +8236,7 @@
                     "type": "object"
                   },
                   "paths": {
-                    "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+                    "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. For an app that routes after #, add the route: /#/auth/* or /app/#/settings/**; an entry without # matches any route. The query is ignored, and so is any fragment that is not a route. Leave it out to match any path.",
                     "items": {
                       "type": "string"
                     },
