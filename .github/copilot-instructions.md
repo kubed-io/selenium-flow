@@ -13,7 +13,7 @@ your comments with them:**
 - **`AGENTS.md`** — the architectural non-negotiables and the reasoning behind
   them. This is the most important file in the repo for a reviewer.
 - **`CONTRIBUTING.md`** — layout, conventions, what is generated and what is not.
-- **`skills/selenium-flow/`** — the embedded Agent Skill, which is also the
+- **`plugin/skills/selenium-flow/`** — the embedded Agent Skill, which is also the
   clearest statement of how the server is meant to be used.
 
 Prefer these over assumptions. When a convention is undocumented, the sibling
@@ -117,7 +117,7 @@ to ignore you.
 - **The README is also the Docker Hub description** and is truncated at 25,000
   bytes. `tests/test_readme.py` guards it. Don't propose large README additions;
   contributor material goes to `CONTRIBUTING.md`, rationale to `AGENTS.md`.
-- **`skills/`, `prompts/` and `js/` are mapped into the package** by
+- **`plugin/` and `js/` are mapped into the package** by
   `[tool.setuptools.package-dir]`. A new directory that has to ship in the wheel
   needs that mapping *and* an entry in `[tool.setuptools.package-data]`, or it is
   silently absent from an installed copy. The built UI is the exception: it is

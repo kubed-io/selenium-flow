@@ -46,8 +46,7 @@ on:
     # ui/** is the Svelte source the image's own `ui` stage builds — there is
     # no static/ directory to watch any more, it is gitignored build output.
     - ui/**
-    - skills/**
-    - prompts/**
+    - plugin/**
     - js/**
     # Not in the wheel, but the Dockerfile copies it and it decides which
     # dependencies get installed — so a change here changes the image without
