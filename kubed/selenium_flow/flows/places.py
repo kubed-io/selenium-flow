@@ -69,7 +69,7 @@ class Places:
         key = urls.page_key(url)
         if key is None:
             return False
-        host, port, path = key
+        host, port, path, _route = key
         if self.sites is not None and not any(
             _site_matches(s, host, port) for s in self.sites
         ):

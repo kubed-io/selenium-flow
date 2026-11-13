@@ -1,8 +1,11 @@
 """The two origin rules agree where it matters and differ where they must."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from kubed.selenium_flow import urls
+from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.secrets import origin as exact_origin
 
 pytestmark = pytest.mark.unit
@@ -91,3 +94,71 @@ def test_a_url_with_no_scheme_is_refused_without_quoting_it():
     assert str(refused.value) == (
         "only http(s) URLs can be opened here; a URL with no scheme cannot"
     )
+
+
+@pytest.mark.parametrize("url, route", [
+    ("https://p.test/", None),
+    ("https://p.test/#", None),
+    ("https://p.test/#top", None),
+    ("https://p.test/cb#access_token=x&state=1", None),
+    ("https://p.test/#!", None),
+    ("https://p.test/#!top", None),
+    ("https://p.test/#/", ""),
+    ("https://p.test/#!/", ""),
+    ("https://p.test/#/?x=1", ""),
+    ("https://p.test/#/auth/login", "/auth/login"),
+    ("https://p.test/#!/auth/login/", "/auth/login"),
+    ("https://p.test/#/auth/login?next=/a", "/auth/login"),
+    ("http://[::1/#/a", None),
+    (None, None),
+])
+def test_a_route_is_a_fragment_shaped_like_a_path(url, route):  # rulings 1, 6
+    assert urls.route_of(url) == route
+
+
+def test_the_page_key_carries_the_route():  # ruling 2
+    assert urls.page_key("https://P.test/#/workspace?file-id=1") == ("p.test", 443, "", "/workspace")
+    assert urls.page_key("https://p.test/docs/#top") == ("p.test", 443, "/docs", None)
+
+
+@pytest.mark.parametrize("url, kept", [
+    ("https://u:p@p.test/#/workspace?team-id=T", "https://p.test/#/workspace"),
+    ("https://p.test/app/#!/settings/", "https://p.test/app/#!/settings/"),
+    ("https://a.test/cb#access_token=x", "https://a.test/cb"),
+    ("https://a.test/docs?q=1#top", "https://a.test/docs"),
+])
+def test_page_of_keeps_a_route_as_written_without_its_query(url, kept):  # rulings 9, 13
+    assert urls.page_of(url) == kept
+
+
+@pytest.mark.parametrize("a, b, same", [
+    ("https://p.test/#/auth/login", "https://p.test/#/dashboard", False),
+    ("https://p.test/#/auth/login", "https://p.test/#!/auth/login/", True),
+    ("https://p.test/docs#section", "https://p.test/docs#other", True),
+    ("https://p.test/docs", "https://p.test/docs/#top", True),
+    ("https://p.test/#/dashboard", "https://p.test/", False),                    # ruling 12, Review Focus 4
+    ("https://p.test/#/", "https://p.test/", True),                              # ruling 12, the root route
+    ("https://p.test/#/?x=1", "https://p.test/", False),
+    ("https://p.test/#/workspace?file-id=A", "https://p.test/#/workspace?file-id=B", False),  # ruling 11
+    ("https://p.test/a?p=1", "https://p.test/a", False),
+    ("https://P.test:443/a", "https://p.test/a", True),
+    ("https://u:p@p.test/a", "https://p.test/a", False),                      # ruling 12, userinfo (Dr K)
+    ("https://u:p@p.test/a", "https://u:p@p.test/a/", True),
+    ("about:blank", "about:blank", True),                                        # Review Focus 5
+    ("about:blank", "https://p.test/", False),
+])
+def test_one_page_for_url(a, b, same):
+    assert urls.same_page(a, b) is same
+    assert urls.same_page(b, a) is same
+
+
+def test_ensure_url_moves_between_routes_and_not_between_anchors(monkeypatch):  # Review Focus 1
+    went = []
+    monkeypatch.setattr(browser, "go", lambda driver, url: went.append(url))
+    driver = SimpleNamespace(current_url="https://p.test/#/auth/login")
+    assert browser.ensure_url(driver, "https://p.test/#/dashboard/recent") is True
+    driver.current_url = "https://p.test/#/workspace?file-id=A"
+    assert browser.ensure_url(driver, "https://p.test/#/workspace?file-id=B") is True
+    driver.current_url = "https://p.test/docs#section"
+    assert browser.ensure_url(driver, "https://p.test/docs#other") is False
+    assert went == ["https://p.test/#/dashboard/recent", "https://p.test/#/workspace?file-id=B"]

@@ -80,8 +80,9 @@ def test_page_key_reads_host_port_and_path():
         "localhost",
         8080,
         "/login",
+        None,
     )
-    assert urls.page_key("https://example.com") == ("example.com", 443, "")
+    assert urls.page_key("https://example.com") == ("example.com", 443, "", None)
 
 
 @pytest.mark.parametrize(

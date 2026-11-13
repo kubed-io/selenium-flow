@@ -43,7 +43,7 @@ from urllib3.connection import HTTPConnection
 from urllib3.exceptions import ProtocolError
 
 from ..faults import Unresolved, Untrusted, unresolved
-from ..urls import normalize_url
+from ..urls import same_page
 from . import probe
 from .defaults import (
     DEFAULT_GRID_URL,
@@ -840,10 +840,13 @@ def ensure_url(
     this page", and failing because the browser happens to be elsewhere makes
     every workflow carry its own navigation step.
 
+    A page is host, port, path, hash route, userinfo and both queries (the
+    real one and the route's own); a fragment that is not a route is ignored.
+
     ``before_going`` runs only when it is about to navigate, immediately before
     ``go``; it may raise to refuse.
     """
-    if normalize_url(driver.current_url) == normalize_url(url):
+    if same_page(driver.current_url, url):
         return False
     before_going()
     go(driver, url)
