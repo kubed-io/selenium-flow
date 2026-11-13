@@ -7241,6 +7241,20 @@
                     "type": "string"
                   },
                   "parameters": {
+                    "description": "A JSON Schema object: its properties are the parameters, each written ${name} in a step's args, and required lists the ones every run must supply.",
+                    "examples": [
+                      {
+                        "properties": {
+                          "email": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "email"
+                        ],
+                        "type": "object"
+                      }
+                    ],
                     "type": "object"
                   },
                   "steps": {

@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Collection
 
 from .. import binding
 from ..binding import SECRET_ARG
@@ -95,6 +96,20 @@ TIMEOUT = "timeout"
 # schema describes exactly these, so a new key is one edit here — and the MCP
 # save tool, whose signature FastMCP reads, is held to the same set by a test.
 DOCUMENT_KEYS = ("description", "parameters", TIMEOUT, "steps")
+
+# What `parameters` looks like, said in save_flow's schema and description, in
+# flow://schema and in the HTTP save's body, so a model writing a flow is shown
+# the shape before its first save rather than taught it by refusals (#118).
+PARAMETERS_EXAMPLE = {
+    "type": "object",
+    "properties": {"email": {"type": "string"}},
+    "required": ["email"],
+}
+PARAMETERS_DESCRIPTION = (
+    "A JSON Schema object: its properties are the parameters, each written "
+    "${name} in a step's args, and required lists the ones every run must "
+    "supply."
+)
 
 
 def declared_timeout(document: dict) -> int | None:
@@ -306,7 +321,9 @@ def _type_fits(value, accepted: set[str]) -> bool:
     return False
 
 
-def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
+def _check_references(
+    where: str, args: dict, declared: set[str], misplaced: Collection[str] = frozenset()
+) -> list[str]:
     """Every parameter an argument names must be one the flow declares.
 
     Both messages name the escape, because the commonest way to reach either is
@@ -318,6 +335,8 @@ def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
     """
     problems = []
     for name in dict.fromkeys(references(args)):
+        if name in misplaced:
+            continue  # the shape problem already says where it goes
         if not name:
             problems.append(
                 f"{where}: ${{}} names no parameter — write ${{name}}, or "
@@ -333,33 +352,88 @@ def _check_references(where: str, args: dict, declared: set[str]) -> list[str]:
     return problems
 
 
-def _undeclared_shape(parameters, steps) -> list[str]:
-    """`parameters` written as ``{"email": {...}}`` rather than as a schema.
+# Every JSON Schema 2020-12 keyword: core, applicator, unevaluated, validation,
+# meta-data, format and content. Any `$` or `x-` key counts as one too. Only a
+# key outside these, holding a bare type name, is taken for a misplaced
+# parameter: `"title": "string"` is a valid schema, and refusing it is the
+# guess #53 ruled out.
+SCHEMA_KEYWORDS = frozenset({
+    "prefixItems", "items", "contains", "additionalProperties", "properties",
+    "patternProperties", "dependentSchemas", "propertyNames", "if", "then",
+    "else", "allOf", "anyOf", "oneOf", "not",
+    "unevaluatedItems", "unevaluatedProperties",
+    "type", "const", "enum", "multipleOf", "maximum", "exclusiveMaximum",
+    "minimum", "exclusiveMinimum", "maxLength", "minLength", "pattern",
+    "maxItems", "minItems", "uniqueItems", "maxContains", "minContains",
+    "maxProperties", "minProperties", "required", "dependentRequired",
+    "title", "description", "default", "deprecated", "readOnly", "writeOnly",
+    "examples", "format", "contentEncoding", "contentMediaType", "contentSchema",
+})
+# The bare type names a misplaced parameter is written with (Dr K, #118).
+# `"null"` is not one: no parameter is only ever null.
+TYPE_NAMES = frozenset({"string", "number", "integer", "boolean", "object", "array"})
+
+
+def _is_keyword(key: str) -> bool:
+    return key in SCHEMA_KEYWORDS or key.startswith(("$", "x-"))
+
+
+def _misplaced(parameters, steps) -> dict[str, dict]:
+    """Top-level `parameters` keys that are parameters, each with its schema.
+
+    Two kinds of evidence, and never a guess from the key alone (Copilot, #53):
+    with no `properties`, a key the steps name as ``${key}``; and, with or
+    without, a key no keyword has whose value is a bare type name, which cannot
+    mean anything else (Dr K, #118). Only at save: a stored flow still runs as
+    it did.
+    """
+    if not isinstance(parameters, dict):
+        return {}
+    named = set()
+    if "properties" not in parameters:
+        # Each step's args only, where a parameter is substituted: a `note`
+        # that mentions `${x-ui}` names nothing (Copilot, #53).
+        named = {
+            name
+            for step in (steps if isinstance(steps, list) else [])
+            if isinstance(step, dict)
+            for name in references(step.get(ARGS))
+        }
+    found = {}
+    # `str`: YAML makes `1:` an integer, and `${1}` names it as text.
+    for key, value in sorted(parameters.items(), key=lambda item: str(item[0])):
+        key = str(key)
+        if isinstance(value, str) and value in TYPE_NAMES and not _is_keyword(key):
+            found[key] = {"type": value}
+        elif key in named:
+            found[key] = value if isinstance(value, dict) else {"type": "string"}
+    return found
+
+
+def _undeclared_shape(parameters, misplaced: dict[str, dict]) -> list[str]:
+    """`parameters` written as ``{"email": ...}`` rather than as a schema.
 
     It used to pass as "no parameters", so each ``${email}`` was refused with
-    "this flow declares none" - true, and no help. The evidence is a top-level
-    key the steps name as ``${key}``: never a guess from a keyword list, which
-    would refuse a valid schema using one it did not know (Copilot, #53). Only
-    at save: a stored flow still runs as it did.
+    "this flow declares none" - true, and no help. The example declares every
+    misplaced key, beside the properties already declared.
     """
-    if not isinstance(parameters, dict) or "properties" in parameters:
+    if not misplaced:
         return []
-    # Each step's args only, where a parameter is substituted: a `note` that
-    # mentions `${x-ui}` names nothing (Copilot, #53).
-    named = {
-        name
-        for step in (steps if isinstance(steps, list) else [])
-        if isinstance(step, dict)
-        for name in references(step.get(ARGS))
-    }
-    # `str`: YAML makes `1:` an integer, and `${1}` names it as text.
-    stray = sorted(str(key) for key in parameters if str(key) in named)
-    if not stray:
-        return []
-    example = {"type": "object", "properties": {stray[0]: {"type": "string"}}}
+    properties = parameters.get("properties")
+    properties = dict(properties) if isinstance(properties, dict) else {}
+    # A name already declared keeps the schema it was declared with.
+    for name, schema in misplaced.items():
+        properties.setdefault(name, schema)
+    example = {"type": "object", "properties": properties}
+    if isinstance(parameters.get("required"), list):
+        example["required"] = parameters["required"]
+    sit = "sits" if len(misplaced) == 1 else "sit"
+    # `default=str`: YAML makes `default: 2024-01-01` a date, and a refusal
+    # that cannot be written is a 500.
     return [
-        f"parameters: {listed(stray)} sits where only JSON Schema keywords go. "
-        f"Declare each parameter under properties: {json.dumps(example)}"
+        f"parameters: {listed(misplaced)} {sit} where only JSON Schema keywords "
+        "go. Declare each parameter under properties: "
+        f"{json.dumps(example, default=str)}"
     ]
 
 
@@ -592,7 +666,13 @@ def _check_destination(where: str, params: dict) -> list[str]:
     return []
 
 
-def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str]:
+def _check_step(
+    index: int,
+    step,
+    declared: set[str],
+    schemas: dict,
+    misplaced: Collection[str] = frozenset(),
+) -> list[str]:
     where = f"step {index}"
     if not isinstance(step, dict):
         return [f"{where}: {NOT_A_STEP}"]
@@ -649,7 +729,7 @@ def _check_step(index: int, step, declared: set[str], schemas: dict) -> list[str
     # Every `${name}` anywhere in the arguments, against what the flow declares.
     # Checked before the schema check below, because an argument whose value is
     # a reference is still the type the tool wants once it is substituted.
-    problems += _check_references(where, args, declared)
+    problems += _check_references(where, args, declared, misplaced)
 
     secret = args.get(SECRET_ARG)
     bound = set()
@@ -698,7 +778,8 @@ def validate(document, schemas: dict) -> dict:
 
     shape = Shape(document)
     problems += shape.parameter_problems()
-    problems += _undeclared_shape(document.get("parameters"), document.get("steps"))
+    misplaced = _misplaced(document.get("parameters"), document.get("steps"))
+    problems += _undeclared_shape(document.get("parameters"), misplaced)
     properties = shape.properties
     declared = shape.declared
     # `writeOnly` is standard JSON Schema for "supplied but not returned", and
@@ -731,7 +812,7 @@ def validate(document, schemas: dict) -> dict:
 
     seen = set()
     for index, step in enumerate(shape.steps, start=1):
-        problems += _check_step(index, step, declared, schemas)
+        problems += _check_step(index, step, declared, schemas, misplaced.keys())
         # Only a string id can repeat: a list is already refused by
         # `_check_step`, and cannot be a member of a set.
         if isinstance(step, dict) and step.get("id") and isinstance(step["id"], str):

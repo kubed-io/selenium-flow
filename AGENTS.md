@@ -17,7 +17,9 @@ is where the vocabulary below comes from.
 **`docs/` is the GitHub wiki**, checked out as a submodule: the generated
 pages at its root, hand-written `notes/`, and the design record in
 `superpowers/` and `saga/`. Changing a spec or plan is a commit inside it,
-pushed to a wiki branch, and a pointer bump here; merging publishes it.
+pushed straight to the wiki's `master`, and a pointer bump here: a spec is
+public as soon as it is written, like any wiki page, and its status line says
+whether it is settled.
 
 **[`docs/saga/`](docs/saga/) is deprecated** and kept as written: four chapters
 (flows, pilot reports, other clients, the Hangar) that came before the specs.
@@ -161,6 +163,7 @@ anyone else. On top of it:
   specific and automatable, call `/browser/open`. A browser a person holds in the live
   view is **409** (`faults.Controlled`): the request is sound, the workspace's state
   forbids it now, and the same call succeeds after the hand-back. An unreachable or full Grid is **503**.
+  A script past the session's script timeout is a **400** (`faults.ScriptTimedOut`, raised by `core/actions.run_script` from the script command's own `TimeoutException`, naming the timeout and `open_session(script_timeout=)`); a browser whose Grid node stopped answering is a **404** (`faults.NodeLost`, a fixed sentence and never the hub's text, which quotes the node's address and the Grid id), recognised from the driver's message by `faults.lost` in `core/recipe.node_answering` and not by a probe, since `is_alive` can still say alive right after a crash.
   Anything unrecognised stays **500**, deliberately: "the caller's fault" is the dangerous
   guess about a failure we do not understand, because it tells a client to stop retrying
   something that may be ours. Add a new status only alongside the `responses` block in
@@ -572,6 +575,7 @@ or the leak `caller_key` existed to prevent comes straight back.
   first page. A page without the marker is a service worker's and is never read. No CDP.
 - Kept on `Workspace` in the store, never on this server's disk (with the Redis store it is
   as durable as Redis), never logged — `main.py` holds Selenium's wire loggers at INFO for that;
+  it also holds the `fastmcp` logger at INFO or above (FastMCP logs tool arguments at DEBUG) and sends its lines to the root handler, since FastMCP's own Rich handlers wrap at 80 columns with no TTY;
   it expires with the record. httpOnly values are shown as `•••` on every surface; a secret a
   site keeps in its localStorage is saved and shown as it is.
 - An action returns the capture under `CAPTURED`; `Workspaces.settle` stores it and strips
@@ -746,6 +750,7 @@ a WebSocket this server proxies to the hub's `/session/<id>/se/vnc`
   the browser ends (`session.ended` for its Grid id, 4001) and when nobody is
   present for `live.grace`; either socket closing closes both. A tunnel held
   through the hub kept a browser alive for 40+ minutes after its tab closed.
+  A viewer that left, or a hub that closed, asks `Grid.listing` (one `GET /status`) once, bounded by `LISTED_TIMEOUT`, and an unlisted browser is recorded as "the browser ended": the page unmounts its pane on one listing, before the monitor's `session.ended`.
 - **A visible tab keeps the browser alive, with no cap** (ruling 14): the page's
   heartbeat and, in Control, input are presence. Do not add a duration or
   viewer limit without a ruling.

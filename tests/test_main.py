@@ -7,6 +7,7 @@ before it — the loader, the logging setup, the server's own construction — i
 the real thing.
 """
 
+import io
 import logging
 
 import pytest
@@ -46,6 +47,17 @@ def levels():
         logging.getLogger(name).setLevel(level)
 
 
+@pytest.fixture
+def fastmcp_logger():
+    """Put the ``fastmcp`` logger's handlers, propagation and level back."""
+    logger = logging.getLogger("fastmcp")
+    handlers, propagate, level = list(logger.handlers), logger.propagate, logger.level
+    yield logger
+    logger.handlers[:] = handlers
+    logger.propagate = propagate
+    logger.setLevel(level)
+
+
 def config(tmp_path, text=""):
     path = tmp_path / "config.yaml"
     path.write_text(text, encoding="utf-8")
@@ -74,6 +86,46 @@ def test_selenium_wire_loggers_are_held_at_info_whatever_log_level_says(
     main_module.main(config(tmp_path, "log_level: DEBUG\n"))
     for name in WIRE_LOGGERS:
         assert logging.getLogger(name).level == logging.INFO, name
+
+
+def test_fastmcp_logs_through_the_root_handler_at_info_or_the_root_level(
+    tmp_path, listened, fastmcp_logger, levels
+):
+    """FastMCP's own Rich handlers would wrap every line at 80 columns, and
+    LOG_LEVEL=WARNING still quiets it."""
+    logging.getLogger().setLevel(logging.WARNING)
+    main_module.main(config(tmp_path, "log_level: WARNING\n"))
+    assert fastmcp_logger.handlers == []
+    assert fastmcp_logger.propagate is True
+    assert fastmcp_logger.level == logging.WARNING
+
+
+def test_fastmcp_is_never_opened_below_info_whatever_log_level_says(
+    tmp_path, listened, fastmcp_logger, levels
+):
+    """FastMCP logs every tool's arguments at DEBUG: scripts, typed text."""
+    logging.getLogger().setLevel(logging.DEBUG)
+    main_module.main(config(tmp_path, "log_level: DEBUG\n"))
+    ops = logging.getLogger("fastmcp.server.mixins.mcp_operations")
+    assert not ops.isEnabledFor(logging.DEBUG)
+
+
+def test_a_long_tool_error_is_one_line_in_the_log(tmp_path, listened, fastmcp_logger):
+    """Loki stores each physical line as its own entry, so a wrapped error
+    cannot be found by its text."""
+    main_module.main(config(tmp_path))
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    root = logging.getLogger()
+    root.addHandler(handler)
+    try:
+        message = "Error calling tool 'x': " + "y" * 200
+        logging.getLogger("fastmcp.server.server").warning(message)
+    finally:
+        root.removeHandler(handler)
+    lines = stream.getvalue().splitlines()
+    assert len(lines) == 1
+    assert message in lines[0]
 
 
 def test_a_server_booted_without_a_token_says_auth_is_off(
