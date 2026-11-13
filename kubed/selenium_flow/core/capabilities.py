@@ -169,6 +169,26 @@ def _page(**extra) -> dict:
     }
 
 
+# What an action that acts on one of several matches says about its choice. Both
+# are present only when more than one element matched.
+MATCHED = {
+    "matched": {
+        "type": "integer",
+        "description": (
+            "How many elements the selector matched. Present only when more "
+            "than one did."
+        ),
+    },
+    "index": {
+        "type": "integer",
+        "description": (
+            "Which of them was used, counting from 0: the first that could be "
+            "used, or for hover, scroll_to and drag's to, the first displayed."
+        ),
+    },
+}
+
+
 BODY_RESPONSE = {
     "type": "object",
     "properties": {
@@ -442,6 +462,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         in_path=True,
         annotations=hints("Mouse action on an element", destructive=True),
         response=_page(
+            **MATCHED,
             action={"type": "string", "description": "The gesture that was performed."},
             glided={
                 "type": "boolean",
@@ -470,6 +491,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         http_method="POST",
         annotations=hints("Drag an element", destructive=True),
         response=_page(
+            **MATCHED,
             **{
                 "from": {
                     "type": "object",
@@ -502,6 +524,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         http_method="POST",
         annotations=hints("Type text into a field"),
         response=_page(
+            **MATCHED,
             value={
                 "type": ["string", "null"],
                 "description": "The field's value read back off the element, so a "
@@ -523,7 +546,10 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="press-key",
         http_method="POST",
         annotations=hints("Press a named key", destructive=True),
-        response=_page(key={"type": "string", "description": "The key that was sent."}),
+        response=_page(
+            **MATCHED,
+            key={"type": "string", "description": "The key that was sent."},
+        ),
     ),
     Capability(
         name="extract",

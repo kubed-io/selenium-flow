@@ -20,6 +20,7 @@ import socket
 import zipfile
 from collections.abc import Callable
 from http.cookiejar import DefaultCookiePolicy
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
@@ -27,6 +28,7 @@ from requests.adapters import HTTPAdapter
 from selenium import webdriver
 from selenium.common.exceptions import (
     InsecureCertificateException,
+    StaleElementReferenceException,
     TimeoutException,
     UnexpectedAlertPresentException,
     WebDriverException,
@@ -581,6 +583,52 @@ def locator(selector) -> tuple[str, str]:
     return SELECTORS[name], str(value)
 
 
+class Found(NamedTuple):
+    """The element a wait settled on, and which of the matches it was."""
+
+    element: Any
+    index: int
+    matched: int
+
+    def fields(self) -> dict:
+        """What a result says about the choice: only when there was one."""
+        if self.matched > 1:
+            return {"matched": self.matched, "index": self.index}
+        return {}
+
+
+class _FirstUsable:
+    """The condition behind `wait_for_clickable` and `wait_for_shown`.
+
+    Every match is looked at in order, up to `probe.CANDIDATES`: ``is_displayed``
+    is a round trip per element, and a broad selector must not make a poll take
+    seconds inside the session's lock. The first displayed (and, when
+    ``clickable``, enabled) one wins. A match the page replaced between the find
+    and the question is skipped, not raised: the next good match is what the
+    caller wants. Nothing usable keeps a clickable wait going; a shown wait falls
+    back to the first match.
+    """
+
+    def __init__(self, target, clickable: bool):
+        self.target, self.clickable = target, clickable
+
+    def __call__(self, driver):
+        found = driver.find_elements(*self.target)
+        if not found:
+            return False
+        if not self.clickable and len(found) == 1:
+            return Found(found[0], 0, 1)
+        for index, element in enumerate(found[: probe.CANDIDATES]):
+            try:
+                if element.is_displayed() and (
+                    not self.clickable or element.is_enabled()
+                ):
+                    return Found(element, index, len(found))
+            except StaleElementReferenceException:
+                continue
+        return False if self.clickable else Found(found[0], 0, len(found))
+
+
 def wait_for_element(driver, target, timeout: int = 30):
     """Wait for an element to exist in the DOM. ``target`` comes from `locator`."""
     _, value = target
@@ -592,15 +640,26 @@ def wait_for_element(driver, target, timeout: int = 30):
     )
 
 
-def wait_for_clickable(driver, target, timeout: int = 30):
-    """Wait for an element to exist *and* be interactable."""
+def wait_for_clickable(driver, target, timeout: int = 30) -> Found:
+    """Wait for a match that exists *and* is interactable: the first such one."""
     _, value = target
     return _waited(
         driver,
-        EC.element_to_be_clickable(target),
+        _FirstUsable(target, clickable=True),
         timeout,
         f"no clickable element matched {value!r}",
         target=target,
+    )
+
+
+def wait_for_shown(driver, target, timeout: int = 30) -> Found:
+    """Wait for a match; the first displayed one, else the first."""
+    _, value = target
+    return _waited(
+        driver,
+        _FirstUsable(target, clickable=False),
+        timeout,
+        f"no element matched {value!r}",
     )
 
 

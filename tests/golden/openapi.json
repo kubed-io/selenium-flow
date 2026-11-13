@@ -570,6 +570,14 @@
             "description": "Whether the travel was incremental.",
             "type": "boolean"
           },
+          "index": {
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover, scroll_to and drag's to, the first displayed.",
+            "type": "integer"
+          },
+          "matched": {
+            "description": "How many elements the selector matched. Present only when more than one did.",
+            "type": "integer"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {
@@ -1634,6 +1642,14 @@
             "description": "Whether the pointer travelled to the element in steps rather than jumping. Absent for scroll_to, which moves the page.",
             "type": "boolean"
           },
+          "index": {
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover, scroll_to and drag's to, the first displayed.",
+            "type": "integer"
+          },
+          "matched": {
+            "description": "How many elements the selector matched. Present only when more than one did.",
+            "type": "integer"
+          },
           "nudged": {
             "description": "Present when the pointer was already inside the target and had to step away first, so the move it was asked for was a move.",
             "type": "boolean"
@@ -2395,9 +2411,17 @@
       },
       "PressKeyResponse": {
         "properties": {
+          "index": {
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover, scroll_to and drag's to, the first displayed.",
+            "type": "integer"
+          },
           "key": {
             "description": "The key that was sent.",
             "type": "string"
+          },
+          "matched": {
+            "description": "How many elements the selector matched. Present only when more than one did.",
+            "type": "integer"
           },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
@@ -3836,6 +3860,14 @@
       },
       "WriteResponse": {
         "properties": {
+          "index": {
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover, scroll_to and drag's to, the first displayed.",
+            "type": "integer"
+          },
+          "matched": {
+            "description": "How many elements the selector matched. Present only when more than one did.",
+            "type": "integer"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {

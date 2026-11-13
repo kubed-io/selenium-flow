@@ -44,7 +44,7 @@ from .coerce import as_bool, as_int
 from .defaults import normalize_browser
 from .keys import SUBMIT_KEYS, resolve_key
 from .naming import _decode, _generated_name, _why_unsaved, safe_name
-from .recipe import CLICKABLE, DIALOG_TIMEOUT, PRESENCE, WAIT_TIMEOUT, Recipe
+from .recipe import CLICKABLE, DIALOG_TIMEOUT, PRESENCE, SHOWN, WAIT_TIMEOUT, Recipe
 
 # What a failed pointer move must never be mistaken for. See `_move_onto`.
 INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
@@ -641,9 +641,10 @@ class Actions:
                 chain.perform()
             return {"action": resolved, **self._pointer_report(moved, glide)}
 
-        # hover and scroll_to only need the element to exist. Requiring it to be
-        # clickable would refuse exactly the off-screen element scroll_to is for.
-        wait = PRESENCE if resolved in ("hover", "scroll_to") else CLICKABLE
+        # hover and scroll_to only need an element to aim at: the first displayed
+        # match, else the first (ruling 3). Requiring it to be clickable would
+        # refuse exactly the off-screen element scroll_to is for.
+        wait = SHOWN if resolved in ("hover", "scroll_to") else CLICKABLE
         return self._recipe(wait, retry_stale=True).run(
             session_id, gesture, url=url, selector=selector, wait_timeout=wait_timeout
         )
@@ -785,8 +786,11 @@ class Actions:
                 # Read now rather than when the step was written: the approach
                 # may have scrolled, and every rect on the page moved with it
                 # (§F2.3).
+                # The first displayed match: a drop aimed at a hidden duplicate
+                # aims at 0,0 (ruling 4).
                 aimed = pointer.aim(
-                    driver, browser.wait_for_element(driver, to_target, at.timeout)
+                    driver,
+                    browser.wait_for_shown(driver, to_target, at.timeout).element,
                 )
                 end, size = aimed["at"], aimed["viewport"]
             else:

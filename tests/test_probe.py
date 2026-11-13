@@ -14,6 +14,16 @@ from kubed.selenium_flow.core import browser, probe
 pytestmark = pytest.mark.unit
 
 
+class _Hidden:
+    """What the page found: there, and not usable. The wait asks it."""
+
+    def is_displayed(self):
+        return False
+
+    def is_enabled(self):
+        return False
+
+
 class _Page:
     """A driver that answers the probe with whatever the page would say."""
 
@@ -27,7 +37,7 @@ class _Page:
         self.scripts = []
 
     def find_elements(self, *_):
-        return ["<element>"] if self.found else []
+        return [_Hidden()] if self.found else []
 
     def find_element(self, *_):
         from selenium.common.exceptions import NoSuchElementException

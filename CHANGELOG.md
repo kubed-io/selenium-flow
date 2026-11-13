@@ -86,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Naming two different workspaces in one request (`?workspace=a&workspace=b`) is refused.
 - `workspace://current` and the admin summary show how long the Grid lets a session sit idle (`grid_timeout`).
 - save_flow shows the shape of `parameters`, and a parameter written outside `properties` is refused with the corrected shape.
+- Clicks use the first visible match of a selector and say what received the click; click errors say what is at the point.
 
 ## [0.3.0] - 2026-09-26
 

@@ -30,6 +30,12 @@ log = logging.getLogger(__name__)
 # cheaper than reading the DOM if it stays small.
 DEFAULT_LIMIT = 50
 
+# How many matches of one selector a wait will ask about per poll. `is_displayed`
+# is a round trip per element, so a broad selector (`//a`) with hundreds of hidden
+# matches would make each poll take seconds, inside the session's lock. Past this
+# the timeout says only the first of them were tried (spec 2026-11-13, ruling 6).
+CANDIDATES = 50
+
 # What counts as worth listing when a caller has not asked for everything: the
 # things an agent can act on. `[role]` is here because a div with a role is a
 # button someone built by hand, and those are exactly the ones a tag-based list
