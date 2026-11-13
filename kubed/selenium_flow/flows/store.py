@@ -44,15 +44,18 @@ import logging
 import os
 import shutil
 import stat
+import threading
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import yaml
+from cachetools import LRUCache
 
 from ..names import (
     FILES_DIR,
     FOLDERS,
+    GLOBAL_WORKSPACE,
     INBOX_DIR,
     RECORDINGS_DIR,
     RESERVED_IN_FILES,
@@ -64,6 +67,8 @@ from ..names import (
     valid_name,
 )
 from .library import dump, summary, view, yaml_complaint
+from .places import Places
+from .shape import Shape
 
 if TYPE_CHECKING:
     from ..config import DataSettings
@@ -77,6 +82,11 @@ log = logging.getLogger("kubed.selenium_flow.flows.library")
 SUFFIX = ".yaml"
 FLOWS_DIR = "flows"
 PENDING_DIR = ".pending"
+# A hint names a flow by its resource URI. Equal to `flows.api.FLOW_URI`, which
+# this module cannot import (api imports the store); a test holds them together.
+HINT_URI = "flow://flows/{name}"
+HINT_CAP = 10  # most flows one result names (ruling 17)
+LIBRARIES = 256  # libraries whose placed flows are kept
 _NO_LINK = frozenset({errno.EXDEV, errno.EPERM, errno.ENOTSUP, errno.EMLINK})
 
 
@@ -277,8 +287,23 @@ class WorkspaceLayout:
         return sorted(p.name for p in self.root.iterdir() if p.is_dir())
 
 
+class Placed(NamedTuple):
+    """A flow that declares where it applies, and the hint that names it."""
+
+    name: str
+    places: Places
+    hint: dict  # {name, uri, description, parameters, required[, shared]}
+
+
 class FlowStore(WorkspaceLayout):
     """A workspace's flow documents: YAML files under ``<workspace>/flows``."""
+
+    def __init__(self, root: str | Path):
+        super().__init__(root)
+        # library -> (revision, answer). Per library, so `global` is read once
+        # per version however many workspaces ask. No TTL (ruling 5).
+        self._hints: LRUCache = LRUCache(maxsize=LIBRARIES)
+        self._hints_lock = threading.Lock()
 
     def _flows_dir(self, workspace: str) -> Path:
         return self._workspace_dir(workspace, FLOWS_DIR)
@@ -336,6 +361,73 @@ class FlowStore(WorkspaceLayout):
             for name, info in sorted(self._flow_entries(workspace))
         ]
         return ";".join(stamps) or "0"
+
+    def flows_here(self, workspace: str, url: str) -> list[dict]:
+        """The flows that say they apply to ``url``, as hints, at most ten.
+
+        The workspace's own come first, then ``global``'s (ruling 17), each in
+        name order. A shared flow is left out when the workspace has a flow of
+        that name at all, placed or not, because ``run_flow`` by that name runs
+        the workspace's own (ruling 13). A flow whose places cannot be read is
+        never hinted and is logged by name, never by value (ruling 22). The
+        answer comes from a cache keyed on each library's `revision` (ruling 5),
+        so a warm call stats the directories and reads no file; what is
+        returned is a copy, since the cache's entries are shared (ruling 16).
+        """
+        names, own = self._placed(workspace)
+        found = [p for p in own if p.places.applies(url)]
+        if workspace != GLOBAL_WORKSPACE:
+            _, shared = self._placed(GLOBAL_WORKSPACE)
+            found += [
+                p for p in shared if p.name not in names and p.places.applies(url)
+            ]
+        return [copy.deepcopy(p.hint) for p in found[:HINT_CAP]]
+
+    def _placed(self, library: str) -> tuple[frozenset[str], tuple[Placed, ...]]:
+        """Every flow name in ``library``, and the flows that declare places.
+
+        Cached under the library's `revision`. The stat and the build run
+        outside the lock; two threads may build the same version, and either
+        answer is right.
+        """
+        stamp = self.revision(library)
+        with self._hints_lock:
+            cached = self._hints.get(library)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        names, placed = [], []
+        for name in self.names(library):
+            doc = self._loaded(library, name)
+            if doc is None:
+                continue
+            names.append(name)
+            try:
+                places = Places.parse(doc)
+            except ValueError:
+                log.warning(
+                    "flow %s/%s is never hinted: its sites or paths cannot be read",
+                    library,
+                    name,
+                )
+                continue
+            if places is None:
+                continue
+            shape = Shape(doc)
+            description = doc.get("description")
+            hint = {
+                "name": name,
+                "uri": HINT_URI.format(name=name),
+                "description": description if isinstance(description, str) else "",
+                "parameters": list(shape.properties),
+                "required": list(shape.required),
+            }
+            if library == GLOBAL_WORKSPACE:
+                hint["shared"] = True
+            placed.append(Placed(name, places, hint))
+        answer = (frozenset(names), tuple(placed))
+        with self._hints_lock:
+            self._hints[library] = (stamp, answer)
+        return answer
 
     def summaries(self, workspace: str) -> list[dict]:
         """Name, description and parameters for each flow — never the steps.

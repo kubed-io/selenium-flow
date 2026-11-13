@@ -13,6 +13,7 @@ import yaml
 from cachetools import LRUCache, cached
 
 from ..faults import TooLarge
+from . import places
 from .shape import Shape
 
 
@@ -106,10 +107,20 @@ def summary(name: str, workspace: str, document: dict) -> dict:
     ``document`` may be the cache's own (`view`), so the two fields handed out
     are copied and the steps, the bulk of a document, are only counted.
     """
+    # Where it applies, only when it can be read: a hand-edited `sites:
+    # example.com` lists without it rather than failing the listing (ruling 22).
+    where = {}
+    if not places.problems(document):
+        where = {
+            key: copy.deepcopy(document[key])
+            for key in (places.SITES, places.PATHS)
+            if document.get(key) is not None
+        }
     return {
         "name": name,
         "workspace": workspace,
         "description": copy.deepcopy(document.get("description", "")),
+        **where,
         "parameters": copy.deepcopy(document.get("parameters", {})),
         # Named for what it is. Calling it `steps` would put an int where the
         # document itself carries a list, and E2 reads both — one consumer

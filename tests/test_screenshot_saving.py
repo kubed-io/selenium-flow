@@ -448,6 +448,42 @@ async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypat
     assert result.structured_content == {"site_data": hint, **kept}
 
 
+async def test_a_screenshot_that_lands_on_a_new_page_names_the_flows_there(
+    keeping_server, monkeypatch
+):
+    """`screenshot(url=...)` moves the record like any action; dropped here, the
+    hint is never said, since the next call is no longer a page change."""
+    from fastmcp import Client
+
+    here = [{"name": "login", "uri": "flow://flows/login", "description": "Sign in",
+             "parameters": [], "required": []}]
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    monkeypatch.setattr(keeping_server.workspaces, "act", lambda name, call, **kw: {
+        "image": png, "flows_here": here})
+    calling_as(monkeypatch, "s")
+    async with Client(keeping_server.mcp) as client:
+        result = await client.call_tool("screenshot", {})
+    assert result.content[0].type == "image"
+    assert result.structured_content == {"flows_here": here}
+
+
+def test_the_image_block_keeps_every_optional_field_screenshot_publishes():
+    """Only the capture itself and the page it is of stay behind: the image is
+    the block, and `url`/`title` are what every call echoes. Anything else the
+    response declares must reach an MCP caller too."""
+    from kubed.selenium_flow.core.capabilities import capability
+    from kubed.selenium_flow.mcp.tools import _as_image
+
+    the_image = {"image", "width", "height", "bytes", "url", "title"}
+    published = capability("screenshot").response["properties"]
+    result = {k: f"<{k}>" for k in published}
+    result["image"] = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+    shaped = _as_image(result)
+    assert shaped.structured_content == {
+        k: f"<{k}>" for k in published if k not in the_image
+    }
+
+
 # ---- what the tools promise ----------------------------------------------------
 
 
