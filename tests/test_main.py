@@ -88,14 +88,26 @@ def test_selenium_wire_loggers_are_held_at_info_whatever_log_level_says(
         assert logging.getLogger(name).level == logging.INFO, name
 
 
-def test_fastmcp_logs_through_the_root_handler_at_the_root_level(
-    tmp_path, listened, fastmcp_logger
+def test_fastmcp_logs_through_the_root_handler_at_info_or_the_root_level(
+    tmp_path, listened, fastmcp_logger, levels
 ):
-    """FastMCP's own Rich handlers would wrap every line at 80 columns."""
-    main_module.main(config(tmp_path))
+    """FastMCP's own Rich handlers would wrap every line at 80 columns, and
+    LOG_LEVEL=WARNING still quiets it."""
+    logging.getLogger().setLevel(logging.WARNING)
+    main_module.main(config(tmp_path, "log_level: WARNING\n"))
     assert fastmcp_logger.handlers == []
     assert fastmcp_logger.propagate is True
-    assert fastmcp_logger.level == logging.NOTSET
+    assert fastmcp_logger.level == logging.WARNING
+
+
+def test_fastmcp_is_never_opened_below_info_whatever_log_level_says(
+    tmp_path, listened, fastmcp_logger, levels
+):
+    """FastMCP logs every tool's arguments at DEBUG: scripts, typed text."""
+    logging.getLogger().setLevel(logging.DEBUG)
+    main_module.main(config(tmp_path, "log_level: DEBUG\n"))
+    ops = logging.getLogger("fastmcp.server.mixins.mcp_operations")
+    assert not ops.isEnabledFor(logging.DEBUG)
 
 
 def test_a_long_tool_error_is_one_line_in_the_log(tmp_path, listened, fastmcp_logger):

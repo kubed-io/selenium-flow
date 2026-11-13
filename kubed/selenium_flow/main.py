@@ -46,15 +46,17 @@ def plain_fastmcp_logs() -> None:
     propagation. In a pod there is no TTY, so Rich wraps at 80 columns, and Loki
     stores each physical line as its own entry, so only the first fragment of an
     error matches its text. Dropping the handlers and propagating gives one
-    format; clearing the level lets LOG_LEVEL govern it, since a propagated
-    record is checked against handler levels only. Filters on its child loggers
-    stay, as they belong to the logger and not to a handler.
+    format. The level is INFO or the root's, whichever is higher, never lower:
+    FastMCP logs every tool's arguments at DEBUG (scripts, typed text, upload
+    content), so LOG_LEVEL=DEBUG must not open it, while WARNING still quiets
+    it. Filters on its child loggers stay, as they belong to the logger and not
+    to a handler.
     """
     logger = logging.getLogger("fastmcp")
     for handler in list(logger.handlers):
         logger.removeHandler(handler)
     logger.propagate = True
-    logger.setLevel(logging.NOTSET)
+    logger.setLevel(max(logging.INFO, logging.getLogger().getEffectiveLevel()))
 
 
 def _loopback(host: str) -> bool:

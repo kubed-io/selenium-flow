@@ -43,6 +43,8 @@ def build(prefix="", token=TOKEN, **live):
     )
     server = SeleniumMCP(settings)
     server.actions.grid.vnc_url = lambda sid: f"ws://hub.invalid/{sid}"
+    # The Grid still lists the browser, so a tunnel's close asks nothing real.
+    server.actions.grid.listing = lambda: (1, {GRID_ID: 300})
     store = server.workspaces.store
     store.set(
         "w1",
@@ -529,3 +531,68 @@ def test_the_socket_asks_control_of_the_registry_and_leaving_hands_back(
     assert not server.controls.controlling("w1", "admin")
     assert server.controls.refusal(GRID_ID, "navigate") is None
     assert server.controls.notice("w1")["state"] == "handed_back"
+
+
+def left_line(client, monkeypatch, caplog) -> str:
+    """Open the view through the handshake, leave, and return the audit line."""
+
+    async def dial(url, **_kw):
+        peer = FakePeer()
+        peer.node = asyncio.create_task(vnc_node(peer, password_asked=False))
+        return peer
+
+    monkeypatch.setattr(live_module, "open_socket", dial)
+    with (
+        caplog.at_level(logging.INFO, logger="kubed.selenium_flow.live"),
+        client.websocket_connect(mint(client)) as ws,
+    ):
+        assert ws.receive_json() == {"type": "mode", "mode": "watch"}
+        assert ws.receive_bytes() == RFB_38
+        ws.send_bytes(RFB_38)
+        assert ws.receive_bytes() == bytes([1, 1])
+        ws.send_bytes(b"\x01")
+        assert ws.receive_bytes() == bytes(4)
+        ws.send_bytes(b"\x01")
+        ws.receive_bytes()  # ServerInit: the tunnel pipes
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        found = [m for m in caplog.messages if "left the live view of w1" in m]
+        if found:
+            return found[0]
+        time.sleep(0.01)
+    raise AssertionError("no audit line")
+
+
+def test_leaving_a_browser_the_grid_no_longer_lists_says_the_browser_ended(
+    client, server, monkeypatch, caplog
+):
+    """A node gone takes its browser off the listing: the page unmounts its
+    pane, and the line says why rather than blaming the viewer."""
+    monkeypatch.setattr(server.actions.grid, "listing", lambda: (1, {"g-other": 300}))
+    line = left_line(client, monkeypatch, caplog)
+    assert "the browser ended" in line and "the viewer closed" not in line
+    assert GRID_ID not in caplog.text
+
+
+def test_leaving_when_the_grid_lists_no_nodes_says_the_browser_ended(
+    client, server, monkeypatch, caplog
+):
+    monkeypatch.setattr(server.actions.grid, "listing", lambda: (0, {}))
+    assert "the browser ended" in left_line(client, monkeypatch, caplog)
+
+
+def test_leaving_when_the_listing_fails_keeps_the_viewer_closed(
+    client, server, monkeypatch, caplog
+):
+    def listing():
+        raise ConnectionError(f"http://grid.invalid/{GRID_ID}")
+
+    monkeypatch.setattr(server.actions.grid, "listing", listing)
+    assert "the viewer closed" in left_line(client, monkeypatch, caplog)
+    assert GRID_ID not in caplog.text
+
+
+def test_leaving_a_browser_the_grid_still_lists_keeps_the_viewer_closed(
+    client, monkeypatch, caplog
+):
+    assert "the viewer closed" in left_line(client, monkeypatch, caplog)
