@@ -35,10 +35,13 @@ Two rules from the chapter show up here as code:
 
 from __future__ import annotations
 
+import json
 import logging
+from typing import Annotated
 
 import anyio
 import yaml
+from pydantic import Field
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -446,8 +449,9 @@ def register(
             "tool's arguments; a step may also carry id, note, onError (abort "
             "or continue) and return. open_session and end_browser are not "
             "steps: a flow runs in the browser you already hold.\n\n"
-            "Declare what varies between runs in parameters and write ${name} "
-            "in any argument. A value nobody may see is a secret: write's "
+            "Declare what varies between runs in parameters, a JSON Schema "
+            f"object such as {json.dumps(flowdoc.PARAMETERS_EXAMPLE)}, and write "
+            "${email} in any argument. A value nobody may see is a secret: write's "
             "args.secret, never a string. timeout (seconds, default "
             f"{flowrun.RUN_TIMEOUT}) bounds the run.\n\n"
             "The whole document is checked against the live tools, and every "
@@ -460,7 +464,13 @@ def register(
         name: str,
         steps: list,
         description: str = "",
-        parameters: dict | None = None,
+        parameters: Annotated[
+            dict | None,
+            Field(
+                description=flowdoc.PARAMETERS_DESCRIPTION,
+                examples=[flowdoc.PARAMETERS_EXAMPLE],
+            ),
+        ] = None,
         timeout: int | None = None,
     ) -> dict:
         # In this order, which is the order the saved YAML lists them in.
@@ -564,7 +574,17 @@ def _build_document_schema(steps: dict) -> dict:
         "description": {"type": "string"},
         "parameters": {
             "type": "object",
-            "description": "JSON Schema for the values run_flow accepts.",
+            "description": flowdoc.PARAMETERS_DESCRIPTION,
+            "properties": {
+                "type": {"const": "object"},
+                "properties": {
+                    "type": "object",
+                    "additionalProperties": {"type": ["object", "boolean"]},
+                    "description": "One JSON Schema per parameter, by name.",
+                },
+                "required": {"type": "array", "items": {"type": "string"}},
+            },
+            "examples": [flowdoc.PARAMETERS_EXAMPLE],
         },
         flowdoc.TIMEOUT: {
             "type": "integer",
