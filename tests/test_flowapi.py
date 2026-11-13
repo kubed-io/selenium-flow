@@ -131,6 +131,20 @@ async def test_the_save_tool_takes_exactly_the_document_keys(flow_server):
     assert set(schema["properties"]) == {"name", *flowdoc.DOCUMENT_KEYS}
 
 
+async def test_the_save_tool_says_what_parameters_looks_like(flow_server):
+    """#118: `parameters` was published as "any object", so a model learned its
+    shape from refusals. Its schema says it, and so does flow://schema."""
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
+    parameters = tool.parameters["properties"]["parameters"]
+    assert "properties" in parameters["description"]
+    assert parameters["examples"][0]["properties"]
+    assert '"properties"' in tool.description
+    schema = await flowapi._document_schema(flowapi.Schemas(flow_server.mcp))
+    published = schema["properties"]["parameters"]
+    assert published["examples"] == parameters["examples"]
+    assert set(published["properties"]) == {"type", "properties", "required"}
+
+
 async def test_a_broken_flow_is_refused_at_save_with_every_reason(flow_server, store):
     with pytest.raises(ValueError) as caught:
         await call(

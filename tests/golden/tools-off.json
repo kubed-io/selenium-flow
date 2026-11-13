@@ -1138,7 +1138,7 @@
       "read_only_hint": false,
       "title": "Save a flow"
     },
-    "description": "Save a flow, a sequence of tool calls run server-side in one call, creating or replacing it by name.\n\nsteps is a list of {tool, args}, where args are exactly that tool's arguments; a step may also carry id, note, onError (abort or continue) and return. open_session and end_browser are not steps: a flow runs in the browser you already hold.\n\nDeclare what varies between runs in parameters and write ${name} in any argument. A value nobody may see is a secret: write's args.secret, never a string. timeout (seconds, default 120) bounds the run.\n\nThe whole document is checked against the live tools, and every problem is listed at once. flow://schema has the full shape; skill://selenium-flow/references/FLOWS.md explains writing one.",
+    "description": "Save a flow, a sequence of tool calls run server-side in one call, creating or replacing it by name.\n\nsteps is a list of {tool, args}, where args are exactly that tool's arguments; a step may also carry id, note, onError (abort or continue) and return. open_session and end_browser are not steps: a flow runs in the browser you already hold.\n\nDeclare what varies between runs in parameters, a JSON Schema object such as {\"type\": \"object\", \"properties\": {\"email\": {\"type\": \"string\"}}, \"required\": [\"email\"]}, and write ${email} in any argument. A value nobody may see is a secret: write's args.secret, never a string. timeout (seconds, default 120) bounds the run.\n\nThe whole document is checked against the live tools, and every problem is listed at once. flow://schema has the full shape; skill://selenium-flow/references/FLOWS.md explains writing one.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1159,7 +1159,21 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "A JSON Schema object: its properties are the parameters, each written ${name} in a step's args, and required lists the ones every run must supply.",
+          "examples": [
+            {
+              "properties": {
+                "email": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "email"
+              ],
+              "type": "object"
+            }
+          ]
         },
         "steps": {
           "items": {},

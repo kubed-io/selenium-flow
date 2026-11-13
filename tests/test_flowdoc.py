@@ -908,3 +908,143 @@ async def test_an_integer_yaml_key_gets_the_hint_too(step_schema_map):
             step_schema_map,
         )
     assert any("where only JSON Schema keywords go" in p for p in caught.value.problems)
+
+
+def _shape_problem(problems):
+    """The one `parameters: ... sits where ...` problem, as JSON-free text."""
+    (shape,) = [p for p in problems if "where only JSON Schema keywords go" in p]
+    return shape
+
+
+async def test_a_parameter_given_a_bare_type_name_is_refused(step_schema_map):
+    """#118: `{"name": "string"}` with no step using it yet passed as "no
+    parameters". A bare type name under a key no keyword has cannot mean
+    anything else (Dr K, ruling 1)."""
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={"name": "string"},
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/"}}],
+            ),
+            step_schema_map,
+        )
+    assert '"properties": {"name": {"type": "string"}}' in _shape_problem(
+        caught.value.problems
+    )
+
+
+async def test_every_bare_type_name_is_named_with_its_own_type(step_schema_map):
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={"a": "string", "b": "number"},
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/"}}],
+            ),
+            step_schema_map,
+        )
+    shape = _shape_problem(caught.value.problems)
+    assert shape.startswith("parameters: a, b sit where")
+    assert '"a": {"type": "string"}, "b": {"type": "number"}' in shape
+
+
+async def test_strays_the_steps_name_are_all_shown_and_not_said_twice(
+    step_schema_map,
+):
+    """Seen live on #118: the shape named only the first key, and each step
+    said "this flow declares none" for the same names, pointing the other way."""
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={
+                    "expect": {"type": "string", "format": "email"},
+                    "id": "integer",
+                },
+                steps=[
+                    {"tool": "navigate", "args": {"url": "https://x.test/${id}"}},
+                    {"tool": "navigate", "args": {"url": "https://x.test/${expect}"}},
+                ],
+            ),
+            step_schema_map,
+        )
+    problems = caught.value.problems
+    shape = _shape_problem(problems)
+    assert (
+        '"properties": {"expect": {"type": "string", "format": "email"}, '
+        '"id": {"type": "integer"}}' in shape
+    )
+    assert not any("is not a parameter" in p for p in problems), problems
+
+
+async def test_a_keyword_whose_value_is_a_type_name_is_not_misread(step_schema_map):
+    validate(
+        flow(
+            parameters={
+                "type": "object",
+                "title": "string",
+                "properties": {"x": {"type": "string"}},
+            },
+            steps=[{"tool": "navigate", "args": {"url": "https://x.test/${x}"}}],
+        ),
+        step_schema_map,
+    )
+
+
+async def test_a_bare_type_name_beside_properties_is_merged_into_them(
+    step_schema_map,
+):
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                    "name": "string",
+                },
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/${x}"}}],
+            ),
+            step_schema_map,
+        )
+    shape = _shape_problem(caught.value.problems)
+    assert shape.startswith("parameters: name sits")
+    assert '"properties": {"x": {"type": "string"}, "name": {"type": "string"}}' in shape
+
+
+async def test_a_yaml_date_in_the_shape_is_still_a_refusal(step_schema_map):
+    """YAML makes `default: 2024-01-01` a date, which the example quotes as
+    written: it has to be said, not raised as a 500."""
+    import datetime
+
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={
+                    "properties": {
+                        "when": {"type": "string", "default": datetime.date(2024, 1, 1)}
+                    },
+                    "required": ["when"],
+                    "name": "string",
+                },
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/${when}"}}],
+            ),
+            step_schema_map,
+        )
+    shape = _shape_problem(caught.value.problems)
+    assert '"default": "2024-01-01"' in shape
+    assert '"required": ["when"]' in shape
+
+
+async def test_a_declared_parameter_keeps_its_schema_in_the_shape(step_schema_map):
+    with pytest.raises(InvalidFlow) as caught:
+        validate(
+            flow(
+                parameters={
+                    "properties": {"name": {"type": "string", "format": "email"}},
+                    "name": "string",
+                },
+                steps=[{"tool": "navigate", "args": {"url": "https://x.test/${name}"}}],
+            ),
+            step_schema_map,
+        )
+    assert '"name": {"type": "string", "format": "email"}' in _shape_problem(
+        caught.value.problems
+    )
