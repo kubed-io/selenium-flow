@@ -1050,9 +1050,25 @@
             "description": "JSON Schema for the values a run accepts.",
             "type": "object"
           },
+          "paths": {
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
           "shared": {
             "description": "True when it came from the shared global library.",
             "type": "boolean"
+          },
+          "sites": {
+            "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           },
           "steps": {
             "items": {
@@ -1290,8 +1306,24 @@
           "parameters": {
             "type": "object"
           },
+          "paths": {
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
           "saved": {
             "type": "boolean"
+          },
+          "sites": {
+            "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           },
           "steps": {
             "items": {
@@ -1368,9 +1400,25 @@
           "parameters": {
             "type": "object"
           },
+          "paths": {
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
           "shared": {
             "description": "True when it came from the shared global library.",
             "type": "boolean"
+          },
+          "sites": {
+            "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           },
           "step_count": {
             "type": "integer"
@@ -7256,6 +7304,22 @@
                       }
                     ],
                     "type": "object"
+                  },
+                  "paths": {
+                    "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "sites": {
+                    "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
                   },
                   "steps": {
                     "items": {

@@ -397,3 +397,31 @@ def test_the_downloads_listing_says_its_own_400(spec):  # ruling 8
     assert "No session is open" in downloads["description"]
     assert "DATA_DIR" not in downloads["description"]
     assert "No session is open" not in screenshots["description"]
+
+
+@pytest.mark.parametrize("schema", ["Flow", "FlowSummary", "FlowSaved"])
+async def test_a_flow_publishes_where_it_applies(spec, schema):
+    properties = spec["components"]["schemas"][schema]["properties"]
+    for key in ("sites", "paths"):
+        assert properties[key]["type"] == "array"
+        assert properties[key]["items"] == {"type": "string"}
+
+
+async def test_flow_schema_resource_describes_both_places(server):
+    from kubed.selenium_flow.flows import api as flowapi
+    from kubed.selenium_flow.flows import places
+
+    schema = await flowapi._document_schema(flowapi.Schemas(server.mcp))
+    assert schema["properties"]["sites"]["description"] == places.SITES_DESCRIPTION
+    assert schema["properties"]["paths"]["description"] == places.PATHS_DESCRIPTION
+
+
+async def test_the_published_save_body_takes_every_document_key(spec):
+    """The save body is hand-written, so a new DOCUMENT_KEYS key is invisible
+    to a generated client until it is declared there."""
+    from kubed.selenium_flow.flows.document import DOCUMENT_KEYS
+
+    operation = spec["paths"]["/flows/{name}"]["put"]
+    schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    assert set(DOCUMENT_KEYS) <= set(schema["properties"])
+    assert set(schema["properties"]) - set(DOCUMENT_KEYS) <= {"workspace"}

@@ -1048,3 +1048,21 @@ async def test_a_declared_parameter_keeps_its_schema_in_the_shape(step_schema_ma
     assert '"name": {"type": "string", "format": "email"}' in _shape_problem(
         caught.value.problems
     )
+
+
+# ---- where a flow applies ---------------------------------------------------
+
+
+async def test_places_are_checked_with_every_other_problem(step_schema_map):
+    document = flow(sites=[])
+    document["steps"].append({"tool": "no_such_tool", "args": {}})
+    with pytest.raises(InvalidFlow) as caught:
+        validate(document, step_schema_map)
+    text = "\n".join(caught.value.problems)
+    assert "sites is empty: leave it out to match any site" in text
+    assert "no_such_tool" in text
+
+
+async def test_a_flow_with_places_is_valid(step_schema_map):
+    document = flow(sites=["localhost:8080", "*.example.com"], paths=["/login", "/apps/*/settings"])
+    assert validate(document, step_schema_map)

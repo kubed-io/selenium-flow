@@ -984,3 +984,22 @@ def test_a_failed_move_stops_the_boot_saying_how_to_finish_it(tmp_path, monkeypa
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
     assert "rename it by hand" in str(caught.value)
     assert "cannot be read" not in str(caught.value)
+
+
+# ---- where a flow applies ---------------------------------------------------
+
+STEP = {"tool": "navigate", "args": {"url": "https://a.test"}}
+
+
+def test_a_listing_says_where_a_flow_applies(store):  # ruling 26
+    store.save("acme", "login", {"description": "d", "sites": ["localhost:8080"], "paths": ["/login"], "steps": [STEP]})
+    store.save("acme", "plain", {"description": "d", "steps": [STEP]})
+    by_name = {s["name"]: s for s in store.summaries("acme")}
+    assert by_name["login"]["sites"] == ["localhost:8080"] and by_name["login"]["paths"] == ["/login"]
+    assert "sites" not in by_name["plain"] and "paths" not in by_name["plain"]
+
+
+def test_a_hand_edited_place_that_cannot_be_read_is_listed_without_it(store):  # ruling 22
+    store.write_text("acme", "odd", "name: odd\nsites: example.com\nsteps: [{tool: navigate, args: {url: 'https://a.test'}}]\n")
+    [entry] = store.summaries("acme")
+    assert entry["name"] == "odd" and "sites" not in entry

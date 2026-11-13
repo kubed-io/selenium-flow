@@ -15,6 +15,7 @@ while a builder is followed.
 from __future__ import annotations
 
 from ..core.capabilities import CAPABILITIES, PAGE_HINT, SITE_DATA_HINT
+from ..flows import places
 from ..flows.document import PARAMETERS_DESCRIPTION, PARAMETERS_EXAMPLE
 
 # What each capability answers is a column of its row in `core.capabilities`,
@@ -268,6 +269,19 @@ FLOW_PARAMETERS = {
     "examples": [PARAMETERS_EXAMPLE],
 }
 
+FLOW_SITES = {
+    "type": "array",
+    "items": {"type": "string"},
+    "minItems": 1,
+    "description": places.SITES_DESCRIPTION,
+}
+FLOW_PATHS = {
+    "type": "array",
+    "items": {"type": "string"},
+    "minItems": 1,
+    "description": places.PATHS_DESCRIPTION,
+}
+
 FLOW_SCHEMAS = {
     "FlowStep": FLOW_STEP,
     "Flow": {
@@ -284,6 +298,8 @@ FLOW_SCHEMAS = {
                 "description": "True when it came from the shared global library.",
             },
             "description": {"type": "string"},
+            "sites": FLOW_SITES,
+            "paths": FLOW_PATHS,
             "parameters": {
                 "type": "object",
                 "description": "JSON Schema for the values a run accepts.",
@@ -303,6 +319,8 @@ FLOW_SCHEMAS = {
             "name": {"type": "string"},
             "workspace": {"type": "string"},
             "description": {"type": "string"},
+            "sites": FLOW_SITES,
+            "paths": FLOW_PATHS,
             "parameters": {"type": "object"},
             "step_count": {"type": "integer"},
             "shared": {
@@ -329,6 +347,8 @@ FLOW_SCHEMAS = {
             "workspace": {"type": "string"},
             "name": {"type": "string"},
             "description": {"type": "string"},
+            "sites": FLOW_SITES,
+            "paths": FLOW_PATHS,
             "parameters": {"type": "object"},
             "timeout": FLOW_TIMEOUT,
             "warnings": {
@@ -513,6 +533,8 @@ _FLOW_OPERATIONS = {
                 **_WRITE_WORKSPACE,
                 "name": {"type": "string"},
                 "description": {"type": "string"},
+                "sites": FLOW_SITES,
+                "paths": FLOW_PATHS,
                 "parameters": FLOW_PARAMETERS,
                 "timeout": FLOW_TIMEOUT,
                 "steps": {

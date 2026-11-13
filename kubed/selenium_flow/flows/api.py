@@ -56,7 +56,7 @@ from ..mcp.tools import SecretRef
 from ..names import GLOBAL_WORKSPACE, valid_name
 from ..workspace import calls as calls_module
 from . import document as flowdoc
-from . import engine, template
+from . import engine, places, template
 from . import library as flowlib
 from . import run as flowrun
 
@@ -237,8 +237,9 @@ def save_one(store, workspace: str, name: str, document: dict, schemas: dict) ->
     # `null` means unset, as it does for every optional argument an MCP caller
     # leaves out. Kept, it would be saved and read back as a null where the
     # schema promises an integer (Copilot, #37).
-    if document.get(flowdoc.TIMEOUT, 0) is None:
-        del document[flowdoc.TIMEOUT]
+    for key in (flowdoc.TIMEOUT, places.SITES, places.PATHS):
+        if key in document and document[key] is None:
+            del document[key]
     flowdoc.validate(document, schemas)
     # Stored as the integer it was accepted as. `"900"` is coerced on the way
     # in, as every boundary value is, and keeping the string would publish a
@@ -455,7 +456,9 @@ def register(
             "args.secret, never a string. timeout (seconds, default "
             f"{flowrun.RUN_TIMEOUT}) bounds the run.\n\n"
             "The whole document is checked against the live tools, and every "
-            "problem is listed at once. flow://schema has the full shape; "
+            "problem is listed at once. sites and paths say where the flow "
+            "applies, so a result that lands there names it in flows_here; a "
+            "flow with neither is never named. flow://schema has the full shape; "
             "skill://selenium-flow/references/FLOWS.md explains writing one."
         ),
         annotations=hints("Save a flow", idempotent=True),
@@ -464,6 +467,12 @@ def register(
         name: str,
         steps: list,
         description: str = "",
+        sites: Annotated[
+            list[str] | None, Field(description=places.SITES_DESCRIPTION)
+        ] = None,
+        paths: Annotated[
+            list[str] | None, Field(description=places.PATHS_DESCRIPTION)
+        ] = None,
         parameters: Annotated[
             dict | None,
             Field(
@@ -473,12 +482,17 @@ def register(
         ] = None,
         timeout: int | None = None,
     ) -> dict:
-        # In this order, which is the order the saved YAML lists them in.
-        document = {"description": description, "steps": steps}
+        # In DOCUMENT_KEYS order, which is the order the saved YAML lists them in.
+        document = {"description": description}
+        if sites is not None:
+            document[places.SITES] = sites
+        if paths is not None:
+            document[places.PATHS] = paths
         if parameters:
             document["parameters"] = parameters
         if timeout is not None:
             document[flowdoc.TIMEOUT] = timeout
+        document["steps"] = steps
         library = clients.caller().library  # on the request, before the thread
         steps_schemas = await schemas.get()
         # Validating, dumping and writing in a worker thread, as every other
@@ -572,6 +586,18 @@ async def _document_schema(schemas: Schemas) -> dict:
 def _build_document_schema(steps: dict) -> dict:
     keys = {
         "description": {"type": "string"},
+        places.SITES: {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": places.SITES_DESCRIPTION,
+        },
+        places.PATHS: {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": places.PATHS_DESCRIPTION,
+        },
         "parameters": {
             "type": "object",
             "description": flowdoc.PARAMETERS_DESCRIPTION,
