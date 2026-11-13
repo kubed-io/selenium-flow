@@ -13,6 +13,7 @@ losing a browser.
 from __future__ import annotations
 
 import base64
+import contextlib
 import copy
 import io
 import json
@@ -109,6 +110,11 @@ class _GridAdapter(HTTPAdapter):
 # nowhere waits this out, so it trades a small delay on those for a correct
 # answer on the ones that do navigate.
 NAVIGATION_SETTLE = 2.0
+
+# How long to give a single-page app's router to set the title of a route a
+# call moved it to, before reporting the title as it is. See `landed`. Short on
+# purpose: a route may keep its title, and that route waits this out.
+TITLE_SETTLE = 1.0
 
 
 class ReattachDriver(RemoteWebDriver):
@@ -773,6 +779,70 @@ def page_state(driver) -> dict:
             "dialog": message,
             "hint": "a dialog is open and blocks other actions; answer it with dialog",
         }
+
+
+# Which document the top page is: `performance.timeOrigin` is new for every
+# document and kept by a same-document navigation (a fragment, `pushState`).
+# Null in a frame, whose document is not the one `page_state` reports.
+DOCUMENT = (
+    "if (window !== window.top) return null;"
+    "return {origin: performance.timeOrigin, url: location.href,"
+    " title: document.title}"
+)
+
+
+def document(driver) -> dict | None:
+    """Which document the top page is, before a call moves it, for `landed`.
+
+    None when it cannot be told - in a frame, with a dialog open, a script that
+    fails or an answer of the wrong shape - and None means no wait.
+    """
+    try:
+        found = driver.execute_script(DOCUMENT)
+    except Exception:  # noqa: BLE001 - not knowing only means not waiting
+        return None
+    if not isinstance(found, dict):
+        return None
+    origin, url, title = found.get("origin"), found.get("url"), found.get("title")
+    if not isinstance(origin, int | float) or isinstance(origin, bool):
+        return None
+    if not isinstance(url, str) or not isinstance(title, str):
+        return None
+    return {"origin": origin, "url": url, "title": title}
+
+
+def landed(driver, before: dict | None, timeout: float = TITLE_SETTLE) -> dict:
+    """`page_state`, once a route the call moved to has had its title set.
+
+    A same-document navigation (a fragment, `pushState`) is over as soon as the
+    URL changes, and ``driver.get`` and ``element.click`` wait for nothing
+    more; a single-page app sets ``document.title`` afterwards, from its router.
+    Read at once, the title is the screen just left (#139). So when the URL
+    moved and ``before``'s document is still the page's, the title is waited
+    for until it is not ``before``'s, for at most ``timeout``.
+
+    Nothing else waits: a new document (a full load reports as it always has),
+    an unmoved URL, a title already changed, a dialog, or ``before`` None.
+    Expiring is an ordinary answer, since a route may keep its title, and any
+    failure here means no wait, never a failed call (as `settled`).
+    """
+    state = page_state(driver)
+    if (
+        before is None
+        or "dialog" in state
+        or state["url"] == before["url"]
+        or state["title"] != before["title"]
+    ):
+        return state
+    now = document(driver)
+    if now is None or now["origin"] != before["origin"] or now["url"] == before["url"]:
+        return state
+    # Kept its title, a dialog opened, or the session went: no longer waited.
+    with contextlib.suppress(Exception):
+        WebDriverWait(driver, timeout, poll_frequency=0.05).until(
+            lambda d: d.title != before["title"]
+        )
+    return page_state(driver)
 
 
 def wait_for_alert(driver, timeout: int = 30):
