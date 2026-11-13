@@ -49,7 +49,7 @@ from ..core.actions import (
     PRINT_FORMATS,
     Actions,
 )
-from ..core.capabilities import CAPABILITIES, Capability, capability
+from ..core.capabilities import CAPABILITIES, PAGE_STATE, Capability, capability
 from ..core.defaults import BROWSERS
 from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..core.recipe import DIALOG_TIMEOUT, WAIT_TIMEOUT
@@ -263,6 +263,27 @@ class InstructionsFor(Middleware):
         return result
 
 
+# What an MCP screenshot keeps beside its image block: every field the
+# screenshot's published response declares except the capture itself (the
+# block is the image) and the page it is of (`url`/`title`, which every call
+# echoes). Derived from the response, so a field added there reaches an MCP
+# caller without being listed twice. Each is kept only when present:
+# - `file`: a saved screenshot has a name the caller cannot derive (a second
+#   `shot.png` is kept as `shot (1).png`);
+# - `file_error`: the capture survived and the file did not, and an MCP caller
+#   given only the image would look for a name never coming;
+# - `site_data`: the first call after a silent reopen says what came back
+#   (``Workspaces.settle``) — dropped here, it is never said at all;
+# - `page`: what the page reported while the call ran (`workspace.calls`);
+# - `flows_here`: `screenshot(url=...)` moves the record, so a hint dropped
+#   here is never said.
+_THE_CAPTURE = frozenset({"image", "width", "height", "bytes", *PAGE_STATE})
+_BESIDE_THE_IMAGE = tuple(
+    k for k in capability("screenshot").response["properties"]
+    if k not in _THE_CAPTURE
+)
+
+
 def _as_image(result: dict) -> Image | ToolResult:
     """A screenshot as an MCP image block, which is what a tool caller can use.
 
@@ -270,18 +291,7 @@ def _as_image(result: dict) -> Image | ToolResult:
     caller gets the same capture as base64 JSON.
     """
     image = Image(data=base64.b64decode(result["image"]), format="png")
-    # Beside the image, each only when present:
-    # - `file`: a saved screenshot has a name the caller cannot derive (a
-    #   second `shot.png` is kept as `shot (1).png`);
-    # - `file_error`: the capture survived and the file did not, and an MCP
-    #   caller given only the image would look for a name never coming;
-    # - `site_data`: the first call after a silent reopen says what came
-    #   back (``Workspaces.settle``) — dropped here, it is never said at all;
-    # - `page`: what the page reported while the call ran (`workspace.calls`).
-    told = {
-        k: result[k] for k in ("file", "file_error", "site_data", "page")
-        if result.get(k) is not None
-    }
+    told = {k: result[k] for k in _BESIDE_THE_IMAGE if result.get(k) is not None}
     if not told:
         return image
     return ToolResult(content=[image.to_image_content()], structured_content=told)

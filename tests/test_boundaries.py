@@ -114,6 +114,7 @@ NO_SELENIUM = tuple(
         "flows.redact",
         "flows.engine",
         "flows.report",
+        "flows.places",
         "names",
         "urls",
         "faults",

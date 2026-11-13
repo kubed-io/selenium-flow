@@ -757,3 +757,37 @@ async def test_a_run_reads_a_kept_file_from_the_callers_own_library(
     # The CALLER's library, not the one the flow was read from.
     assert asked["workspace"] == "desktop"
     assert sent["name"] == "export.csv"
+
+
+def test_a_null_place_over_http_is_absent(client, store):  # a null is unset, as timeout's is
+    response = client.put(
+        "/flows/login", headers=named("acme"),
+        json={"sites": None, "paths": ["/login"], "steps": GOOD},
+    )
+    assert response.status_code == 200
+    stored = store.get("acme", "login")
+    assert "sites" not in stored and stored["paths"] == ["/login"]
+
+
+async def test_a_saved_flow_lists_its_keys_in_document_order(flow_server, store):
+    import yaml
+
+    from kubed.selenium_flow.flows import document as flowdoc
+
+    await call(
+        flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD, description="d",
+        sites=["example.com"], paths=["/login"],
+        parameters={"type": "object", "properties": {}},
+    )
+    text = store.read_text(NAMED, "login")
+    keys = [k for k in yaml.safe_load(text) if k in flowdoc.DOCUMENT_KEYS]
+    assert keys == ["description", "sites", "paths", "parameters", "steps"]
+
+
+async def test_save_flow_describes_both_places_for_the_model(flow_server):
+    from kubed.selenium_flow.flows import places
+
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
+    properties = tool.parameters["properties"]
+    assert properties["sites"]["description"] == places.SITES_DESCRIPTION
+    assert properties["paths"]["description"] == places.PATHS_DESCRIPTION

@@ -14,9 +14,17 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.core.capabilities import ACTION_IN_PATH, ENDPOINTS
+from kubed.selenium_flow.core.capabilities import (
+    ACTION_IN_PATH,
+    CAPABILITIES,
+    ENDPOINTS,
+    FLOW_HINT,
+    FLOWS_HINT,
+    capability,
+)
 from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, RESPONSES, build_spec
 from kubed.selenium_flow.spec.builder import _hoisted
+from kubed.selenium_flow.spec.schemas import FLOW_SCHEMAS
 
 
 def route_for(path: str, action: str) -> str:
@@ -398,3 +406,54 @@ def test_the_downloads_listing_says_its_own_400(spec):  # ruling 8
     assert "No session is open" in downloads["description"]
     assert "DATA_DIR" not in downloads["description"]
     assert "No session is open" not in screenshots["description"]
+
+
+@pytest.mark.parametrize("schema", ["Flow", "FlowSummary", "FlowSaved"])
+async def test_a_flow_publishes_where_it_applies(spec, schema):
+    properties = spec["components"]["schemas"][schema]["properties"]
+    for key in ("sites", "paths"):
+        assert properties[key]["type"] == "array"
+        assert properties[key]["items"] == {"type": "string"}
+
+
+async def test_flow_schema_resource_describes_both_places(server):
+    from kubed.selenium_flow.flows import api as flowapi
+    from kubed.selenium_flow.flows import places
+
+    schema = await flowapi._document_schema(flowapi.Schemas(server.mcp))
+    assert schema["properties"]["sites"]["description"] == places.SITES_DESCRIPTION
+    assert schema["properties"]["paths"]["description"] == places.PATHS_DESCRIPTION
+
+
+async def test_the_published_save_body_takes_every_document_key(spec):
+    """The save body is hand-written, so a new DOCUMENT_KEYS key is invisible
+    to a generated client until it is declared there."""
+    from kubed.selenium_flow.flows.document import DOCUMENT_KEYS
+
+    operation = spec["paths"]["/flows/{name}"]["put"]
+    schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    assert set(DOCUMENT_KEYS) <= set(schema["properties"])
+    assert set(schema["properties"]) - set(DOCUMENT_KEYS) <= {"workspace"}
+
+
+def test_every_page_report_publishes_flows_here():  # ruling 7
+    missing = [
+        row.name for row in CAPABILITIES
+        if "url" in row.response.get("properties", {})
+        and "flows_here" not in row.response["properties"]
+    ]
+    assert missing == []
+    assert RESPONSES["current_workspace"]["properties"]["flows_here"]["items"] == FLOW_HINT
+    assert FLOW_SCHEMAS["FlowRun"]["properties"]["flows_here"] is FLOWS_HINT
+    assert FLOWS_HINT["maxItems"] == 10
+
+
+def test_open_session_s_hint_is_for_the_page_it_opened_on():  # ruling 19
+    """open_session hints every time, so FLOWS_HINT's "a different page" is
+    not true of it; the shape is the same."""
+    hint = capability("open_session").response["properties"]["flows_here"]
+    assert hint["items"] == FLOW_HINT
+    assert hint["maxItems"] == FLOWS_HINT["maxItems"]
+    assert "different page" not in hint["description"]
+    assert "opened on" in hint["description"]
+    assert "run_flow" in hint["description"]

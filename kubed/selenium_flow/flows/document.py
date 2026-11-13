@@ -54,6 +54,7 @@ from collections.abc import Collection
 
 from .. import binding
 from ..binding import SECRET_ARG
+from . import places
 from .shape import NAMES_NO_TOOL, NOT_A_STEP, Shape
 from .template import PARAM_REFERENCE, listed, references
 
@@ -95,7 +96,7 @@ TIMEOUT = "timeout"
 # The HTTP save picks exactly these from its body and the published document
 # schema describes exactly these, so a new key is one edit here — and the MCP
 # save tool, whose signature FastMCP reads, is held to the same set by a test.
-DOCUMENT_KEYS = ("description", "parameters", TIMEOUT, "steps")
+DOCUMENT_KEYS = ("description", "sites", "paths", "parameters", TIMEOUT, "steps")
 
 # What `parameters` looks like, said in save_flow's schema and description, in
 # flow://schema and in the HTTP save's body, so a model writing a flow is shown
@@ -775,6 +776,7 @@ def validate(document, schemas: dict) -> dict:
         declared_timeout(document)
     except ValueError as exc:
         problems.append(str(exc))
+    problems += places.problems(document)
 
     shape = Shape(document)
     problems += shape.parameter_problems()

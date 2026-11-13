@@ -14,7 +14,8 @@ while a builder is followed.
 
 from __future__ import annotations
 
-from ..core.capabilities import CAPABILITIES, PAGE_HINT, SITE_DATA_HINT
+from ..core.capabilities import CAPABILITIES, FLOWS_HINT, PAGE_HINT, SITE_DATA_HINT
+from ..flows import places
 from ..flows.document import PARAMETERS_DESCRIPTION, PARAMETERS_EXAMPLE
 
 # What each capability answers is a column of its row in `core.capabilities`,
@@ -49,6 +50,15 @@ RESPONSES = {
             },
             "browser": {"type": ["string", "null"]},
             "url": {"type": ["string", "null"], "description": "The page it is on."},
+            "flows_here": {
+                **FLOWS_HINT,
+                "description": (
+                    "Present only when saved flows say they apply to url: at"
+                    " most 10, this workspace's own first. Read from the record,"
+                    " so a page that moved by itself since the last call is not"
+                    " reflected."
+                ),
+            },
             "live": {
                 "type": "boolean",
                 "description": "Whether a session is open in this workspace.",
@@ -270,6 +280,19 @@ FLOW_PARAMETERS = {
     "examples": [PARAMETERS_EXAMPLE],
 }
 
+FLOW_SITES = {
+    "type": "array",
+    "items": {"type": "string"},
+    "minItems": 1,
+    "description": places.SITES_DESCRIPTION,
+}
+FLOW_PATHS = {
+    "type": "array",
+    "items": {"type": "string"},
+    "minItems": 1,
+    "description": places.PATHS_DESCRIPTION,
+}
+
 FLOW_SCHEMAS = {
     "FlowStep": FLOW_STEP,
     "Flow": {
@@ -286,6 +309,8 @@ FLOW_SCHEMAS = {
                 "description": "True when it came from the shared global library.",
             },
             "description": {"type": "string"},
+            "sites": FLOW_SITES,
+            "paths": FLOW_PATHS,
             "parameters": {
                 "type": "object",
                 "description": "JSON Schema for the values a run accepts.",
@@ -305,6 +330,8 @@ FLOW_SCHEMAS = {
             "name": {"type": "string"},
             "workspace": {"type": "string"},
             "description": {"type": "string"},
+            "sites": FLOW_SITES,
+            "paths": FLOW_PATHS,
             "parameters": {"type": "object"},
             "step_count": {"type": "integer"},
             "shared": {
@@ -331,6 +358,8 @@ FLOW_SCHEMAS = {
             "workspace": {"type": "string"},
             "name": {"type": "string"},
             "description": {"type": "string"},
+            "sites": FLOW_SITES,
+            "paths": FLOW_PATHS,
             "parameters": {"type": "object"},
             "timeout": FLOW_TIMEOUT,
             "warnings": {
@@ -440,6 +469,9 @@ FLOW_SCHEMAS = {
             "site_data": SITE_DATA_HINT,
             # Present only with capture on: the steps' hints, summed.
             "page": PAGE_HINT,
+            # Present only when the run ended on a page it did not begin on and
+            # saved flows say they apply there (ruling 20).
+            "flows_here": FLOWS_HINT,
         },
     },
     "FlowDeleted": {
@@ -515,6 +547,8 @@ _FLOW_OPERATIONS = {
                 **_WRITE_WORKSPACE,
                 "name": {"type": "string"},
                 "description": {"type": "string"},
+                "sites": FLOW_SITES,
+                "paths": FLOW_PATHS,
                 "parameters": FLOW_PARAMETERS,
                 "timeout": FLOW_TIMEOUT,
                 "steps": {

@@ -888,6 +888,24 @@ else yes (§F3.1). The listing is filtered per request, in middleware, and the t
 callable — one server object serves every client, so a decision about who is asking can
 only be made when someone asks. The handshake's instructions vary the same way (§F3.2).
 
+## A flow knows where it applies
+
+A flow's `sites` and `paths` are discovery, never a leash (spec
+2026-11-12-flow-sites-paths, ruling 8): nothing refuses a run for being
+elsewhere, and nothing is hidden from `flow://flows`. A flow with neither is
+never hinted (ruling 11), so a library saved before them stays quiet. The hint
+for an action's result is decided in `Workspaces.settle`: `_touch` compares
+`urls.page_key` before and after inside the store's `fn`, while `open_session`,
+an open that lost its race and `workspace://current` ask for the current page
+every time. `hints` — `FlowStore.flows_here`, handed in by `server.py` so
+`workspace/` imports nothing from `flows/` — is called outside `fn`, and a
+failure there is logged and never fails the call. Tests that watch settle's
+write patch `_touch`, which `touch` wraps. Its cache is keyed on each library's
+`revision()`, with no TTL.
+`flows/places.py` and the secret leash never share code:
+`test_the_matcher_and_the_leash_share_no_code` says so, because a site matching
+any port is right for finding a flow and wrong for typing a password.
+
 ## One contract, and no id in it
 
 `open_session` is the only place a browser is created. It was briefly implicit —

@@ -1138,7 +1138,7 @@
       "read_only_hint": false,
       "title": "Save a flow"
     },
-    "description": "Save a flow, a sequence of tool calls run server-side in one call, creating or replacing it by name.\n\nsteps is a list of {tool, args}, where args are exactly that tool's arguments; a step may also carry id, note, onError (abort or continue) and return. open_session and end_browser are not steps: a flow runs in the browser you already hold.\n\nDeclare what varies between runs in parameters, a JSON Schema object such as {\"type\": \"object\", \"properties\": {\"email\": {\"type\": \"string\"}}, \"required\": [\"email\"]}, and write ${email} in any argument. A value nobody may see is a secret: write's args.secret, never a string. timeout (seconds, default 120) bounds the run.\n\nThe whole document is checked against the live tools, and every problem is listed at once. flow://schema has the full shape; skill://selenium-flow/references/FLOWS.md explains writing one.",
+    "description": "Save a flow, a sequence of tool calls run server-side in one call, creating or replacing it by name.\n\nsteps is a list of {tool, args}, where args are exactly that tool's arguments; a step may also carry id, note, onError (abort or continue) and return. open_session and end_browser are not steps: a flow runs in the browser you already hold.\n\nDeclare what varies between runs in parameters, a JSON Schema object such as {\"type\": \"object\", \"properties\": {\"email\": {\"type\": \"string\"}}, \"required\": [\"email\"]}, and write ${email} in any argument. A value nobody may see is a secret: write's args.secret, never a string. timeout (seconds, default 120) bounds the run.\n\nThe whole document is checked against the live tools, and every problem is listed at once. sites and paths say where the flow applies, so a result that lands there names it in flows_here; a flow with neither is never named. flow://schema has the full shape; skill://selenium-flow/references/FLOWS.md explains writing one.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1174,6 +1174,36 @@
               "type": "object"
             }
           ]
+        },
+        "paths": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path."
+        },
+        "sites": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it."
         },
         "steps": {
           "items": {},
