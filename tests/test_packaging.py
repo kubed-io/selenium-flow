@@ -351,6 +351,7 @@ DATA_DIRS = {
     "kubed/selenium_flow/core/js.py": "js",
     "kubed/selenium_flow/mcp/skill.py": "plugin",
     "kubed/selenium_flow/mcp/prompts.py": "plugin",
+    "kubed/selenium_flow/mcp/agents.py": "plugin",
 }
 
 
