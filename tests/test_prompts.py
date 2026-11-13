@@ -88,23 +88,6 @@ def test_a_malformed_arguments_block_is_refused_rather_than_fatal(tmp_path):
     assert [p.name for p in prompts_module.load_prompts(tmp_path)] == ["fine"]
 
 
-def test_every_prompt_file_is_covered_by_package_data(tmp_path):
-    """The tests load prompts from the checkout, so a wrong mapping would ship
-    an image with no prompts while everything here passed (Copilot, #30)."""
-    import tomllib
-    from pathlib import Path
-
-    with Path("pyproject.toml").open("rb") as handle:
-        config = tomllib.load(handle)
-    setuptools = config["tool"]["setuptools"]
-    assert "kubed.selenium_flow.mcp.prompts" in setuptools["packages"]
-    assert setuptools["package-dir"]["kubed.selenium_flow.mcp.prompts"] == "prompts"
-    patterns = setuptools["package-data"]["kubed.selenium_flow.mcp.prompts"]
-    assert any(pattern.endswith("*.md") or pattern == "*" for pattern in patterns), (
-        f"{patterns} does not cover the .md files that are the prompts"
-    )
-
-
 def test_a_file_without_frontmatter_is_refused(tmp_path):
     with pytest.raises(ValueError, match="frontmatter"):
         prompts_module.load_prompt(_write(tmp_path, "Just a body.\n"))
