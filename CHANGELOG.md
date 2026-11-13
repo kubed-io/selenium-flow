@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- An explorer agent, served through `agents/list`, explores a site for a main agent, using and saving flows.
+- selenium-flow declares the agents extension (`agents/list`, `agents/get`).
 - **BREAKING:** a browser's downloads are now `session://downloads` (and `GET /browser/downloads`); `workspace://files/downloads` is refused with the new spelling.
 - **BREAKING:** request headers are now `Sf-Workspace`, `Sf-Browser`, `Sf-Version`, `Sf-Window-Width`, `Sf-Window-Height`, `Sf-Page-Load-Timeout` and `Sf-Script-Timeout`; the other `X-` names are refused with a 400 naming the new one, and the retired `X-Session-Key` and `?session=` are no longer recognised.
 - `X-Workspace` is accepted as an alias of `Sf-Workspace`, for clients such as Claude.ai connectors that can only send allowlisted header names.

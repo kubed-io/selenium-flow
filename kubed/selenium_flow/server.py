@@ -35,6 +35,7 @@ from .live.control import Controls
 from .live.pages import Pages
 from .live.tunnels import Tunnels
 from .mcp import (
+    agents,
     apps,
     clients,
     completions,
@@ -305,6 +306,10 @@ class SeleniumMCP:
         resources.register(self.mcp, self.workspaces)
         if self.skill is not None:
             skill.register(self.mcp, self.skill)
+            # An agent's first step is to read the skill, so they are served
+            # together and only together (spec 2026-11-12-plugin-agents,
+            # Rulings 6 and 7): declared even when there are none.
+            agents.register(self.mcp, agents.load(skills={self.skill.skill_info.name}))
         mirror.register(self.mcp)
         completions.register(self.mcp)
 

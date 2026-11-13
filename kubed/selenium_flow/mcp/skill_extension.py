@@ -18,19 +18,19 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
 import logging
 import mimetypes
 from collections.abc import Sequence
 from pathlib import Path
 
-import yaml
 from fastmcp.server.extensions import MethodBinding, ServerExtension
 from fastmcp.server.middleware import Middleware
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS, PaginatedRequestParams, RequestParams
 from pydantic import Field
+
+from . import frontmatter
 
 log = logging.getLogger(__name__)
 
@@ -56,32 +56,14 @@ def _served_bytes(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _frontmatter(text: str) -> object:
-    """The YAML header of a SKILL.md, as parsed, or None without one."""
-    lines = text.splitlines()
-    if not lines or lines[0].rstrip() != "---":
-        return None
-    for end, line in enumerate(lines[1:], start=1):
-        if line.rstrip() == "---":
-            try:
-                return yaml.safe_load("\n".join(lines[1:end]))
-            except yaml.YAMLError:
-                return None
-    return None
-
-
 def _problem(metadata: object, name: str) -> str | None:
     """Why this frontmatter cannot be offered as a conforming entry, if it cannot."""
     if not isinstance(metadata, dict):
         return "SKILL.md has no YAML frontmatter mapping"
-    try:
-        # Frontmatter travels as JSON and must arrive as written: a YAML-only
-        # value fails to encode, and a non-string key (1 beside "1") encodes
-        # but comes back renamed or lost.
-        same = json.loads(json.dumps(metadata, allow_nan=False)) == metadata
-    except (TypeError, ValueError):
-        same = False
-    if not same:
+    # Frontmatter travels as JSON and must arrive as written: a YAML-only
+    # value fails to encode, and a non-string key (1 beside "1") encodes
+    # but comes back renamed or lost.
+    if not frontmatter.survives_json(metadata):
         return "its frontmatter is not representable as JSON"
     if metadata.get("name") != name:
         return f"its frontmatter name is not the folder name {name!r}"
@@ -96,7 +78,8 @@ def _problem(metadata: object, name: str) -> str | None:
 def entry_for(provider: SkillProvider) -> dict | None:
     """The skill's SEP-2640 entry, or None (logged) if it does not conform."""
     info = provider.skill_info
-    metadata = _frontmatter((info.path / info.main_file).read_text(encoding="utf-8"))
+    parsed = frontmatter.split((info.path / info.main_file).read_text(encoding="utf-8"))
+    metadata = parsed[0] if parsed else None
     problem = _problem(metadata, info.name)
     if problem:
         log.warning(

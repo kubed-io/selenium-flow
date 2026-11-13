@@ -6,7 +6,7 @@ actually means. That knowledge normally lives in whatever prompt the operator
 wrote, which means every deployment reinvents it and none of it travels with the
 version of the server it describes.
 
-So it ships in the wheel. ``skills/selenium-flow/`` is package data, installed
+So it ships in the wheel. ``plugin/skills/selenium-flow/`` is package data, installed
 with the code and served straight from the installed package, which makes the
 guidance and the tools it describes impossible to version apart.
 
@@ -18,7 +18,7 @@ supporting file. Conform and FastMCP's own client helpers (``list_skills``,
 prettier URI and the skill is invisible to every one of them.
 
 **The directory name is the skill name.** SkillProvider takes it from the folder,
-not the frontmatter, so ``skills/selenium-flow/`` is what makes the URI
+not the frontmatter, so ``plugin/skills/selenium-flow/`` is what makes the URI
 ``skill://selenium-flow/SKILL.md``. Renaming that directory renames the skill.
 
 A client that cannot read resources reads the same URIs through
@@ -39,6 +39,7 @@ from . import skill_extension
 
 log = logging.getLogger(__name__)
 
+PLUGIN_DIR = "plugin"
 SKILLS_DIR = "skills"
 SKILL_NAME = "selenium-flow"
 ENTRY = "SKILL.md"
@@ -47,16 +48,16 @@ ENTRY = "SKILL.md"
 def skill_path() -> Path:
     """The skill directory, installed or in a source checkout.
 
-    ``skills/`` lives at the repo root, where it reads as documentation rather
+    ``plugin/`` lives at the repo root, where it reads as documentation rather
     than as buried package data. pyproject maps it into the package at build
     time, so an installed wheel finds it beside this module; a source checkout
     has no such copy, hence the fallback to the root.
     """
-    packaged = Path(__file__).parent / SKILLS_DIR / SKILL_NAME
+    packaged = Path(__file__).parent / PLUGIN_DIR / SKILLS_DIR / SKILL_NAME
     if packaged.is_dir():
         return packaged
     # parents[3] because this module lives in mcp/: package, kubed, repo root.
-    return Path(__file__).parents[3] / SKILLS_DIR / SKILL_NAME
+    return Path(__file__).parents[3] / PLUGIN_DIR / SKILLS_DIR / SKILL_NAME
 
 
 def load() -> SkillProvider | None:
