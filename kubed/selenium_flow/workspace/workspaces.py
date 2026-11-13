@@ -10,14 +10,17 @@ A name arrives one of two ways, and they are the two things any client can set:
 
 1. **``Sf-Workspace``**, a header — what an admin pins inside a credential when
    one credential should mean one workspace. Behind agentgateway, the gateway
-   sets ``Sf-Workspace``, from ``?workspace=``, the caller's ``Sf-Workspace`` or
-   the token's user, and drops the query string. A caller's old ``X-`` header
-   crosses and is refused.
+   sets ``Sf-Workspace``, from ``?workspace=``, the caller's ``Sf-Workspace``,
+   its ``X-Workspace`` or the token's user, and drops the query string. A
+   caller's other old ``X-`` headers cross and are refused.
 2. **``?workspace=<name>``**, on the URL. The ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 
-The old ``X-`` headers (``X-Workspace`` among them) are refused with the new
-spelling rather than ignored (spec 2026-10-29-sf-headers, ruling 2).
+``X-Workspace`` is accepted as an alias of ``Sf-Workspace``, for a client such as a
+Claude.ai connector that can only send allowlisted header names, and
+``Sf-Workspace`` wins when both are sent (spec 2026-11-12-x-workspace-alias).
+The other old ``X-`` headers are refused with the new spelling rather than
+ignored (spec 2026-10-29-sf-headers, ruling 2).
 
 **Both at once is refused**, rather than one quietly winning. A request
 carrying two names has two ideas about who is calling, and picking one hides
@@ -110,14 +113,19 @@ REPLACED_BEFORE_SAVE = (
 # one most clients can set, since an MCP server is usually configured by URL.
 NAME_PARAM = "workspace"
 WORKSPACE_HEADER = "sf-workspace"
+# The one alias (spec 2026-11-12-x-workspace-alias, ruling 5): Claude.ai's
+# connectors can send only allowlisted header names, and `x-workspace` is one
+# where `sf-workspace` is not. Read only when `Sf-Workspace` gives nothing, so
+# the canonical name wins.
+WORKSPACE_ALIAS = "x-workspace"
 
 # The old X- names (spec 2026-10-29-sf-headers, ruling 2): refused, not
 # ignored, so a client wired the old way hears it on its first call rather than
 # as "name your workspace".
 # Keyed by the spelling a person reads; a request's headers are looked up by
-# the lowercase. The refusal follows this order.
+# the lowercase. The refusal follows this order. `X-Workspace` is not among
+# them: it is `Sf-Workspace`'s alias.
 OLD_HEADERS = {
-    "X-Workspace": "Sf-Workspace",
     "X-Browser": "Sf-Browser",
     "X-Version": "Sf-Version",
     "X-Window-Width": "Sf-Window-Width",
@@ -205,7 +213,9 @@ class Caller:
         and a reader that kept only the last would quietly pick one of them.
         An old name anywhere in the request is refused, even beside a new one.
         """
-        header = _names(headers.get(WORKSPACE_HEADER))
+        header = _names(headers.get(WORKSPACE_HEADER)) or _names(
+            headers.get(WORKSPACE_ALIAS)
+        )
         param = _names(params.get(NAME_PARAM))
         named, named_by, refusal = "", "", None
         if header and param:
