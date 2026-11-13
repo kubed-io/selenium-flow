@@ -101,6 +101,12 @@
     },
     "status": 400
   },
+  "NodeLost": {
+    "body": {
+      "error": "the browser's Grid node stopped answering during this call (it may have crashed or run out of memory): call open_session for a new browser, which goes back to the page this one was on"
+    },
+    "status": 404
+  },
   "NodeRefused(blamed)": {
     "body": {
       "error": "it went wrong"
@@ -124,6 +130,12 @@
       "error": "nobody expected this"
     },
     "status": 500
+  },
+  "ScriptTimedOut": {
+    "body": {
+      "error": "the script ran past this session's script timeout of 30s: make it shorter, or raise it with open_session(script_timeout=<seconds>)"
+    },
+    "status": 400
   },
   "SessionNotCreatedException": {
     "body": {

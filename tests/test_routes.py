@@ -653,7 +653,9 @@ def _grid_says(status: int):
 
 
 def _raised(cls):
-    return cls() if cls is faults.Untrusted else cls("it said no")
+    if cls is faults.ScriptTimedOut:
+        return cls(30)
+    return cls() if cls in (faults.Untrusted, faults.NodeLost) else cls("it said no")
 
 
 STATUS_TABLE = (
