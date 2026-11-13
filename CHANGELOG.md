@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Request bodies are capped: 1 MiB JSON, 64 MiB upload, 1 MiB flow YAML; over the cap is a 413.
 - Naming two different workspaces in one request (`?workspace=a&workspace=b`) is refused.
 - `workspace://current` and the admin summary show how long the Grid lets a session sit idle (`grid_timeout`).
+- save_flow shows the shape of `parameters`, and a parameter written outside `properties` is refused with the corrected shape.
 
 ## [0.3.0] - 2026-09-26
 

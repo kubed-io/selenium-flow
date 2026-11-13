@@ -15,6 +15,7 @@ while a builder is followed.
 from __future__ import annotations
 
 from ..core.capabilities import CAPABILITIES, PAGE_HINT, SITE_DATA_HINT
+from ..flows.document import PARAMETERS_DESCRIPTION, PARAMETERS_EXAMPLE
 
 # What each capability answers is a column of its row in `core.capabilities`,
 # so a row cannot be written without one. This is that column by name, plus
@@ -257,6 +258,14 @@ FLOW_TIMEOUT = {
         "Seconds the whole run may take before no further step starts. Defaults "
         "to 120; a step already running is bounded by its own wait_timeout."
     ),
+}
+
+# The save side's `parameters`, which said only "object" while save_flow's
+# schema said nothing more (#118).
+FLOW_PARAMETERS = {
+    "type": "object",
+    "description": PARAMETERS_DESCRIPTION,
+    "examples": [PARAMETERS_EXAMPLE],
 }
 
 FLOW_SCHEMAS = {
@@ -504,7 +513,7 @@ _FLOW_OPERATIONS = {
                 **_WRITE_WORKSPACE,
                 "name": {"type": "string"},
                 "description": {"type": "string"},
-                "parameters": {"type": "object"},
+                "parameters": FLOW_PARAMETERS,
                 "timeout": FLOW_TIMEOUT,
                 "steps": {
                     "type": "array",
