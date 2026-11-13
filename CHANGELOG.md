@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Request bodies are capped: 1 MiB JSON, 64 MiB upload, 1 MiB flow YAML; over the cap is a 413.
 - Naming two different workspaces in one request (`?workspace=a&workspace=b`) is refused.
 - `workspace://current` and the admin summary show how long the Grid lets a session sit idle (`grid_timeout`).
+- save_flow shows the shape of `parameters`, and a parameter written outside `properties` is refused with the corrected shape.
 - A script that runs past its timeout now says so, naming the timeout and how to raise it; a browser whose Grid node stopped answering is a 404 that says to call `open_session`.
 - Every server log line carries its whole message: FastMCP's lines no longer wrap at 80 columns.
 - The live view's audit line says the browser ended when its node went away, instead of blaming the viewer.
