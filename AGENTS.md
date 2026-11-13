@@ -196,7 +196,7 @@ anyone else. On top of it:
   (`config.oidc_problem`).
 - **`oidc.client_id` and `oidc.admin_roles` come together, and only with the
   issuer**, checked in the same place (`config.oidc_problem`).
-- **Behind agentgateway, the gateway sets `Sf-Workspace`, from `?workspace=`, the caller's `Sf-Workspace` or the token's user, and drops the query string. A caller's old `X-` header crosses and is refused.**
+- **Behind agentgateway, the gateway sets `Sf-Workspace`, from `?workspace=`, the caller's `Sf-Workspace`, its `X-Workspace` or the token's user, and drops the query string. A caller's other old `X-` headers cross and are refused.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
   in-cluster Service, the ingress) can cause one. `OidcVerifier` floors that at one attempt
@@ -527,12 +527,23 @@ silent new identity.
 1. **`Sf-Workspace`**, a header — what an admin pins inside a credential when
    one credential should mean one workspace, and what the gateway sets. A
    repeated header with two values is refused; it reports `named_by: header`.
+   `X-Workspace` is its alias, for a Claude.ai connector; a connector's header is
+   the same for every member of the organisation, so they all share one
+   workspace and one browser.
 2. **`?workspace=<name>`** on the URL — the ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 3. **stdio**, where one process serves one client, so the constant `stdio` is
    correct and needs no configuration.
 
-**The old names are refused, not ignored** (spec 2026-10-29-sf-headers, rulings 2 and 9): any `X-` header that was ours (`X-Workspace`, `X-Browser`, `X-Version`, `X-Window-Width`, `X-Window-Height`, `X-Page-Load-Timeout`, `X-Script-Timeout`), anywhere in a request, is a 400 naming each new spelling, even beside a new name. `X-MCP-Resources` is shared with mcp-kb and keeps its name. There are no aliases. The session names from before 10-09, `X-Session-Key` and `?session=`, are retired: the server does not know them, so a request sending one names nothing by it (ruling 10, revised).
+**The old names are refused, not ignored** (spec 2026-10-29-sf-headers, rulings 2 and 9): any `X-` header that was ours and has no alias (`X-Browser`, `X-Version`, `X-Window-Width`, `X-Window-Height`, `X-Page-Load-Timeout`, `X-Script-Timeout`), anywhere in a request, is a 400 naming each new spelling, even beside a new name. `X-MCP-Resources` is shared with mcp-kb and keeps its name. The session names from before 10-09, `X-Session-Key` and `?session=`, are retired: the server does not know them, so a request sending one names nothing by it (ruling 10, revised).
+
+**An `X-` name is an alias only when a client we support can't send our
+`Sf-` name and that `X-` name is its only way to say the same thing; at
+most one alias per `Sf-` name.** `Sf-` stays the name the docs and
+examples use, and the alias loses to it when both are sent. Today there
+is one: `X-Workspace`, because Claude.ai's connectors can send only
+allowlisted header names, and `sf-workspace` is not one of them (spec
+2026-11-12-x-workspace-alias).
 
 **A header and `?workspace=` at once is a 400.** It used to be a precedence — the header won, on the
 reasoning that an admin's credential outranks a caller's URL — and Dr K replaced

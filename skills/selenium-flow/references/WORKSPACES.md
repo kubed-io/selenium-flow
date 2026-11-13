@@ -11,14 +11,15 @@ a workspace has at most one, `open_session` starts it, `end_browser` or the
 Grid's reaper ends it, and an idle workspace simply has none. Ending a session
 never costs you the workspace.
 
-Name your workspace one of two ways, whichever your client can set:
+Name your workspace one of these ways, whichever your client can set:
 
 | How | Looks like | Use it when |
 |---|---|---|
 | A URL parameter | `…/mcp?workspace=research-bot` | you configure the server by URL — the usual case |
 | A header | `Sf-Workspace: research-bot` | an operator pins one workspace to one credential |
+| A Claude.ai connector | a static request header `X-Workspace: research-bot` | the connector can only send allowlisted header names. A connector's header is the same for every member of the organisation, so they all share one workspace and one browser. |
 
-**Sending both is an error**, not a contest one of them wins. Two names is two
+**A header and `?workspace=` together is an error**, not a contest one of them wins. Two names is two
 ideas about who is calling, and quietly picking one hides that from whoever
 wired it up.
 
