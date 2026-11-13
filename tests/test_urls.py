@@ -116,6 +116,18 @@ def test_a_route_is_a_fragment_shaped_like_a_path(url, route):  # rulings 1, 6
     assert urls.route_of(url) == route
 
 
+@pytest.mark.parametrize("url, query", [
+    ("https://p.test/#/workspace?file-id=1", "file-id=1"),
+    ("https://p.test/#!/a/?x=1", "x=1"),
+    ("https://p.test/#/a", ""),
+    ("https://p.test/?x=1#/a", ""),
+    ("https://p.test/#top?x=1", ""),
+    ("http://[::1/#/a?x=1", ""),
+])
+def test_a_routes_query_is_read_only_from_a_route(url, query):  # ruling 11
+    assert urls.route_query(url) == query
+
+
 def test_the_page_key_carries_the_route():  # ruling 2
     assert urls.page_key("https://P.test/#/workspace?file-id=1") == ("p.test", 443, "", "/workspace")
     assert urls.page_key("https://p.test/docs/#top") == ("p.test", 443, "/docs", None)

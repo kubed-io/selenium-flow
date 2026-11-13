@@ -129,7 +129,9 @@ def _userinfo(url: str) -> str:
     return urlsplit(url).netloc.rpartition("@")[0]
 
 
-def _route_query(url: str) -> str:
+def route_query(url: str) -> str:
+    """The query of ``url``'s hash route (``#/a?x=1`` is ``x=1``), or ``""`` when
+    it has none or its fragment is not a route."""
     return urlsplit(url).fragment.partition("?")[2] if route_of(url) is not None else ""
 
 
@@ -147,7 +149,7 @@ def same_page(a: str, b: str) -> bool:
             ka[:3] == kb[:3]
             and (ka[3] or None) == (kb[3] or None)
             and urlsplit(a).query == urlsplit(b).query
-            and _route_query(a) == _route_query(b)
+            and route_query(a) == route_query(b)
             and _userinfo(a) == _userinfo(b)
         )
     except (ValueError, TypeError, AttributeError):
