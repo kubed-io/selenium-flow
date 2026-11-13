@@ -12,7 +12,7 @@ from fastmcp import Client
 from mcp_types import Request, RequestParams
 from pydantic import ConfigDict, TypeAdapter
 
-from kubed.selenium_flow.mcp import agents
+from kubed.selenium_flow.mcp import agents, skill
 
 pytestmark = pytest.mark.unit
 
@@ -47,6 +47,9 @@ OUT = {
 }
 MIRROR = {"list_resources", "read_resource"}
 SKILL_URI = "skill://selenium-flow/SKILL.md"
+HEADINGS = ["Found", "Flows used", "Flows saved", "Couldn't", "Browser"]
+QUOTED_URI = re.compile(r"`([a-z]+://[^`]+)`")
+QUOTED_NAME = re.compile(r"`([a-z_]+)`")
 
 
 class ExtensionParams(RequestParams):
@@ -61,6 +64,10 @@ async def request(client, method, **params):
 
 def shipped() -> agents.Agent:
     return next(a for a in agents.load(skills={"selenium-flow"}) if a.name == "explorer")
+
+
+def body() -> str:
+    return shipped().detail["instructions"]
 
 
 def front() -> dict:
@@ -109,3 +116,52 @@ def test_the_description_carries_both_rules():  # spec test 9, Review Focus 5
     description = shipped().card["description"]
     assert "do not call selenium-flow tools until it reports" in description
     assert "you may submit the search form" in description
+
+
+async def test_it_names_the_skill_by_uri(server):  # spec test 4
+    assert f"`{SKILL_URI}`" in body()
+    async with Client(server.mcp) as client:
+        got = await request(client, "agents/get", name="explorer")
+    assert got["_meta"]["io.kubed/agent"]["skills"] == {"selenium-flow": SKILL_URI}
+    assert got["instructions"] == body()
+
+
+async def test_it_names_no_tool_it_does_not_have(server):  # spec test 7, Review Focus 1
+    known = {t.name for t in await server.mcp.list_tools()} | OUT | MIRROR
+    named = set(QUOTED_NAME.findall(body() + " " + shipped().card["description"]))
+    assert named & known <= IN, named & known - IN
+
+
+async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focus 2
+    text = body()
+    named = set(QUOTED_URI.findall(text))
+    assert text.count("://") == len(QUOTED_URI.findall(text)), "a URI outside backticks"
+    assert {
+        SKILL_URI,
+        "skill://selenium-flow/references/FLOWS.md",
+        "workspace://current",
+        "flow://flows",
+        "flow://flows/{name}",
+    } <= named
+    async with Client(server.mcp) as client:
+        served = {str(r.uri) for r in await client.list_resources()} | {
+            # MCP SDK v2 renamed the field; the older one warns on the new SDK.
+            getattr(t, "uri_template", None) or t.uriTemplate
+            for t in await client.list_resource_templates()
+        }
+    for uri in named:
+        if uri.startswith("skill://selenium-flow/"):
+            assert (skill.skill_path() / uri.removeprefix("skill://selenium-flow/")).is_file(), uri
+        else:
+            assert uri in served, uri
+
+
+def test_the_report_has_its_five_headings_in_order():  # spec test 9, Review Focus 4
+    text = body()
+    at = [text.find(f"**{h}:**") for h in HEADINGS]
+    assert -1 not in at, dict(zip(HEADINGS, at, strict=True))
+    assert at == sorted(at)
+
+
+def test_the_body_says_its_turn_budget():
+    assert f"You have {front()['maxTurns']} turns" in body()

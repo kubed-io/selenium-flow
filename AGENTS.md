@@ -1123,6 +1123,8 @@ and neither depends on the other. A file that does not conform is logged and
 skipped. The gateway refuses these methods too; in-cluster clients call the
 Service directly, with the same token (spec 2026-11-12-plugin-agents).
 
+The **explorer** (`plugin/agents/explorer.md`, spec 2026-11-13-explorer-agent) is the first agent: its `tools` are the bare names Dr K ruled, pinned by `tests/test_explorer.py`, and it drives the caller's own browser, so the caller must not drive while it runs, until #94 lets a subagent pin a session of its own.
+
 **SKILL.md is an index, not the manual.** It carries the facts that shape
 everything — the workspace is not the browser, and naming one is step 0 — and a
 routing table into `references/`. Detail belongs in a reference so an agent
