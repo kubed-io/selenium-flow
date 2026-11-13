@@ -14,9 +14,16 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.core.capabilities import ACTION_IN_PATH, ENDPOINTS
+from kubed.selenium_flow.core.capabilities import (
+    ACTION_IN_PATH,
+    CAPABILITIES,
+    ENDPOINTS,
+    FLOW_HINT,
+    FLOWS_HINT,
+)
 from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, RESPONSES, build_spec
 from kubed.selenium_flow.spec.builder import _hoisted
+from kubed.selenium_flow.spec.schemas import FLOW_SCHEMAS
 
 
 def route_for(path: str, action: str) -> str:
@@ -425,3 +432,15 @@ async def test_the_published_save_body_takes_every_document_key(spec):
     schema = operation["requestBody"]["content"]["application/json"]["schema"]
     assert set(DOCUMENT_KEYS) <= set(schema["properties"])
     assert set(schema["properties"]) - set(DOCUMENT_KEYS) <= {"workspace"}
+
+
+def test_every_page_report_publishes_flows_here():  # ruling 7
+    missing = [
+        row.name for row in CAPABILITIES
+        if "url" in row.response.get("properties", {})
+        and "flows_here" not in row.response["properties"]
+    ]
+    assert missing == []
+    assert RESPONSES["current_workspace"]["properties"]["flows_here"]["items"] == FLOW_HINT
+    assert FLOW_SCHEMAS["FlowRun"]["properties"]["flows_here"] is FLOWS_HINT
+    assert FLOWS_HINT["maxItems"] == 10

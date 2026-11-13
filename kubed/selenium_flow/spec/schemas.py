@@ -14,7 +14,7 @@ while a builder is followed.
 
 from __future__ import annotations
 
-from ..core.capabilities import CAPABILITIES, PAGE_HINT, SITE_DATA_HINT
+from ..core.capabilities import CAPABILITIES, FLOWS_HINT, PAGE_HINT, SITE_DATA_HINT
 from ..flows import places
 from ..flows.document import PARAMETERS_DESCRIPTION, PARAMETERS_EXAMPLE
 
@@ -50,6 +50,15 @@ RESPONSES = {
             },
             "browser": {"type": ["string", "null"]},
             "url": {"type": ["string", "null"], "description": "The page it is on."},
+            "flows_here": {
+                **FLOWS_HINT,
+                "description": (
+                    "Present only when saved flows say they apply to url: at"
+                    " most 10, this workspace's own first. Read from the record,"
+                    " so a page that moved by itself since the last call is not"
+                    " reflected."
+                ),
+            },
             "live": {
                 "type": "boolean",
                 "description": "Whether a session is open in this workspace.",
@@ -458,6 +467,9 @@ FLOW_SCHEMAS = {
             "site_data": SITE_DATA_HINT,
             # Present only with capture on: the steps' hints, summed.
             "page": PAGE_HINT,
+            # Present only when the run ended on a page it did not begin on and
+            # saved flows say they apply there (ruling 20).
+            "flows_here": FLOWS_HINT,
         },
     },
     "FlowDeleted": {

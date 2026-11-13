@@ -68,7 +68,13 @@ from ..monitor.monitor import ATTACH_FAILED
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
 from ..site_data import snapshot as site_data_module
-from ..urls import allowed_navigation, page_of, without_userinfo
+from ..urls import (
+    allowed_navigation,
+    origin_of,
+    page_key,
+    page_of,
+    without_userinfo,
+)
 from . import locks
 from . import settings as settings_module
 from .calls import Calls, told
@@ -337,6 +343,7 @@ class Workspaces:
         capture=None,
         channels=None,
         control=None,
+        hints: Callable[[str, str], list[dict]] | None = None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -366,6 +373,10 @@ class Workspaces:
         # result (`workspace.calls`); it refuses a call a person's control
         # forbids before saying anything.
         self.calls = Calls(monitor=monitor, capture=capture, control=control)
+        # Which saved flows say they apply to a page, by workspace and URL
+        # (`FlowStore.flows_here`), or None with no flow store: then nothing
+        # is hinted. Asked only by `_hinted`, never inside a store write.
+        self.hints = hints
 
     @property
     def kind(self) -> str:
@@ -405,6 +416,11 @@ class Workspaces:
             return status
 
         status["url"] = record.url or None
+        # From the record, like `url`: a page that moved by itself since the
+        # last call is not reflected (ruling 25).
+        here = self._hinted(name, record.url)
+        if here:
+            status["flows_here"] = here
         status["settings"] = dict(record.settings or {})
         # Reported at the top level as well as inside settings, because "which
         # browser am I driving" is the question this resource exists to answer
@@ -920,6 +936,8 @@ class Workspaces:
         reshapes: bool = False,
         touch: bool = True,
         url=FROM_RESULT,
+        since: str | None = None,
+        hint: bool = True,
     ) -> None:
         """What a finished action means for the record, in place on ``result``.
 
@@ -937,6 +955,15 @@ class Workspaces:
 
         ``browser`` is the one that produced ``result``: once the record names
         another, its page is not recorded and its save is not kept.
+
+        A result that left the browser on a new page names the flows saved to
+        apply there, as ``flows_here``. Whether the page is new is decided by
+        the touch, inside the store's ``fn`` against the record as it is then;
+        the flows are asked for outside it, because reading them is slow work.
+        So a withheld page never hints, nor does a step (``touch=False``) or a
+        run's flush before a save (``hint=False``), and ``since`` is the page a
+        run began on, which a flush has moved the record from (rulings 6, 20,
+        24).
         """
         if not isinstance(result, dict):
             return
@@ -948,7 +975,11 @@ class Workspaces:
             if url is FROM_RESULT:
                 url = result.get("url")
             pages = url if isinstance(url, (list, tuple)) else (url,)
-            told = self.touch(name, *pages, browser=browser)
+            told, page = self._touch(name, *pages, browser=browser, since=since)
+            if hint and page:
+                here = self._hinted(name, page)
+                if here:
+                    result["flows_here"] = here
         if told:
             result["site_data"] = told
         try:
@@ -1172,6 +1203,11 @@ class Workspaces:
         told["capture"] = bool(settings.get("capture"))
         if noted:
             told["recording_error"] = noted
+        # The page it opened on, new or remembered, is a page this caller has
+        # not been told about in this browser (ruling 19).
+        here = self._hinted(name, told.get("url"))
+        if here:
+            told["flows_here"] = here
         return {"workspace": name, **told}
 
     def _held(self, name: str) -> dict:
@@ -1191,6 +1227,9 @@ class Workspaces:
         for key in ("width", "height"):
             if key in settings:
                 held[key] = settings[key]
+        here = self._hinted(name, record.url if record else None)
+        if here:
+            held["flows_here"] = here
         return held
 
     def remember(
@@ -1313,16 +1352,54 @@ class Workspaces:
         Returns a silent reopen's report the first time this browser is touched
         after it, and never again.
         """
+        return self._touch(name, *urls, browser=browser)[0]
+
+    def _touch(
+        self,
+        name: str,
+        *urls: str | None,
+        browser: str | None = None,
+        since: str | None = None,
+    ) -> tuple[dict | None, str | None]:
+        """:meth:`touch`, and the page to hint for: the last of ``urls`` with
+        an origin, when its host, port or path differs from the page before
+        (ruling 18) — the record's, or ``since`` for a run that flushed its
+        pages part-way (ruling 20). None when there is nothing to hint for.
+
+        Decided inside the store's ``fn``, against the record as it is at write
+        time, with `page_key` only, which is pure and never raises: the hint
+        itself is slow work, asked for outside it by the caller.
+        """
         ttl = self.store.ttl
 
-        def at(r: Workspace) -> tuple[Workspace, dict | None]:
+        def at(r: Workspace) -> tuple[Workspace, tuple[dict | None, str | None]]:
             if browser and r.session_id != browser:
-                return r, None
+                return r, (None, None)
             held = r.reopened
             report = held.get("report") if held.get("browser") == r.session_id else None
-            return r.visited(*urls, ttl=ttl).delivered(), report
+            before = page_key(r.url if since is None else since)
+            after = next((u for u in reversed(urls) if origin_of(u or "")), None)
+            key = page_key(after)
+            page = after if key is not None and key != before else None
+            return r.visited(*urls, ttl=ttl).delivered(), (report, page)
 
-        return self.store.change(name, at)[1]
+        noted = self.store.change(name, at)[1]
+        return noted if noted is not None else (None, None)
+
+    def _hinted(self, name: str, url: str | None) -> list[dict]:
+        """The flows saved to apply to ``url``, or [] — the one caller of
+        ``hints``. A hint is never a reason to fail a call (ruling 24), so
+        anything it raises is logged by type and answers []."""
+        if self.hints is None or not url:
+            return []
+        try:
+            return list(self.hints(name, url) or [])
+        except Exception as exc:  # noqa: BLE001 - a hint never fails a call
+            log.warning(
+                "flows for workspace %s could not be hinted: %s",
+                name, type(exc).__name__,
+            )
+            return []
 
     def reshape(self, name: str, result: dict, browser: str | None = None) -> None:
         """Record the window size an action just gave the browser.

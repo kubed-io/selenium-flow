@@ -700,6 +700,9 @@ def run_for(
     its steps' hints summed.
     """
     resolved, kind = workspaces.resolved(workspace)
+    # The page the run began on: its hint compares the end against this, since
+    # a flush before a save moves the record's page part-way (ruling 20).
+    before = workspaces.context(workspace).get("url", "")
     calls = workspaces.calls
     step_hints: list = []
     begun: list = []  # the step under way's, from `before_step` to `step_done`
@@ -745,7 +748,9 @@ def run_for(
     count = [0]
 
     def before_save(pages):
-        workspaces.settle(workspace, flushed, url=pages[count[0]:], browser=resolved)
+        workspaces.settle(
+            workspace, flushed, url=pages[count[0]:], browser=resolved, hint=False
+        )
         count[0] = len(pages)
 
     report = run_one(
@@ -790,7 +795,9 @@ def run_for(
         visited.append(report["url"])
     # The run's browser replaced a reaped one: what came back, once — on the
     # run, whether this write or a flush before a save step was handed it.
-    workspaces.settle(workspace, report, url=visited, browser=resolved)
+    workspaces.settle(
+        workspace, report, url=visited, browser=resolved, since=before
+    )
     if "site_data" in flushed and "site_data" not in report:
         report["site_data"] = flushed["site_data"]
     return report

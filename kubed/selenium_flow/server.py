@@ -235,6 +235,9 @@ class SeleniumMCP:
             # A person's control in the live view refuses the calls that
             # would change the browser (live control spec).
             control=self.controls,
+            # A result that lands on a new page names the saved flows that
+            # say they apply there (spec 2026-11-12-flow-sites-paths).
+            hints=self.flows.flows_here if self.flows is not None else None,
         )
 
         # The secrets an agent may bind, or None when none were configured.
