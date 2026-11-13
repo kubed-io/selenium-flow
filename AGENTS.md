@@ -1119,10 +1119,12 @@ screen it left. `Recipe.run` reads `performance.timeOrigin`, the URL and the tit
 reattached, before `url=` moves anything (`browser.document`), and `browser.landed`
 waits for the title, at most `TITLE_SETTLE` (1 s), only when the screen moved, the title
 did not and `timeOrigin` is the same. The screen is the path and the hash route
-(`browser.screen`: a fragment starting `/` or `!/`, less its query), so an anchor or a
-query mirrored by `replaceState` never waits; with a whole URL a search box paid the
-bound on every `write`. The price is an app that routes by its query, or by a fragment
-without the `/` (`#home`): it reports the screen it left, as before #139. A new document, a frame, a dialog or a failed read
+(`browser.screen`: a fragment starting `/` or `!/`, with its own query, since Penpot
+names the open file there), so an anchor or a query mirrored by `replaceState` never
+waits; with a whole URL a search box paid the bound on every `write`. The price is an
+app that routes by the URL's query, or by a fragment without the `/` (`#home`): it
+reports the screen it left, as before #139; and a hash-routed search box
+(`#/search?q=`) pays the wait. A new document, a frame, a dialog or a failed read
 never waits, and expiring is an ordinary answer. Two known limits: the read is a script,
 so a page whose main thread is stuck holds every call for its script timeout first; and
 a `url=` load followed by a route change in the body compares against the document

@@ -138,7 +138,7 @@ DASHBOARD = "https://app.test/#/dashboard/recent"
 # tells that move from a route change.
 SIGN_IN = "https://other.test/login"
 # A docs page that moves within itself without changing screen (#142): an anchor,
-# a query mirrored by `replaceState`, a hash route's own query. Same title.
+# a query mirrored by `replaceState`, a trailing slash. Same title.
 DOCS = "https://app.test/docs"
 SAME_SCREEN = [
     "https://app.test/docs#section",
@@ -150,11 +150,12 @@ SCREENS = {
     "https://app.test/docs/intro": "Intro",
     "https://app.test/docs#!/guide": "Guide",
 }
-SEARCH = "https://app.test/#/search?q=a"
-SEARCHED = "https://app.test/#/search?q=ab"
+# Penpot keeps the open file in its hash route's query, and titles the page by it.
+FILE_A = "https://app.test/#/workspace?team-id=T&file-id=A"
+FILE_B = "https://app.test/#/workspace?team-id=T&file-id=B"
 ROUTE_TITLES = {
     LOGIN: "Login", DASHBOARD: "Dashboard", PAGE: "Example", SIGN_IN: "Login",
-    DOCS: "Docs", SEARCH: "Search", SEARCHED: "Search",
+    DOCS: "Docs", FILE_A: "File A", FILE_B: "File B",
     **dict.fromkeys(SAME_SCREEN, "Docs"), **SCREENS,
 }
 
@@ -383,7 +384,8 @@ def _move(to):
         ("https://app.test/docs#section", ("/docs", "")),
         ("https://app.test/docs?q=a#home", ("/docs", "")),
         ("https://app.test/#/", ("", "")),
-        ("https://app.test/#/items/?id=2", ("", "/items")),
+        ("https://app.test/#/items/?id=2", ("", "/items?id=2")),
+        ("https://app.test/#/items/", ("", "/items")),
         ("https://app.test/#!/guide", ("", "!/guide")),
         ("http://[::1", ("http://[::1", "")),  # will not parse: itself
     ],
@@ -404,12 +406,13 @@ def test_a_move_within_the_same_screen_does_not_wait(actions, router, clock, to)
     assert clock[0] == 0
 
 
-def test_a_hash_routes_own_query_is_the_same_screen(actions, router, clock):
-    """A search box in a hash-routed app mirrors its text into the route's query."""
-    driver = router(late=None)
-    _at(driver, SEARCH)
-    actions.execute_script("abc", _move(SEARCHED))
-    assert clock[0] == 0
+def test_a_hash_routes_own_query_is_part_of_its_screen(actions, router):
+    """Penpot opens another file by changing only the route's query; read at
+    once, the title would name the file just left (#134's report)."""
+    driver = router()
+    _at(driver, FILE_A)
+    result = actions.execute_script("abc", _move(FILE_B))
+    assert (result["url"], result["title"]) == (FILE_B, "File B")
 
 
 @pytest.mark.parametrize("to", SCREENS)

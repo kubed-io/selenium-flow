@@ -815,12 +815,15 @@ def screen(url: str) -> tuple[str, str]:
     """``url``'s path and hash route: what a same-document move must change for
     a new title to be expected.
 
-    A route is a fragment that starts with ``/`` or ``!/`` (#134's ruling), less
-    its own query. Any other fragment (an anchor), the query and a trailing ``/``
-    leave the screen as it was, so a move that changes only them is not waited
-    for: a search box mirroring its text into ``?q=`` would pay the whole bound
-    on every keystroke. The cost is an app that routes by its query, or by a
-    fragment without the ``/`` (``#home``): its new title is not waited for.
+    A route is a fragment that starts with ``/`` or ``!/`` (#134's ruling), with
+    its own query: Penpot names the open file there (``#/workspace?file-id=``),
+    and titles the page by it, as #137's ruling 11 compares it for ``url=``. Any
+    other fragment (an anchor), the URL's query and a trailing ``/`` leave the
+    screen as it was, so a move that changes only them is not waited for: a
+    search box mirroring its text into ``?q=`` would pay the whole bound on
+    every keystroke. The cost is an app that routes by that query, or by a
+    fragment without the ``/`` (``#home``): its new title is not waited for; and
+    a hash-routed search box (``#/search?q=``) pays the wait.
     #137's page key will say the same; when it lands, this is its path and route.
     """
     try:
@@ -828,7 +831,8 @@ def screen(url: str) -> tuple[str, str]:
     except ValueError:
         return url, ""
     route = parts.fragment if parts.fragment.startswith(("/", "!/")) else ""
-    return parts.path.rstrip("/"), route.split("?", 1)[0].rstrip("/")
+    route, mark, query = route.partition("?")
+    return parts.path.rstrip("/"), route.rstrip("/") + mark + query
 
 
 def landed(driver, before: dict | None, timeout: float = TITLE_SETTLE) -> dict:
