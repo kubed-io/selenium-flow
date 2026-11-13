@@ -1640,7 +1640,7 @@ def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch
     """N12, as live control ruling 31 left it: off the request object, the
     headers are a background task's snapshot, and the name its submission
     carried (`clients.CARRIED`) is the only one read - never an Sf-Workspace
-    the snapshot kept, and never the stdio constant."""
+    or X-Workspace the snapshot kept, and never the stdio constant."""
     import fastmcp.server.dependencies as dependencies
 
     def no_request():
@@ -1673,6 +1673,21 @@ def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch
     )
     with pytest.raises(ValueError, match="name your workspace"):
         _ = clients_module.caller().name
+
+    # An X-Workspace the snapshot kept names nothing either (ruling 9).
+    monkeypatch.setattr(
+        dependencies, "get_http_headers", snapshot({"host": "test", "X-Workspace": "desk"})
+    )
+    assert clients_module.request_values() == ({}, {"host": ["test"]})
+    with pytest.raises(ValueError, match="name your workspace"):
+        _ = clients_module.caller().name
+
+    monkeypatch.setattr(
+        dependencies,
+        "get_http_headers",
+        snapshot({"host": "test", "X-Workspace": "other", clients_module.CARRIED: "desk"}),
+    )
+    assert clients_module.request_values() == ({}, {"host": ["test"], "sf-workspace": ["desk"]})
 
     # A submission whose only headers are the ones FastMCP filters by default
     # still came over HTTP: unnamed, never stdio.

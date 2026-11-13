@@ -25,7 +25,7 @@ from fastmcp.server.middleware import Middleware
 
 from .. import faults
 from ..principal import Principal
-from ..workspace.workspaces import WORKSPACE_HEADER, Caller, values_of
+from ..workspace.workspaces import WORKSPACE_ALIAS, WORKSPACE_HEADER, Caller, values_of
 
 _OFF = ("off", "false", "0", "no", "none")
 
@@ -71,11 +71,13 @@ def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None
     if not headers:
         return None
     # A task submitted over HTTP is named by what `Carry` wrote at submission,
-    # and by nothing else: never by an Sf-Workspace the snapshot kept, and never
-    # the stdio constant (§F2.12). Without it the worker is unnamed.
+    # and by nothing else: never by an Sf-Workspace or X-Workspace the snapshot
+    # kept, and never the stdio constant (§F2.12). Without it the worker is
+    # unnamed.
     values = {k.lower(): [v] for k, v in headers.items()}
     carried = values.pop(CARRIED, None)
     values.pop(WORKSPACE_HEADER, None)
+    values.pop(WORKSPACE_ALIAS, None)
     if carried:
         values[WORKSPACE_HEADER] = carried
     return {}, values
