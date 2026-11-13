@@ -193,9 +193,6 @@ steps: [...]
 Leave either out to match any; leave both out and the flow is never named in
 `flows_here`; a flow saved without them stays unnamed until someone adds them.
 
-A run that ends on a page withheld after a secret was typed names the flows for
-the last page the run recorded in `flows_here`.
-
 They are for finding a flow, never a boundary: a run is never refused for being
 elsewhere, and a secret's `allowed_urls` is what keeps a password on its site.
 

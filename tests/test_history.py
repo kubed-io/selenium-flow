@@ -234,6 +234,17 @@ def test_a_run_hints_from_where_it_ended_against_where_it_began(monkeypatch):  #
     assert asked == ["https://start.test/login"], "asked once, for where it ended"
 
 
+def test_a_run_that_ends_on_a_withheld_page_hints_nothing(monkeypatch):  # ruling 6
+    asked = []
+    _, report = run_hinting(monkeypatch, {"status": "ok", "steps": [
+        {"n": 1, "ok": True, "url": "https://start.test/login"},
+        {"n": 2, "ok": True}],
+        "url": "https://start.test/search?q=[hidden]", "url_redacted": True},
+        asked=asked)
+    assert "flows_here" not in report
+    assert asked == [], "the login page is behind it: no hint for a page left"
+
+
 def test_a_run_that_saved_and_came_back_hints_nothing(monkeypatch):  # Review Focus 5
     asked = []
     _, report = run_hinting(monkeypatch, {"status": "ok", "steps": [

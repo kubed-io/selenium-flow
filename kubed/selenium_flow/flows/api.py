@@ -796,7 +796,10 @@ def run_for(
     # The run's browser replaced a reaped one: what came back, once — on the
     # run, whether this write or a flush before a save step was handed it.
     workspaces.settle(
-        workspace, report, url=visited, browser=resolved, since=before
+        workspace, report, url=visited, browser=resolved, since=before,
+        # A withheld page never hints (ruling 6): `visited` stops short of it,
+        # and a hint for the last page it does hold names a page left behind.
+        hint=not report.get("url_redacted"),
     )
     if "site_data" in flushed and "site_data" not in report:
         report["site_data"] = flushed["site_data"]
