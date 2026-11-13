@@ -571,7 +571,8 @@ CAPABILITIES: tuple[Capability, ...] = (
                 "description": (
                     "Present when the gesture landed outside the selected "
                     "element, or deep inside it or on an unpainted part of it "
-                    "with no control in between: it may not be what you meant."
+                    "when neither it nor anything in between is a control: it "
+                    "may not be what you meant."
                 ),
             },
         ),

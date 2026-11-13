@@ -1018,8 +1018,9 @@ cap the timeout says only the first 50 were tried and to narrow the selector.
 **The receiver.** An `interact` click, `double_click` or `right_click` reports
 `received_by` (`element`, `depth`, `painted`), as `probe.receiver_report` words
 it (rulings 13 and 14). A receiver inside the target gets a `warning` only when
-it is unpainted or deeper than `probe.DEEP`, at depth 1 or more, with no
-`probe.INTERACTIVE` element between it and the target. A `double_click` or
+it is unpainted or deeper than `probe.DEEP`, at depth 1 or more, and neither
+the target nor anything between it and the target matches `probe.INTERACTIVE`:
+a link or a button sees a click anywhere inside it. A `double_click` or
 `right_click` whose receiver is outside the target always gets the outside
 warning, with `depth` null, and is reported; the pointer actions press whatever
 is on top and WebDriver never refuses them. A click outside the target is

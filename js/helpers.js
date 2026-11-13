@@ -248,10 +248,12 @@ const receiverAt = (el, interactive) => {
   let control = false;
   if (inside) {
     depth = 0;
-    for (let node = top; node && node !== el; node = node.parentElement) {
-      depth += 1;
-      if (interactive) {
-        try { if (node.matches(interactive)) control = true; } catch (e) { /* unusable list */ }
+    for (let node = top; node && node !== el; node = node.parentElement) depth += 1;
+    // A control from the hit up to the target, the target included: a link or
+    // a button sees a click anywhere inside it (Dr K's QA, 11-13).
+    if (interactive) {
+      for (let node = top; node; node = node === el ? null : node.parentElement) {
+        try { if (node.matches(interactive)) { control = true; break; } } catch (e) { break; }
       }
     }
   }

@@ -392,7 +392,7 @@ def test_a_label_inside_a_button_is_a_shallow_painted_hit():             # Revie
     html = '<button id="go" style="background:#09f"><span id="label">Save</span></button>'
     assert receiver(html, "#go", GEOMETRY + stack("label", "go")) == {
         "element": "span#label", "inside": True, "under": True, "depth": 1, "painted": True,
-        "interactive": False, "overlay": False, "reason": None, "selector": None}
+        "interactive": True, "overlay": False, "reason": None, "selector": None}
 
 def test_a_receiver_outside_carries_its_class_and_selector():           # ruling 14
     html = ('<svg><g id="target"><text id="t">Go</text></g>'
@@ -409,6 +409,22 @@ def test_a_deep_unpainted_hit_says_so():                                 # brief
 def test_a_control_between_the_hit_and_the_target_is_noticed():
     html = '<div id="card"><a id="link" href="/x"><i id="icon"></i></a></div>'
     assert receiver(html, "#card", GEOMETRY + stack("icon", "link", "card"))["interactive"] is True
+
+
+# Dr K's QA, 11-13 14:06: each of these reached its handler and was warned.
+@pytest.mark.parametrize("html, ids", [
+    ('<a id="card" href="/x"><div id="d1"><div id="d2"><h3 id="title">Go</h3></div></div></a>',
+     ("title", "d2", "d1", "card")),
+    ('<button id="card"><i id="icon" class="ico"></i></button>', ("icon", "card")),
+    ('<button id="card"><span id="s"><svg id="svg"><path id="p"></path></svg></span></button>',
+     ("p", "svg", "s", "card")),
+])
+def test_a_selected_control_is_noticed(html, ids):
+    assert receiver(html, "#card", GEOMETRY + stack(*ids))["interactive"] is True
+
+def test_a_selected_pointer_group_is_not_a_control():                     # #116's board
+    html = '<svg><g id="board" style="cursor:pointer"><g id="g"><rect id="bg"></rect></g></g></svg>'
+    assert receiver(html, "#board", GEOMETRY + stack("bg", "g", "board"))["interactive"] is False
 
 def test_the_outline_names_what_an_unpainted_element_lets_through():
     html = '<main><div id="behind" style="background:#fff"></div><button id="go"></button></main>'
