@@ -211,3 +211,30 @@ def test_the_matcher_and_the_leash_share_no_code():
             a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names
         }
         assert not any(other in name.split(".") for name in imported), path
+
+
+@pytest.mark.parametrize(
+    "pattern, url, applies",
+    [
+        ("/*a*a*a*a*a*a*a*b", "https://t/" + "a" * 60, False),
+        ("/*a*a*a*a*a*a*a*b", "https://t/" + "a" * 60 + "b", True),
+        ("/**" * 10 + "/b", "https://t" + "/a" * 25, False),
+        ("/**" * 10 + "/b", "https://t" + "/a" * 25 + "/b", True),
+        ("/**/*a*a*a*b/**", "https://t" + ("/" + "a" * 30) * 20, False),
+    ],
+)
+def test_a_pattern_cannot_stall_the_hint(pattern, url, applies):
+    """A shared flow's paths are matched on every workspace's page change, so a
+    pattern built to backtrack must still answer at once."""
+    import time
+
+    places = Places.parse({"paths": [pattern]})
+    began = time.perf_counter()
+    assert places.applies(url) is applies
+    assert time.perf_counter() - began < 0.5
+
+
+def test_consecutive_double_stars_are_one():
+    assert Places.parse({"paths": ["/a/**/**/**/b"]}) == Places.parse(
+        {"paths": ["/a/**/b"]}
+    )

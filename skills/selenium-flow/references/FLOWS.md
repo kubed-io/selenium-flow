@@ -23,7 +23,8 @@ a check you repeat on Chrome and then on Firefox.
    becomes a parameter.
 3. **Save.** `save_flow`, once. It validates every step against the live tool
    schemas, so a step that could not run is refused now rather than halfway
-   through a form.
+   through a form. Give it `sites` and `paths` too, so the next agent on that
+   page is told it exists.
 4. **Run.** `run_flow` forever after.
 
 Read `flow://schema` before writing one. It is derived
@@ -162,6 +163,41 @@ the demo site without being told to.
 may appear in the report. For a password, do not use a parameter at all — name a
 secret, which is a different mechanism on purpose
 (`skill://selenium-flow/references/SECRETS.md`).
+
+## Where a flow applies
+
+`sites` and `paths` say where a flow is for. A call that moves the browser to a
+different host, port or path they match names the flow in its result's
+`flows_here`. `open_session` names the flows for the page it opens on, every
+time. The same flow can serve development and live, so list both:
+
+```yaml
+name: login
+description: Sign in to the admin panel with an email and password
+sites:
+- localhost:8080
+- example.com
+paths:
+- /login
+- /admin/login
+steps: [...]
+```
+
+- A site is a host with an optional port: `example.com`, `*.example.com`,
+  `localhost:8080`. With a port it matches only that port; without one, any. The
+  scheme is ignored. `*.example.com` matches subdomains, never `example.com`
+  itself: list both to cover both.
+- A path is exact, with `*` for one segment and `**` for any depth:
+  `/login`, `/apps/*/settings`. The query and fragment are ignored.
+
+Leave either out to match any; leave both out and the flow is never named in
+`flows_here`; a flow saved without them stays unnamed until someone adds them.
+
+A run that ends on a page withheld after a secret was typed names the flows for
+the last page the run recorded in `flows_here`.
+
+They are for finding a flow, never a boundary: a run is never refused for being
+elsewhere, and a secret's `allowed_urls` is what keeps a password on its site.
 
 ## Finding the selectors to put in one
 

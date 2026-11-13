@@ -20,6 +20,7 @@ from kubed.selenium_flow.core.capabilities import (
     ENDPOINTS,
     FLOW_HINT,
     FLOWS_HINT,
+    capability,
 )
 from kubed.selenium_flow.spec import PLACEHOLDER_VERSION, RESPONSES, build_spec
 from kubed.selenium_flow.spec.builder import _hoisted
@@ -444,3 +445,14 @@ def test_every_page_report_publishes_flows_here():  # ruling 7
     assert RESPONSES["current_workspace"]["properties"]["flows_here"]["items"] == FLOW_HINT
     assert FLOW_SCHEMAS["FlowRun"]["properties"]["flows_here"] is FLOWS_HINT
     assert FLOWS_HINT["maxItems"] == 10
+
+
+def test_open_session_s_hint_is_for_the_page_it_opened_on():  # ruling 19
+    """open_session hints every time, so FLOWS_HINT's "a different page" is
+    not true of it; the shape is the same."""
+    hint = capability("open_session").response["properties"]["flows_here"]
+    assert hint["items"] == FLOW_HINT
+    assert hint["maxItems"] == FLOWS_HINT["maxItems"]
+    assert "different page" not in hint["description"]
+    assert "opened on" in hint["description"]
+    assert "run_flow" in hint["description"]

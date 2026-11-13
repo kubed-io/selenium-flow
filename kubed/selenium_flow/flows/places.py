@@ -49,7 +49,7 @@ class Site:
 @dataclass(frozen=True)
 class Places:
     sites: tuple[Site, ...] | None  # None: any site
-    paths: tuple[re.Pattern[str], ...] | None  # None: any path
+    paths: tuple[PathGlob, ...] | None  # None: any path
 
     @classmethod
     def parse(cls, document) -> Places | None:
@@ -74,7 +74,7 @@ class Places:
             _site_matches(s, host, port) for s in self.sites
         ):
             return False
-        return self.paths is None or any(p.fullmatch(path) for p in self.paths)
+        return self.paths is None or any(p.matches(path) for p in self.paths)
 
 
 def _site_matches(site: Site, host: str, port: int) -> bool:
@@ -225,12 +225,76 @@ def _path_problem(entry: str) -> str | None:
     return None
 
 
-def _path(entry: str) -> re.Pattern[str]:
-    """One anchored regex over a path whose trailing ``/`` is stripped."""
-    out = ""
-    for seg in entry.strip().rstrip("/").split("/")[1:]:
-        if seg == "**":
-            out += "(?:/[^/]*)*"
+ANY_DEPTH = None  # a `**` unit: any number of segments, none included
+
+
+@dataclass(frozen=True)
+class PathGlob:
+    """One path pattern, a unit per segment, matched without a regex.
+
+    A unit is one segment's glob, where `*` is any run of characters, or
+    `ANY_DEPTH` for `**`. A regex of the same meaning backtracks polynomially
+    (`/*a*a*a*a*b` against a long segment took seconds), and a shared flow's
+    paths are matched on every workspace's page change, so the matcher is a
+    pass over segments and, within one, the greedy star match: O(n·m) each.
+    """
+
+    units: tuple[str | None, ...]
+
+    def matches(self, path: str) -> bool:
+        """Whether ``path`` (no trailing ``/``, as `urls.page_key` gives) matches."""
+        if path and not path.startswith("/"):
+            return False
+        segments = path.split("/")[1:]
+        # The units a prefix of the path can leave the match at, as indices.
+        at = self._past_any_depth({0})
+        for segment in segments:
+            moved = set()
+            for i in at:
+                if i == len(self.units):
+                    continue
+                unit = self.units[i]
+                if unit is ANY_DEPTH:
+                    moved.add(i)  # `**` takes this segment and may take more
+                elif _glob(unit, segment):
+                    moved.add(i + 1)
+            at = self._past_any_depth(moved)
+            if not at:
+                return False
+        return len(self.units) in at
+
+    def _past_any_depth(self, at: set[int]) -> set[int]:
+        """``at``, and the unit after each `**` in it, which may take nothing."""
+        return at | {
+            i + 1 for i in at if i < len(self.units) and self.units[i] is ANY_DEPTH
+        }
+
+
+def _glob(unit: str, segment: str) -> bool:
+    """Whether ``segment`` matches ``unit``, where `*` is any run of characters.
+
+    The greedy match: on a mismatch, the last `*` takes one more character."""
+    u = s = 0
+    star = taken = -1
+    while s < len(segment):
+        if u < len(unit) and unit[u] == "*":
+            star, taken, u = u, s, u + 1
+        elif u < len(unit) and unit[u] == segment[s]:
+            u, s = u + 1, s + 1
+        elif star >= 0:
+            taken += 1
+            u, s = star + 1, taken
         else:
-            out += "/" + "[^/]*".join(re.escape(part) for part in seg.split("*"))
-    return re.compile(out)
+            return False
+    return all(c == "*" for c in unit[u:])
+
+
+def _path(entry: str) -> PathGlob:
+    """The units of a path whose trailing ``/`` is stripped, ``**`` runs as one."""
+    units: list[str | None] = []
+    for seg in entry.strip().rstrip("/").split("/")[1:]:
+        unit = ANY_DEPTH if seg == "**" else seg
+        if unit is ANY_DEPTH and units and units[-1] is ANY_DEPTH:
+            continue  # `/**/**` is `/**`
+        units.append(unit)
+    return PathGlob(tuple(units))

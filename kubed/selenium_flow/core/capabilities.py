@@ -159,13 +159,15 @@ PAGE_HINT = {
 
 # Present only when a call left the browser on a new page and saved flows say
 # they apply there (spec 2026-11-12-flow-sites-paths, rulings 7, 15 and 17).
+FLOWS_HINT_GUIDANCE = (
+    "Run one with run_flow when its description is the task you were given and "
+    "you have its required parameters; read its uri first when you are not sure. "
+    "Being listed here makes a flow fit the page, not your task."
+)
 FLOWS_HINT_DESCRIPTION = (
     "Present only when this call left the browser on a different page (host, "
     "port or path) and saved flows say they apply there: at most 10, your "
-    "workspace's own first. Run one with run_flow when its description is the "
-    "task you were given and you have its required parameters; read its uri "
-    "first when you are not sure. Being listed here makes a flow fit the page, "
-    "not your task."
+    "workspace's own first. " + FLOWS_HINT_GUIDANCE
 )
 FLOW_HINT = {  # one entry
     "type": "object",
@@ -446,7 +448,14 @@ CAPABILITIES: tuple[Capability, ...] = (
                 },
                 **PAGE_STATE,
                 "site_data": SITE_DATA_HINT,
-                "flows_here": FLOWS_HINT,
+                "flows_here": {  # every open hints, not only a move (ruling 19)
+                    **FLOWS_HINT,
+                    "description": (
+                        "Present only when saved flows say they apply to the "
+                        "page it opened on: at most 10, your workspace's own "
+                        "first. " + FLOWS_HINT_GUIDANCE
+                    ),
+                },
                 "width": {"type": "integer", "description": "Window width in use."},
                 "height": {"type": "integer", "description": "Window height in use."},
                 "settings": {
