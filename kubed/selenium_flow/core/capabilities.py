@@ -253,11 +253,19 @@ OUTLINE_ELEMENTS = {
             "reason": {
                 "type": "string",
                 "description": (
-                    "Why it cannot be used: hidden, covered, "
-                    "zero_size, offscreen or disabled."
+                    "Why it cannot be used: hidden, covered, unpainted (it "
+                    "paints nothing at its centre), invisible_cover (an "
+                    "invisible element is on top), zero_size, offscreen or "
+                    "disabled."
                 ),
             },
-            "blocked_by": {"type": "string"},
+            "blocked_by": {
+                "type": "string",
+                "description": (
+                    "What is in the way: the hidden ancestor, or what "
+                    "receives the click instead."
+                ),
+            },
             "revealed_by": {
                 "type": "string",
                 "description": (
@@ -481,6 +489,30 @@ CAPABILITIES: tuple[Capability, ...] = (
             glide_note={
                 "type": "string",
                 "description": "Why a requested glide was a jump instead.",
+            },
+            received_by={
+                "type": "object",
+                "description": (
+                    "For click, double_click and right_click: what the gesture "
+                    "landed on, how many levels inside the selected element (0 "
+                    "is the element itself), and whether it paints anything "
+                    "there. depth is null when it landed outside the selected "
+                    "element, which only a double_click or right_click can do; "
+                    "a click is refused instead."
+                ),
+                "properties": {
+                    "element": {"type": "string"},
+                    "depth": {"type": ["integer", "null"]},
+                    "painted": {"type": "boolean"},
+                },
+            },
+            warning={
+                "type": "string",
+                "description": (
+                    "Present when the gesture landed outside the selected "
+                    "element, or deep inside it or on an unpainted part of it "
+                    "with no control in between: it may not be what you meant."
+                ),
             },
         ),
     ),

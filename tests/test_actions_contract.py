@@ -328,7 +328,8 @@ ROADS = {
     "interact click": (
         {}, lambda a: a.interact("abc", "click", selector=AT, url=OTHER),
         ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
-         "element.is_enabled", "element.click", "current_url", "title"],
+         "element.is_enabled", "execute_script", "element.click", "current_url",
+         "title"],
     ),
     "interact hover": (
         {}, lambda a: a.interact("abc", "hover", selector=AT),
@@ -460,8 +461,8 @@ MOVES = {
     "interact click": (
         lambda a: a.interact("abc", "click", selector=AT),
         ["reconnect", "find_elements", "element.is_displayed", "element.is_enabled",
-         "execute_script", "execute", "execute_script", "element.click",
-         "current_url", "title"],
+         "execute_script", "execute", "execute_script", "execute_script",
+         "element.click", "current_url", "title"],
     ),
     "interact hover glide": (
         lambda a: a.interact("abc", "hover", selector=AT, glide=True),

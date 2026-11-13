@@ -41,6 +41,10 @@ CANDIDATES = 50
 # counted ("and N more"): the first few are the ones a person acts on.
 LISTED = 5
 
+# How many levels inside the element a click may land before it is worth a
+# warning (spec 2026-11-13, ruling 13). A button's own label is depth 1.
+DEEP = 2
+
 # What counts as worth listing when a caller has not asked for everything: the
 # things an agent can act on. `[role]` is here because a div with a role is a
 # button someone built by hand, and those are exactly the ones a tag-based list
@@ -226,6 +230,76 @@ def short(answer: dict) -> str:
     answer = _answer(answer)
     clause = SHORT.get(_key(answer) or "none", SHORT["none"])
     return clause.format(detail=answer.get("detail") or "something")
+
+
+def received(driver, element) -> dict:
+    """What receives a pointer at ``element``'s click point, or {}.
+
+    Runs inside a gesture that is about to happen, so it never raises: a probe
+    that fails leaves the report's fields out and costs the gesture nothing.
+    """
+    try:
+        answer = driver.execute_script(RECEIVER_JS, element, INTERACTIVE)
+        if isinstance(answer, dict) and "inside" in answer:
+            return answer
+    # Broad on purpose: a diagnosis must never outrank the gesture it reports on.
+    except Exception:
+        log.debug("could not read what receives the click", exc_info=True)
+    return {}
+
+
+def receiver_report(answer: dict, gesture: str = "click") -> dict:
+    """The ``received_by`` and ``warning`` a click-like gesture returns.
+
+    Only the receiver's name, its depth and the selector the page offered go in:
+    never a value from the page (spec 2026-11-13, rulings 13 and 14).
+    """
+    answer = _answer(answer)
+    if "inside" not in answer:
+        return {}
+    name = str(gesture).replace("_", "-")
+    element = answer.get("element") or "something"
+    painted = bool(answer.get("painted"))
+    if not answer.get("inside"):
+        if gesture == "click":
+            return {}
+        why = short(
+            {
+                "reason": answer.get("reason"),
+                "detail": element,
+                "overlay": answer.get("overlay"),
+            }
+        )
+        warning = (
+            f"The {name} went to {element}, not to the element you selected, "
+            f"because {why}."
+        )
+        chosen = answer.get("selector")
+        if chosen:
+            warning += (
+                f" If that is what you meant, it is selector={json.dumps(chosen)}."
+            )
+        return {
+            "received_by": {"element": element, "depth": None, "painted": painted},
+            "warning": warning,
+        }
+    depth = answer.get("depth")
+    report = {"received_by": {"element": element, "depth": depth, "painted": painted}}
+    if (
+        isinstance(depth, int)
+        and depth >= 1
+        and (not painted or depth > DEEP)
+        and not answer.get("interactive")
+    ):
+        levels = "1 level" if depth == 1 else f"{depth} levels"
+        nothing = "" if painted else ", which paints nothing there"
+        report["warning"] = (
+            f"The {name} landed on {element}, {levels} inside the element you "
+            f"selected{nothing}, and nothing in between is a control: only a "
+            f"handler on the selected element, or above it, sees the {name}. "
+            "If you meant something inside it, select that instead."
+        )
+    return report
 
 
 def _sentence(answer: dict) -> str:

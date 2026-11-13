@@ -981,3 +981,86 @@ def test_an_element_that_keeps_going_stale_is_reported_rather_than_looped(
     )
     with pytest.raises(StaleElementReferenceException):
         actions.interact("abc", "click", selector={"css": "#row"})
+
+
+# ---- what received a click (spec 2026-11-13, rulings 13 and 14) ----------
+
+
+@pytest.fixture
+def receiving(actions, moving, monkeypatch):
+    """`interact` with a receiver script that answers ``answer["hit"]``, and an
+    ``order`` recording the receiver read against the gesture."""
+    from kubed.selenium_flow.core import probe
+    from tests.test_probe import HIT
+
+    state = {"hit": {**HIT, "element": "rect.bg", "depth": 10, "painted": True},
+             "order": [], "scripts": []}
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, script, *args):
+            state["scripts"].append(script)
+            if script is probe.RECEIVER_JS:
+                state["order"].append("receiver")
+                return state["hit"]
+            return None
+
+        def execute(self, *_a, **_k):
+            return {"value": None}
+
+    class _El(_Element):
+        def click(self):
+            state["order"].append("click")
+
+    class Chain:
+        def __init__(self, driver):
+            pass
+
+        def perform(self):
+            state["order"].append("perform")
+            return self
+
+        def __getattr__(self, name):
+            return lambda *a, **k: self
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr("kubed.selenium_flow.core.actions.ActionChains", Chain)
+    for wait in ("wait_for_clickable", "wait_for_shown"):
+        monkeypatch.setattr(
+            f"kubed.selenium_flow.core.browser.{wait}",
+            lambda *a, **k: browser.Found(_El(), 0, 1),
+        )
+    return state
+
+
+@pytest.mark.parametrize("action", ["click", "double_click", "right_click"])
+def test_each_click_gesture_says_what_received_it(actions, receiving, action):
+    result = actions.interact("abc", action, selector={"css": "#go"})
+    assert result["received_by"] == {"element": "rect.bg", "depth": 10, "painted": True}
+    assert "warning" in result
+
+
+def test_a_double_click_onto_a_cover_is_reported_not_refused(actions, receiving):
+    from tests.test_probe import OUT
+
+    receiving["hit"] = OUT
+    result = actions.interact("abc", "double_click", selector={"css": "#go"})
+    assert result["received_by"]["depth"] is None
+    assert result["warning"].startswith("The double-click went to rect#hot")
+
+
+@pytest.mark.parametrize("action", ["hover", "scroll_to"])
+def test_hover_and_scroll_to_report_no_receiver(actions, receiving, action):
+    from kubed.selenium_flow.core import probe
+
+    result = actions.interact("abc", action, selector={"css": "#go"})
+    assert "received_by" not in result
+    assert probe.RECEIVER_JS not in receiving["scripts"]
+
+
+@pytest.mark.parametrize("action,gesture", [("click", "click"), ("double_click", "perform")])
+def test_the_receiver_is_read_before_the_gesture(actions, receiving, action, gesture):
+    actions.interact("abc", action, selector={"css": "#go"})
+    assert receiving["order"] == ["receiver", gesture]

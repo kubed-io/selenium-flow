@@ -266,3 +266,67 @@ def test_a_none_entry_does_not_lose_the_others():
 def test_short_takes_any_answer(answer):
     assert probe.short(answer) == "the page reports nothing wrong with it"
     assert probe.move_for(answer) == ""
+
+
+# ---- what received a click (spec 2026-11-13, rulings 13 and 14) ----------
+
+HIT = {"element": "div.spacer", "inside": True, "under": True, "painted": False,
+       "interactive": False, "overlay": False, "reason": None, "selector": None}
+OUT = {**HIT, "element": "rect#hot", "inside": False, "depth": None,
+       "reason": "invisible_cover", "selector": {"css": "#hot"}}
+
+
+def test_a_receiver_unknown_or_outside_a_click_reports_nothing():
+    assert probe.receiver_report({}) == {}
+    assert probe.receiver_report(OUT, "click") == {}
+
+
+def test_a_double_click_that_went_elsewhere_says_where_and_why():  # ruling 14
+    assert probe.receiver_report(OUT, "double_click") == {
+        "received_by": {"element": "rect#hot", "depth": None, "painted": False},
+        "warning": ("The double-click went to rect#hot, not to the element you selected, "
+                    "because an invisible rect#hot is on top of it. If that is what you "
+                    'meant, it is selector={"css": "#hot"}.')}
+
+
+def test_a_right_click_on_a_plain_cover_has_no_selector_clause():
+    plain = {**OUT, "element": "div.card", "painted": True, "reason": "covered", "selector": None}
+    assert probe.receiver_report(plain, "right_click")["warning"] == (
+        "The right-click went to div.card, not to the element you selected, "
+        "because div.card is on top of it.")
+
+
+def test_the_inside_warning_names_the_gesture():
+    warning = probe.receiver_report({**HIT, "depth": 10, "painted": True}, "double_click")["warning"]
+    assert warning.startswith("The double-click landed on div.spacer, 10 levels inside")
+    assert "sees the double-click." in warning
+
+
+def test_the_target_itself_is_reported_without_a_warning():
+    assert probe.receiver_report({**HIT, "element": "button#go", "depth": 0, "painted": True}) == {
+        "received_by": {"element": "button#go", "depth": 0, "painted": True}}
+
+
+def test_a_shallow_painted_hit_is_no_warning():                     # Review Focus 5
+    assert "warning" not in probe.receiver_report({**HIT, "depth": 1, "painted": True})
+
+
+def test_an_unpainted_hit_warns():                                  # ruling 13
+    assert probe.receiver_report({**HIT, "depth": 1})["warning"] == (
+        "The click landed on div.spacer, 1 level inside the element you selected, which "
+        "paints nothing there, and nothing in between is a control: only a handler on the "
+        "selected element, or above it, sees the click. If you meant something inside it, "
+        "select that instead.")
+
+
+def test_a_deep_hit_warns():                                        # brief 3
+    warning = probe.receiver_report({**HIT, "element": "rect.frame-background", "depth": 10, "painted": True})["warning"]
+    assert warning.startswith("The click landed on rect.frame-background, 10 levels inside the element you selected, and nothing")
+
+
+def test_a_control_in_between_is_no_warning():
+    assert "warning" not in probe.receiver_report({**HIT, "depth": 10, "interactive": True})
+
+
+def test_received_never_fails_a_gesture():
+    assert probe.received(_Page({}, raises=RuntimeError("gone")), "<el>") == {}

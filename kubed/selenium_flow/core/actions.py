@@ -608,6 +608,10 @@ class Actions:
             moved = None
             if resolved in POINTER_ACTIONS:
                 moved = self._move_onto(session_id, driver, element, glide)
+            # What the pointer is about to press, read after the move and before
+            # the gesture. Only the three that press; hover and scroll_to do not.
+            presses = resolved in ("click", "double_click", "right_click")
+            hit = probe.received(driver, element) if presses else {}
 
             if resolved == "click":
                 try:
@@ -649,7 +653,11 @@ class Actions:
                 elif resolved == "scroll_to":
                     chain.scroll_to_element(element)
                 chain.perform()
-            return {"action": resolved, **self._pointer_report(moved, glide)}
+            return {
+                "action": resolved,
+                **self._pointer_report(moved, glide),
+                **(probe.receiver_report(hit, resolved) if presses else {}),
+            }
 
         # hover and scroll_to only need an element to aim at: the first displayed
         # match, else the first (ruling 3). Requiring it to be clickable would
