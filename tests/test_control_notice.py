@@ -187,8 +187,8 @@ async def test_an_in_flight_call_carries_control_in_structured_content(server, m
     monkeypatch.setattr(server.monitor, "attach_here", unavailable)
     # The call's own turn on the session. `turn` keeps the hold registered: the
     # registry is weak, so a bare `locks.hold("g1").lock` frees it on that line
-    # (CPython's refcounting)
-    # and the grant marks a new, empty queue that never makes it wait.
+    # (CPython's refcounting) and the grant marks a new, empty queue that never
+    # makes it wait.
     turn = locks.hold("g1")
     async with Client(server.mcp) as c:
         with turn.lock:
