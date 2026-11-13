@@ -3955,7 +3955,7 @@
         "operationId": "end_browser",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4056,7 +4056,7 @@
         "operationId": "currentWorkspace",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4117,7 +4117,7 @@
         "operationId": "open_session",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4220,7 +4220,7 @@
         "operationId": "assert",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4343,7 +4343,7 @@
         "operationId": "await_control",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4446,7 +4446,7 @@
         "operationId": "dialog",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4569,7 +4569,7 @@
         "operationId": "listDownloads",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4662,7 +4662,7 @@
         "operationId": "drag",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4785,7 +4785,7 @@
         "operationId": "extract",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -4908,7 +4908,7 @@
         "operationId": "frame",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -5047,7 +5047,7 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -5170,7 +5170,7 @@
         "operationId": "navigate",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -5293,7 +5293,7 @@
         "operationId": "network_body",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -5416,7 +5416,7 @@
         "operationId": "outline",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -5539,7 +5539,7 @@
         "operationId": "press_key",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -5662,7 +5662,7 @@
         "operationId": "print",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -5785,7 +5785,7 @@
         "operationId": "resize",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -5908,7 +5908,7 @@
         "operationId": "save_site_data",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6031,7 +6031,7 @@
         "operationId": "screenshot",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6154,7 +6154,7 @@
         "operationId": "execute_script",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6277,7 +6277,7 @@
         "operationId": "upload_file",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6438,7 +6438,7 @@
         "operationId": "write",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6561,7 +6561,7 @@
         "operationId": "listFiles",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6654,7 +6654,7 @@
         "operationId": "listRecordings",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6747,7 +6747,7 @@
         "operationId": "listScreenshots",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6861,7 +6861,7 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -6975,7 +6975,7 @@
         "operationId": "listFlows",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -7056,7 +7056,7 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -7135,7 +7135,7 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -7214,7 +7214,7 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -7352,7 +7352,7 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -7534,7 +7534,7 @@
         "operationId": "flowSchema",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -7607,7 +7607,7 @@
         "operationId": "listSecrets",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -7680,7 +7680,7 @@
         "operationId": "listSiteData",
         "parameters": [
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,
@@ -7762,7 +7762,7 @@
             }
           },
           {
-            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. Its old name, X-Workspace, is refused with a 400.",
+            "description": "Which workspace this call is about. What an admin pins inside a credential when one credential should mean one workspace. Sending this AND ?workspace= is a 400: two names is two ideas about who is calling. X-Workspace is accepted as an alias, for clients that can only send allowlisted header names (Claude.ai connectors); when both are sent, Sf-Workspace wins.",
             "in": "header",
             "name": "Sf-Workspace",
             "required": false,

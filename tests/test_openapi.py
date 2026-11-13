@@ -64,7 +64,8 @@ async def test_every_operation_says_how_to_name_a_workspace(spec):
         for method, operation in operations.items():
             names = {p["name"] for p in operation.get("parameters", [])}
             assert {"Sf-Workspace", "workspace"} <= names, f"{method} {path}"
-            # The old name is refused, so it is not published (ruling 2).
+            # Its alias is described in Sf-Workspace's entry, never published as
+            # a second parameter (spec 2026-11-12-x-workspace-alias, ruling 7).
             assert "X-Workspace" not in names, f"{method} {path}"
 
 

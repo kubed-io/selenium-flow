@@ -210,7 +210,9 @@ WORKSPACE_PARAMETERS = [
             "Which workspace this call is about. What an admin pins inside a "
             "credential when one credential should mean one workspace. Sending "
             "this AND ?workspace= is a 400: two names is two ideas about who is "
-            "calling. Its old name, X-Workspace, is refused with a 400."
+            "calling. X-Workspace is accepted as an alias, for clients that can "
+            "only send allowlisted header names (Claude.ai connectors); when both "
+            "are sent, Sf-Workspace wins."
         ),
     },
     {
