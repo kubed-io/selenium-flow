@@ -155,6 +155,156 @@ const statedOpener = (node) => {
   return null;
 };
 
+// The point a pointer would press: the centre of the part of the element's
+// first client rect that is in the viewport, as center.js works it out.
+const pointAt = (el) => {
+  const rects = el.getClientRects();
+  const r = rects && rects.length ? rects[0] : el.getBoundingClientRect();
+  const w = window.innerWidth, h = window.innerHeight;
+  const left = Math.max(r.left, 0), right = Math.min(r.right, w);
+  const top = Math.max(r.top, 0), bottom = Math.min(r.bottom, h);
+  if (right <= left || bottom <= top) return null;
+  return [(left + right) / 2, (top + bottom) / 2];
+};
+
+// A colour's alpha. An unset value (jsdom answers '') is transparent.
+const alpha = (color) => {
+  const text = (color || '').trim().toLowerCase();
+  if (text === '' || text === 'transparent') return 0;
+  const parts = /^rgba?\(([^)]*)\)$/.exec(text);
+  if (!parts) return 1;
+  const inner = parts[1];
+  let raw = null;
+  if (inner.includes('/')) raw = inner.split('/')[1];
+  else if (inner.split(',').length === 4) raw = inner.split(',')[3];
+  if (raw === null) return 1;
+  raw = raw.trim();
+  const value = raw.endsWith('%') ? parseFloat(raw) / 100 : parseFloat(raw);
+  return Number.isNaN(value) ? 1 : value;
+};
+
+// A number from a computed style, where unset (jsdom answers '') is `initial`.
+const numberOr = (value, initial) => {
+  const parsed = parseFloat(value);
+  return Number.isNaN(parsed) ? initial : parsed;
+};
+
+const REPLACED = ['img', 'video', 'canvas', 'iframe', 'embed', 'object', 'input',
+                  'textarea', 'select'];
+
+// Whether a pointer at this node's centre would hit something that is drawn
+// (spec ruling 11). Borders and shadows are not counted.
+const painted = (node) => {
+  for (let up = node; up && up.nodeType === 1; up = up.parentElement) {
+    if (numberOr(getComputedStyle(up).opacity, 1) === 0) return false;
+  }
+  const style = getComputedStyle(node);
+  if (style.visibility === 'hidden') return false;
+  const tag = node.tagName.toLowerCase();
+  if (node.namespaceURI === 'http://www.w3.org/2000/svg' && tag !== 'svg') {
+    // A paint is nothing when it is `none` or a fully transparent colour (which
+    // is also how jsdom spells `none`); unset is the initial value.
+    const nothing = (paint) => paint === 'none' || (paint !== '' && alpha(paint) === 0);
+    const fill = style.fill || 'black';
+    if (!nothing(fill) && numberOr(style.fillOpacity, 1) > 0) return true;
+    const stroke = style.stroke || 'none';
+    return !nothing(stroke) && numberOr(style.strokeOpacity, 1) > 0 &&
+      numberOr(style.strokeWidth, 1) > 0;
+  }
+  if (REPLACED.includes(tag)) return true;
+  if (alpha(style.backgroundColor) > 0) return true;
+  const image = style.backgroundImage || 'none';
+  if (image !== 'none') return true;
+  for (const child of node.childNodes) {
+    if (child.nodeType === 3 && child.nodeValue.trim() !== '') return true;
+  }
+  return false;
+};
+
+// Whether `top`, which is not inside `el`, is an overlay: it or an ancestor not
+// containing `el` is fixed, sticky or stacked above 0.
+const overlayAbove = (top, el) => {
+  for (let node = top; node && node.nodeType === 1 && !node.contains(el);
+       node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (style.position === 'fixed' || style.position === 'sticky') return true;
+    const z = parseInt(style.zIndex, 10);
+    if (Number.isInteger(z) && z > 0) return true;
+  }
+  return false;
+};
+
+// What receives a pointer at the element's click point, from the whole stack
+// there (spec ruling 10). `interactive` is a selector list, or null to skip it.
+const receiverAt = (el, interactive) => {
+  const at = pointAt(el);
+  if (at === null) return null;
+  const stack = document.elementsFromPoint ? document.elementsFromPoint(at[0], at[1]) : [];
+  const top = stack[0];
+  if (!top) return null;
+  const inside = top === el || el.contains(top);
+  const under = stack.some((n) => n === el || el.contains(n));
+  let depth = null;
+  let control = false;
+  if (inside) {
+    depth = 0;
+    for (let node = top; node && node !== el; node = node.parentElement) {
+      depth += 1;
+      if (interactive) {
+        try { if (node.matches(interactive)) control = true; } catch (e) { /* unusable list */ }
+      }
+    }
+  }
+  const overlay = !inside && overlayAbove(top, el);
+  let reason = null;
+  if (!inside) reason = !under ? 'unpainted' : (!painted(top) ? 'invisible_cover' : 'covered');
+  return {element: nameOf(top), inside: inside, under: under, depth: depth,
+          painted: painted(top), interactive: control, overlay: overlay,
+          reason: reason, selector: inside ? null : selectorFor(top)};
+};
+
+// The page's own :hover rules that set what shows, read once per script run.
+// A sheet that cannot be read (cross-origin, no CORS) is skipped, and said.
+let hoverCache = null;
+let hoverUnread = false;
+const hoverRules = () => {
+  if (hoverCache) return hoverCache;
+  hoverCache = [];
+  const walk = (rules) => {
+    for (let i = 0; i < rules.length; i++) {
+      const rule = rules[i];
+      const text = rule.selectorText;
+      if (text && text.includes(':hover') && rule.style &&
+          (rule.style.display || rule.style.visibility || rule.style.opacity)) {
+        for (const part of text.split(',')) {
+          const at = part.indexOf(':hover');
+          if (at < 0) continue;
+          hoverCache.push({head: part.slice(0, at).trim(),
+                           base: part.split(':hover').join('').trim()});
+        }
+      }
+      if (rule.cssRules) walk(rule.cssRules);
+    }
+  };
+  const sheets = document.styleSheets;
+  for (let i = 0; i < sheets.length; i++) {
+    let rules = null;
+    try { rules = sheets[i].cssRules; } catch (e) { hoverUnread = true; continue; }
+    if (rules) walk(rules);
+  }
+  return hoverCache;
+};
+
+// Whether a rule in the page says hovering `up` shows `node`.
+const hoverReveals = (up, node) => {
+  for (const rule of hoverRules()) {
+    if (!rule.head || !up || !node) continue;
+    try { if (up.matches(rule.head) && node.matches(rule.base)) return true; }
+    catch (e) { /* a selector this engine cannot match */ }
+  }
+  return false;
+};
+
 const reasonFor = (el) => {
   // `:disabled` rather than `.disabled`: a control inside a disabled
   // <fieldset> reports false for the property and is disabled all the same.
@@ -186,7 +336,7 @@ const reasonFor = (el) => {
              up = up.parentElement) {
           const tag = up.tagName.toLowerCase();
           if (tag === 'body' || tag === 'html') break;
-          if (!shown(up)) continue;
+          if (!shown(up) || !hoverReveals(up, node)) continue;
           const found = selectorFor(up);
           if (found && (found.css || found.xpath)) {
             trigger = found.css || found.xpath;
@@ -195,8 +345,13 @@ const reasonFor = (el) => {
           }
         }
       }
-      return {reason: 'hidden', detail: nameOf(node), trigger: trigger,
-              gesture: gesture};
+      const answer = {reason: 'hidden', detail: nameOf(node), trigger: trigger,
+                      gesture: gesture};
+      if (!trigger) {
+        hoverRules();
+        if (hoverUnread) answer.unread = true;
+      }
+      return answer;
     }
   }
   const rect = el.getBoundingClientRect();
@@ -204,10 +359,13 @@ const reasonFor = (el) => {
   const onScreen = rect.bottom > 0 && rect.right > 0 &&
     rect.top < (window.innerHeight || 0) && rect.left < (window.innerWidth || 0);
   if (!onScreen) return {reason: 'offscreen', detail: nameOf(el)};
-  const top = document.elementFromPoint(
-    rect.left + rect.width / 2, rect.top + rect.height / 2);
-  if (top && top !== el && !el.contains(top) && !top.contains(el)) {
-    return {reason: 'covered', detail: nameOf(top)};
+  const hit = receiverAt(el, null);
+  if (hit && hit.reason === 'unpainted') return {reason: 'unpainted', detail: hit.element};
+  if (hit && hit.reason === 'invisible_cover') {
+    return {reason: 'invisible_cover', detail: hit.element, selector: hit.selector};
+  }
+  if (hit && hit.reason === 'covered') {
+    return {reason: 'covered', detail: hit.element, overlay: hit.overlay};
   }
   return {reason: null, detail: nameOf(el)};
 };

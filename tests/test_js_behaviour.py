@@ -50,10 +50,29 @@ def usable(html, css, setup=""):
     return run("helpers.js+usable.js", html, [{"$css": css}], setup)
 
 
-def outline(html, text="", limit=50, interactive=True, selector=probe.INTERACTIVE):
+def outline(html, text="", limit=50, interactive=True, selector=probe.INTERACTIVE, setup=""):
     return run(
-        "helpers.js+outline.js", html, [None, text, limit, interactive, selector]
+        "helpers.js+outline.js", html, [None, text, limit, interactive, selector], setup
     )
+
+
+def receiver(html, css, setup=""):
+    return run("helpers.js+receiver.js", html, [{"$css": css}, probe.INTERACTIVE], setup)
+
+
+# jsdom does no layout: every element is one 100x40 box at the origin, and the
+# stack at the click point is whatever the test names, top first.
+GEOMETRY = (
+    "const r = {left: 0, right: 100, top: 0, bottom: 40, width: 100, height: 40};"
+    "document.querySelectorAll('*').forEach(e => { e.getBoundingClientRect = () => r;"
+    " e.getClientRects = () => [r]; });"
+)
+
+
+def stack(*ids):
+    listed = ", ".join(f"'{i}'" for i in ids)
+    return (f"document.elementsFromPoint = () => [{listed}]"
+            ".map(id => document.getElementById(id));")
 
 
 def test_a_hidden_menu_item_names_the_control_that_opens_it():
@@ -90,8 +109,8 @@ def test_an_ancestor_that_controls_something_else_is_not_the_opener():
         "#item",
     )
     assert answer["reason"] == "hidden"
-    # Offered only as the visible ancestor to hover, never as a stated opener.
-    assert answer["gesture"] == "hover"
+    # Nothing opens it on hover: no :hover rule, and the stated opener is another's.
+    assert answer["trigger"] is None
 
 
 def test_the_centre_is_that_of_the_part_of_the_element_in_view():
@@ -124,21 +143,14 @@ def test_an_element_wholly_outside_the_viewport_reports_outside_and_its_own_cent
     }
 
 
-COVERED = (
-    "const r = {left: 0, right: 100, top: 0, bottom: 40, width: 100, height: 40};"
-    "document.querySelectorAll('*').forEach(e => e.getBoundingClientRect = () => r);"
-    "document.elementFromPoint = () => document.getElementById('modal');"
-)
-
-
 def test_explain_for_a_covered_element_names_what_covers_it():
     answer = usable(
         '<button id="go" class="primary">Go</button>'
-        '<div id="modal" class="overlay"></div>',
+        '<div id="modal" class="overlay" style="background:#000"></div>',
         "#go",
-        COVERED,
+        GEOMETRY + stack("modal", "go"),
     )
-    assert answer == {"reason": "covered", "detail": "div#modal"}
+    assert answer == {"reason": "covered", "detail": "div#modal", "overlay": False}
 
 
 def test_explain_for_a_disabled_control_says_so_before_anything_else():
@@ -307,3 +319,98 @@ def test_the_focused_script_answers_the_element_itself_in_the_light_dom():
 
 def test_the_focused_script_answers_null_when_focus_is_on_the_body():
     assert run("focused.js", "<p>nothing here</p>") is None
+
+
+def test_a_target_that_paints_nothing_at_its_centre_is_unpainted():   # ruling 10, brief 2
+    html = ('<svg><g id="board"><rect id="bg" style="fill:#fff"></rect>'
+            '<g id="target"><rect id="own" style="fill:none"></rect><text id="dots">…</text></g></g></svg>')
+    assert usable(html, "#target", GEOMETRY + stack("bg")) == {"reason": "unpainted", "detail": "rect#bg"}
+
+def test_an_ancestor_on_top_is_unpainted_not_usable():
+    html = '<div id="card"><span id="target"></span></div>'
+    assert usable(html, "#target", GEOMETRY + stack("card")) == {"reason": "unpainted", "detail": "div#card"}
+
+def test_a_transparent_shape_on_top_is_an_invisible_cover():          # brief 2, the hotspot
+    html = ('<svg><g id="target"><text id="t">Go</text></g>'
+            '<rect id="hot" style="fill-opacity:0"></rect></svg>')
+    assert usable(html, "#target", GEOMETRY + stack("hot", "t")) == {
+        "reason": "invisible_cover", "detail": "rect#hot", "selector": {"css": "#hot"}}
+
+def test_a_fixed_painted_cover_is_an_overlay():
+    html = ('<button id="go">Go</button>'
+            '<div id="banner" style="position:fixed;background:#000">cookies</div>')
+    assert usable(html, "#go", GEOMETRY + stack("banner", "go")) == {
+        "reason": "covered", "detail": "div#banner", "overlay": True}
+
+def test_the_click_point_is_the_first_client_rect():
+    setup = ("const go = document.getElementById('go');"
+             "go.getBoundingClientRect = () => ({left: 0, right: 200, top: 0, bottom: 100, width: 200, height: 100});"
+             "go.getClientRects = () => [{left: 0, right: 50, top: 0, bottom: 20, width: 50, height: 20}];"
+             "document.elementsFromPoint = (x, y) => (x === 25 && y === 10) ? [go] : [document.body];")
+    assert receiver('<a id="go" href="/x">Go</a>', "#go", setup)["inside"] is True
+
+def test_a_hidden_element_with_no_stated_or_css_opener_gets_no_trigger():  # ruling 12, brief 1
+    html = '<div id="panel"><section style="display:none"><a id="item" href="/x">x</a></section></div>'
+    assert usable(html, "#item") == {"reason": "hidden", "detail": "section", "trigger": None, "gesture": ""}
+
+def test_a_real_hover_rule_still_names_its_trigger():                  # Review Focus 4
+    html = ('<style>.menu{display:none} .dd:hover .menu{display:block}</style>'
+            '<ul><li class="dd" id="dd"><ul class="menu"><li><a id="item" href="/x">x</a></li></ul></li></ul>')
+    answer = usable(html, "#item")
+    assert (answer["detail"], answer["trigger"], answer["gesture"]) == ("ul.menu", "#dd", "hover")
+
+UNREADABLE = ("Object.defineProperty(document, 'styleSheets', {value: [{get cssRules() "
+              "{ throw new DOMException('cross-origin', 'SecurityError'); }}]});")
+
+def test_an_unreadable_stylesheet_is_skipped_and_said():               # Review Focus 4, ruling 12
+    html = '<div><section style="display:none"><a id="item" href="/x">x</a></section></div>'
+    assert usable(html, "#item", UNREADABLE) == {
+        "reason": "hidden", "detail": "section", "trigger": None, "gesture": "", "unread": True}
+
+def test_a_found_trigger_needs_no_admission():
+    html = ('<style>.menu{display:none} .dd:hover .menu{display:block}</style>'
+            '<ul><li class="dd" id="dd"><ul class="menu"><li><a id="item" href="/x">x</a></li></ul></li></ul>')
+    # A readable <style> and an unreadable sheet together: the rule found decides.
+    setup = ("const sheets = document.styleSheets;"
+             "const real = Array.from({length: sheets.length}, (_, i) => sheets[i]);"
+             "Object.defineProperty(document, 'styleSheets', {value: [...real, {get cssRules() "
+             "{ throw new DOMException('cross-origin', 'SecurityError'); }}]});")
+    answer = usable(html, "#item", setup)
+    assert answer["trigger"] == "#dd" and "unread" not in answer
+
+def test_the_outline_offers_no_opener_for_an_admitted_guess():
+    html = '<main><section style="display:none"><a id="item" href="/x">x</a></section></main>'
+    entry = outline(html, setup=UNREADABLE)["elements"][0]
+    assert entry["reason"] == "hidden" and "revealed_by" not in entry and "open_with" not in entry
+
+def test_usables_answers_each_match_in_order():
+    html = '<section style="display:none"><a id="a" href="/x">x</a></section><a id="b" href="/x">x</a>'
+    answers = run("helpers.js+usables.js", html, [{"$all": "a"}], GEOMETRY + stack("b"))
+    assert [a["reason"] for a in answers] == ["hidden", None]
+
+def test_a_label_inside_a_button_is_a_shallow_painted_hit():             # Review Focus 5
+    html = '<button id="go" style="background:#09f"><span id="label">Save</span></button>'
+    assert receiver(html, "#go", GEOMETRY + stack("label", "go")) == {
+        "element": "span#label", "inside": True, "under": True, "depth": 1, "painted": True,
+        "interactive": False, "overlay": False, "reason": None, "selector": None}
+
+def test_a_receiver_outside_carries_its_class_and_selector():           # ruling 14
+    html = ('<svg><g id="target"><text id="t">Go</text></g>'
+            '<rect id="hot" style="fill-opacity:0"></rect></svg>')
+    hit = receiver(html, "#target", GEOMETRY + stack("hot", "t"))
+    assert (hit["inside"], hit["depth"], hit["reason"], hit["selector"]) == (
+        False, None, "invisible_cover", {"css": "#hot"})
+
+def test_a_deep_unpainted_hit_says_so():                                 # brief 3
+    html = '<div id="screen"><div><div><div id="card"><div id="bg"></div></div></div></div></div>'
+    hit = receiver(html, "#screen", GEOMETRY + stack("bg", "card", "screen"))
+    assert (hit["depth"], hit["painted"], hit["interactive"]) == (4, False, False)
+
+def test_a_control_between_the_hit_and_the_target_is_noticed():
+    html = '<div id="card"><a id="link" href="/x"><i id="icon"></i></a></div>'
+    assert receiver(html, "#card", GEOMETRY + stack("icon", "link", "card"))["interactive"] is True
+
+def test_the_outline_names_what_an_unpainted_element_lets_through():
+    html = '<main><div id="behind" style="background:#fff"></div><button id="go"></button></main>'
+    entry = outline(html, setup=GEOMETRY + stack("behind"))["elements"][0]
+    assert (entry["reason"], entry["blocked_by"]) == ("unpainted", "div#behind")

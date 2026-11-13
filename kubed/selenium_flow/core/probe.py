@@ -97,6 +97,13 @@ _HELPERS_FILE = "helpers.js"
 # One element, as `explain` reads it.
 USABLE_JS = js.script(_HELPERS_FILE, "usable.js")
 
+# Every match of a selector, each answered as `USABLE_JS` answers one.
+USABLES_JS = js.script(_HELPERS_FILE, "usables.js")
+
+# What receives a pointer at an element's click point: the page's half of a
+# click's `received_by` and of the intercept's explanation.
+RECEIVER_JS = js.script(_HELPERS_FILE, "receiver.js")
+
 # The map. Every entry carries a selector that is checked to match exactly one
 # element before it is handed out - a selector an agent has to verify itself is
 # most of the work it came here to avoid.

@@ -11,7 +11,8 @@
 // <html>      the document the script runs against.
 // <args-json> a JSON array, bound as `arguments`. An entry {"$css": "<sel>"}
 //             becomes the first element matching it, as a WebElement argument
-//             does in a real session.
+//             does in a real session. {"$all": "<sel>"} becomes the array of
+//             every match, in document order.
 // [setup-js]  optional, evaluated in the window before the script. jsdom does no
 //             layout, so a test that needs geometry or elementFromPoint stubs it
 //             here rather than pretending the engine has it.
@@ -44,6 +45,9 @@ const { window } = dom;
 if (setup) window.eval(setup);
 
 const args = JSON.parse(argsJson).map((arg) => {
+  if (arg && typeof arg === "object" && "$all" in arg) {
+    return Array.from(window.document.querySelectorAll(arg.$all));
+  }
   if (arg && typeof arg === "object" && "$css" in arg) {
     const found = window.document.querySelector(arg.$css);
     if (!found) throw new Error("no element matches " + arg.$css);

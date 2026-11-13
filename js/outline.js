@@ -112,7 +112,7 @@ for (const [el, name, region] of content.concat(chrome).slice(0, limit)) {
   if (region) entry.region = region;
   if (verdict.reason) {
     entry.reason = verdict.reason;
-    if (verdict.reason === 'hidden' || verdict.reason === 'covered') {
+    if (['hidden', 'covered', 'unpainted', 'invisible_cover'].includes(verdict.reason)) {
       entry.blocked_by = verdict.detail;
     }
     // What is in the way was never the question a caller had. `revealed_by`
