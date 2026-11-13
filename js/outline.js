@@ -50,7 +50,9 @@ const accessibleName = (el) => {
     }
     return (el.getAttribute('name') || '').trim().slice(0, 80);
   }
-  return textOf(el).slice(0, 80);
+  // Only text the element owns: a container's textContent is every
+  // descendant's run together, which names nothing (#138).
+  return ownsItsText(el) ? textOf(el).slice(0, 80) : '';
 };
 
 // Which landmark an element sits in. A page's chrome - its navigation, banner,

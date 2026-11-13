@@ -238,6 +238,47 @@ def test_every_outline_selector_matches_exactly_the_element_it_describes():
     assert [f[0] for f in found] == ["button|a|Same", "button||Same", "a||One"]
 
 
+# An element with no label of its own used to be named by its whole subtree's
+# textContent, so two controls side by side read "SaveCancel" and a container
+# read as everything in it (#138). A name is text the element owns: one child
+# carrying text at each level, as for the text selector (saga §F2.10).
+def names(page, interactive=True, text=""):
+    answer = outline(page, text=text, interactive=interactive)
+    return [(e["role"], e["name"]) for e in answer["elements"]]
+
+
+def test_the_outline_never_names_an_element_from_its_descendants_run_together():
+    page = (
+        '<main><div role="button"><span>Save</span><span>Cancel</span></div>'
+        '<div role="button"><div>Save</div><div>Cancel</div></div></main>'
+    )
+    assert names(page) == [("button", ""), ("button", "")]
+
+
+def test_a_container_is_not_named_by_everything_inside_it():
+    page = '<main><section><p>One</p><p>Two</p></section></main>'
+    assert ("section", "") in names(page, interactive=False)
+
+
+def test_a_label_split_across_elements_is_the_price_of_never_fusing():
+    # Known cost, ruled in #140: telling "John Smith" from "SaveCancel" needs
+    # more than the markup says, so both go unnamed rather than one fused.
+    page = '<main><a href="/p"><span>John</span> <span>Smith</span></a></main>'
+    assert names(page) == [("link", "")]
+
+
+ICON = '<main><button><svg><path d="M0 0h1"/></svg><span>Save</span></button></main>'
+
+
+def test_an_icon_beside_a_label_does_not_cost_a_control_its_name():
+    assert names(ICON, text="save") == [("button", "Save")]
+
+
+def test_the_name_and_the_text_selector_agree_on_whose_text_it_is():
+    entry = outline(ICON)["elements"][0]
+    assert entry["xpath"] == '//button[normalize-space()="Save"]'
+
+
 def test_the_site_data_fill_writes_the_given_keys_and_nothing_else():
     """`fill` is composed in Python, so the runner takes its source from the
     environment. The store already holds `keep`; it must survive, and the
