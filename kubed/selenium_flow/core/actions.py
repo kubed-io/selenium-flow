@@ -617,12 +617,22 @@ class Actions:
                     # Selenium's `element_to_be_clickable` considers one
                     # clickable, so the wait above passes and the failure lands
                     # here - and the driver's message names the element it was
-                    # asked for, not the thing on top of it. The probe knows
-                    # which (saga §F2.8).
-                    why = probe.explain(driver, at.target)
+                    # asked for, not the thing on top of it. The probe asks the
+                    # page about the very element clicked, not the first match
+                    # of the selector, and says which match that was (saga
+                    # §F2.8; spec 2026-11-13, ruling 9).
+                    why = probe.explain(driver, at.target, element=element)
                     first = (getattr(exc, "msg", "") or "").strip().splitlines()
+                    found = at.found
+                    which = (
+                        f" The selector matched {found.matched}; this was "
+                        f"[{found.index}], the first that could be used."
+                        if found is not None and found.matched > 1
+                        else ""
+                    )
                     raise ElementClickInterceptedException(
                         (first[0] if first else "element click intercepted")
+                        + which
                         + (f" {why}" if why else "")
                     ) from exc
             elif resolved == "hover":

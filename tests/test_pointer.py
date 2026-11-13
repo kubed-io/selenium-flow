@@ -207,6 +207,40 @@ def test_a_click_leaves_the_pointer_on_what_it_clicked(actions, moving, monkeypa
     assert actions.pointers.get("abc") == (120.0, 80.0)
 
 
+def test_an_intercepted_click_names_the_match_and_probes_that_element(actions, moving, monkeypatch):
+    from selenium.common.exceptions import ElementClickInterceptedException
+
+    seen = []
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, script, *args):
+            seen.append(args)
+            return {"reason": "unpainted", "detail": "rect.frame-background"}
+
+    class _Blocked(_Element):
+        def click(self):
+            raise ElementClickInterceptedException(
+                "element click intercepted: Element <g> is not clickable at point (1350, 546).\nmore"
+            )
+
+    el = _Blocked()
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
+        lambda *a, **k: browser.Found(el, 1, 2),
+    )
+    with pytest.raises(ElementClickInterceptedException) as refused:
+        actions.interact("abc", "click", selector={"css": "g"})
+    message = str(refused.value)
+    assert "element click intercepted: Element <g> is not clickable at point (1350, 546)." in message
+    assert "The selector matched 2; this was [1], the first that could be used." in message
+    assert "paints nothing at its centre" in message
+    assert (el,) in seen
+
+
 @pytest.mark.parametrize("action", ["click", "double_click", "right_click", "hover"])
 def test_every_pointer_gesture_moves_first(actions, moving, action):
     actions.interact("abc", action, selector={"css": "#go"})
@@ -610,6 +644,7 @@ def test_a_covered_click_is_still_refused_loudly(live):
     with pytest.raises(ElementClickInterceptedException) as refused:
         actions.interact(session, "click", selector={"css": "#b"})
     assert "div#cover is on top of it" in str(refused.value)
+    assert "like a cookie banner or an overlay" in str(refused.value)  # #cover is position:fixed
     assert driver.execute_script("return window.clicked") == 0
 
 
