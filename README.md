@@ -1,6 +1,6 @@
 # 🌊 Selenium Flow
 
-**One browser, many calls.** Drive a real Chrome or Firefox on [Selenium Grid](https://www.selenium.dev/documentation/grid/) from an agent over MCP — or from anything else over plain HTTP. Same actions, same server, one browser that stays exactly where you left it. 🧭
+**One browser, many calls.** Drive a real Chrome or Firefox on [Selenium Grid](https://www.selenium.dev/documentation/grid/) from an agent over MCP — or from anything else over plain HTTP. Same actions, same server, one browser that stays exactly where you left it.
 
 [![🧪 Test](https://github.com/kubed-io/selenium-flow/actions/workflows/test.yml/badge.svg)](https://github.com/kubed-io/selenium-flow/actions/workflows/test.yml)
 [![🛡️ Quality](https://github.com/kubed-io/selenium-flow/actions/workflows/quality.yml/badge.svg)](https://github.com/kubed-io/selenium-flow/actions/workflows/quality.yml)
@@ -24,7 +24,7 @@ workflow  ──── HTTP /browser ──▶ └──────────
                                                             lives here
 ```
 
-**This server holds no browser.** The browser lives on the Grid, and with `WORKSPACE_STORE=redis` the record naming it does too — so the server can restart or scale to zero without anyone losing a tab. With the default in-memory store, a restart forgets which browser was whose. 🪄
+**This server holds no browser.** The browser lives on the Grid, and with `WORKSPACE_STORE=redis` the record naming it does too — so the server can restart or scale to zero without anyone losing a tab. With the default in-memory store, a restart forgets which browser was whose.
 
 ---
 
@@ -49,26 +49,26 @@ Twenty actions, each with a request body that *is* its tool's schema.
 
 | Action | Endpoint | |
 |---|---|---|
-| [`open_session`](https://github.com/kubed-io/selenium-flow/wiki/open_session) | `POST /browser` | Start a browser — `chrome` or `firefox` 🚀 |
-| [`navigate`](https://github.com/kubed-io/selenium-flow/wiki/navigate) | `POST /browser/navigate` | Go to a URL 🧭 |
-| [`interact`](https://github.com/kubed-io/selenium-flow/wiki/interact) | `POST /browser/interact/{action}` | Click, double-click, right-click, hover, scroll to 🖱️ |
-| [`drag`](https://github.com/kubed-io/selenium-flow/wiki/drag) | `POST /browser/drag` | Drag an element onto another, or by an offset 🤏 |
-| [`write`](https://github.com/kubed-io/selenium-flow/wiki/write) | `POST /browser/write` | Type into a field ⌨️ |
-| [`press_key`](https://github.com/kubed-io/selenium-flow/wiki/press_key) | `POST /browser/press-key` | Press a named key — `tab`, `enter`, arrows 🎹 |
-| [`extract`](https://github.com/kubed-io/selenium-flow/wiki/extract) | `POST /browser/extract` | Read text and HTML off the page 📖 |
-| [`outline`](https://github.com/kubed-io/selenium-flow/wiki/outline) | `POST /browser/outline` | What is on the page: a checked selector each, and what works 🗺️ |
-| [`assert`](https://github.com/kubed-io/selenium-flow/wiki/assert) | `POST /browser/assert` | JavaScript that must come back true, or the call fails ✅ |
-| [`screenshot`](https://github.com/kubed-io/selenium-flow/wiki/screenshot) | `POST /browser/screenshot` | Capture a PNG, viewport or full page 📸 |
-| [`print`](https://github.com/kubed-io/selenium-flow/wiki/print) | `POST /browser/print` | Keep the page as a PDF or as HTML 📄 |
-| [`execute_script`](https://github.com/kubed-io/selenium-flow/wiki/execute_script) | `POST /browser/script` | Run JavaScript — the escape hatch 🧪 |
-| [`frame`](https://github.com/kubed-io/selenium-flow/wiki/frame) | `POST /browser/frame` | Enter and leave an iframe 🖼️ |
-| [`dialog`](https://github.com/kubed-io/selenium-flow/wiki/dialog) | `POST /browser/dialog` | Answer a native alert, confirm or prompt 💬 |
-| [`resize`](https://github.com/kubed-io/selenium-flow/wiki/resize) | `POST /browser/resize` | Change the window at any time 📐 |
-| [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | `POST /browser/upload` | Attach a file to a file input 📎 |
-| [`save_site_data`](https://github.com/kubed-io/selenium-flow/wiki/save_site_data) | `POST /browser/save-site-data` | Keep cookies and storage to restore 🍪 |
-| [`network_body`](https://github.com/kubed-io/selenium-flow/wiki/network_body) | `POST /browser/network-body` | One captured response body 📦 |
-| [`await_control`](https://github.com/kubed-io/selenium-flow/wiki/await_control) | `POST /browser/await-control` | Wait for a person to hand back ✋ |
-| [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `DELETE /browser` | Give the slot back, keep the workspace 🧹 |
+| [`open_session`](https://github.com/kubed-io/selenium-flow/wiki/open_session) | `POST /browser` | Start a browser — `chrome` or `firefox` |
+| [`navigate`](https://github.com/kubed-io/selenium-flow/wiki/navigate) | `POST /browser/navigate` | Go to a URL |
+| [`interact`](https://github.com/kubed-io/selenium-flow/wiki/interact) | `POST /browser/interact/{action}` | Click, double-click, right-click, hover, scroll to |
+| [`drag`](https://github.com/kubed-io/selenium-flow/wiki/drag) | `POST /browser/drag` | Drag an element onto another, or by an offset |
+| [`write`](https://github.com/kubed-io/selenium-flow/wiki/write) | `POST /browser/write` | Type into a field |
+| [`press_key`](https://github.com/kubed-io/selenium-flow/wiki/press_key) | `POST /browser/press-key` | Press a named key — `tab`, `enter`, arrows |
+| [`extract`](https://github.com/kubed-io/selenium-flow/wiki/extract) | `POST /browser/extract` | Read text and HTML off the page |
+| [`outline`](https://github.com/kubed-io/selenium-flow/wiki/outline) | `POST /browser/outline` | What is on the page: a checked selector each, and what works |
+| [`assert`](https://github.com/kubed-io/selenium-flow/wiki/assert) | `POST /browser/assert` | JavaScript that must come back true, or the call fails |
+| [`screenshot`](https://github.com/kubed-io/selenium-flow/wiki/screenshot) | `POST /browser/screenshot` | Capture a PNG, viewport or full page |
+| [`print`](https://github.com/kubed-io/selenium-flow/wiki/print) | `POST /browser/print` | Keep the page as a PDF or as HTML |
+| [`execute_script`](https://github.com/kubed-io/selenium-flow/wiki/execute_script) | `POST /browser/script` | Run JavaScript — the escape hatch |
+| [`frame`](https://github.com/kubed-io/selenium-flow/wiki/frame) | `POST /browser/frame` | Enter and leave an iframe |
+| [`dialog`](https://github.com/kubed-io/selenium-flow/wiki/dialog) | `POST /browser/dialog` | Answer a native alert, confirm or prompt |
+| [`resize`](https://github.com/kubed-io/selenium-flow/wiki/resize) | `POST /browser/resize` | Change the window at any time |
+| [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | `POST /browser/upload` | Attach a file to a file input |
+| [`save_site_data`](https://github.com/kubed-io/selenium-flow/wiki/save_site_data) | `POST /browser/save-site-data` | Keep cookies and storage to restore |
+| [`network_body`](https://github.com/kubed-io/selenium-flow/wiki/network_body) | `POST /browser/network-body` | One captured response body |
+| [`await_control`](https://github.com/kubed-io/selenium-flow/wiki/await_control) | `POST /browser/await-control` | Wait for a person to hand back |
+| [`end_browser`](https://github.com/kubed-io/selenium-flow/wiki/end_browser) | `DELETE /browser` | Give the slot back, keep the workspace |
 
 Every parameter, return field and trap is one page per action in the **[wiki](https://github.com/kubed-io/selenium-flow/wiki/Actions)** — generated from the live tool schemas.
 
@@ -100,9 +100,10 @@ Workspaces expire on `WORKSPACE_TTL`, slid forward on every use; nothing else re
 |---|---|---|
 | **A URL parameter** | `…/mcp?workspace=research-bot` | the usual case: one credential, each caller named in its own URL |
 | **A header** | `Sf-Workspace: research-bot` | an operator pins one workspace to one credential |
+| **A Claude.ai connector** | a static header `X-Workspace: research-bot` | it can only send allowlisted header names; its header is the same for every member of the organisation, so they all share one workspace and browser |
 | **stdio** | nothing to do | one process serves one client, and it is named `stdio` |
 
-The old `X-` headers (`X-Workspace`, `X-Browser`, …) are refused with a 400 naming the new spelling.
+`X-Workspace` is `Sf-Workspace`'s alias and loses to it when both are sent. Other old `X-` headers (`X-Browser`, …) are refused with a 400 naming the new spelling.
 
 **Sending both is a 400**: two names is two ideas about who is calling. Naming nothing is a 400 too, with a message saying how — except on the flow library, which falls back to the shared `global` one that everyone reads and nobody writes.
 
@@ -110,11 +111,11 @@ The old `X-` headers (`X-Workspace`, `X-Browser`, …) are refused with a 400 na
 
 Call again with the same name — after a reconnect, a restart, a week later — and you are back on the same browser at the same page.
 
-> ⚠️ n8n opens a **new MCP transport per tool call**, so nothing the transport negotiates is ever the same twice. Name the workspace in the URL and it simply works.
+> ⚠️ n8n opens a **new MCP transport per tool call**, so nothing the transport negotiates is ever the same twice. Name the workspace in the URL and it works.
 
 > 🔑 A workspace name is an address, not a secret: the bearer token is the credential, so anyone holding it who knows your workspace's name can drive your browser.
 
-Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long a workspace is remembered is `WORKSPACE_TTL`. Nothing runs a cleanup loop.
+Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); a workspace's is `WORKSPACE_TTL`. Nothing runs a cleanup loop.
 
 ### 📍 Where am I?
 
@@ -147,7 +148,6 @@ Those URIs are FastMCP's convention, served by its own `SkillProvider`, so
 A client that implements the MCP Skills extension also finds it through
 `skills/list` and `skills/get`, and can verify every file it reads.
 
-A client that cannot read resources reads the same URIs with `read_resource`.
 `MCP_SKILL=false` turns the skill off, and the explorer with it.
 
 A client that implements the agents extension finds the **explorer** through `agents/list`: a subagent that explores a site in your workspace, runs the flows that fit each page, saves new ones, and reports back briefly.
@@ -278,7 +278,7 @@ Workspaces, not Grid sessions: browsers somebody else put on the Grid are not li
 
 The list **pushes its own updates** over Server-Sent Events — no refresh button, and no polling per tab: one loop serves every page.
 
-There are no accounts: the sign-in box asks for the server's token, since anyone holding it can already drive every browser through the API. It is kept in `sessionStorage`, so it does not outlive the tab.
+There are no accounts: the sign-in box asks for the server's token, since anyone holding it can already drive every browser through the API. It is kept in `sessionStorage`, so it dies with the tab.
 
 The Grid's own console is a second tab, framed same-origin. Put both behind one host — the Grid at `/`, this server under a path — and its live view works with no cross-origin exception.
 

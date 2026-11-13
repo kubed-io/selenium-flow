@@ -87,7 +87,7 @@ the URL is written by whoever wires up the call, so two values mean two ideas.
 
 | Switch | Header | Parameter | Does |
 |---|---|---|---|
-| Workspace name | `Sf-Workspace` | `?workspace=<name>` | Names your workspace, so it holds your browser and survives a reconnect |
+| Workspace name | `Sf-Workspace` | `?workspace=<name>` | Names your workspace, so it holds your browser and survives a reconnect. `X-Workspace` is accepted as its alias, for a client that can only send allowlisted header names; `Sf-Workspace` wins when both are sent. |
 | Resources | `X-MCP-Resources: off` or `on` | `?resources=off` or `on` | Whether this client is given `list_resources` and `read_resource`. Unset, VS Code gets them and other clients do not |
 
 Setting a workspace name is what gives you a browser and a library of your own, described in

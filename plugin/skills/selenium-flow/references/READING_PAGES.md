@@ -108,19 +108,21 @@ Each entry carries `css` or `xpath`, whichever was checked; hand it on as
 
 That second entry is the whole point: the link is real, its selector works, and
 clicking it now would time out — because `ul.menu-content` is hidden. The reasons
-are `hidden`, `covered` (with `blocked_by`), `zero_size`, `offscreen` and
-`disabled`.
+are `hidden`, `covered` (with `blocked_by`), `unpainted` (it paints nothing at
+its centre), `invisible_cover` (an invisible element is on top), `zero_size`,
+`offscreen` and `disabled`.
 
 **`blocked_by` says what is in the way; `revealed_by` says what to act on.** Act
 on `revealed_by`, and use the gesture `open_with` names:
 
 - `open_with: "click"` — the trigger carries `aria-expanded`, so the page has
   told you it toggles on a click. Hovering it does nothing.
-- `open_with: "hover"` — nothing said otherwise, and a `:hover` menu is the
-  usual reason an ancestor is `display: none`.
+- `open_with: "hover"` — the page has a `:hover` rule that shows it, or a
+  control that names it without `aria-expanded`.
 
 Neither appears when nothing visible above the element has a checked selector,
-because `body` is a true answer and useless advice.
+because `body` is a true answer and useless advice, nor when nothing on the page
+says how it opens.
 
 - **The content comes first.** Elements in the page's navigation, banner,
   footer and sidebars are listed after everything else, and each entry's

@@ -196,7 +196,7 @@ anyone else. On top of it:
   (`config.oidc_problem`).
 - **`oidc.client_id` and `oidc.admin_roles` come together, and only with the
   issuer**, checked in the same place (`config.oidc_problem`).
-- **Behind agentgateway, the gateway sets `Sf-Workspace`, from `?workspace=`, the caller's `Sf-Workspace` or the token's user, and drops the query string. A caller's old `X-` header crosses and is refused.**
+- **Behind agentgateway, the gateway sets `Sf-Workspace`, from `?workspace=`, the caller's `Sf-Workspace`, its `X-Workspace` or the token's user, and drops the query string. A caller's other old `X-` headers cross and are refused.**
 - **A JWT with an unknown `kid` makes `JWTVerifier` fetch the JWKS**, and FastMCP's bearer
   middleware runs on every path, so any request on a door that bypasses the gateway (the
   in-cluster Service, the ingress) can cause one. `OidcVerifier` floors that at one attempt
@@ -527,12 +527,23 @@ silent new identity.
 1. **`Sf-Workspace`**, a header — what an admin pins inside a credential when
    one credential should mean one workspace, and what the gateway sets. A
    repeated header with two values is refused; it reports `named_by: header`.
+   `X-Workspace` is its alias, for a Claude.ai connector; a connector's header is
+   the same for every member of the organisation, so they all share one
+   workspace and one browser.
 2. **`?workspace=<name>`** on the URL — the ergonomic path: one shared bearer
    credential, each caller naming itself in its own URL.
 3. **stdio**, where one process serves one client, so the constant `stdio` is
    correct and needs no configuration.
 
-**The old names are refused, not ignored** (spec 2026-10-29-sf-headers, rulings 2 and 9): any `X-` header that was ours (`X-Workspace`, `X-Browser`, `X-Version`, `X-Window-Width`, `X-Window-Height`, `X-Page-Load-Timeout`, `X-Script-Timeout`), anywhere in a request, is a 400 naming each new spelling, even beside a new name. `X-MCP-Resources` is shared with mcp-kb and keeps its name. There are no aliases. The session names from before 10-09, `X-Session-Key` and `?session=`, are retired: the server does not know them, so a request sending one names nothing by it (ruling 10, revised).
+**The old names are refused, not ignored** (spec 2026-10-29-sf-headers, rulings 2 and 9): any `X-` header that was ours and has no alias (`X-Browser`, `X-Version`, `X-Window-Width`, `X-Window-Height`, `X-Page-Load-Timeout`, `X-Script-Timeout`), anywhere in a request, is a 400 naming each new spelling, even beside a new name. `X-MCP-Resources` is shared with mcp-kb and keeps its name. The session names from before 10-09, `X-Session-Key` and `?session=`, are retired: the server does not know them, so a request sending one names nothing by it (ruling 10, revised).
+
+**An `X-` name is an alias only when a client we support can't send our
+`Sf-` name and that `X-` name is its only way to say the same thing; at
+most one alias per `Sf-` name.** `Sf-` stays the name the docs and
+examples use, and the alias loses to it when both are sent. Today there
+is one: `X-Workspace`, because Claude.ai's connectors can send only
+allowlisted header names, and `sf-workspace` is not one of them (spec
+2026-11-12-x-workspace-alias).
 
 **A header and `?workspace=` at once is a 400.** It used to be a precedence — the header won, on the
 reasoning that an admin's credential outranks a caller's URL — and Dr K replaced
@@ -992,6 +1003,56 @@ become a click on whatever the second found, and the run would report `ok` while
 it drifted. `browser.locator` refuses both-or-neither at the boundary and the
 model refuses it in the schema; `flowdoc` refuses it at save time, because a
 flow is YAML somebody may have written by hand.
+
+## A selector may match several
+
+A selector is a question and the page may answer with many elements: the
+mobile and desktop copy of a link, a template row, a hidden duplicate. Spec
+2026-11-13-click-matches holds the rulings; what must not break:
+
+**Which match.** An acting action takes the first match that is displayed and
+enabled, never the first blindly and never a refusal for a duplicate
+(`wait_for_clickable`, ruling 2: `interact`, `write`, `press_key` with a
+selector, `drag`'s source). `hover`, `scroll_to` and `drag`'s `to` take the first
+displayed, else the first match (ruling 3, `_FirstUsable`), because they aim a
+pointer and a hidden match aims it at 0,0. The
+reads keep the first match (`frame`, `upload_file`, `outline`'s scope, `extract`,
+`screenshot`): a file input is hidden by design and hidden text is still text.
+`matched` and `index` appear only when more than one matched, added once by
+`Recipe.run`; one match costs what it always cost.
+
+**The cap.** A wait tries at most `probe.CANDIDATES` (50) matches per poll.
+`is_displayed` is a round trip per element, and `//a` with hundreds of hidden
+matches would stall each poll for seconds inside the session's lock. Past the
+cap the timeout says only the first 50 were tried and to narrow the selector.
+
+**The receiver.** An `interact` click, `double_click` or `right_click` reports
+`received_by` (`element`, `depth`, `painted`), as `probe.receiver_report` words
+it (rulings 13 and 14). A receiver inside the target gets a `warning` only when
+it is unpainted or deeper than `probe.DEEP`, at depth 1 or more, and neither
+the target nor anything between it and the target matches `probe.INTERACTIVE`:
+a link or a button sees a click anywhere inside it. A `double_click` or
+`right_click` whose receiver is outside the target always gets the outside
+warning, with `depth` null, and is reported; the pointer actions press whatever
+is on top and WebDriver never refuses them. A click outside the target is
+refused by WebDriver, and the intercept error says why. A click that lands on
+a descendant succeeds and is reported in `received_by`, with a warning only under
+the inside rule. When WebDriver's own hit test disagrees with the page script and
+the click succeeds anyway, nothing extra is said: WebDriver's answer is the one
+that clicked (ruling 14).
+
+**The probe's advice is stated, or admitted to be a guess, never invented.** It
+names an overlay only for a fixed, sticky or z-indexed cover; anything else on
+top is a plain "covers it" or an invisible cover. It offers a hover only for a
+stated opener or a `:hover` rule the page's stylesheets contain, and says "a
+stylesheet couldn't be read" when that is why it is guessing (ruling 12). Do not
+bring back the canned "cookie banner".
+
+**"Painted" lives in `js/helpers.js` alone** (`painted`, `receiverAt`). The
+probe and the click's result both ask it, so they cannot disagree. A
+`::before` or `::after` that draws is its element's paint, so an icon font's
+glyph counts (ruling 11). jsdom computes no pseudo-element style, so its tests
+stub one (`PSEUDO` in `tests/test_js_behaviour.py`).
 
 ## Frame switches are Grid-side and sticky
 

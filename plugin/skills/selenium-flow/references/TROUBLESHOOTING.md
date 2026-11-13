@@ -4,8 +4,9 @@
 the failure says which of these it is and what to do about it: an ancestor is
 hidden — a `:hover` menu looks exactly like this, and the message names the
 *visible* element to hover when it can identify one, because nothing with
-`display: none` can receive a pointer — something is on top of it (dismiss the
-banner), it has no size, it is outside the viewport (`scroll_to`), or it is
+`display: none` can receive a pointer — something is on top of it (the error
+says what: an overlay to dismiss, an invisible cover, or a plain sibling), it
+has no size, it is outside the viewport (`scroll_to`), or it is
 disabled. That sentence is the diagnosis; the list below
 is for when there is no element at all.
 
@@ -135,8 +136,18 @@ settled. Confirm what you actually clicked:
 extract(selector={"xpath": "//button[contains(., 'Submit')]"})
 ```
 
-If an overlay or cookie banner is intercepting the click, dismiss it first —
-they are the most common cause of a click that lands on nothing.
+First read the click's `received_by` and `warning`. A deep or unpainted receiver
+means the selected element got the click only by bubbling: select the inner
+element you meant. A `double_click` or `right_click` presses whatever is on top,
+and its `warning` says when that was something else.
+
+Then `matched` and `index`. They appear only when the selector matched several,
+and `index` (counting from 0) is the match that was used. Another match may be
+the one you meant: narrow the selector.
+
+When the click is refused because something is on top, the error says what. It
+calls it an overlay only when it is fixed or stacked above the page; dismiss
+that first.
 
 ## A hover that reported success and opened nothing
 
@@ -153,6 +164,10 @@ computed `display`.
 Then it is a menu that opens on **click**. `outline` says which: an entry's
 `open_with` is `click` when the trigger carries `aria-expanded`, and the trigger
 itself is in `revealed_by`. Click that.
+
+When the error says a stylesheet couldn't be read, the hover is a guess. If
+hovering does nothing, look for a control that clicks it open: `outline` the
+area around it.
 
 ## A certificate error
 
