@@ -91,7 +91,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The live view's audit line says the browser ended when its node went away, instead of blaming the viewer.
 - Clicks use the first visible match of a selector and say what received the click; click errors say what is at the point.
 
-
 ## [0.3.0] - 2026-09-26
 
 ### Added

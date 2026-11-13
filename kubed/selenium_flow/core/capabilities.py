@@ -183,7 +183,7 @@ MATCHED = {
         "type": "integer",
         "description": (
             "Which of them was used, counting from 0: the first that could be "
-            "used, or for hover, scroll_to and drag's to, the first displayed."
+            "used, or for hover and scroll_to, the first displayed, else the first."
         ),
     },
 }

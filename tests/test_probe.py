@@ -330,3 +330,13 @@ def test_a_control_in_between_is_no_warning():
 
 def test_received_never_fails_a_gesture():
     assert probe.received(_Page({}, raises=RuntimeError("gone")), "<el>") == {}
+
+
+def test_received_logs_a_failure_by_its_type_never_its_message(caplog):
+    secret = "http://10.1.2.3:4444/session/abc123deadbeef"
+    page = _Page({}, raises=RuntimeError(f"node {secret} stopped answering"))
+    with caplog.at_level("DEBUG"):
+        assert probe.received(page, object()) == {}
+    text = "\n".join(r.getMessage() + str(r.exc_info) for r in caplog.records)
+    assert "RuntimeError" in text
+    assert "abc123deadbeef" not in text and "10.1.2.3" not in text

@@ -572,7 +572,7 @@
             "type": "boolean"
           },
           "index": {
-            "description": "Which of them was used, counting from 0: the first that could be used, or for hover, scroll_to and drag's to, the first displayed.",
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
           },
           "matched": {
@@ -1644,7 +1644,7 @@
             "type": "boolean"
           },
           "index": {
-            "description": "Which of them was used, counting from 0: the first that could be used, or for hover, scroll_to and drag's to, the first displayed.",
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
           },
           "matched": {
@@ -2436,7 +2436,7 @@
       "PressKeyResponse": {
         "properties": {
           "index": {
-            "description": "Which of them was used, counting from 0: the first that could be used, or for hover, scroll_to and drag's to, the first displayed.",
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
           },
           "key": {
@@ -3885,7 +3885,7 @@
       "WriteResponse": {
         "properties": {
           "index": {
-            "description": "Which of them was used, counting from 0: the first that could be used, or for hover, scroll_to and drag's to, the first displayed.",
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
           },
           "matched": {

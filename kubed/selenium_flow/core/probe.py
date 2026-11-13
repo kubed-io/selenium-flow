@@ -243,8 +243,9 @@ def received(driver, element) -> dict:
         if isinstance(answer, dict) and "inside" in answer:
             return answer
     # Broad on purpose: a diagnosis must never outrank the gesture it reports on.
-    except Exception:
-        log.debug("could not read what receives the click", exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        # The type only: a lost node's message quotes the node and the Grid id.
+        log.debug("could not read what receives the click: %s", type(exc).__name__)
     return {}
 
 
