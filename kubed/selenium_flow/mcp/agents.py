@@ -11,12 +11,19 @@ cannot change under a running process.
 
 from __future__ import annotations
 
+import copy
 import logging
 import re
 import unicodedata
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+from fastmcp.server.extensions import MethodBinding, ServerExtension
+from fastmcp.server.middleware import Middleware
+from mcp.shared.exceptions import MCPError
+from mcp_types import INVALID_PARAMS, PaginatedRequestParams, RequestParams
+from pydantic import Field
 
 from . import frontmatter
 
@@ -26,6 +33,7 @@ EXTENSION_ID = "io.modelcontextprotocol/agents"
 PLUGIN_DIR = "plugin"
 AGENTS_DIR = "agents"
 META_KEY = "io.kubed/agent"
+AGENTS_SETTINGS = {"listChanged": False}
 
 _HINTS = {"opus": "large", "sonnet": "medium", "haiku": "small"}
 _BAD_CATEGORIES = {"Cc", "Cf", "Co", "Cs", "Cn"}
@@ -44,10 +52,13 @@ def agents_path() -> Path:
     ``plugin/`` lives at the repo root; pyproject maps it into the package at
     build time, so an installed wheel finds it beside this module, and a source
     checkout falls back to the root. It may not exist: no agents is a valid state.
+    The test is for ``plugin/``, not ``agents/``: an installed wheel may ship
+    ``plugin/`` without ``agents/``, and must not then fall back to a
+    ``plugin/agents`` in site-packages that another distribution could own.
     """
-    packaged = Path(__file__).parent / PLUGIN_DIR / AGENTS_DIR
+    packaged = Path(__file__).parent / PLUGIN_DIR
     if packaged.is_dir():
-        return packaged
+        return packaged / AGENTS_DIR
     # parents[3] because this module lives in mcp/: package, kubed, repo root.
     return Path(__file__).parents[3] / PLUGIN_DIR / AGENTS_DIR
 
@@ -128,7 +139,12 @@ def load(base: Path | None = None, skills: Collection[str] = ()) -> list[Agent]:
     if not base.is_dir():
         return []
     found: dict[str, tuple[Agent, str]] = {}
-    for path in sorted(p for p in base.iterdir() if p.suffix == ".md" and p.is_file()):
+    try:
+        files = sorted(p for p in base.iterdir() if p.suffix == ".md" and p.is_file())
+    except OSError as exc:
+        log.warning("agent folder %s is skipped: %s", base, exc)
+        return []
+    for path in files:
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
@@ -147,3 +163,70 @@ def load(base: Path | None = None, skills: Collection[str] = ()) -> list[Agent]:
         else:
             found[built.name] = (built, path.name)
     return sorted((a for a, _ in found.values()), key=lambda a: a.name)
+
+
+class GetAgentParams(RequestParams):
+    name: str = Field(min_length=1)
+
+
+def _result(**fields: object) -> dict:
+    # The same as the Skills extension's, written out so neither module needs the other.
+    return {"resultType": "complete", "ttlMs": 0, "cacheScope": "private", **fields}
+
+
+class AgentsExtension(ServerExtension):
+    """``agents/list`` and ``agents/get`` over the loaded agents."""
+
+    identifier = EXTENSION_ID
+
+    def __init__(self, agents: Sequence[Agent]):
+        self._agents = list(agents)
+
+    def settings(self) -> dict:
+        return dict(AGENTS_SETTINGS)
+
+    def methods(self) -> Sequence[MethodBinding]:
+        return (
+            MethodBinding("agents/list", PaginatedRequestParams, self.list_agents),
+            MethodBinding("agents/get", GetAgentParams, self.get_agent),
+        )
+
+    async def list_agents(self, ctx, params: PaginatedRequestParams) -> dict:
+        if params.cursor is not None:
+            # One page; any cursor is one this server never issued.
+            raise MCPError(code=INVALID_PARAMS, message="Invalid agents cursor")
+        return _result(agents=[copy.deepcopy(a.card) for a in self._agents])
+
+    async def get_agent(self, ctx, params: GetAgentParams) -> dict:
+        for agent in self._agents:
+            if agent.name == params.name:
+                return _result(**copy.deepcopy(agent.detail))
+        raise MCPError(
+            code=INVALID_PARAMS,
+            message="Agent not found",
+            data={"reason": "agent_not_found"},
+        )
+
+
+class AdvertiseAgents(Middleware):
+    """Declare the extension in a legacy ``initialize`` reply too.
+
+    FastMCP declares registered extensions in ``server/discover`` only, so a
+    handshake-era client would never learn the agents methods exist, as with
+    AdvertiseSkills.
+    """
+
+    async def on_initialize(self, context, call_next):
+        result = await call_next(context)
+        if result is not None:
+            result.capabilities.extensions = {
+                **(result.capabilities.extensions or {}),
+                EXTENSION_ID: dict(AGENTS_SETTINGS),
+            }
+        return result
+
+
+def register(mcp, agents: Sequence[Agent]) -> None:
+    """Serve the agents, declared even when there are none."""
+    mcp.add_extension(AgentsExtension(agents))
+    mcp.add_middleware(AdvertiseAgents())

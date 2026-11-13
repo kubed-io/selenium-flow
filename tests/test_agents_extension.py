@@ -1,12 +1,25 @@
 """Agent files load into cards and details (spec 2026-11-12-plugin-agents)."""
 
 import logging
+from pathlib import Path
 
 import pytest
 import yaml
+from fastmcp import Client, FastMCP
+from mcp.shared.exceptions import MCPError
+from mcp_types import (
+    INVALID_PARAMS,
+    METHOD_NOT_FOUND,
+    Request,
+    RequestParams,
+)
+from pydantic import ConfigDict, TypeAdapter
 
-from kubed.selenium_flow.mcp import agents
+from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.mcp import agents, skill_extension
+from kubed.selenium_flow.mcp.agents import EXTENSION_ID
 from kubed.selenium_flow.mcp.frontmatter import split
+from kubed.selenium_flow.server import SeleniumMCP
 
 pytestmark = pytest.mark.unit
 
@@ -166,7 +179,7 @@ def test_the_first_of_two_files_with_one_name_wins(tmp_path, caplog):
 def test_only_markdown_at_the_top_level_is_read(tmp_path):
     (tmp_path / "drafts").mkdir()
     agent_file(tmp_path / "drafts", "x.md", "name: x\ndescription: x")
-    (tmp_path / "notes.txt").write_text("hi")
+    agent_file(tmp_path, "notes.txt", "name: notes\ndescription: x")
     assert agents.load(tmp_path) == []
 
 
@@ -174,8 +187,196 @@ def test_a_missing_folder_is_no_agents(tmp_path):
     assert agents.load(tmp_path / "missing") == []
 
 
+def test_a_folder_that_cannot_be_listed_is_no_agents(tmp_path, monkeypatch, caplog):
+    good(tmp_path)
+    real = Path.iterdir
+
+    def iterdir(self):
+        if self == tmp_path:
+            raise PermissionError("denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    with caplog.at_level(logging.WARNING):
+        assert agents.load(tmp_path) == []
+    assert f"agent folder {tmp_path} is skipped" in caplog.text
+
+
+def _tree(root, *, plugin, agents_dir=False):
+    module = root / "kubed" / "selenium_flow" / "mcp"
+    module.mkdir(parents=True)
+    if plugin:
+        (module / "plugin").mkdir()
+    if agents_dir:
+        (module / "plugin" / "agents").mkdir()
+    return module
+
+
+def test_an_installed_package_never_falls_back_to_the_root(tmp_path, monkeypatch):
+    module = _tree(tmp_path, plugin=True)
+    monkeypatch.setattr(agents, "__file__", str(module / "agents.py"))
+    assert agents.agents_path() == module / "plugin" / "agents"
+
+
+def test_a_checkout_falls_back_to_the_repo_root(tmp_path, monkeypatch):
+    module = _tree(tmp_path, plugin=False)
+    monkeypatch.setattr(agents, "__file__", str(module / "agents.py"))
+    assert agents.agents_path() == tmp_path / "plugin" / "agents"
+
+
 def test_split_returns_the_header_and_the_body():
     assert split("---\na: 1\n---\nbody\n") == ({"a": 1}, "body")
     assert split("no header") is None
     assert split("---\na: 1\n") is None
     assert split("---\na: [\n---\n") is None
+
+
+class ExtensionParams(RequestParams):
+    model_config = ConfigDict(extra="allow")
+
+
+async def request(client, method, **params):
+    return await client.session.send_request(
+        Request(method=method, params=ExtensionParams(**params)), TypeAdapter(dict)
+    )
+
+
+def header(text: str) -> object:
+    lines = text.splitlines()
+    end = next(i for i, line in enumerate(lines[1:], start=1) if line.rstrip() == "---")
+    return yaml.safe_load("\n".join(lines[1:end]))
+
+
+FRESH = {"resultType": "complete", "ttlMs": 0, "cacheScope": "private"}
+
+
+def serving(monkeypatch, folder, **settings):
+    monkeypatch.setattr(agents, "agents_path", lambda: folder)
+    return SeleniumMCP(
+        Settings(
+            grid={"url": "http://grid.invalid:4444"}, auth={"token": "t"}, **settings
+        )
+    )
+
+
+@pytest.fixture
+def folder(tmp_path):
+    base = tmp_path / "agents"
+    base.mkdir()
+    agent_file(base, "zeta.md", FRONT.replace("name: explorer", "name: zeta"))
+    agent_file(base, "alpha.md", "name: alpha\ndescription: First.", body="")
+    return base
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_the_extension_is_declared_beside_skills(monkeypatch, folder, mode):
+    async with Client(serving(monkeypatch, folder).mcp, mode=mode) as client:
+        extensions = client.session.server_capabilities.extensions
+    assert extensions[EXTENSION_ID] == {"listChanged": False}
+    assert extensions[skill_extension.EXTENSION_ID] == {}
+
+
+async def test_the_listing_is_the_cards_in_name_order(monkeypatch, folder):
+    async with Client(serving(monkeypatch, folder).mcp) as client:
+        listing = await request(client, "agents/list")
+    # In auto mode FastMCP adds its serverInfo under _meta to extension results.
+    assert set(listing.pop("_meta", {})) <= {"io.modelcontextprotocol/serverInfo"}
+    assert listing == {
+        **FRESH,
+        "agents": [
+            {"name": "alpha", "description": "First.", "capabilities": []},
+            {
+                "name": "zeta",
+                "description": "Explores a site.",
+                "capabilities": ["browse"],
+            },
+        ],
+    }
+
+
+async def test_get_returns_the_detail(monkeypatch, folder):
+    async with Client(serving(monkeypatch, folder).mcp) as client:
+        got = await request(client, "agents/get", name="zeta")
+        alpha = await request(client, "agents/get", name="alpha")
+        skill = got["_meta"]["io.kubed/agent"]["skills"]["selenium-flow"]
+        assert (await client.read_resource(skill))[0].text.startswith("---")
+    assert got["agent"] == "zeta" and got["tools"] == [] and "capabilities" not in got
+    assert got["modelRoutingHint"] == {"role": "medium", "vision": False}
+    assert got["_meta"]["io.kubed/agent"]["frontmatter"] == header(
+        (folder / "zeta.md").read_text()
+    )
+    assert {k: got[k] for k in FRESH} == FRESH
+    assert "instructions" not in alpha and "modelRoutingHint" not in alpha
+
+
+@pytest.mark.parametrize(
+    ("method", "params", "message"),
+    [
+        ("agents/get", {"name": "nope"}, "Agent not found"),
+        ("agents/get", {"name": ""}, None),
+        ("agents/get", {}, None),
+        ("agents/list", {"cursor": "2"}, "Invalid agents cursor"),
+    ],
+)
+async def test_refusals_are_invalid_params(monkeypatch, folder, method, params, message):
+    async with Client(serving(monkeypatch, folder).mcp) as client:
+        with pytest.raises(MCPError) as caught:
+            await request(client, method, **params)
+    assert caught.value.error.code == INVALID_PARAMS
+    if message:
+        assert caught.value.error.message == message
+    else:
+        # The schema refused it, not the handler's own lookup.
+        assert caught.value.error.message != "Agent not found"
+    if params.get("name") == "nope":
+        assert caught.value.error.data == {"reason": "agent_not_found"}
+
+
+async def test_a_broken_file_costs_only_itself(monkeypatch, folder):
+    (folder / "broken.md").write_text("# no header\n", encoding="utf-8")
+    async with Client(serving(monkeypatch, folder).mcp) as client:
+        listing = await request(client, "agents/list")
+    assert [a["name"] for a in listing["agents"]] == ["alpha", "zeta"]
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_switching_the_skill_off_removes_the_extension(monkeypatch, folder, mode):
+    server = serving(monkeypatch, folder, mcp={"skill": False})
+    async with Client(server.mcp, mode=mode) as client:
+        extensions = client.session.server_capabilities.extensions or {}
+        assert EXTENSION_ID not in extensions
+        with pytest.raises(MCPError) as caught:
+            await request(client, "agents/list")
+    assert caught.value.error.code == METHOD_NOT_FOUND
+
+
+async def test_no_agents_folder_is_an_empty_listing(monkeypatch, tmp_path):
+    server = serving(monkeypatch, tmp_path / "missing")
+    async with Client(server.mcp, mode="legacy") as client:
+        assert client.session.server_capabilities.extensions[EXTENSION_ID] == {
+            "listChanged": False
+        }
+        assert await request(client, "agents/list") == {**FRESH, "agents": []}
+        with pytest.raises(MCPError) as caught:
+            await request(client, "agents/get", name="explorer")
+    assert caught.value.error.message == "Agent not found"
+
+
+async def test_the_declaration_stands_without_the_skills_one():
+    mcp = FastMCP("t")
+    agents.register(mcp, [])
+    async with Client(mcp, mode="legacy") as client:
+        extensions = client.session.server_capabilities.extensions
+    assert extensions == {EXTENSION_ID: {"listChanged": False}}
+
+
+async def test_a_caller_cannot_change_what_the_next_caller_is_served(folder):
+    extension = agents.AgentsExtension(agents.load(folder, skills={"selenium-flow"}))
+    first = await extension.list_agents(None, agents.PaginatedRequestParams())
+    first["agents"][1]["capabilities"].append("hacked")
+    got = await extension.get_agent(None, agents.GetAgentParams(name="zeta"))
+    got["_meta"]["io.kubed/agent"]["frontmatter"]["name"] = "hacked"
+    again = await extension.list_agents(None, agents.PaginatedRequestParams())
+    assert again["agents"][1]["capabilities"] == ["browse"]
+    got = await extension.get_agent(None, agents.GetAgentParams(name="zeta"))
+    assert got["_meta"]["io.kubed/agent"]["frontmatter"]["name"] == "zeta"
