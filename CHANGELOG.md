@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Fixed: `press_key` with no selector presses at the focused element, so Enter follows a focused link and Tab moves on from it.
 - An explorer agent, served through `agents/list`, explores a site for a main agent, using and saving flows.
 - selenium-flow declares the agents extension (`agents/list`, `agents/get`).
 - **BREAKING:** a browser's downloads are now `session://downloads` (and `GET /browser/downloads`); `workspace://files/downloads` is refused with the new spelling.
