@@ -94,10 +94,13 @@ class At(NamedTuple):
 class Recipe:
     """One action's road: validate, reconnect, wait, body, page state.
 
-    ``reconnect(session_id, url)`` reattaches to the session's browser and,
-    when ``url`` is given, puts it there unless it is already there - one
+    ``reconnect(session_id, url, look=)`` reattaches to the session's browser
+    and, when ``url`` is given, puts it there unless it is already there - one
     callable rather than two steps, because ``Actions._at`` is that pair and is
     the seam every test that drives an action without a Grid reattaches through.
+    It calls ``look(driver)`` once reattached and before it moves anything, so
+    the page state can tell a same-document navigation the call made
+    (`browser.landed`); a seam that never calls it only goes without that wait.
     ``wait`` is ``PRESENCE``, ``CLICKABLE``, ``SHOWN`` or None. ``retry_stale``
     finds the element and runs the body once more when the page replaced the
     element between the two.
@@ -138,8 +141,10 @@ class Recipe:
         before it can answer - an assertion's failure names the page - reads it
         through ``at.state`` as its last act, and that reading is the one
         reported; otherwise the recipe reads it after the body. Either way it is
-        `browser.page_state`, which reports an open dialog as state rather than
-        failing an action that succeeded (AGENTS.md "Dialogs").
+        `browser.landed`: `browser.page_state`, which reports an open dialog as
+        state rather than failing an action that succeeded (AGENTS.md
+        "Dialogs"), read once the title of a route the call moved a single-page
+        app to has been set, briefly waited for (#139).
 
         From the reconnect to that page state the session's browser is this
         call's alone (`workspace.locks`): another waits its turn. A host
@@ -153,12 +158,16 @@ class Recipe:
             allowed_navigation(url)
 
         with locks.driving(session_id), node_answering():
-            driver = self.reconnect(session_id, url)
+            before: list[dict | None] = []
+            driver = self.reconnect(
+                session_id, url, look=lambda d: before.append(browser.document(d))
+            )
+            seen = before[0] if before else None
 
             read: list[dict] = []
 
             def state() -> dict:
-                read.append(browser.page_state(driver))
+                read.append(browser.landed(driver, seen))
                 return read[-1]
 
             chosen: list[browser.Found | None] = []
@@ -185,7 +194,7 @@ class Recipe:
             return {
                 **fields,
                 **(found.fields() if found else {}),
-                **(read[-1] if read else browser.page_state(driver)),
+                **(read[-1] if read else browser.landed(driver, seen)),
             }
 
     @staticmethod

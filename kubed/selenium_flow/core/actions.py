@@ -1083,10 +1083,10 @@ class Actions:
             # `export.csv` back should not have to say so twice.
             name = safe_name(filename or name, mime_type)
 
-        def at_with_local_files(session_id, url):
+        def at_with_local_files(session_id, url, look=None):
             # Part of reattaching, for this action alone: the file input is
             # found by a driver that already knows to ship a local path.
-            driver = self._at(session_id, url)
+            driver = self._at(session_id, url, look)
             browser.accept_local_files(driver)
             return driver
 
@@ -1643,16 +1643,25 @@ class Actions:
         Not `_at`: these never refused an empty ``session_id``, and moving them
         onto the recipe is not where they start to.
         """
-        return Recipe(lambda session_id, _url: self.grid.reconnect(session_id), wait)
+        def reattach(session_id, _url, look=None):
+            driver = self.grid.reconnect(session_id)
+            if look:
+                look(driver)
+            return driver
 
-    def _at(self, session_id: str, url=None):
+        return Recipe(reattach, wait)
+
+    def _at(self, session_id: str, url=None, look=None):
         """Reconnect, and put the browser on ``url`` if it is not already there.
 
         The first step of every `Recipe` an action with a ``url`` runs.
+        ``look`` sees the browser between the two, before ``url`` moves it.
         """
         if not session_id:
             raise ValueError("session_id is required")
         driver = self.grid.reconnect(session_id)
+        if look:
+            look(driver)
         if url:
             browser.ensure_url(
                 driver,
