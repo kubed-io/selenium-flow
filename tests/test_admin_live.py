@@ -554,12 +554,15 @@ def left_line(client, monkeypatch, caplog) -> str:
         assert ws.receive_bytes() == bytes(4)
         ws.send_bytes(b"\x01")
         ws.receive_bytes()  # ServerInit: the tunnel pipes
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        found = [m for m in caplog.messages if "left the live view of w1" in m]
-        if found:
-            return found[0]
-        time.sleep(0.01)
+        # Leave, and wait for the line inside the session: leaving the block
+        # cancels the app at once, and a cancelled teardown cannot ask the Grid.
+        ws.close(1000)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            found = [m for m in caplog.messages if "left the live view of w1" in m]
+            if found:
+                return found[0]
+            time.sleep(0.01)
     raise AssertionError("no audit line")
 
 
