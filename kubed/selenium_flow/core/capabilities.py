@@ -166,7 +166,7 @@ FLOWS_HINT_GUIDANCE = (
 )
 FLOWS_HINT_DESCRIPTION = (
     "Present only when this call left the browser on a different page (host, "
-    "port or path) and saved flows say they apply there: at most 10, your "
+    "port, path or hash route) and saved flows say they apply there: at most 10, your "
     "workspace's own first. " + FLOWS_HINT_GUIDANCE
 )
 FLOW_HINT = {  # one entry
@@ -393,8 +393,8 @@ AWAIT_RESPONSE = {
             "type": "array",
             "description": (
                 "Every page the person reached, oldest first: the last with its "
-                "whole URL, earlier ones origin and path. Absent when the pages "
-                "could not be followed."
+                "whole URL, earlier ones origin, path and hash route. Absent "
+                "when the pages could not be followed."
             ),
             "items": {
                 "type": "object",

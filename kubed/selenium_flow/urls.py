@@ -52,12 +52,30 @@ def origin_of(url: str) -> str:
     return f"{scheme}://{host}{shown}"
 
 
-def page_key(url: str | None) -> tuple[str, int, str] | None:
-    """``(host, port, path)`` of an http(s) page, or None; never raises.
+def route_of(url: str | None) -> str | None:
+    """The hash route of ``url``, or None when its fragment is not one; never raises.
+
+    A route is a fragment shaped like a path: it starts with ``/`` or ``!/``.
+    The ``!`` is dropped, the route's own query cut off and a trailing ``/``
+    stripped, so ``#!/a/?x=1`` is ``/a``. ``#top`` and ``#access_token=...`` are
+    anchors or tokens, not routes.
+    """
+    try:
+        fragment = urlsplit((url or "").strip()).fragment
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not fragment.startswith(("/", "!/")):
+        return None
+    return fragment.removeprefix("!").split("?", 1)[0].rstrip("/")
+
+
+def page_key(url: str | None) -> tuple[str, int, str, str | None] | None:
+    """``(host, port, path, route)`` of an http(s) page, or None; never raises.
 
     The host is lowercased, IDNA-encoded and unbracketed, the port explicit or
-    its scheme's default, the path without a trailing ``/``. It runs inside a
-    store's compare-and-set, so a URL that will not parse is None, not an error.
+    its scheme's default, the path without a trailing ``/``, the route as
+    `route_of` has it. It runs inside a store's compare-and-set, so a URL that
+    will not parse is None, not an error.
     """
     try:
         parts = urlsplit((url or "").strip())
@@ -72,6 +90,7 @@ def page_key(url: str | None) -> tuple[str, int, str] | None:
             host,
             port if port is not None else DEFAULT_PORTS[scheme],
             parts.path.rstrip("/"),
+            route_of(url),
         )
     except (ValueError, TypeError, AttributeError):
         return None
@@ -85,8 +104,17 @@ def host_of(url: str) -> str:
 
 
 def page_of(url: str) -> str:
-    """``url`` without its query, fragment or credentials: its origin and path."""
-    return origin_of(url) + urlsplit(url).path
+    """``url`` without its query, credentials or non-route fragment: its origin,
+    path and, when it has one, hash route as written (never the route's query).
+    A route containing ``=`` is dropped as an anchor is: AngularJS puts an OAuth
+    reply there (``#/access_token=T``). The check is on the part kept, so
+    ``#/workspace?team-id=T`` keeps ``#/workspace``."""
+    page = origin_of(url) + urlsplit(url).path
+    if route_of(url) is not None:
+        kept = urlsplit(url).fragment.split("?", 1)[0]
+        if "=" not in kept:
+            page += "#" + kept
+    return page
 
 
 def normalize_url(url: str) -> str:
@@ -95,6 +123,37 @@ def normalize_url(url: str) -> str:
     return urlunsplit(
         (parts.scheme, parts.netloc, parts.path.rstrip("/"), parts.query, "")
     )
+
+
+def _userinfo(url: str) -> str:
+    return urlsplit(url).netloc.rpartition("@")[0]
+
+
+def route_query(url: str) -> str:
+    """The query of ``url``'s hash route (``#/a?x=1`` is ``x=1``), or ``""`` when
+    it has none or its fragment is not a route."""
+    return urlsplit(url).fragment.partition("?")[2] if route_of(url) is not None else ""
+
+
+def same_page(a: str, b: str) -> bool:
+    """Whether ``a`` and ``b`` are one page: the same host, port, path, hash
+    route, query, route query and userinfo. The root route (``#/``) counts as no
+    route, so ``/#/`` and ``/`` are one page (hash-mode apps rewrite one to the
+    other on load), unless the root route carries a query. A URL with no page
+    key (``about:blank``) compares as `normalize_url` has it. Never raises."""
+    try:
+        ka, kb = page_key(a), page_key(b)
+        if ka is None or kb is None:
+            return normalize_url(a) == normalize_url(b)
+        return (
+            ka[:3] == kb[:3]
+            and (ka[3] or None) == (kb[3] or None)
+            and urlsplit(a).query == urlsplit(b).query
+            and route_query(a) == route_query(b)
+            and _userinfo(a) == _userinfo(b)
+        )
+    except (ValueError, TypeError, AttributeError):
+        return a == b
 
 
 def public_url(url: str) -> str:

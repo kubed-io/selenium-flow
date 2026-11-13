@@ -2400,6 +2400,28 @@ def test_a_query_change_is_not_a_new_page():  # ruling 18
     assert "flows_here" not in result and len(asked) == 1
 
 
+def test_a_route_change_is_a_new_page():  # ruling 2
+    m = hinting()
+    m.settle(NAMED, {"url": "http://localhost:8080/#/dashboard"}, browser="abc")
+    result = {"url": "http://localhost:8080/#/auth/login"}
+    m.settle(NAMED, result, browser="abc")
+    assert result["flows_here"] == [LOGIN_HINT]
+
+
+@pytest.mark.parametrize("first, then", [
+    ("http://localhost:8080/login#a", "http://localhost:8080/login#b"),
+    ("http://localhost:8080/#/auth/login?x=1", "http://localhost:8080/#/auth/login?x=2"),
+    ("http://localhost:8080/login", "http://localhost:8080/login#access_token=T"),
+])
+def test_an_anchor_or_a_route_query_is_not_a_new_page(first, then):  # rulings 1, 2
+    asked = []
+    m = hinting(asked)
+    m.settle(NAMED, {"url": first}, browser="abc")
+    result = {"url": then}
+    m.settle(NAMED, result, browser="abc")
+    assert "flows_here" not in result and len(asked) == 1
+
+
 def test_a_new_page_with_nothing_for_it_carries_no_field():  # ruling 15
     m = hinting()
     result = {"url": "http://localhost:8080/about"}

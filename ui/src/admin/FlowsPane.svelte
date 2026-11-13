@@ -110,7 +110,7 @@
     const to = doc.shared ? String(m.flows!.workspace) : 'global'
     ask({
       title: doc.shared ? 'Move to this workspace' : 'Move to global', body: moveBody,
-      data: { shared: !!doc.shared, to }, confirm: 'Move',
+      data: { shared: !!doc.shared, to, placeless: doc.sites == null && doc.paths == null }, confirm: 'Move',
       onconfirm: async () => {
         refuseIfGone()
         await api(workspacePath(m.key, '/flows/' + encodeURIComponent(doc.name) + '/move'), 'POST', { to })
@@ -134,7 +134,7 @@
 </script>
 
 {#snippet editorBody()}<textarea class="yaml" spellcheck="false" bind:value={draft}></textarea>{/snippet}
-{#snippet moveBody(d: { shared: boolean; to: string })}{#if d.shared}<p>It moves out of the shared library into <strong>{d.to}</strong>. Other workspaces stop seeing it.</p>{:else}<p>It moves into the shared <strong>global</strong> library, where every workspace can list and run it. No agent can change what is in there — only an operator, here.</p>{/if}{/snippet}
+{#snippet moveBody(d: { shared: boolean; to: string; placeless: boolean })}{#if d.shared}<p>It moves out of the shared library into <strong>{d.to}</strong>. Other workspaces stop seeing it.</p>{:else}<p>It moves into the shared <strong>global</strong> library, where every workspace can list and run it. No agent can change what is in there — only an operator, here.</p>{#if d.placeless}<p>It has no sites or paths, so it is never named in flows_here.</p>{/if}{/if}{/snippet}
 {#snippet dropBody(label: string)}<p>It is removed from the folder it lives in. A flow in the <strong>global</strong> folder goes for every workspace, not just this one.</p><ul class="names"><li>{label}</li></ul>{/snippet}
 
 <!-- No whitespace between sibling tags, as today's markup: between inline

@@ -386,7 +386,8 @@ def _move(to):
         ("https://app.test/#/", ("", "")),
         ("https://app.test/#/items/?id=2", ("", "/items?id=2")),
         ("https://app.test/#/items/", ("", "/items")),
-        ("https://app.test/#!/guide", ("", "!/guide")),
+        ("https://app.test/#!/guide", ("", "/guide")),  # the `!` is dropped (#137)
+        ("https://app.test/#!/items/?id=2", ("", "/items?id=2")),
         ("http://[::1", ("http://[::1", "")),  # will not parse: itself
     ],
 )
