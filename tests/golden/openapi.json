@@ -49,6 +49,52 @@
             "description": "Always true: a false assertion is an error, not a result.",
             "type": "boolean"
           },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {
@@ -394,6 +440,52 @@
             "description": "What was done with the dialog.",
             "type": "string"
           },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "message": {
             "description": "The dialog's text, read before it was answered.",
             "type": "string"
@@ -554,6 +646,52 @@
           "clamped": {
             "description": "Present when the destination was outside the window, so the drag stopped at its edge.",
             "type": "string"
+          },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
           },
           "from": {
             "description": "Where the drag started, in viewport pixels.",
@@ -725,6 +863,52 @@
       },
       "ExecuteScriptResponse": {
         "properties": {
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {
@@ -844,6 +1028,52 @@
       },
       "ExtractResponse": {
         "properties": {
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "html": {
             "description": "innerHTML of the matched element.",
             "type": "string"
@@ -1059,9 +1289,25 @@
             "description": "JSON Schema for the values a run accepts.",
             "type": "object"
           },
+          "paths": {
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
           "shared": {
             "description": "True when it came from the shared global library.",
             "type": "boolean"
+          },
+          "sites": {
+            "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           },
           "steps": {
             "items": {
@@ -1122,6 +1368,52 @@
         "properties": {
           "flow": {
             "type": "string"
+          },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
           },
           "hint": {
             "description": "On a failed run: where to read about this kind of failure and which prompt repairs it. `read` is absent when the skill is not being served.",
@@ -1299,8 +1591,24 @@
           "parameters": {
             "type": "object"
           },
+          "paths": {
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
           "saved": {
             "type": "boolean"
+          },
+          "sites": {
+            "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           },
           "steps": {
             "items": {
@@ -1377,9 +1685,25 @@
           "parameters": {
             "type": "object"
           },
+          "paths": {
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
           "shared": {
             "description": "True when it came from the shared global library.",
             "type": "boolean"
+          },
+          "sites": {
+            "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it.",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
           },
           "step_count": {
             "type": "integer"
@@ -1468,6 +1792,52 @@
           "action": {
             "description": "The switch that was performed.",
             "type": "string"
+          },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
           },
           "in_frame": {
             "description": "Whether the session is now inside a frame.",
@@ -1635,6 +2005,52 @@
             "description": "The gesture that was performed.",
             "type": "string"
           },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "glide_note": {
             "description": "Why a requested glide was a jump instead.",
             "type": "string"
@@ -1774,6 +2190,52 @@
       },
       "NavigateResponse": {
         "properties": {
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {
@@ -2104,6 +2566,52 @@
             "description": "Whether this browser's console and network are being captured.",
             "type": "boolean"
           },
+          "flows_here": {
+            "description": "Present only when saved flows say they apply to the page it opened on: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "height": {
             "description": "Window height in use.",
             "type": "integer"
@@ -2309,6 +2817,52 @@
             },
             "type": "array"
           },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {
@@ -2435,6 +2989,52 @@
       },
       "PressKeyResponse": {
         "properties": {
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "index": {
             "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
@@ -2581,6 +3181,52 @@
           },
           "file": {
             "$ref": "#/components/schemas/FileEntry"
+          },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
           },
           "format": {
             "enum": [
@@ -2736,6 +3382,52 @@
       },
       "ResizeResponse": {
         "properties": {
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "height": {
             "description": "Window height now in effect.",
             "type": "integer"
@@ -2845,6 +3537,52 @@
       },
       "SaveSiteDataResponse": {
         "properties": {
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {
@@ -3051,6 +3789,52 @@
           "file_error": {
             "description": "Present instead of file when the capture could not be kept. The image is still returned.",
             "type": "string"
+          },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
           },
           "height": {
             "description": "Image height in pixels.",
@@ -3581,6 +4365,52 @@
             "description": "The name the page sees for the attached file.",
             "type": "string"
           },
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {
@@ -3704,6 +4534,52 @@
           "capturing": {
             "description": "Whether the console and network are being captured right now; false while capture is paused.",
             "type": "boolean"
+          },
+          "flows_here": {
+            "description": "Present only when saved flows say they apply to url: at most 10, this workspace's own first. Read from the record, so a page that moved by itself since the last call is not reflected.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
           },
           "grid_timeout": {
             "description": "Seconds the Grid lets a session in this workspace sit idle before it ends it, read from its node at the last open. Null when the Grid did not say.",
@@ -3884,6 +4760,52 @@
       },
       "WriteResponse": {
         "properties": {
+          "flows_here": {
+            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "items": {
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "name": {
+                  "description": "What run_flow takes.",
+                  "type": "string"
+                },
+                "parameters": {
+                  "description": "The parameters it declares, by name.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "required": {
+                  "description": "Those a run must be given.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "shared": {
+                  "description": "Present, and true, for a flow from the shared global library.",
+                  "type": "boolean"
+                },
+                "uri": {
+                  "description": "flow://flows/{name}: read it for the steps and the parameter schema.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "uri",
+                "description",
+                "parameters",
+                "required"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
           "index": {
             "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
@@ -7312,6 +8234,22 @@
                       }
                     ],
                     "type": "object"
+                  },
+                  "paths": {
+                    "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "sites": {
+                    "description": "Where this flow applies: hosts with an optional port, such as localhost:8080, example.com or *.example.com. A site with a port matches only that port; one without matches any. The scheme is ignored. Leave it out to match any site. A flow with neither sites nor paths is never named in flows_here. This is for finding a flow, never a restriction: a run is not stopped by it.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array"
                   },
                   "steps": {
                     "items": {

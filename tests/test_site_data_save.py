@@ -343,13 +343,13 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
     ]})
     server.workspaces.store.set(NAMED, Workspace(session_id="live-id"))
     touched = []
-    real = server.workspaces.touch
+    real = server.workspaces._touch
 
-    def touch(name, *urls, browser=None):
+    def touch(name, *urls, browser=None, **kw):
         touched.append(urls)
-        return real(name, *urls, browser=browser)
+        return real(name, *urls, browser=browser, **kw)
 
-    monkeypatch.setattr(server.workspaces, "touch", touch)
+    monkeypatch.setattr(server.workspaces, "_touch", touch)
     report = flowapi.run_for(server.flows, server.actions, server.workspaces, NAMED, "trip")
     assert spare.runs == [("spare", a)], "a is read in the spare tab; b is the page"
     assert report["steps"][2]["result"]["saved"]["sites"] == [b, a]
