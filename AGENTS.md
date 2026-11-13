@@ -877,6 +877,24 @@ else yes (§F3.1). The listing is filtered per request, in middleware, and the t
 callable — one server object serves every client, so a decision about who is asking can
 only be made when someone asks. The handshake's instructions vary the same way (§F3.2).
 
+## A flow knows where it applies
+
+A flow's `sites` and `paths` are discovery, never a leash (spec
+2026-11-12-flow-sites-paths, ruling 8): nothing refuses a run for being
+elsewhere, and nothing is hidden from `flow://flows`. A flow with neither is
+never hinted (ruling 11), so a library saved before them stays quiet. The hint
+for an action's result is decided in `Workspaces.settle`: `_touch` compares
+`urls.page_key` before and after inside the store's `fn`, while `open_session`,
+an open that lost its race and `workspace://current` ask for the current page
+every time. `hints` — `FlowStore.flows_here`, handed in by `server.py` so
+`workspace/` imports nothing from `flows/` — is called outside `fn`, and a
+failure there is logged and never fails the call. Tests that watch settle's
+write patch `_touch`, which `touch` wraps. Its cache is keyed on each library's
+`revision()`, with no TTL.
+`flows/places.py` and the secret leash never share code:
+`test_the_matcher_and_the_leash_share_no_code` says so, because a site matching
+any port is right for finding a flow and wrong for typing a password.
+
 ## One contract, and no id in it
 
 `open_session` is the only place a browser is created. It was briefly implicit —
@@ -1045,7 +1063,7 @@ development before it was fixed; do not add a bare `WebDriverWait`.
 
 ## The embedded skill
 
-`skills/selenium-flow/` sits at the **repo root** and is mapped into the package
+`plugin/skills/selenium-flow/` sits in `plugin/` at the **repo root**, which is mapped into the package
 by `[tool.setuptools.package-dir]`, so it reads as documentation but installs
 inside the wheel. `skill_path()` checks the packaged location first and falls
 back to the root, which is what makes a source checkout and an installed wheel
@@ -1070,10 +1088,12 @@ Two rules keep it working:
   string.
 
 Package data is easy to lose: `[tool.setuptools.package-data]` covers
-`skills/**/*`, not just `*.md`, because a supporting file of another type would
-otherwise be absent from the wheel with no error at build or import time.
-`test_every_skill_file_is_covered_by_package_data` fails if a file is ever added
-that no pattern matches.
+`plugin/**/*`, not just `*.md`, because a file of another type would otherwise
+be absent from the wheel with no error at build or import time, and it spells
+out `.claude-plugin/*`, because setuptools expands the patterns with the stdlib
+`glob`, whose `**` skips a dot-folder.
+`test_every_plugin_file_is_matched_by_package_data` expands them the same way
+and fails if a file is ever added that no pattern ships.
 
 The **Skills extension** (SEP-2640, `io.modelcontextprotocol/skills`) is a second
 discovery surface over the same files, in `mcp/skill_extension.py`: `skills/list`
@@ -1087,6 +1107,21 @@ JSON) is still served as resources but not offered. agentgateway 1.6 refuses bot
 (`unsupported method`, agentgateway#3579), so through the gateway a client sees the
 declaration and gets an error; in-cluster they work. Delete the module when
 FastMCP ships its own (#5016).
+
+The **agents extension** (`io.modelcontextprotocol/agents`, mcp-kb's draft of
+agents-wg proposal 0000) is `mcp/agents.py`: `agents/list` and `agents/get` over
+the `*.md` files in `plugin/agents/`, each YAML frontmatter and a Markdown body.
+`agents/get`'s `_meta` is `io.kubed/agent`, the one shape both our servers serve
+— the frontmatter as written, and each skill it names as a URI on the server
+that answered; anything only selenium-flow needs goes under
+`io.kubed.selenium-flow/agent`, never into the shared key. It is served with the
+skill and only then, since an agent's first step is to read it, and it is
+declared even while `plugin/agents/` is missing, answering an empty list: a
+declaration that came and went with the agents could not be checked live.
+`AdvertiseAgents` puts it into a legacy `initialize`, as `AdvertiseSkills` does,
+and neither depends on the other. A file that does not conform is logged and
+skipped. The gateway refuses these methods too; in-cluster clients call the
+Service directly, with the same token (spec 2026-11-12-plugin-agents).
 
 **SKILL.md is an index, not the manual.** It carries the facts that shape
 everything — the workspace is not the browser, and naming one is step 0 — and a

@@ -20,6 +20,7 @@ from kubed.selenium_flow.workspace.workspaces import Caller
 
 from .conftest import NAMED, RecordingActions, manager
 from .fakes import FakeRedis
+from .test_workspaces import LOGIN_HINT
 
 pytestmark = pytest.mark.unit
 
@@ -187,6 +188,81 @@ def run_reporting(monkeypatch, report):
     monkeypatch.setattr(workspaces.store, "update", counting)
     flowapi.run_for(None, workspaces.actions, workspaces, NAMED, "login")
     return workspaces, writes
+
+
+def run_hinting(monkeypatch, report, flush=None, settles=None, asked=None):
+    """`run_for` around a canned run report, with a flow hinted for every
+    page, so only the decision that a page is new keeps the field off: the
+    report `run_for` answered. ``flush`` is the pages a save step's flush is
+    handed, when the run has one; ``settles`` collects each settle's
+    ``hint``, and ``asked`` each URL a hint was asked for, in order."""
+    from kubed.selenium_flow.flows import api as flowapi
+
+    def run_one(*a, **kw):
+        if flush is not None:
+            kw["before_save"](flush)
+        return report
+
+    monkeypatch.setattr(flowapi, "run_one", run_one)
+    workspaces = manager(RecordingActions())
+    workspaces.open_browser(Caller(NAMED), url="https://start.test/")
+
+    def hints(name, url):
+        if asked is not None:
+            asked.append(url)
+        return [LOGIN_HINT]
+
+    workspaces.hints = hints
+    if settles is not None:
+        real = workspaces.settle
+
+        def settle(name, result, **kw):
+            settles.append(kw.get("hint", True))
+            return real(name, result, **kw)
+
+        monkeypatch.setattr(workspaces, "settle", settle)
+    answered = flowapi.run_for(None, workspaces.actions, workspaces, NAMED, "login")
+    return workspaces, answered
+
+
+def test_a_run_hints_from_where_it_ended_against_where_it_began(monkeypatch):  # ruling 20
+    asked = []
+    _, report = run_hinting(monkeypatch, {"status": "ok", "steps": [
+        {"n": 1, "ok": True, "url": "https://start.test/login"}],
+        "url": "https://start.test/login"}, asked=asked)
+    assert report["flows_here"] == [LOGIN_HINT]
+    assert asked == ["https://start.test/login"], "asked once, for where it ended"
+
+
+def test_a_run_that_ends_on_a_withheld_page_hints_nothing(monkeypatch):  # ruling 6
+    asked = []
+    _, report = run_hinting(monkeypatch, {"status": "ok", "steps": [
+        {"n": 1, "ok": True, "url": "https://start.test/login"},
+        {"n": 2, "ok": True}],
+        "url": "https://start.test/search?q=[hidden]", "url_redacted": True},
+        asked=asked)
+    assert "flows_here" not in report
+    assert asked == [], "the login page is behind it: no hint for a page left"
+
+
+def test_a_run_that_saved_and_came_back_hints_nothing(monkeypatch):  # Review Focus 5
+    asked = []
+    _, report = run_hinting(monkeypatch, {"status": "ok", "steps": [
+        {"n": 1, "ok": True, "url": "https://start.test/login"},
+        {"n": 2, "ok": True, "url": "https://start.test/"}], "url": "https://start.test/"},
+        flush=["https://start.test/login"], asked=asked)
+    assert "flows_here" not in report
+    assert asked == [], "back where it began: no page to hint for"
+
+
+def test_the_flush_before_a_save_never_hints(monkeypatch):  # ruling 20
+    settles, asked = [], []
+    run_hinting(monkeypatch, {"status": "ok", "steps": [
+        {"n": 1, "ok": True, "url": "https://start.test/login"}],
+        "url": "https://start.test/login"},
+        flush=["https://start.test/login"], settles=settles, asked=asked)
+    assert settles == [False, True], "the flush, then the run's end"
+    assert asked == ["https://start.test/login"], "only the run's end asked"
 
 
 def test_a_flow_run_records_each_steps_page_in_order_in_one_write(monkeypatch):

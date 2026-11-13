@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- selenium-flow declares the agents extension (`agents/list`, `agents/get`); no agents yet.
 - **BREAKING:** a browser's downloads are now `session://downloads` (and `GET /browser/downloads`); `workspace://files/downloads` is refused with the new spelling.
 - **BREAKING:** request headers are now `Sf-Workspace`, `Sf-Browser`, `Sf-Version`, `Sf-Window-Width`, `Sf-Window-Height`, `Sf-Page-Load-Timeout` and `Sf-Script-Timeout`; the `X-` names are refused with a 400 naming the new one, and the retired `X-Session-Key` and `?session=` are no longer recognised.
 - **`open_session(headless=true)`** opens a browser that draws nothing on screen, remembered until `headless=false`; it cannot be recorded or watched live.
@@ -89,6 +90,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A script that runs past its timeout now says so, naming the timeout and how to raise it; a browser whose Grid node stopped answering is a 404 that says to call `open_session`.
 - Every server log line carries its whole message: FastMCP's lines no longer wrap at 80 columns.
 - The live view's audit line says the browser ended when its node went away, instead of blaming the viewer.
+- A flow can declare the `sites` and `paths` it applies to, and a result that lands on one of them names it in `flows_here`.
 
 ## [0.3.0] - 2026-09-26
 

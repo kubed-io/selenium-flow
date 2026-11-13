@@ -60,7 +60,7 @@ unless `GRID_URL` and `ADMIN_ORIGIN` are set — see
 | `kubed/selenium_flow/http/admin/` | the admin API, a module per thing: `workspaces.py` (list, stream, end a session), `files.py`, `flows.py`, `site_data.py`, `signed.py` (signed file links), `page.py` (the built UI's shell) |
 | `kubed/selenium_flow/mcp/` | what an agent sees: tools, resources, prompts and the embedded skill |
 | `kubed/selenium_flow/spec/` | the OpenAPI document — `schemas.py` is the data, `builder.py` assembles it from the live tools |
-| `skills/selenium-flow/` | the embedded Agent Skill, mapped into the package at build time |
+| `plugin/` | the embedded Agent Skill (`skills/selenium-flow/`), the prompts and the agents, mapped into the package at build time |
 | `ui/` | the admin UI and the MCP App, in Svelte — `npm --prefix ui run build` writes them beside `http/admin/`, gitignored; without a build the server shows a placeholder |
 | `docs/` | the GitHub wiki, as a submodule — depth the README has no room for, and the design record (`superpowers/`, `saga/`) |
 | `docs/notes/` | hand-written prose folded into the generated wiki pages |
@@ -124,9 +124,10 @@ optional argument is safe; renaming, retyping or removing one is not.
 
 ## The embedded skill
 
-`skills/` sits at the repo root and is mapped into the package by
+`plugin/` sits at the repo root and is mapped into the package by
 `[tool.setuptools.package-dir]`, so it reads as documentation but installs
-inside the wheel. **The directory name is the skill name** — FastMCP's
+inside the wheel. The skill is `plugin/skills/selenium-flow/`. **The directory
+name is the skill name** — FastMCP's
 `SkillProvider` takes it from the folder, not the frontmatter.
 
 `SKILL.md` is an index over `references/`, not the manual. Tests enforce that:

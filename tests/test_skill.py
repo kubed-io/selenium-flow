@@ -13,10 +13,8 @@ The serving rules are this repo's: resources by default, a mirroring tool for
 clients without resources, nothing at all when it is switched off.
 """
 
-import fnmatch
 import pathlib
 import re
-import tomllib
 
 import pytest
 import yaml
@@ -81,34 +79,6 @@ def test_the_directory_name_is_the_skill_name():
     two must agree or the published name contradicts the file's own metadata.
     """
     assert SKILL_DIR.name == SKILL_NAME == frontmatter()["name"]
-
-
-def test_every_skill_file_is_covered_by_package_data():
-    """Otherwise the file is missing from the wheel, with no error anywhere.
-
-    The skill is only useful because it ships with the code it describes, so a
-    supporting file that silently does not install is the feature failing
-    quietly.
-    """
-    config = tomllib.loads(PYPROJECT.read_text())
-    setuptools = config["tool"]["setuptools"]
-    assert setuptools["package-dir"]["kubed.selenium_flow.mcp.skills"] == "skills", (
-        "the root skills/ directory must map into the package, or it does not ship"
-    )
-    patterns = setuptools["package-data"]["kubed.selenium_flow.mcp.skills"]
-    assert patterns, "no package-data patterns for the skill directory"
-
-    # Patterns are relative to the mapped root, which is skills/ itself.
-    for path in SKILL_DIR.rglob("*"):
-        if not path.is_file():
-            continue
-        rel = path.relative_to(SKILL_DIR.parent).as_posix()
-        # fnmatch rather than Path.full_match, which is 3.13+ only. Its `*`
-        # crosses directory separators, which is loose but right for the
-        # question being asked: is this file covered by any pattern at all.
-        assert any(fnmatch.fnmatch(rel, p) for p in patterns), (
-            f"{rel} matches no package-data pattern {patterns}"
-        )
 
 
 # ---- the index and its references ------------------------------------------

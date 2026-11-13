@@ -7,7 +7,7 @@ name: 🗿 Package
 #   pull_request       the gate. Since image.yml no longer runs on a PR, this is
 #                      what proves the thing still builds — and it checks the
 #                      half that is actually ours: the wheel, and whether the
-#                      package-dir mapping really put skills/ and static/ in it.
+#                      package-dir mapping really put plugin/ and static/ in it.
 #                      Seconds, against the image build's ~9 minutes.
 #   push: main         same, so the badge tracks trunk
 #   workflow_dispatch  manual — package an arbitrary ref
@@ -159,7 +159,7 @@ jobs:
 
     # Install the built wheel into a clean environment and import it. `python -m
     # build` succeeding only proves the metadata is well-formed; it says nothing
-    # about whether the package-dir mapping actually put skills/ and static/ in
+    # about whether the package-dir mapping actually put plugin/ and static/ in
     # the wheel. That mapping has broken before.
     - name: Verify the Wheel Installs
       run: |
