@@ -10,11 +10,13 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 
 import pytest
 import yaml
 
 from kubed.selenium_flow.config import ConfigError, DataSettings
+from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows import library as flows
 from kubed.selenium_flow.flows import store as flowstore
 from kubed.selenium_flow.flows.store import LocalFlowStore
@@ -1003,3 +1005,139 @@ def test_a_hand_edited_place_that_cannot_be_read_is_listed_without_it(store):  #
     store.write_text("acme", "odd", "name: odd\nsites: example.com\nsteps: [{tool: navigate, args: {url: 'https://a.test'}}]\n")
     [entry] = store.summaries("acme")
     assert entry["name"] == "odd" and "sites" not in entry
+
+
+LOGIN = {
+    "description": "Sign in to the admin panel with an email and password",
+    "sites": ["localhost:8080", "example.com"],
+    "paths": ["/login", "/admin/login"],
+    "parameters": {
+        "type": "object",
+        "properties": {"email": {"type": "string"}, "remember": {"type": "boolean"}},
+        "required": ["email"],
+    },
+    "steps": [STEP],
+}
+HERE = "http://localhost:8080/login?next=/admin"
+
+
+def test_the_flows_for_a_page_are_the_specs_example(store):  # spec, Examples
+    store.save("acme", "login", LOGIN)
+    store.save(
+        "global",
+        "cookie-banner",
+        {"description": "Dismiss the cookie consent banner", "paths": ["/**"], "steps": [STEP]},
+    )
+    assert store.flows_here("acme", HERE) == [
+        {
+            "name": "login",
+            "uri": "flow://flows/login",
+            "description": "Sign in to the admin panel with an email and password",
+            "parameters": ["email", "remember"],
+            "required": ["email"],
+        },
+        {
+            "name": "cookie-banner",
+            "uri": "flow://flows/cookie-banner",
+            "description": "Dismiss the cookie consent banner",
+            "parameters": [],
+            "required": [],
+            "shared": True,
+        },
+    ]
+
+
+def test_a_flow_with_no_places_is_never_hinted(store):  # ruling 11
+    store.save("acme", "plain", {"description": "d", "steps": [STEP]})
+    assert store.flows_here("acme", HERE) == []
+
+
+def test_your_own_flow_hides_the_shared_one_of_its_name(store):  # ruling 13
+    store.save("global", "login", LOGIN)
+    store.save("acme", "login", {"description": "mine", "steps": [STEP]})
+    assert store.flows_here("acme", HERE) == []
+
+
+def test_at_most_ten_own_first_each_by_name(store):  # ruling 17
+    for n in range(8):
+        store.save("global", f"g{n}", {"paths": ["/**"], "steps": [STEP]})
+    for n in range(4):
+        store.save("acme", f"o{n}", {"paths": ["/**"], "steps": [STEP]})
+    assert [e["name"] for e in store.flows_here("acme", HERE)] == [
+        "o0", "o1", "o2", "o3", "g0", "g1", "g2", "g3", "g4", "g5",
+    ]  # fmt: skip
+
+
+def test_a_warm_answer_reads_no_flow_file(store, monkeypatch):  # ruling 5
+    store.save("acme", "login", LOGIN)
+    store.flows_here("acme", HERE)
+    reads, real = [], Path.read_text
+    monkeypatch.setattr(
+        Path, "read_text", lambda self, *a, **k: reads.append(self) or real(self, *a, **k)
+    )
+    assert store.flows_here("acme", HERE)
+    assert reads == []
+
+
+def _save_second(store):
+    store.save("acme", "second", {"paths": ["/login"], "steps": [STEP]})
+
+
+def _delete_login(store):
+    store.delete("acme", "login")
+
+
+def _move_login(store):
+    store.write_text("acme", "login", "name: login\npaths: [/other]\nsteps: []\n")
+
+
+def _save_global(store):
+    store.save("global", "banner", {"paths": ["/**"], "steps": [STEP]})
+
+
+def _delete_global(store):
+    store.delete("global", "banner")
+
+
+@pytest.mark.parametrize(
+    "change, expected",
+    [
+        (_save_second, ["login", "second"]),
+        (_delete_login, []),
+        (_move_login, []),
+        (_save_global, ["login", "banner"]),
+        (_delete_global, ["login"]),
+    ],
+)
+def test_any_change_to_either_library_is_seen(store, change, expected):
+    store.save("acme", "login", LOGIN)
+    if change is _delete_global:
+        store.save("global", "banner", {"paths": ["/**"], "steps": [STEP]})
+    assert store.flows_here("acme", HERE)
+    change(store)
+    assert [e["name"] for e in store.flows_here("acme", HERE)] == expected
+
+
+def test_an_unreadable_place_is_logged_once_and_never_hinted(store, caplog):  # ruling 22
+    store.write_text(
+        "acme",
+        "odd",
+        "name: odd\nsites: example.com\nsteps: [{tool: navigate, args: {url: 'https://a.test'}}]\n",
+    )
+    with caplog.at_level(logging.WARNING):
+        assert store.flows_here("acme", "https://example.com/") == []
+        assert store.flows_here("acme", "https://example.com/") == []
+    warned = [r.getMessage() for r in caplog.records if "is never hinted" in r.getMessage()]
+    assert len(warned) == 1
+    assert "its sites or paths cannot be read" in warned[0]
+    assert "example.com" not in warned[0]
+
+
+def test_the_hint_uri_is_the_flow_resource():
+    assert flowstore.HINT_URI == flowapi.FLOW_URI
+
+
+def test_what_comes_back_is_the_callers(store):
+    store.save("acme", "login", LOGIN)
+    store.flows_here("acme", HERE)[0]["parameters"].append("mutated")
+    assert store.flows_here("acme", HERE)[0]["parameters"] == ["email", "remember"]
