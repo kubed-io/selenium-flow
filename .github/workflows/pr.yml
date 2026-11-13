@@ -28,7 +28,8 @@ name: 🔀 PR
 
 on:
   pull_request:
-    branches: [main]
+    # main, and a sub-issue's change into its family's branch (issue-<parent>)
+    branches: [main, 'issue-*']
     # labeled/unlabeled so applying the `no changelog` label (e.g. Dependabot,
     # or a late add) re-runs the gate with a fresh payload. A draft runs
     # nothing; ready_for_review starts the checks.
