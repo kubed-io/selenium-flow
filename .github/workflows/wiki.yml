@@ -30,13 +30,10 @@ on:
     - wiki
     - scripts/generate_wiki.py
     - .github/workflows/wiki.yml
+  # every merge, not only one that changes the pages: after it, the open PRs are brought up
+  # to date (the last step), and a merge of any kind leaves them behind
   push:
     branches: [main]
-    paths:
-    - kubed/**
-    - wiki
-    - scripts/generate_wiki.py
-    - .github/workflows/wiki.yml
   workflow_dispatch:
     inputs:
       push:
@@ -214,3 +211,18 @@ jobs:
           recorded — main is probably protected against the Actions identity. \
           Pass GH_APP_KEY, or bump docs/ by hand."
         }
+
+    # Every open PR into main falls behind each merge, and an agent PR's docs pointer (and often
+    # CHANGELOG's [Unreleased]) conflicts with every other's. This brings each one up to date:
+    # GitHub's update-branch when it merges clean, otherwise a merge whose docs pointer goes to
+    # the wiki's head (which holds every PR's spec and plan) and whose CHANGELOG keeps both sides.
+    # Anything else is left for the PR's agent and named in the summary. It pushes as the App,
+    # so each PR's checks run again (cluster spec 2026-11-12-agent-flow-parallel-design, R-L9).
+    # !cancelled(): it does not depend on the publish above, so a wiki push refused (a browser
+    # edit) still leaves the PRs current
+    - name: Bring the Open PRs Up to Date
+      if: ${{ !cancelled() && github.event_name == 'push' }}
+      uses: kubed-io/actions/pr-update@main
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
