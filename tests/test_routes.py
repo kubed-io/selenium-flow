@@ -767,8 +767,8 @@ def test_the_browser_resource_says_the_name_came_from_the_request(open_client):
 
 def test_sf_workspace_names_the_workspace_over_http(open_server, monkeypatch):
     """What an operator pins inside a credential, and what the gateway sets from
-    `?workspace=`, the caller's `Sf-Workspace` or the token's user. Claude.ai
-    never sends it."""
+    `?workspace=`, the caller's `Sf-Workspace`, its `X-Workspace` or the token's user.
+    A Claude.ai connector sends `X-Workspace`, its alias."""
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     bare = TestClient(open_server.mcp.http_app())
     body = bare.get("/browser", headers={"Sf-Workspace": "claude-web"}).json()

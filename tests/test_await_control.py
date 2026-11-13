@@ -428,6 +428,16 @@ async def test_the_workspace_reaches_the_worker_from_the_query(server):
     assert summary["control"]["who"] == ["kelly"]
 
 
+async def test_x_workspace_reaches_the_worker(server):
+    """Named at submission and carried, as Sf-Workspace is (ruling 9)."""
+    hand_back(await hold(server, who="drk"))
+    async with over_http(server, "http://test/mcp", headers={"X-Workspace": "w1"}) as client:
+        task = await call_tool_task(client, "await_control")
+        result = await task.result()
+    assert result.structured_content["handed_back"] is True
+    assert result.structured_content["control"]["who"] == ["drk"]
+
+
 async def test_a_request_naming_two_workspaces_is_refused_at_submission(server):
     """The worker sees only headers: a task let through would take the header
     for an answer and drop the URL's name, where a request is refused."""
@@ -442,12 +452,13 @@ async def test_a_request_naming_two_workspaces_is_refused_at_submission(server):
             await client.call_tool("await_control")
 
 
-async def test_an_old_header_lists_tools_and_refuses_the_first_call(server):
+async def test_x_workspace_names_the_workspace_over_mcp(server):
+    hand_back(await hold(server, who="drk"))
     async with over_http(server, "http://test/mcp", headers={"X-Workspace": "w1"}, mode="legacy") as client:
         assert await client.list_tools()
-        result = await client.call_tool("await_control", raise_on_error=False)
-    assert result.is_error
-    assert "`X-Workspace` is now `Sf-Workspace`" in result.content[0].text
+        result = await client.call_tool("await_control")
+    assert result.structured_content["handed_back"] is True
+    assert result.structured_content["control"]["who"] == ["drk"]
 
 
 async def test_a_task_with_an_old_header_is_refused_at_submission(server):

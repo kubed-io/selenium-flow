@@ -27,9 +27,11 @@ from kubed.selenium_flow.workspace.store import (
     from_settings,
 )
 from kubed.selenium_flow.workspace.workspaces import (
+    BOTH,
     OLD_HEADERS,
     RENAMED,
     UNNAMED,
+    WORKSPACE_ALIAS,
     Caller,
     Workspaces,
     values_of,
@@ -71,6 +73,13 @@ def test_each_new_header_is_read():
                                "height": 900, "page_load_timeout": 40, "script_timeout": 20}
 
 
+def test_x_workspace_is_not_an_old_header():  # ruling 1
+    assert WORKSPACE_ALIAS == "x-workspace"
+    assert "X-Workspace" not in OLD_HEADERS
+    assert list(OLD_HEADERS) == ["X-Browser", "X-Version", "X-Window-Width", "X-Window-Height",
+                                 "X-Page-Load-Timeout", "X-Script-Timeout"]
+
+
 @pytest.mark.parametrize("old, new", list(OLD_HEADERS.items()))
 def test_each_old_header_is_refused_naming_its_new_one_even_beside_it(old, new):  # rulings 2, 9
     caller = caller_of(headers={"sf-workspace": "desk", old.lower(): "1"})
@@ -85,7 +94,6 @@ def test_several_old_headers_are_one_refusal_in_the_tables_order():
     with pytest.raises(ValueError) as exc:
         caller.library  # noqa: B018
     assert str(exc.value) == (
-        "`X-Workspace` is now `Sf-Workspace`: rename the header; "
         "`X-Browser` is now `Sf-Browser`: rename the header; "
         "`X-Script-Timeout` is now `Sf-Script-Timeout`: rename the header")
 
@@ -94,9 +102,49 @@ def test_a_blank_old_header_is_no_header():
     assert caller_of(headers={"sf-workspace": "desk", "x-browser": "  "}).name == "desk"
 
 
-def test_the_gateways_name_beside_a_callers_old_header_is_refused():  # Review Focus 1
-    with pytest.raises(ValueError, match=re.escape("`X-Workspace` is now `Sf-Workspace`")):
-        caller_of(headers={"sf-workspace": "kelly", "x-workspace": "desk"}).name  # noqa: B018
+def test_the_gateways_name_beats_a_callers_x_workspace():  # ruling 2, Review Focus 1
+    caller = caller_of(headers={"sf-workspace": "drk", "x-workspace": "desk"})
+    assert (caller.name, caller.named_by) == ("drk", "header")
+
+
+def test_x_workspace_alone_names_the_workspace():  # rulings 1, 6
+    caller = caller_of(headers={"x-workspace": "desk"})
+    assert (caller.name, caller.named_by) == ("desk", "header")
+
+
+def test_x_workspace_and_a_query_name_is_both():  # ruling 3
+    with pytest.raises(ValueError) as exc:
+        caller_of({"workspace": "desk"}, {"x-workspace": "desk"}).name  # noqa: B018
+    assert str(exc.value) == BOTH
+
+
+def test_x_workspace_given_twice_is_two_names():  # ruling 3
+    caller = Caller.from_request({}, {"x-workspace": ["desk", "drk"]})
+    with pytest.raises(ValueError, match="the request names two workspaces: desk, drk"):
+        caller.name  # noqa: B018
+
+
+def test_sf_workspace_wins_over_an_x_workspace_given_twice():  # ruling 2
+    caller = Caller.from_request({}, {"sf-workspace": ["drk"], "x-workspace": ["desk", "other"]})
+    assert caller.name == "drk"
+
+
+def test_sf_workspace_given_twice_is_refused_whatever_x_workspace_says():  # ruling 2
+    caller = Caller.from_request({}, {"sf-workspace": ["drk", "desk"], "x-workspace": ["desk"]})
+    with pytest.raises(ValueError, match="the request names two workspaces: drk, desk"):
+        caller.name  # noqa: B018
+
+
+def test_a_blank_x_workspace_is_no_name():
+    with pytest.raises(ValueError) as exc:
+        caller_of(headers={"x-workspace": "  "}).name  # noqa: B018
+    assert str(exc.value) == UNNAMED
+
+
+def test_x_workspace_beside_an_old_header_hears_only_that_one():  # Review Focus 5
+    with pytest.raises(ValueError) as exc:
+        caller_of(headers={"x-workspace": "desk", "x-browser": "chrome"}).name  # noqa: B018
+    assert str(exc.value) == "`X-Browser` is now `Sf-Browser`: rename the header"
 
 
 def test_an_old_version_header_is_refused_and_never_read():  # Review Focus 2, ruling 11
@@ -1525,15 +1573,11 @@ def test_a_repeated_name_is_a_400_over_http(server):
     assert response.json() == {"error": "the request names two workspaces: a, b"}
 
 
-XW = "`X-Workspace` is now `Sf-Workspace`: rename the header"
-
-
 @pytest.mark.parametrize(
     "path, headers, error",
     [
-        ("/browser", {"X-Workspace": "desk"}, XW),
+        ("/browser", {"X-Workspace": "desk", "X-Browser": "chrome"}, "`X-Browser` is now `Sf-Browser`: rename the header"),
         ("/browser", {"Sf-Workspace": "desk", "X-Browser": "chrome"}, "`X-Browser` is now `Sf-Browser`: rename the header"),
-        ("/browser", {"X-WORKSPACE": "desk"}, XW),
     ],
 )
 def test_an_old_name_is_a_400_over_http(server, path, headers, error):
@@ -1550,12 +1594,13 @@ def test_an_old_name_is_a_400_over_http(server, path, headers, error):
     assert response.json() == {"error": error}
 
 
-def test_a_new_header_in_any_case_names_the_workspace_over_http(open_server, monkeypatch):
+@pytest.mark.parametrize("header", ["SF-WORKSPACE", "X-Workspace", "X-WORKSPACE"])
+def test_a_new_header_in_any_case_names_the_workspace_over_http(open_server, monkeypatch, header):
     from starlette.testclient import TestClient
 
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     response = TestClient(open_server.mcp.http_app()).get(
-        "/browser", headers={"SF-WORKSPACE": "desk"}
+        "/browser", headers={header: "desk"}
     )
     assert response.status_code == 200
     assert response.json()["workspace"] == "desk"
@@ -1595,7 +1640,7 @@ def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch
     """N12, as live control ruling 31 left it: off the request object, the
     headers are a background task's snapshot, and the name its submission
     carried (`clients.CARRIED`) is the only one read - never an Sf-Workspace
-    the snapshot kept, and never the stdio constant."""
+    or X-Workspace the snapshot kept, and never the stdio constant."""
     import fastmcp.server.dependencies as dependencies
 
     def no_request():
@@ -1628,6 +1673,21 @@ def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch
     )
     with pytest.raises(ValueError, match="name your workspace"):
         _ = clients_module.caller().name
+
+    # An X-Workspace the snapshot kept names nothing either (ruling 9).
+    monkeypatch.setattr(
+        dependencies, "get_http_headers", snapshot({"host": "test", "X-Workspace": "desk"})
+    )
+    assert clients_module.request_values() == ({}, {"host": ["test"]})
+    with pytest.raises(ValueError, match="name your workspace"):
+        _ = clients_module.caller().name
+
+    monkeypatch.setattr(
+        dependencies,
+        "get_http_headers",
+        snapshot({"host": "test", "X-Workspace": "other", clients_module.CARRIED: "desk"}),
+    )
+    assert clients_module.request_values() == ({}, {"host": ["test"], "sf-workspace": ["desk"]})
 
     # A submission whose only headers are the ones FastMCP filters by default
     # still came over HTTP: unnamed, never stdio.
