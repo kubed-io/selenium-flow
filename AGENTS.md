@@ -17,7 +17,9 @@ is where the vocabulary below comes from.
 **`docs/` is the GitHub wiki**, checked out as a submodule: the generated
 pages at its root, hand-written `notes/`, and the design record in
 `superpowers/` and `saga/`. Changing a spec or plan is a commit inside it,
-pushed to a wiki branch, and a pointer bump here; merging publishes it.
+pushed straight to the wiki's `master`, and a pointer bump here: a spec is
+public as soon as it is written, like any wiki page, and its status line says
+whether it is settled.
 
 **[`docs/saga/`](docs/saga/) is deprecated** and kept as written: four chapters
 (flows, pilot reports, other clients, the Hangar) that came before the specs.
