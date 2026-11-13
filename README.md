@@ -43,7 +43,7 @@ Every action is a tool **and** an endpoint, one to one, enforced by a test. They
 
 ## 🧰 Every action, both ways
 
-Twenty actions, each a tool **and** an endpoint: a request body *is* the tool's schema.
+Twenty actions, each with a request body that *is* its tool's schema.
 
 > **Name your workspace** on either surface: `?workspace=<name>` or an `Sf-Workspace` header. There is no session id anywhere. See [Workspaces](#-workspaces).
 
@@ -74,7 +74,7 @@ Every parameter, return field and trap is one page per action in the **[wiki](ht
 
 ### 🦊 Chrome or Firefox
 
-`open_session(browser="firefox")` and you are on Firefox; leave it out and you are on Chrome. Every other action behaves identically on both (plain W3C WebDriver), so only session creation differs.
+`open_session(browser="firefox")` and you are on Firefox; leave it out and you are on Chrome. Every other action behaves identically on both (plain W3C WebDriver).
 
 ### 🧠 A workspace is not a browser
 
@@ -94,7 +94,7 @@ Workspaces expire on `WORKSPACE_TTL`, slid forward on every use; nothing else re
 
 ## 🍪 Workspaces
 
-**Every workspace is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name; there is no session id to keep or pass.
+**Every workspace is named by whoever calls, on both surfaces.** Say who you are and you get the browser that belongs to that name.
 
 | How to name it | Looks like | Use it when |
 |---|---|---|
@@ -114,11 +114,11 @@ Call again with the same name — after a reconnect, a restart, a week later —
 
 > 🔑 A workspace name is an address, not a secret: the bearer token is the credential, so anyone holding it who knows your workspace's name can drive your browser.
 
-Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long a workspace is remembered is `WORKSPACE_TTL`, slid forward on every call. Nothing runs a cleanup loop.
+Browser lifetime is the Grid's (`SE_NODE_SESSION_TIMEOUT`, 300s here); how long a workspace is remembered is `WORKSPACE_TTL`. Nothing runs a cleanup loop.
 
 ### 📍 Where am I?
 
-`workspace://current` reports the workspace name, which browser it is running, the page it is on, whether a session is open at all, whether you are inside a frame, and the window size. Reading it never opens a browser.
+`workspace://current` reports the workspace name, which browser it is running, the page it is on, whether a session is open, whether you are inside a frame, and the window size. Reading it never opens a browser.
 
 Everything there is to read is a resource like this one, and a client whose model cannot read resources — VS Code Copilot, or anything declaring `?resources=off` — gets two tools instead: `list_resources` and `read_resource(uri)`.
 
@@ -142,13 +142,15 @@ only what its task needs:
 | `skill://selenium-flow/_manifest` | the file listing, with sizes and hashes |
 
 Those URIs are FastMCP's convention, served by its own `SkillProvider`, so
-`list_skills` and `download_skill` work here with no special casing.
+`list_skills` and `download_skill` work here unchanged.
 
 A client that implements the MCP Skills extension also finds it through
 `skills/list` and `skills/get`, and can verify every file it reads.
 
 A client that cannot read resources reads the same URIs with `read_resource`.
-`MCP_SKILL=false` turns the skill off.
+`MCP_SKILL=false` turns the skill off, and the explorer with it.
+
+A client that implements the agents extension finds the **explorer** through `agents/list`: a subagent that explores a site in your workspace, runs the flows that fit each page, saves new ones, and reports back briefly.
 
 ---
 
@@ -160,7 +162,7 @@ Drive a form once, save the steps under a name, and every run after that is one 
 run_flow(name="sign-up", params={"email": "a@example.com"})
 ```
 
-A step is just a tool call, validated against the live tool schemas when it is saved — so a flow that could not run is refused before it starts. It runs in whatever browser you already hold, which means the same flow checks Chrome and then Firefox without an edit. Each workspace keeps its own library, beside a shared one called `global` that every workspace can run and none can change. Set `DATA_DIR` to turn them on; workspaces live under `DATA_DIR/workspaces/<name>/`.
+A step is a tool call, validated against the live tool schemas when saved, so a flow that could not run is refused before it starts. It runs in whatever browser you hold, so the same flow checks Chrome and then Firefox without an edit. Each workspace keeps its own library, beside a shared one called `global` that every workspace can run and none can change. Set `DATA_DIR` to turn them on; workspaces live under `DATA_DIR/workspaces/<name>/`.
 
 A flow's `sites` and `paths` get it named in a result there:
 
@@ -170,7 +172,7 @@ A flow's `sites` and `paths` get it named in a result there:
 
 ## 🔐 Secrets — typed, never shown
 
-Mount credentials as a directory per secret and a file per key — exactly how Kubernetes already mounts a `Secret` — and point `SECRETS_DIRS` at it. An agent sees the names and keys, never a value, and binds one where the value would go:
+Mount credentials as a directory per secret and a file per key — how Kubernetes mounts a `Secret` — and point `SECRETS_DIRS` at it. An agent sees the names and keys, never a value, and binds one where the value would go:
 
 ```
 write(selector={"css": "#password"}, secret={"name": "nextcloud", "key": "password"})
@@ -255,24 +257,24 @@ nodes, or recordings share one screen.
   yet verified).
 
 A recording is matched to its session by the Grid's session id anywhere in its
-path below `RECORDING_DIR` (folders or file name), so any path and prefix the
+path below `RECORDING_DIR`, so any path and prefix the
 transport adds is fine.
 
 **What the recorder must be set to.** Keep `SE_VIDEO_FILE_NAME=auto` (the
 default): a fixed name gives every session the same file, which cannot be
 matched. And keep either `SE_VIDEO_FILE_NAME_SUFFIX=true` (the default) or
 `SE_VIDEO_SESSION_SUBFOLDER=true`, so the Grid session id is in the path;
-with both off a custom `se:videoName` carries no id, the recording is made, and
-it is never matched. One that never arrives is
+with both off a custom `se:videoName` carries no id, and the recording is made but
+never matched. One that never arrives is
 given up on after `RECORDING_WAIT` seconds with a warning in the log.
 
 ---
 
 ## 🖥 Admin UI
 
-`GET /` — **your** workspaces, marked with the browser each is running. Open one for its Files tab — Downloads, Screenshots, Recordings and Files, each cleared the way that fits it — and its Flows tab. Click a file to view it in place; **End** quits a stale browser and gives its Grid slot back, rather than waiting out the Grid's idle timeout — it ends the session and keeps the workspace.
+`GET /` — **your** workspaces, marked with the browser each is running. Open one for its Files tab — Downloads, Screenshots, Recordings and Files, each cleared the way that fits it — and its Flows tab. Click a file to view it in place; **End** quits a stale browser and frees its Grid slot without waiting out the idle timeout; it ends the session and keeps the workspace.
 
-Workspaces, not Grid sessions: browsers somebody else put on the Grid are not listed. Nothing on the MCP surface lists workspaces at all — a client sees its own and nothing else. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Administration).
+Workspaces, not Grid sessions: browsers somebody else put on the Grid are not listed. Nothing on the MCP surface lists workspaces — a client sees its own and nothing else. [More in the wiki](https://github.com/kubed-io/selenium-flow/wiki/Administration).
 
 The list **pushes its own updates** over Server-Sent Events — no refresh button, and no polling per tab: one loop serves every page.
 
@@ -286,7 +288,7 @@ The Grid's own console is a second tab, framed same-origin. Put both behind one 
 
 Hosts implementing the [MCP Apps extension](https://modelcontextprotocol.io/extensions/apps/overview) — Claude, ChatGPT, VS Code, Goose — render a tool result as UI rather than JSON. `show(uri)` draws any resource the server serves: your workspace, its files, site data, flows, secrets and the skill.
 
-The views are the app's own; the files grid, lightbox and browser marks are shared with the admin UI, not copied. Degradation is the point: one server, the client's capabilities pick the rendering.
+The views are the app's own; the files grid, lightbox and browser marks are shared with the admin UI. Degradation is the point: one server, the client's capabilities pick the rendering.
 
 | The client can | It gets |
 |---|---|
@@ -300,7 +302,7 @@ Apps get a deny-by-default CSP with no network, so `PUBLIC_BASE_URL` is also wha
 
 ## ⚙️ Configuration
 
-Every setting can be set in a YAML config file, in the environment, or on the command line, and a later one wins: **default < config < env < args**. A setting's file path is its name: `redis.host` is `REDIS_HOST` and `--redis-host`.
+Every setting can be set in a YAML config file, the environment or the command line; a later one wins: **default < config < env < args**. A setting's file path is its name: `redis.host` is `REDIS_HOST` and `--redis-host`.
 
 ```yaml
 # /etc/selenium-flow/config.yaml
@@ -322,7 +324,7 @@ Every setting, in all three spellings: the wiki's [Configuration](https://github
 
 ### 💾 The data directory
 
-`DATA_DIR` turns on flows, kept files and recordings; unset, they are off.
+`DATA_DIR` turns on flows, kept files and recordings.
 
 ```
 $DATA_DIR/
@@ -350,7 +352,7 @@ Leave `recordings/` where it is, then set `DATA_DIR` in place of `FLOW_DATA_DIR`
 
 ### Session defaults cascade
 
-The browser, the window size and the two timeouts resolve in order of increasing specificity:
+The browser, the window size and the two timeouts resolve from least to most specific:
 
 ```
 server default (config: session.*)  <  client default (?width= / Sf-Window-Width)  <  open_session argument
@@ -360,7 +362,7 @@ A bad *client* default is ignored and logged; a bad `session.*` in the config, e
 
 ### 🔐 Auth
 
-Setting `AUTH_TOKEN` turns on auth for both surfaces at once. Clients send it the usual way:
+Setting `AUTH_TOKEN` turns on auth for both surfaces. Clients send it the usual way:
 
 ```
 Authorization: Bearer <token>
