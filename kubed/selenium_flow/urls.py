@@ -105,10 +105,15 @@ def host_of(url: str) -> str:
 
 def page_of(url: str) -> str:
     """``url`` without its query, credentials or non-route fragment: its origin,
-    path and, when it has one, hash route as written (never the route's query)."""
+    path and, when it has one, hash route as written (never the route's query).
+    A route containing ``=`` is dropped as an anchor is: AngularJS puts an OAuth
+    reply there (``#/access_token=T``). The check is on the part kept, so
+    ``#/workspace?team-id=T`` keeps ``#/workspace``."""
     page = origin_of(url) + urlsplit(url).path
     if route_of(url) is not None:
-        page += "#" + urlsplit(url).fragment.split("?", 1)[0]
+        kept = urlsplit(url).fragment.split("?", 1)[0]
+        if "=" not in kept:
+            page += "#" + kept
     return page
 
 

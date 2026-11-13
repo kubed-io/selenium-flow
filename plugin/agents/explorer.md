@@ -107,7 +107,7 @@ Plain Markdown, at most about 200 words, under five headings in this order:
   parameters.
 - **Couldn't:** each blocker and why. For a step that would have changed the
   site, name the step, so the main agent can name it in its next hand-off.
-- **Browser:** the page you left the browser on, as an origin and path. No
-  query string: a query can carry a token.
+- **Browser:** the page you left the browser on, as an origin, path and hash
+  route. No query string: a query can carry a token.
 
 No page text beyond what answers the question, and no screenshots inline.

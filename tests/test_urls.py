@@ -126,6 +126,8 @@ def test_the_page_key_carries_the_route():  # ruling 2
     ("https://p.test/app/#!/settings/", "https://p.test/app/#!/settings/"),
     ("https://a.test/cb#access_token=x", "https://a.test/cb"),
     ("https://a.test/docs?q=1#top", "https://a.test/docs"),
+    ("https://a.test/cb#/access_token=T&token_type=bearer", "https://a.test/cb"),
+    ("https://a.test/#!/access_token=T", "https://a.test/"),
 ])
 def test_page_of_keeps_a_route_as_written_without_its_query(url, kept):  # rulings 9, 13
     assert urls.page_of(url) == kept

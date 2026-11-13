@@ -345,6 +345,27 @@ test('Edit: a failed read alerts and opens nothing; a failed save alerts and sta
   expect(document.querySelector('.modal')).toBe(sheet)
 })
 
+const NEVER = 'It has no sites or paths, so it is never named in flows_here.'
+
+async function moveSheet(container: HTMLElement) {
+  await vi.waitFor(() => found(container, '[data-move]'))
+  await fireEvent.click(container.querySelector('[data-move]')!)
+  return document.querySelector('.modal') as HTMLElement
+}
+
+test('Move to global says a flow with no sites or paths is never hinted', async () => {
+  const { container } = setup()
+  expect(await moveSheet(container)).toHaveTextContent(NEVER)
+})
+
+test('Move to global says nothing of hints for a placed flow, or out of global', async () => {
+  for (const doc of [{ ...DOC, paths: ['/#/auth/*'] }, { ...DOC, sites: ['penpot.example'] }, { ...DOC, shared: true }]) {
+    const { container, unmount } = setup({ 'GET /admin/workspaces/k/flows/login': { body: doc } })
+    expect(await moveSheet(container)).not.toHaveTextContent(NEVER)
+    unmount()
+  }
+})
+
 test('Move and Delete say where, act, and close the flow (W5, W6)', async () => {
   const { container, calls } = setup({ 'POST /admin/workspaces/k/flows/login/move': { body: {} }, 'DELETE /admin/workspaces/k/flows/login': { body: {} } })
   await vi.waitFor(() => found(container, '[data-move]'))

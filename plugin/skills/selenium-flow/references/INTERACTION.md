@@ -106,6 +106,9 @@ are two, and so are `/x?p=1` and `/x`. A route's own query counts too
 (`#/w?file-id=1`), and `url=https://app/` from `#/dashboard` opens the root
 page.
 
+Moving between hash routes does not reload the page, so wait on something
+only the new screen has (a selector the old screen lacks), not on the load.
+
 Only `http`, `https` and `about:blank` can be opened, here and in `navigate`
 and `open_session`. `file:`, `chrome:`, `view-source:`, `javascript:` and
 `data:` are refused before the browser is touched.
