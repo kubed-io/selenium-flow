@@ -811,18 +811,39 @@ def document(driver) -> dict | None:
     return {"origin": origin, "url": url, "title": title}
 
 
+def screen(url: str) -> tuple[str, str]:
+    """``url``'s path and hash route: what a same-document move must change for
+    a new title to be expected.
+
+    A route is a fragment that starts with ``/`` or ``!/`` (#134's ruling), less
+    its own query. Any other fragment (an anchor), the query and a trailing ``/``
+    leave the screen as it was, so a move that changes only them is not waited
+    for: a search box mirroring its text into ``?q=`` would pay the whole bound
+    on every keystroke. The cost is an app that routes by its query, or by a
+    fragment without the ``/`` (``#home``): its new title is not waited for.
+    #137's page key will say the same; when it lands, this is its path and route.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return url, ""
+    route = parts.fragment if parts.fragment.startswith(("/", "!/")) else ""
+    return parts.path.rstrip("/"), route.split("?", 1)[0].rstrip("/")
+
+
 def landed(driver, before: dict | None, timeout: float = TITLE_SETTLE) -> dict:
     """`page_state`, once a route the call moved to has had its title set.
 
     A same-document navigation (a fragment, `pushState`) is over as soon as the
     URL changes, and ``driver.get`` and ``element.click`` wait for nothing
     more; a single-page app sets ``document.title`` afterwards, from its router.
-    Read at once, the title is the screen just left (#139). So when the URL
-    moved and ``before``'s document is still the page's, the title is waited
+    Read at once, the title is the screen just left (#139). So when the
+    `screen` moved and ``before``'s document is still the page's, the title is waited
     for until it is not ``before``'s, for at most ``timeout``.
 
     Nothing else waits: a new document (a full load reports as it always has),
-    an unmoved URL, a title already changed, a dialog, or ``before`` None.
+    a URL still on the same `screen` (an anchor, a query), a title already
+    changed, a dialog, or ``before`` None.
     Expiring is an ordinary answer, since a route may keep its title, and any
     failure here means no wait, never a failed call (as `settled`).
     """
@@ -830,12 +851,16 @@ def landed(driver, before: dict | None, timeout: float = TITLE_SETTLE) -> dict:
     if (
         before is None
         or "dialog" in state
-        or state["url"] == before["url"]
+        or screen(state["url"]) == screen(before["url"])
         or state["title"] != before["title"]
     ):
         return state
     now = document(driver)
-    if now is None or now["origin"] != before["origin"] or now["url"] == before["url"]:
+    if (
+        now is None
+        or now["origin"] != before["origin"]
+        or screen(now["url"]) == screen(before["url"])
+    ):
         return state
     # Kept its title, a dialog opened, or the session went: no longer waited.
     with contextlib.suppress(Exception):

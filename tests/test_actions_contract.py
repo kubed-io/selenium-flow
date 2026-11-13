@@ -8,6 +8,7 @@ refactor of the recipe every action shares (reconnect, maybe navigate, wait, act
 report) is provable rather than hoped for.
 """
 
+import re
 import tempfile
 from itertools import pairwise
 from pathlib import Path
@@ -136,8 +137,25 @@ DASHBOARD = "https://app.test/#/dashboard/recent"
 # Another document with the same title as the login screen: only `timeOrigin`
 # tells that move from a route change.
 SIGN_IN = "https://other.test/login"
+# A docs page that moves within itself without changing screen (#142): an anchor,
+# a query mirrored by `replaceState`, a hash route's own query. Same title.
+DOCS = "https://app.test/docs"
+SAME_SCREEN = [
+    "https://app.test/docs#section",
+    "https://app.test/docs?q=selenium",
+    "https://app.test/docs/",
+]
+# Moves to another screen without a new document: a path, a hashbang route.
+SCREENS = {
+    "https://app.test/docs/intro": "Intro",
+    "https://app.test/docs#!/guide": "Guide",
+}
+SEARCH = "https://app.test/#/search?q=a"
+SEARCHED = "https://app.test/#/search?q=ab"
 ROUTE_TITLES = {
     LOGIN: "Login", DASHBOARD: "Dashboard", PAGE: "Example", SIGN_IN: "Login",
+    DOCS: "Docs", SEARCH: "Search", SEARCHED: "Search",
+    **dict.fromkeys(SAME_SCREEN, "Docs"), **SCREENS,
 }
 
 
@@ -196,6 +214,10 @@ class Router(CountingDriver):
             raise RuntimeError("the script could not run")
         if self.dialog is not None:
             raise UnexpectedAlertPresentException("dialog open")
+        moved = re.search(r"history\.replaceState\(null, '', '([^']*)'\)", script)
+        if moved:
+            self.route(moved[1])
+            return None
         if "location.hash" in script:
             self.route(DASHBOARD)
             return None
@@ -302,7 +324,7 @@ def test_a_url_spelt_differently_by_the_page_does_not_wait(actions, router, cloc
     not a move: the page's own spelling is asked before anything waits."""
     driver = router()
     driver.__dict__["href"] = LOGIN
-    driver.__dict__["_url"] = "https://app.test:443/#/auth/login"
+    driver.__dict__["_url"] = "https://app.test/#/auth/log%69n"
     actions.extract("abc", selector={"css": "#x"})
     assert clock[0] == 0
     assert driver.title_reads() == 1
@@ -343,6 +365,59 @@ def test_an_open_dialog_neither_waits_nor_fails_the_call(actions, router, clock)
     result = actions.navigate("abc", DASHBOARD)
     assert result["dialog"] == DIALOG
     assert clock[0] == 0
+
+
+def _at(driver, url):
+    driver.__dict__["_url"], driver.__dict__["_title"] = url, ROUTE_TITLES[url]
+
+
+def _move(to):
+    return f"history.replaceState(null, '', '{to}')"
+
+
+@pytest.mark.parametrize(
+    ("url", "seen"),
+    [
+        ("https://app.test/docs", ("/docs", "")),
+        ("https://app.test/docs/#", ("/docs", "")),
+        ("https://app.test/docs#section", ("/docs", "")),
+        ("https://app.test/docs?q=a#home", ("/docs", "")),
+        ("https://app.test/#/", ("", "")),
+        ("https://app.test/#/items/?id=2", ("", "/items")),
+        ("https://app.test/#!/guide", ("", "!/guide")),
+        ("http://[::1", ("http://[::1", "")),  # will not parse: itself
+    ],
+)
+def test_a_screen_is_the_path_and_the_hash_route(url, seen):
+    assert browser.screen(url) == seen
+
+
+@pytest.mark.parametrize("to", SAME_SCREEN)
+def test_a_move_within_the_same_screen_does_not_wait(actions, router, clock, to):
+    """An anchor, a query, a trailing slash: the page did not change screen, so
+    no new title is expected, and waiting for one would cost every such call
+    the whole bound (#142)."""
+    driver = router(late=None)
+    _at(driver, DOCS)
+    result = actions.execute_script("abc", _move(to))
+    assert (result["url"], result["title"]) == (to, "Docs")
+    assert clock[0] == 0
+
+
+def test_a_hash_routes_own_query_is_the_same_screen(actions, router, clock):
+    """A search box in a hash-routed app mirrors its text into the route's query."""
+    driver = router(late=None)
+    _at(driver, SEARCH)
+    actions.execute_script("abc", _move(SEARCHED))
+    assert clock[0] == 0
+
+
+@pytest.mark.parametrize("to", SCREENS)
+def test_a_move_to_another_path_or_route_waits_for_its_title(actions, router, clock, to):
+    driver = router()
+    _at(driver, DOCS)
+    result = actions.execute_script("abc", _move(to))
+    assert (result["url"], result["title"]) == (to, SCREENS[to])
 
 
 # ---- X3, N1-N3: what navigation and reads return -----------------------------
