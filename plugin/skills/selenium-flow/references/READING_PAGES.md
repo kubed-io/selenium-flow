@@ -109,8 +109,9 @@ Each entry carries `css` or `xpath`, whichever was checked; hand it on as
 That second entry is the whole point: the link is real, its selector works, and
 clicking it now would time out — because `ul.menu-content` is hidden. The reasons
 are `hidden`, `covered` (with `blocked_by`), `unpainted` (it paints nothing at
-its centre), `invisible_cover` (an invisible element is on top), `zero_size`,
-`offscreen` and `disabled`.
+its centre), `invisible_cover` (an invisible element on top, named in
+`blocked_by`, takes the click; clicking it, or something inside it, may be what
+you want), `zero_size`, `offscreen` and `disabled`.
 
 **`blocked_by` says what is in the way; `revealed_by` says what to act on.** Act
 on `revealed_by`, and use the gesture `open_with` names:

@@ -66,7 +66,9 @@ class _Page:
         ("unpainted", {"detail": "rect.frame-background"},
          "paints nothing at its centre, so the click goes through to rect.frame-background"),
         ("invisible_cover", {"detail": "rect#hot", "selector": {"css": "#hot"}},
-         'It may be the real target: try selector={"css": "#hot"}'),
+         "an invisible element, rect#hot, is on top of it at its centre and takes "
+         "the click there. Clicking that, or something inside it, may be what you "
+         'want: try selector={"css": "#hot"}'),
         ("zero_size", {"detail": "a.link"}, "has no size"),
         ("offscreen", {"detail": "button.save"}, "outside the viewport"),
         ("disabled", {"detail": "button.submit"}, "is disabled"),
@@ -285,7 +287,8 @@ def test_a_double_click_that_went_elsewhere_says_where_and_why():  # ruling 14
     assert probe.receiver_report(OUT, "double_click") == {
         "received_by": {"element": "rect#hot", "depth": None, "painted": False},
         "warning": ("The double-click went to rect#hot, not to the element you selected, "
-                    "because an invisible rect#hot is on top of it. If that is what you "
+                    "because an invisible rect#hot on top of it takes the pointer there. "
+                    "If that is what you "
                     'meant, it is selector={"css": "#hot"}.')}
 
 

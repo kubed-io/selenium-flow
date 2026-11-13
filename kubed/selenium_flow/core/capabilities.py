@@ -307,8 +307,9 @@ OUTLINE_ELEMENTS = {
                 "description": (
                     "Why it cannot be used: hidden, covered, unpainted (it "
                     "paints nothing at its centre), invisible_cover (an "
-                    "invisible element is on top), zero_size, offscreen or "
-                    "disabled."
+                    "invisible element on top, named in blocked_by, takes the "
+                    "click; clicking it, or something inside it, may be what "
+                    "you want), zero_size, offscreen or disabled."
                 ),
             },
             "blocked_by": {
