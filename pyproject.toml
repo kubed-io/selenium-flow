@@ -141,15 +141,9 @@ packages = [
   "kubed.selenium_flow.site_data",
   "kubed.selenium_flow.spec",
   "kubed.selenium_flow.core.js",
-  "kubed.selenium_flow.mcp.prompts",
-  "kubed.selenium_flow.mcp.skills",
+  "kubed.selenium_flow.mcp.plugin",
 ]
 
-# The skill lives at the repo root, where it reads as documentation rather than
-# as buried package data, but it has to INSTALL inside the package so it travels
-# with the wheel. This maps the one to the other: built from ./skills, installed
-# as kubed/selenium_flow/skills/. Without it the skill is simply absent from an
-# installed package and silently does not exist.
 [tool.setuptools.package-dir]
 # `js/` is the JavaScript this server runs in the page. It is mapped for the
 # same reason as everything else here, and the reason it is a directory at all:
@@ -157,22 +151,20 @@ packages = [
 # and every regular expression had to be double-escaped to survive the Python
 # parser. As files it is source. See `js.py`.
 "kubed.selenium_flow.core.js" = "js"
-# `prompts/` is mapped for the same reason as the skill below: it reads as
+# `plugin/` is the skill, the prompts and the agents this server serves, laid out
+# as a Claude-format plugin (spec 2026-11-12-plugin-agents). It reads as
 # documentation at the repo root and has to install inside the package, or a
-# wheel serves no prompts and says nothing about it.
-"kubed.selenium_flow.mcp.prompts" = "prompts"
-"kubed.selenium_flow.mcp.skills" = "skills"
+# wheel serves none of it and says nothing: built from ./plugin, installed as
+# kubed/selenium_flow/mcp/plugin/.
+"kubed.selenium_flow.mcp.plugin" = "plugin"
 
-# Everything under it, not just *.md: a supporting file of any other type would
-# otherwise be missing from the wheel with no error at build or import time, and
-# the skill would reference a file that is not there.
-#
-# The directory name IS the skill name — FastMCP's SkillProvider takes it from
-# the folder, not the frontmatter, and publishes skill://<folder>/SKILL.md.
+# Everything under it, not just *.md, and `.claude-plugin/*` spelt out: setuptools
+# expands these with the stdlib glob, whose `*` and `**` skip a name starting with
+# a dot, so `**/*` alone would leave plugin.json out. A skill's directory name IS
+# its name: SkillProvider publishes skill://<folder>/SKILL.md.
 [tool.setuptools.package-data]
 "kubed.selenium_flow.core.js" = ["*.js"]
-"kubed.selenium_flow.mcp.prompts" = ["*.md"]
-"kubed.selenium_flow.mcp.skills" = ["*", "**/*"]
+"kubed.selenium_flow.mcp.plugin" = ["*", "**/*", ".claude-plugin/*"]
 # The built UI (§F4.15): npm writes it beside http/admin/, gitignored. A glob, not
 # a mapped package, so an install that skipped the build succeeds without it
 # (§F4.17) — a mapped directory that does not exist fails the whole install.

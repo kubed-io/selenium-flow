@@ -8,6 +8,9 @@ deployed image silently kept the old one.
 """
 
 import ast
+import glob
+import json
+import os
 import pathlib
 import re
 import sys
@@ -346,8 +349,8 @@ def test_pip_does_not_ship_inside_the_copied_venv():
 # to place that directory BESIDE the module — which is what package-dir decides.
 DATA_DIRS = {
     "kubed/selenium_flow/core/js.py": "js",
-    "kubed/selenium_flow/mcp/skill.py": "skills",
-    "kubed/selenium_flow/mcp/prompts.py": "prompts",
+    "kubed/selenium_flow/mcp/skill.py": "plugin",
+    "kubed/selenium_flow/mcp/prompts.py": "plugin",
 }
 
 
@@ -378,6 +381,58 @@ def test_a_data_directory_is_packaged_beside_the_module_that_reads_it(module, di
     patterns = data["tool"]["setuptools"]["package-data"].get(key)
     assert patterns, f"[tool.setuptools.package-data] needs a pattern for '{key}'"
 
+
+PLUGIN = REPO / "plugin"
+PLUGIN_PACKAGE = "kubed.selenium_flow.mcp.plugin"
+MANIFEST = ".claude-plugin/plugin.json"
+
+
+def plugin_patterns() -> list[str]:
+    return tomllib.loads(PYPROJECT.read_text())["tool"]["setuptools"]["package-data"][PLUGIN_PACKAGE]
+
+
+def collected(patterns) -> set[str]:
+    """What setuptools' build_py collects: the stdlib glob, recursive, from the
+    mapped root, files only. Its * and ** skip a name that starts with a dot."""
+    found = set()
+    for pattern in patterns:
+        # The stdlib glob, not pathlib's: pathlib matches dot-names, setuptools' does not.
+        for name in glob.glob(pattern, root_dir=PLUGIN, recursive=True):  # noqa: PTH207
+            if (PLUGIN / name).is_file():
+                found.add(pathlib.PurePath(name).as_posix())
+    return found
+
+
+def plugin_files() -> set[str]:
+    """Every file under plugin/, dot-folders included (os.walk hides nothing)."""
+    return {
+        (pathlib.Path(root) / name).relative_to(PLUGIN).as_posix()
+        for root, _dirs, names in os.walk(PLUGIN)
+        for name in names
+    }
+
+
+def test_every_plugin_file_is_matched_by_package_data():  # Ruling 4
+    files = plugin_files()
+    assert MANIFEST in files
+    assert "skills/selenium-flow/SKILL.md" in files
+    assert "prompts/build_flow.md" in files
+    missing = files - collected(plugin_patterns())
+    assert not missing, f"no package-data pattern ships {sorted(missing)}"
+
+
+def test_the_plugin_manifest_ships_by_its_own_pattern():
+    """Proves the test above can fail: **/* alone leaves the dot-folder out."""
+    without = [p for p in plugin_patterns() if p != ".claude-plugin/*"]
+    assert len(without) == len(plugin_patterns()) - 1
+    assert MANIFEST not in collected(without)
+
+
+def test_the_plugin_manifest_names_the_skill_and_declares_nothing_else():  # Rulings 3, 6
+    manifest = json.loads((PLUGIN / MANIFEST).read_text())
+    assert set(manifest) == {"name", "description"}
+    assert manifest["name"] == "selenium-flow"
+    assert manifest["description"].strip()
 
 
 def test_the_built_ui_ships_by_glob_so_an_unbuilt_install_still_works():

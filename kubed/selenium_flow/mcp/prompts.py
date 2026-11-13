@@ -34,6 +34,7 @@ from pydantic import Field
 
 log = logging.getLogger(__name__)
 
+PLUGIN_DIR = "plugin"
 PROMPTS_DIR = "prompts"
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
@@ -68,16 +69,15 @@ class FilePrompt(Prompt):
 def prompts_path() -> Path:
     """The prompts directory, installed or in a source checkout.
 
-    `prompts/` lives at the repo root, where it reads as documentation rather
+    `plugin/` lives at the repo root, where it reads as documentation rather
     than as buried package data, and pyproject maps it into the package at build
-    time — the same trick `skills/` uses, and for the same reason: without it
-    they are simply absent from an installed wheel.
+    time: without that they are simply absent from an installed wheel.
     """
-    packaged = Path(__file__).parent / PROMPTS_DIR
+    packaged = Path(__file__).parent / PLUGIN_DIR / PROMPTS_DIR
     if packaged.is_dir():
         return packaged
     # parents[3] because this module lives in mcp/: package, kubed, repo root.
-    return Path(__file__).parents[3] / PROMPTS_DIR
+    return Path(__file__).parents[3] / PLUGIN_DIR / PROMPTS_DIR
 
 
 def _split(text: str) -> tuple[dict, str] | None:

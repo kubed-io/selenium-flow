@@ -1040,7 +1040,7 @@ development before it was fixed; do not add a bare `WebDriverWait`.
 
 ## The embedded skill
 
-`skills/selenium-flow/` sits at the **repo root** and is mapped into the package
+`plugin/skills/selenium-flow/` sits in `plugin/` at the **repo root**, which is mapped into the package
 by `[tool.setuptools.package-dir]`, so it reads as documentation but installs
 inside the wheel. `skill_path()` checks the packaged location first and falls
 back to the root, which is what makes a source checkout and an installed wheel
@@ -1065,10 +1065,12 @@ Two rules keep it working:
   string.
 
 Package data is easy to lose: `[tool.setuptools.package-data]` covers
-`skills/**/*`, not just `*.md`, because a supporting file of another type would
-otherwise be absent from the wheel with no error at build or import time.
-`test_every_skill_file_is_covered_by_package_data` fails if a file is ever added
-that no pattern matches.
+`plugin/**/*`, not just `*.md`, because a file of another type would otherwise
+be absent from the wheel with no error at build or import time, and it spells
+out `.claude-plugin/*`, because setuptools expands the patterns with the stdlib
+`glob`, whose `**` skips a dot-folder.
+`test_every_plugin_file_is_matched_by_package_data` expands them the same way
+and fails if a file is ever added that no pattern ships.
 
 The **Skills extension** (SEP-2640, `io.modelcontextprotocol/skills`) is a second
 discovery surface over the same files, in `mcp/skill_extension.py`: `skills/list`
