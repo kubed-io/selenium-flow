@@ -21,6 +21,7 @@ from pathlib import Path
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
     SessionNotCreatedException,
+    TimeoutException,
     WebDriverException,
 )
 from selenium.webdriver.common.action_chains import ActionChains
@@ -31,7 +32,7 @@ from selenium.webdriver.common.print_page_options import PrintOptions
 from ..bidi.connection import BidiError, MessageTooBig
 from ..capture import NETWORK_URI
 from ..errors import GONE, UNAVAILABLE
-from ..faults import BidiUnavailable, NotFound
+from ..faults import BidiUnavailable, NotFound, ScriptTimedOut
 from ..faults import message as failure_text
 from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..site_data import snapshot as site_data_snapshot
@@ -44,7 +45,15 @@ from .coerce import as_bool, as_int
 from .defaults import normalize_browser
 from .keys import SUBMIT_KEYS, resolve_key
 from .naming import _decode, _generated_name, _why_unsaved, safe_name
-from .recipe import CLICKABLE, DIALOG_TIMEOUT, PRESENCE, SHOWN, WAIT_TIMEOUT, Recipe
+from .recipe import (
+    CLICKABLE,
+    DIALOG_TIMEOUT,
+    PRESENCE,
+    SHOWN,
+    WAIT_TIMEOUT,
+    Recipe,
+    node_answering,
+)
 
 # What a failed pointer move must never be mistaken for. See `_move_onto`.
 INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
@@ -89,6 +98,25 @@ BODY_ANSWERS = {
         "this body is no longer collectable: the browser stopped keeping bodies"
     ),
 }
+
+
+def run_script(driver, script: str):
+    """``driver.execute_script``, saying so when the script ran out of time.
+
+    Keyed on the command and not on the browser's words, which differ: Chrome
+    says `script timeout` and Firefox `Timed out after N ms`. A selector wait
+    that times out is raised elsewhere and stays what it was.
+    """
+    try:
+        return driver.execute_script(script)
+    except TimeoutException:
+        try:
+            # One more command, and only on this path; the timeout in force is
+            # worth saying, but never worth hiding the failure for.
+            seconds = driver.timeouts.script
+        except Exception:  # noqa: BLE001 - any failure here only costs the number
+            seconds = None
+        raise ScriptTimedOut(seconds) from None
 
 
 def _is_text(mime: str) -> bool:
@@ -1289,7 +1317,7 @@ class Actions:
         """
         return self._recipe().run(
             session_id,
-            lambda at: {"result": at.driver.execute_script(script)},
+            lambda at: {"result": run_script(at.driver, script)},
             url=url,
         )
 
@@ -1334,7 +1362,7 @@ class Actions:
             # `at.state` rather than a reading of its own: the page as it was
             # when the answer held is the page state this reports.
             Assertion(
-                lambda: at.driver.execute_script(script),
+                lambda: run_script(at.driver, script),
                 at.state,
                 timeout,
                 hold,
@@ -1504,11 +1532,12 @@ class Actions:
         frame's, and it is read every time rather than when a frame check says
         so, because a frame can forge that check (§F2).
         """
-        driver = self.grid.reconnect(session_id)
-        return {
-            **browser.page_state(driver),
-            "frame_origin": browser.frame_origin(driver),
-        }
+        with node_answering():
+            driver = self.grid.reconnect(session_id)
+            return {
+                **browser.page_state(driver),
+                "frame_origin": browser.frame_origin(driver),
+            }
 
     def network_body(self, session_id: str, id: str) -> dict:
         """One captured request's response body, asked of the browser that made

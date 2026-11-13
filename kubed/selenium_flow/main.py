@@ -39,6 +39,26 @@ def quiet_the_wire() -> None:
         logging.getLogger(name).setLevel(level)
 
 
+def plain_fastmcp_logs() -> None:
+    """Send FastMCP's log lines through the root handler like every other line.
+
+    FastMCP configures its own logger at import: Rich handlers on stderr and no
+    propagation. In a pod there is no TTY, so Rich wraps at 80 columns, and Loki
+    stores each physical line as its own entry, so only the first fragment of an
+    error matches its text. Dropping the handlers and propagating gives one
+    format. The level is INFO or the root's, whichever is higher, never lower:
+    FastMCP logs every tool's arguments at DEBUG (scripts, typed text, upload
+    content), so LOG_LEVEL=DEBUG must not open it, while WARNING still quiets
+    it. Filters on its child loggers stay, as they belong to the logger and not
+    to a handler.
+    """
+    logger = logging.getLogger("fastmcp")
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+    logger.propagate = True
+    logger.setLevel(max(logging.INFO, logging.getLogger().getEffectiveLevel()))
+
+
 def _loopback(host: str) -> bool:
     return host in ("localhost", "::1", "127.0.0.1")
 
@@ -54,6 +74,7 @@ def main(argv: list[str] | None = None) -> None:
     settings = loaded.settings
     logging.basicConfig(level=settings.log_level)
     quiet_the_wire()
+    plain_fastmcp_logs()
     try:
         server = SeleniumMCP(settings, sources=loaded.sources)
     except config.ConfigError as exc:
