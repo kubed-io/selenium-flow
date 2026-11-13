@@ -16,6 +16,7 @@ from fastmcp_tasks.models import CreateTaskResult
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.faults import BidiUnavailable
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.live.control import HANDED_BACK, HELD, NOTICE_REQUESTED
 from kubed.selenium_flow.live.tunnel import Tunnel
@@ -177,9 +178,20 @@ async def test_an_in_flight_call_carries_control_in_structured_content(server, m
         tunnel.mode = on_loop(tunnel.on_ask)
         return parse(uri)
 
+    async def unavailable(*args, **kwargs):
+        raise BidiUnavailable("no BiDi here")
+
     monkeypatch.setattr(files_module, "parse_uri", asked_mid_call)
+    # Once the turn passes the grant waits on nothing, not a DNS failure on
+    # grid.invalid: only the lock holds it back.
+    monkeypatch.setattr(server.monitor, "attach_here", unavailable)
+    # The call's own turn on the session. `turn` keeps the hold registered: the
+    # registry is weak, so a bare `locks.hold("g1").lock` frees it on that line
+    # (CPython's refcounting)
+    # and the grant marks a new, empty queue that never makes it wait.
+    turn = locks.hold("g1")
     async with Client(server.mcp) as c:
-        with locks.hold("g1").lock:  # the call's own turn on the session
+        with turn.lock:
             result = await c.call_tool("keep_file", {"uri": URI})
     control = result.structured_content["control"]
     assert control["state"] == "requested" and control["who"] == ["kelly"]
