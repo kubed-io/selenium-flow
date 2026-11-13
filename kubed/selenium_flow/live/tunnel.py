@@ -14,6 +14,11 @@ Control is asked for, not taken: `on_ask` answers ``control`` or
 Every way the tunnel can end is an `Ending`, the first one wins, and `end` only
 records it, so it is safe from a timer, the event bus or the registry. A
 tunnel closes both sockets and awaits its own tasks before `run` returns.
+
+A viewer leaving or the hub closing may be the browser's node dying: the page
+unmounts its pane as soon as one listing misses the browser, before the
+monitor's `session.ended` can arrive. So those two endings ask the Grid once
+(`listed`) before the close, and one it no longer lists is `BROWSER_ENDED`.
 """
 
 from __future__ import annotations
@@ -37,6 +42,10 @@ HANDSHAKE_TIMEOUT = 15.0
 # How long closing the viewer may take: a stalled peer can hold uvicorn's
 # send, and nothing waits on the close but the audit line.
 CLOSE_TIMEOUT = 5.0
+# How long the Grid's listing may take at the close: a slow `/status` must not
+# hold the close for long, and a listing that does not answer in time says
+# nothing.
+LISTED_TIMEOUT = 3.0
 CONTROL_CAP = 1024
 REASON_CAP = 123  # a WebSocket close reason is 123 bytes at most
 UVICORN_STOPPING = 1012
@@ -90,6 +99,7 @@ class Tunnel:
         touch: Callable[[], None] = lambda: None,
         clock: Callable[[], float] = time.monotonic,
         heartbeat: float = HEARTBEAT,
+        listed: Callable[[], Awaitable[bool | None]] | None = None,
     ):
         self.viewer = viewer
         self.who = who
@@ -103,6 +113,9 @@ class Tunnel:
         # Called once the tunnel is over, before either socket is closed.
         self.on_end: Callable[[], None] = lambda: None
         self._grace = grace
+        # Whether the Grid still lists this browser: True, False, or None
+        # when the listing failed. Unwired, an ending is never corrected.
+        self._listed = listed
         self._touch = touch
         self._clock = clock
         self._heartbeat = heartbeat
@@ -327,8 +340,29 @@ class Tunnel:
                     await asyncio.wait(tasks)
             finally:  # a second cancel while waiting must not skip the close
                 ending = self._ending or STOPPING
-                await self._close(ending)
+                try:
+                    ending = await self._checked(ending)
+                finally:  # nor may one while the Grid is asked
+                    await self._close(ending)
         return ending
+
+    async def _checked(self, ending: Ending) -> Ending:
+        """The ending, corrected to `BROWSER_ENDED` when the Grid no longer
+        lists the browser.
+
+        A node that dies takes the browser with it, and the page unmounts its
+        pane (the viewer closes) or the hub drops the socket well before the
+        monitor's two listings announce the end. Asked once, briefly: a listing
+        that lists it, says nothing, is slow or fails keeps the ending it had.
+        """
+        if self._listed is None or ending not in (VIEWER_LEFT, GRID_CLOSED):
+            return ending
+        try:
+            async with asyncio.timeout(LISTED_TIMEOUT):
+                listed = await self._listed()
+        except Exception:  # noqa: BLE001 - a failed listing says nothing
+            return ending
+        return BROWSER_ENDED if listed is False else ending
 
     async def _close(self, ending: Ending) -> None:
         if self._upstream is not None:

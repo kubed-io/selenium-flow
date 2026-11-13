@@ -111,6 +111,61 @@ def unresolved(exc: BaseException) -> bool:
     return isinstance(said, str) and bool(_DNS_NOT_FOUND.search(said))
 
 
+class ScriptTimedOut(Exception):
+    """A script that ran past the session's script timeout: a 400.
+
+    Selenium raises that as a bare `TimeoutException`, which reads as a failed
+    wait for an element. The caller's fix is theirs and specific, so it is said:
+    ``seconds`` is the timeout in force, or None when it could not be read."""
+
+    def __init__(self, seconds: float | None):
+        self.seconds = seconds
+        if seconds is None:
+            of = ""
+        else:
+            of = f" of {int(seconds) if float(seconds).is_integer() else seconds}s"
+        super().__init__(
+            f"the script ran past this session's script timeout{of}: make it "
+            "shorter, or raise it with open_session(script_timeout=<seconds>)"
+        )
+
+
+NODE_LOST = (
+    "the browser's Grid node stopped answering during this call (it may have "
+    "crashed or run out of memory): call open_session for a new browser, which "
+    "goes back to the page this one was on"
+)
+
+
+class NodeLost(Exception):
+    """The Grid node holding the browser stopped answering mid-call: a 404.
+
+    A fixed sentence and no arguments, because the hub's own text quotes the
+    node's address and the Grid's session id."""
+
+    def __init__(self):
+        super().__init__(NODE_LOST)
+
+
+# How a browser that died under a call is reported: the hub's answer when its
+# node does not reply, and Chrome's two crash messages. Case-sensitive, as the
+# drivers write them.
+_LOST_MARKERS = (
+    "Unable to execute request for an existing session",
+    "session deleted because of page crash",
+    "tab crashed",
+)
+
+
+def lost(exc: BaseException) -> bool:
+    """Whether a driver's failure says the browser's node stopped answering.
+
+    Read from the driver's own ``msg``, as `unresolved` is, so words of ours
+    quoting a marker are never mistaken for the browser's."""
+    said = getattr(exc, "msg", None)
+    return isinstance(said, str) and any(m in said for m in _LOST_MARKERS)
+
+
 class BidiUnavailable(ConnectionError):
     """The browser answers WebDriver but its BiDi socket does not: a 503.
 

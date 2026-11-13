@@ -284,6 +284,10 @@ def raised():
             out[cls.__name__] = cls("nonexistent.invalid")
         elif cls is faults.Untrusted:
             out[cls.__name__] = cls()
+        elif cls is faults.ScriptTimedOut:
+            out[cls.__name__] = cls(30)
+        elif cls is faults.NodeLost:
+            out[cls.__name__] = cls()
         else:
             out[cls.__name__] = cls("it went wrong")
     out["NodeRefused(blamed)"] = faults.NodeRefused("it went wrong", blamed=True)

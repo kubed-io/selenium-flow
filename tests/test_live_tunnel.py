@@ -383,6 +383,97 @@ async def test_the_viewer_leaving_closes_upstream(caplog):
     )
 
 
+def answering(value):
+    """A `listed` that answers ``value`` and counts its calls."""
+    calls = []
+
+    async def listed():
+        calls.append(1)
+        return value
+
+    return listed, calls
+
+
+async def test_a_viewer_leaving_a_browser_the_grid_no_longer_lists_reads_as_ended(
+    caplog,
+):
+    """The admin page unmounts its pane when one listing misses the browser,
+    before the monitor's two: the tunnel asks the Grid and says what it said."""
+    listed, calls = answering(False)
+    tunnel, viewer, node, dial = make(listed=listed)
+    with caplog.at_level(logging.INFO, logger=LOG):
+        task, _ = await start(tunnel, viewer, node, dial)
+        viewer.hang_up(1001)
+        assert (await task) == BROWSER_ENDED
+    assert calls == [1]
+    assert node.closed == (1000, "")
+    assert viewer.closed is None  # a gone viewer is not closed again
+    (line,) = [m for m in caplog.messages if "left the live view of w1" in m]
+    assert "the browser ended" in line and "the viewer closed" not in line
+
+
+@pytest.mark.parametrize("value", [True, None])
+async def test_a_listing_that_lists_it_or_says_nothing_keeps_the_viewer_closed(
+    caplog, value
+):
+    listed, calls = answering(value)
+    tunnel, viewer, node, dial = make(listed=listed)
+    with caplog.at_level(logging.INFO, logger=LOG):
+        task, _ = await start(tunnel, viewer, node, dial)
+        viewer.hang_up(1001)
+        assert (await task) == VIEWER_LEFT
+    assert calls == [1]
+    assert "the viewer closed" in caplog.text
+
+
+async def test_a_listing_that_never_answers_keeps_the_ending_and_does_not_hold_it(
+    monkeypatch,
+):
+    monkeypatch.setattr(tunnel_module, "LISTED_TIMEOUT", 0.05)
+
+    async def listed():
+        await asyncio.Event().wait()
+
+    tunnel, viewer, node, dial = make(listed=listed)
+    task, _ = await start(tunnel, viewer, node, dial)
+    viewer.hang_up(1001)
+    assert (await asyncio.wait_for(task, 1)) == VIEWER_LEFT
+    assert node.closed == (1000, "")
+
+
+async def test_a_listing_that_raises_keeps_the_ending():
+    async def listed():
+        raise ConnectionError("the Grid is down")
+
+    tunnel, viewer, node, dial = make(listed=listed)
+    task, _ = await start(tunnel, viewer, node, dial)
+    viewer.hang_up(1001)
+    assert (await task) == VIEWER_LEFT
+    assert node.closed == (1000, "")
+
+
+async def test_the_hub_closing_on_a_browser_the_grid_no_longer_lists_closes_4001():
+    listed, calls = answering(False)
+    tunnel, viewer, node, dial = make(listed=listed)
+    task, _ = await start(tunnel, viewer, node, dial)
+    node.hang_up(1006)
+    assert (await task) == BROWSER_ENDED
+    assert calls == [1]
+    assert viewer.closed == (4001, "the browser ended")
+
+
+async def test_any_other_ending_never_asks_the_grid():
+    listed, calls = answering(False)
+    tunnel, viewer, node, dial = make(grace=0.2, listed=listed)
+    task, _ = await start(tunnel, viewer, node, dial)
+    assert (await task) == NOBODY
+    tunnel, viewer, node, dial = make(listed=listed)
+    task, _ = await start(tunnel, viewer, node, dial)
+    viewer.hang_up(1012)
+    assert (await task) == STOPPING
+    assert calls == []
+
+
 async def test_uvicorn_stopping_reads_as_the_server_stopping(caplog):
     tunnel, viewer, node, dial = make()
     with caplog.at_level(logging.INFO, logger=LOG):
