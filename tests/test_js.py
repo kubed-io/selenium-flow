@@ -53,6 +53,8 @@ def test_every_script_parses(tmp_path, name):
 COMPOSED = {
     "USABLE_JS": probe.USABLE_JS,
     "OUTLINE_JS": probe.OUTLINE_JS,
+    "USABLES_JS": probe.USABLES_JS,
+    "RECEIVER_JS": probe.RECEIVER_JS,
     "NUDGE_JS": pointer.NUDGE_JS,
     "CENTER_JS": pointer.CENTER_JS,
 }
@@ -80,6 +82,8 @@ def test_every_script_is_used(name):
         [
             probe.USABLE_JS,
             probe.OUTLINE_JS,
+            probe.USABLES_JS,
+            probe.RECEIVER_JS,
             pointer.NUDGE_JS,
             pointer.CENTER_JS,
             actions.FOCUSED,

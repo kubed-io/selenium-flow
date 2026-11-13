@@ -19,7 +19,7 @@ from urllib.parse import quote
 import pytest
 from selenium.webdriver.remote.webelement import WebElement
 
-from kubed.selenium_flow.core import pointer
+from kubed.selenium_flow.core import browser, pointer
 from kubed.selenium_flow.core.pointer import MemoryPointers, RedisPointers
 
 pytestmark = pytest.mark.unit
@@ -170,7 +170,12 @@ def moving(actions, monkeypatch):
         "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
     )
     monkeypatch.setattr(
-        "kubed.selenium_flow.core.browser.wait_for_clickable", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_shown",
+        lambda *a, **k: browser.Found(_Element(), 0, 1),
+    )
+    monkeypatch.setattr(
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
+        lambda *a, **k: browser.Found(_Element(), 0, 1),
     )
 
     def fake_move(driver, element, start=None, glide=False):
@@ -192,12 +197,48 @@ def test_a_click_leaves_the_pointer_on_what_it_clicked(actions, moving, monkeypa
     clicked = []
     monkeypatch.setattr(
         "kubed.selenium_flow.core.browser.wait_for_clickable",
-        lambda *a, **k: type("E", (), {"click": lambda self: clicked.append(1)})(),
+        lambda *a, **k: browser.Found(
+            type("E", (), {"click": lambda self: clicked.append(1)})(), 0, 1
+        ),
     )
     actions.interact("abc", "click", selector={"css": "#go"})
     assert clicked == [1], "the element click still happens, and still first-class"
     assert len(moving) == 1, "and the pointer moved onto it before the click"
     assert actions.pointers.get("abc") == (120.0, 80.0)
+
+
+def test_an_intercepted_click_names_the_match_and_probes_that_element(actions, moving, monkeypatch):
+    from selenium.common.exceptions import ElementClickInterceptedException
+
+    seen = []
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, script, *args):
+            seen.append(args)
+            return {"reason": "unpainted", "detail": "rect.frame-background"}
+
+    class _Blocked(_Element):
+        def click(self):
+            raise ElementClickInterceptedException(
+                "element click intercepted: Element <g> is not clickable at point (1350, 546).\nmore"
+            )
+
+    el = _Blocked()
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
+        lambda *a, **k: browser.Found(el, 1, 2),
+    )
+    with pytest.raises(ElementClickInterceptedException) as refused:
+        actions.interact("abc", "click", selector={"css": "g"})
+    message = str(refused.value)
+    assert "element click intercepted: Element <g> is not clickable at point (1350, 546)." in message
+    assert "The selector matched 2; this was [1], the first that could be used." in message
+    assert "paints nothing at its centre" in message
+    assert (el,) in seen
 
 
 @pytest.mark.parametrize("action", ["click", "double_click", "right_click", "hover"])
@@ -249,7 +290,7 @@ def test_hover_and_scroll_to_wait_for_the_element_to_exist_only(
     scroll_to is for."""
     driver = scripted()
     actions.interact("abc", action, selector={"css": "#go"})
-    assert ("find_element", "css selector", "#go") in driver.log
+    assert ("find_elements", "css selector", "#go") in driver.log
     assert ("element", "is_displayed") not in driver.log
 
 
@@ -328,7 +369,9 @@ def test_a_move_that_cannot_be_sent_costs_the_position_and_not_the_gesture(
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
         "kubed.selenium_flow.core.browser.wait_for_clickable",
-        lambda *a, **k: type("E", (), {"click": lambda self: clicked.append(1)})(),
+        lambda *a, **k: browser.Found(
+            type("E", (), {"click": lambda self: clicked.append(1)})(), 0, 1
+        ),
     )
     actions.pointers.set("abc", 5, 5)
 
@@ -375,6 +418,10 @@ def test_a_hover_falls_back_to_the_old_gesture_when_the_move_fails(
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
         "kubed.selenium_flow.core.browser.wait_for_element", lambda *a, **k: _Element()
+    )
+    monkeypatch.setattr(
+        "kubed.selenium_flow.core.browser.wait_for_shown",
+        lambda *a, **k: browser.Found(_Element(), 0, 1),
     )
     monkeypatch.setattr("kubed.selenium_flow.core.actions.ActionChains", _Chain)
     monkeypatch.setattr(
@@ -435,7 +482,8 @@ def test_a_source_the_pointer_cannot_reach_is_the_callers_to_fix(actions, monkey
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.core.browser.wait_for_clickable", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
+        lambda *a, **k: browser.Found(_Element(), 0, 1),
     )
     monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
 
@@ -596,6 +644,7 @@ def test_a_covered_click_is_still_refused_loudly(live):
     with pytest.raises(ElementClickInterceptedException) as refused:
         actions.interact(session, "click", selector={"css": "#b"})
     assert "div#cover is on top of it" in str(refused.value)
+    assert "like a cookie banner or an overlay" in str(refused.value)  # #cover is position:fixed
     assert driver.execute_script("return window.clicked") == 0
 
 
@@ -766,7 +815,8 @@ def test_a_dead_browser_during_a_move_is_not_reported_as_bad_geometry(
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(
-        "kubed.selenium_flow.core.browser.wait_for_clickable", lambda *a, **k: _Element()
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
+        lambda *a, **k: browser.Found(_Element(), 0, 1),
     )
     monkeypatch.setattr(
         pointer,
@@ -891,7 +941,14 @@ def test_an_element_replaced_under_the_action_is_found_again(
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
     monkeypatch.setattr("kubed.selenium_flow.core.browser.wait_for_element", finding)
-    monkeypatch.setattr("kubed.selenium_flow.core.browser.wait_for_clickable", finding)
+    monkeypatch.setattr(
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
+        lambda *a, **k: browser.Found(finding(), 0, 1),
+    )
+    monkeypatch.setattr(
+        "kubed.selenium_flow.core.browser.wait_for_shown",
+        lambda *a, **k: browser.Found(finding(), 0, 1),
+    )
     monkeypatch.setattr("kubed.selenium_flow.core.browser.settled", lambda *a, **k: None)
 
     call(actions)
@@ -919,7 +976,91 @@ def test_an_element_that_keeps_going_stale_is_reported_rather_than_looped(
     monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
     monkeypatch.setattr(actions, "_move_onto", lambda *a, **k: None)
     monkeypatch.setattr(
-        "kubed.selenium_flow.core.browser.wait_for_clickable", lambda *a, **k: _AlwaysStale()
+        "kubed.selenium_flow.core.browser.wait_for_clickable",
+        lambda *a, **k: browser.Found(_AlwaysStale(), 0, 1),
     )
     with pytest.raises(StaleElementReferenceException):
         actions.interact("abc", "click", selector={"css": "#row"})
+
+
+# ---- what received a click (spec 2026-11-13, rulings 13 and 14) ----------
+
+
+@pytest.fixture
+def receiving(actions, moving, monkeypatch):
+    """`interact` with a receiver script that answers ``answer["hit"]``, and an
+    ``order`` recording the receiver read against the gesture."""
+    from kubed.selenium_flow.core import probe
+    from tests.test_probe import HIT
+
+    state = {"hit": {**HIT, "element": "rect.bg", "depth": 10, "painted": True},
+             "order": [], "scripts": []}
+
+    class _Driver:
+        current_url = "https://example.test/"
+        title = "t"
+
+        def execute_script(self, script, *args):
+            state["scripts"].append(script)
+            if script is probe.RECEIVER_JS:
+                state["order"].append("receiver")
+                return state["hit"]
+            return None
+
+        def execute(self, *_a, **_k):
+            return {"value": None}
+
+    class _El(_Element):
+        def click(self):
+            state["order"].append("click")
+
+    class Chain:
+        def __init__(self, driver):
+            pass
+
+        def perform(self):
+            state["order"].append("perform")
+            return self
+
+        def __getattr__(self, name):
+            return lambda *a, **k: self
+
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr("kubed.selenium_flow.core.actions.ActionChains", Chain)
+    for wait in ("wait_for_clickable", "wait_for_shown"):
+        monkeypatch.setattr(
+            f"kubed.selenium_flow.core.browser.{wait}",
+            lambda *a, **k: browser.Found(_El(), 0, 1),
+        )
+    return state
+
+
+@pytest.mark.parametrize("action", ["click", "double_click", "right_click"])
+def test_each_click_gesture_says_what_received_it(actions, receiving, action):
+    result = actions.interact("abc", action, selector={"css": "#go"})
+    assert result["received_by"] == {"element": "rect.bg", "depth": 10, "painted": True}
+    assert "warning" in result
+
+
+def test_a_double_click_onto_a_cover_is_reported_not_refused(actions, receiving):
+    from tests.test_probe import OUT
+
+    receiving["hit"] = OUT
+    result = actions.interact("abc", "double_click", selector={"css": "#go"})
+    assert result["received_by"]["depth"] is None
+    assert result["warning"].startswith("The double-click went to rect#hot")
+
+
+@pytest.mark.parametrize("action", ["hover", "scroll_to"])
+def test_hover_and_scroll_to_report_no_receiver(actions, receiving, action):
+    from kubed.selenium_flow.core import probe
+
+    result = actions.interact("abc", action, selector={"css": "#go"})
+    assert "received_by" not in result
+    assert probe.RECEIVER_JS not in receiving["scripts"]
+
+
+@pytest.mark.parametrize("action,gesture", [("click", "click"), ("double_click", "perform")])
+def test_the_receiver_is_read_before_the_gesture(actions, receiving, action, gesture):
+    actions.interact("abc", action, selector={"css": "#go"})
+    assert receiving["order"] == ["receiver", gesture]

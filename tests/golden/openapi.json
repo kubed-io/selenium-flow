@@ -258,6 +258,7 @@
                 "items": {
                   "properties": {
                     "blocked_by": {
+                      "description": "What is in the way: the hidden ancestor, or what receives the click instead.",
                       "type": "string"
                     },
                     "css": {
@@ -278,7 +279,7 @@
                       "type": "string"
                     },
                     "reason": {
-                      "description": "Why it cannot be used: hidden, covered, zero_size, offscreen or disabled.",
+                      "description": "Why it cannot be used: hidden, covered, unpainted (it paints nothing at its centre), invisible_cover (an invisible element is on top), zero_size, offscreen or disabled.",
                       "type": "string"
                     },
                     "region": {
@@ -707,6 +708,14 @@
           "glided": {
             "description": "Whether the travel was incremental.",
             "type": "boolean"
+          },
+          "index": {
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
+            "type": "integer"
+          },
+          "matched": {
+            "description": "How many elements the selector matched. Present only when more than one did.",
+            "type": "integer"
           },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
@@ -2050,6 +2059,14 @@
             "description": "Whether the pointer travelled to the element in steps rather than jumping. Absent for scroll_to, which moves the page.",
             "type": "boolean"
           },
+          "index": {
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
+            "type": "integer"
+          },
+          "matched": {
+            "description": "How many elements the selector matched. Present only when more than one did.",
+            "type": "integer"
+          },
           "nudged": {
             "description": "Present when the pointer was already inside the target and had to step away first, so the move it was asked for was a move.",
             "type": "boolean"
@@ -2075,6 +2092,24 @@
               "failed_requests",
               "see"
             ],
+            "type": "object"
+          },
+          "received_by": {
+            "description": "For click, double_click and right_click: what the gesture landed on, how many levels inside the selected element (0 is the element itself), and whether it paints anything there. depth is null when it landed outside the selected element, which only a double_click or right_click can do; a click is refused instead.",
+            "properties": {
+              "depth": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "element": {
+                "type": "string"
+              },
+              "painted": {
+                "type": "boolean"
+              }
+            },
             "type": "object"
           },
           "site_data": {
@@ -2131,6 +2166,10 @@
           },
           "url": {
             "description": "Current URL after the action.",
+            "type": "string"
+          },
+          "warning": {
+            "description": "Present when the gesture landed outside the selected element, or deep inside it or on an unpainted part of it when neither it nor anything in between is a control: it may not be what you meant.",
             "type": "string"
           }
         },
@@ -2732,6 +2771,7 @@
             "items": {
               "properties": {
                 "blocked_by": {
+                  "description": "What is in the way: the hidden ancestor, or what receives the click instead.",
                   "type": "string"
                 },
                 "css": {
@@ -2752,7 +2792,7 @@
                   "type": "string"
                 },
                 "reason": {
-                  "description": "Why it cannot be used: hidden, covered, zero_size, offscreen or disabled.",
+                  "description": "Why it cannot be used: hidden, covered, unpainted (it paints nothing at its centre), invisible_cover (an invisible element is on top), zero_size, offscreen or disabled.",
                   "type": "string"
                 },
                 "region": {
@@ -2995,9 +3035,17 @@
             "maxItems": 10,
             "type": "array"
           },
+          "index": {
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
+            "type": "integer"
+          },
           "key": {
             "description": "The key that was sent.",
             "type": "string"
+          },
+          "matched": {
+            "description": "How many elements the selector matched. Present only when more than one did.",
+            "type": "integer"
           },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
@@ -4758,6 +4806,14 @@
             "maxItems": 10,
             "type": "array"
           },
+          "index": {
+            "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
+            "type": "integer"
+          },
+          "matched": {
+            "description": "How many elements the selector matched. Present only when more than one did.",
+            "type": "integer"
+          },
           "page": {
             "description": "Present only when this browser was opened with capture=true and the page reported a failure while the call ran: what it caused, and where to read it.",
             "properties": {
@@ -5949,7 +6005,7 @@
     },
     "/browser/interact/{action}": {
       "post": {
-        "description": "A mouse action on an element: click, double_click, right_click, hover or scroll_to.\n\nhover leaves the pointer where it put it, so a menu that opens on hover stays open for the next call: hover it, then click inside. scroll_to brings an off-screen element into view.\n\nThe pointer jumps onto the element unless glide=true, which moves it in small steps, for interfaces that react to movement: sliders, sortable lists, menus that track direction. To drag something, use drag.\n\nReturns the URL and title after the action, so a navigation it caused shows.",
+        "description": "A mouse action on an element: click, double_click, right_click, hover or scroll_to.\n\nhover leaves the pointer where it put it, so a menu that opens on hover stays open for the next call: hover it, then click inside. scroll_to brings an off-screen element into view.\n\nThe pointer jumps onto the element unless glide=true, which moves it in small steps, for interfaces that react to movement: sliders, sortable lists, menus that track direction. To drag something, use drag.\n\nWhen the selector matches several elements, the first that can be used is acted on, and matched and index say which. click, double_click and right_click answer received_by, the element at the point they pressed, with a warning when that is probably not what you meant. double_click and right_click press whatever is on top, so read it.\n\nReturns the URL and title after the action, so a navigation it caused shows.",
         "operationId": "interact",
         "parameters": [
           {
@@ -6334,7 +6390,7 @@
     },
     "/browser/outline": {
       "post": {
-        "description": "Map the page: the elements worth acting on, each with a selector checked to match exactly one element, and whether it can be used now.\n\nUse it to find selectors instead of reading HTML. When visible is false, reason says why: hidden (often a closed menu; revealed_by and open_with say what opens it), covered (blocked_by names what is on top), zero_size, offscreen or disabled.\n\nContent is listed before navigation, header, footer and sidebars, and region names each entry's landmark. A total above count means the list was cut: scope it with selector, filter by text, or raise limit. interactive=false lists every element.",
+        "description": "Map the page: the elements worth acting on, each with a selector checked to match exactly one element, and whether it can be used now.\n\nUse it to find selectors instead of reading HTML. When visible is false, reason says why: hidden (often a closed menu; revealed_by and open_with say what opens it), covered (blocked_by names what is on top), unpainted (it paints nothing at its centre), invisible_cover (an invisible element is on top), zero_size, offscreen or disabled.\n\nContent is listed before navigation, header, footer and sidebars, and region names each entry's landmark. A total above count means the list was cut: scope it with selector, filter by text, or raise limit. interactive=false lists every element.",
         "operationId": "outline",
         "parameters": [
           {

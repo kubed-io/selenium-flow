@@ -1004,6 +1004,56 @@ it drifted. `browser.locator` refuses both-or-neither at the boundary and the
 model refuses it in the schema; `flowdoc` refuses it at save time, because a
 flow is YAML somebody may have written by hand.
 
+## A selector may match several
+
+A selector is a question and the page may answer with many elements: the
+mobile and desktop copy of a link, a template row, a hidden duplicate. Spec
+2026-11-13-click-matches holds the rulings; what must not break:
+
+**Which match.** An acting action takes the first match that is displayed and
+enabled, never the first blindly and never a refusal for a duplicate
+(`wait_for_clickable`, ruling 2: `interact`, `write`, `press_key` with a
+selector, `drag`'s source). `hover`, `scroll_to` and `drag`'s `to` take the first
+displayed, else the first match (ruling 3, `_FirstUsable`), because they aim a
+pointer and a hidden match aims it at 0,0. The
+reads keep the first match (`frame`, `upload_file`, `outline`'s scope, `extract`,
+`screenshot`): a file input is hidden by design and hidden text is still text.
+`matched` and `index` appear only when more than one matched, added once by
+`Recipe.run`; one match costs what it always cost.
+
+**The cap.** A wait tries at most `probe.CANDIDATES` (50) matches per poll.
+`is_displayed` is a round trip per element, and `//a` with hundreds of hidden
+matches would stall each poll for seconds inside the session's lock. Past the
+cap the timeout says only the first 50 were tried and to narrow the selector.
+
+**The receiver.** An `interact` click, `double_click` or `right_click` reports
+`received_by` (`element`, `depth`, `painted`), as `probe.receiver_report` words
+it (rulings 13 and 14). A receiver inside the target gets a `warning` only when
+it is unpainted or deeper than `probe.DEEP`, at depth 1 or more, and neither
+the target nor anything between it and the target matches `probe.INTERACTIVE`:
+a link or a button sees a click anywhere inside it. A `double_click` or
+`right_click` whose receiver is outside the target always gets the outside
+warning, with `depth` null, and is reported; the pointer actions press whatever
+is on top and WebDriver never refuses them. A click outside the target is
+refused by WebDriver, and the intercept error says why. A click that lands on
+a descendant succeeds and is reported in `received_by`, with a warning only under
+the inside rule. When WebDriver's own hit test disagrees with the page script and
+the click succeeds anyway, nothing extra is said: WebDriver's answer is the one
+that clicked (ruling 14).
+
+**The probe's advice is stated, or admitted to be a guess, never invented.** It
+names an overlay only for a fixed, sticky or z-indexed cover; anything else on
+top is a plain "covers it" or an invisible cover. It offers a hover only for a
+stated opener or a `:hover` rule the page's stylesheets contain, and says "a
+stylesheet couldn't be read" when that is why it is guessing (ruling 12). Do not
+bring back the canned "cookie banner".
+
+**"Painted" lives in `js/helpers.js` alone** (`painted`, `receiverAt`). The
+probe and the click's result both ask it, so they cannot disagree. A
+`::before` or `::after` that draws is its element's paint, so an icon font's
+glyph counts (ruling 11). jsdom computes no pseudo-element style, so its tests
+stub one (`PSEUDO` in `tests/test_js_behaviour.py`).
+
 ## Frame switches are Grid-side and sticky
 
 `switch_to.frame` changes the session's browsing context on the **Grid**, not in

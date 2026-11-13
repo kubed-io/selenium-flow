@@ -78,6 +78,12 @@ may need whatever fallback the page offers. Both measured, not assumed.
 requiring clickability would refuse exactly the off-screen element `scroll_to`
 is for.
 
+When a selector matches several elements, `click`, `double_click`,
+`right_click`, `write` and `press_key` use the first match that is displayed and
+enabled; `hover`, `scroll_to` and `drag`'s `to` use the first displayed match, or
+the first match if none is displayed. `matched` and `index` appear in the result
+when the selector matched several; for `drag` they describe its source, never `to`.
+
 Returns the `action` performed plus the URL and title *after* it, so a
 navigation it caused is visible in the result.
 

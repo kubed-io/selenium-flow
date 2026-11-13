@@ -48,10 +48,13 @@ WAIT_TIMEOUT = 30
 DIALOG_TIMEOUT = 10
 
 # What the element has to be before the body gets it. Presence for anything
-# that only reads or scrolls - requiring clickability would refuse exactly the
-# off-screen element `scroll_to` is for - and clickable for anything that acts.
+# that only reads - requiring clickability would refuse exactly the off-screen
+# element `scroll_to` is for - and clickable for anything that acts. Shown is the
+# pointer target that is not pressed (hover, scroll_to, drag's `to`): the first
+# displayed match, else the first.
 PRESENCE = "presence"
 CLICKABLE = "clickable"
+SHOWN = "shown"
 
 
 @contextmanager
@@ -84,6 +87,8 @@ class At(NamedTuple):
     timeout: int
     # Reads where the page is. See `Recipe.run` for when a body calls it.
     state: Callable[[], dict]
+    # Which match the wait settled on, or None for a recipe that does not wait.
+    found: browser.Found | None = None
 
 
 class Recipe:
@@ -93,15 +98,15 @@ class Recipe:
     when ``url`` is given, puts it there unless it is already there - one
     callable rather than two steps, because ``Actions._at`` is that pair and is
     the seam every test that drives an action without a Grid reattaches through.
-    ``wait`` is ``PRESENCE``, ``CLICKABLE`` or None. ``retry_stale`` finds the
-    element and runs the body once more when the page replaced the element
-    between the two.
+    ``wait`` is ``PRESENCE``, ``CLICKABLE``, ``SHOWN`` or None. ``retry_stale``
+    finds the element and runs the body once more when the page replaced the
+    element between the two.
     """
 
     __slots__ = ("reconnect", "retry_stale", "wait")
 
     def __init__(self, reconnect, wait=None, retry_stale=False):
-        if wait not in (None, PRESENCE, CLICKABLE):
+        if wait not in (None, PRESENCE, CLICKABLE, SHOWN):
             raise ValueError(f"unknown wait {wait!r}")
         if retry_stale and wait is None:
             # The retry re-runs the wait; without one it would reuse the dead
@@ -156,19 +161,32 @@ class Recipe:
                 read.append(browser.page_state(driver))
                 return read[-1]
 
+            chosen: list[browser.Found | None] = []
+
             def attempt() -> dict:
-                element = None
+                found = None
                 if self.wait == CLICKABLE:
-                    element = browser.wait_for_clickable(driver, target, timeout)
+                    found = browser.wait_for_clickable(driver, target, timeout)
+                elif self.wait == SHOWN:
+                    found = browser.wait_for_shown(driver, target, timeout)
                 elif self.wait == PRESENCE:
-                    element = browser.wait_for_element(driver, target, timeout)
-                return body(At(driver, element, target, timeout, state))
+                    found = browser.Found(
+                        browser.wait_for_element(driver, target, timeout), 0, 1
+                    )
+                chosen.append(found)
+                element = found.element if found else None
+                return body(At(driver, element, target, timeout, state, found))
 
             if self.retry_stale:
                 fields = self._once_more_if_stale(attempt)
             else:
                 fields = attempt()
-            return {**fields, **(read[-1] if read else browser.page_state(driver))}
+            found = chosen[-1] if chosen else None
+            return {
+                **fields,
+                **(found.fields() if found else {}),
+                **(read[-1] if read else browser.page_state(driver)),
+            }
 
     @staticmethod
     def _once_more_if_stale(attempt):

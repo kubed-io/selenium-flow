@@ -221,6 +221,26 @@ def _page(**extra) -> dict:
     }
 
 
+# What an action that acts on one of several matches says about its choice. Both
+# are present only when more than one element matched.
+MATCHED = {
+    "matched": {
+        "type": "integer",
+        "description": (
+            "How many elements the selector matched. Present only when more "
+            "than one did."
+        ),
+    },
+    "index": {
+        "type": "integer",
+        "description": (
+            "Which of them was used, counting from 0: the first that could be "
+            "used, or for hover and scroll_to, the first displayed, else the first."
+        ),
+    },
+}
+
+
 BODY_RESPONSE = {
     "type": "object",
     "properties": {
@@ -285,11 +305,19 @@ OUTLINE_ELEMENTS = {
             "reason": {
                 "type": "string",
                 "description": (
-                    "Why it cannot be used: hidden, covered, "
-                    "zero_size, offscreen or disabled."
+                    "Why it cannot be used: hidden, covered, unpainted (it "
+                    "paints nothing at its centre), invisible_cover (an "
+                    "invisible element is on top), zero_size, offscreen or "
+                    "disabled."
                 ),
             },
-            "blocked_by": {"type": "string"},
+            "blocked_by": {
+                "type": "string",
+                "description": (
+                    "What is in the way: the hidden ancestor, or what "
+                    "receives the click instead."
+                ),
+            },
             "revealed_by": {
                 "type": "string",
                 "description": (
@@ -502,6 +530,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         in_path=True,
         annotations=hints("Mouse action on an element", destructive=True),
         response=_page(
+            **MATCHED,
             action={"type": "string", "description": "The gesture that was performed."},
             glided={
                 "type": "boolean",
@@ -521,6 +550,31 @@ CAPABILITIES: tuple[Capability, ...] = (
                 "type": "string",
                 "description": "Why a requested glide was a jump instead.",
             },
+            received_by={
+                "type": "object",
+                "description": (
+                    "For click, double_click and right_click: what the gesture "
+                    "landed on, how many levels inside the selected element (0 "
+                    "is the element itself), and whether it paints anything "
+                    "there. depth is null when it landed outside the selected "
+                    "element, which only a double_click or right_click can do; "
+                    "a click is refused instead."
+                ),
+                "properties": {
+                    "element": {"type": "string"},
+                    "depth": {"type": ["integer", "null"]},
+                    "painted": {"type": "boolean"},
+                },
+            },
+            warning={
+                "type": "string",
+                "description": (
+                    "Present when the gesture landed outside the selected "
+                    "element, or deep inside it or on an unpainted part of it "
+                    "when neither it nor anything in between is a control: it "
+                    "may not be what you meant."
+                ),
+            },
         ),
     ),
     Capability(
@@ -530,6 +584,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         http_method="POST",
         annotations=hints("Drag an element", destructive=True),
         response=_page(
+            **MATCHED,
             **{
                 "from": {
                     "type": "object",
@@ -562,6 +617,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         http_method="POST",
         annotations=hints("Type text into a field"),
         response=_page(
+            **MATCHED,
             value={
                 "type": ["string", "null"],
                 "description": "The field's value read back off the element, so a "
@@ -583,7 +639,10 @@ CAPABILITIES: tuple[Capability, ...] = (
         route="press-key",
         http_method="POST",
         annotations=hints("Press a named key", destructive=True),
-        response=_page(key={"type": "string", "description": "The key that was sent."}),
+        response=_page(
+            **MATCHED,
+            key={"type": "string", "description": "The key that was sent."},
+        ),
     ),
     Capability(
         name="extract",

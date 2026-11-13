@@ -49,6 +49,7 @@ from .recipe import (
     CLICKABLE,
     DIALOG_TIMEOUT,
     PRESENCE,
+    SHOWN,
     WAIT_TIMEOUT,
     Recipe,
     node_answering,
@@ -635,6 +636,10 @@ class Actions:
             moved = None
             if resolved in POINTER_ACTIONS:
                 moved = self._move_onto(session_id, driver, element, glide)
+            # What the pointer is about to press, read after the move and before
+            # the gesture. Only the three that press; hover and scroll_to do not.
+            presses = resolved in ("click", "double_click", "right_click")
+            hit = probe.received(driver, element) if presses else {}
 
             if resolved == "click":
                 try:
@@ -644,12 +649,22 @@ class Actions:
                     # Selenium's `element_to_be_clickable` considers one
                     # clickable, so the wait above passes and the failure lands
                     # here - and the driver's message names the element it was
-                    # asked for, not the thing on top of it. The probe knows
-                    # which (saga §F2.8).
-                    why = probe.explain(driver, at.target)
+                    # asked for, not the thing on top of it. The probe asks the
+                    # page about the very element clicked, not the first match
+                    # of the selector, and says which match that was (saga
+                    # §F2.8; spec 2026-11-13, ruling 9).
+                    why = probe.explain(driver, at.target, element=element)
                     first = (getattr(exc, "msg", "") or "").strip().splitlines()
+                    found = at.found
+                    which = (
+                        f" The selector matched {found.matched}; this was "
+                        f"[{found.index}], the first that could be used."
+                        if found is not None and found.matched > 1
+                        else ""
+                    )
                     raise ElementClickInterceptedException(
                         (first[0] if first else "element click intercepted")
+                        + which
                         + (f" {why}" if why else "")
                     ) from exc
             elif resolved == "hover":
@@ -666,11 +681,16 @@ class Actions:
                 elif resolved == "scroll_to":
                     chain.scroll_to_element(element)
                 chain.perform()
-            return {"action": resolved, **self._pointer_report(moved, glide)}
+            return {
+                "action": resolved,
+                **self._pointer_report(moved, glide),
+                **(probe.receiver_report(hit, resolved) if presses else {}),
+            }
 
-        # hover and scroll_to only need the element to exist. Requiring it to be
-        # clickable would refuse exactly the off-screen element scroll_to is for.
-        wait = PRESENCE if resolved in ("hover", "scroll_to") else CLICKABLE
+        # hover and scroll_to only need an element to aim at: the first displayed
+        # match, else the first (ruling 3). Requiring it to be clickable would
+        # refuse exactly the off-screen element scroll_to is for.
+        wait = SHOWN if resolved in ("hover", "scroll_to") else CLICKABLE
         return self._recipe(wait, retry_stale=True).run(
             session_id, gesture, url=url, selector=selector, wait_timeout=wait_timeout
         )
@@ -812,8 +832,11 @@ class Actions:
                 # Read now rather than when the step was written: the approach
                 # may have scrolled, and every rect on the page moved with it
                 # (§F2.3).
+                # The first displayed match: a drop aimed at a hidden duplicate
+                # aims at 0,0 (ruling 4).
                 aimed = pointer.aim(
-                    driver, browser.wait_for_element(driver, to_target, at.timeout)
+                    driver,
+                    browser.wait_for_shown(driver, to_target, at.timeout).element,
                 )
                 end, size = aimed["at"], aimed["viewport"]
             else:

@@ -14,20 +14,32 @@ from kubed.selenium_flow.core import browser, probe
 pytestmark = pytest.mark.unit
 
 
+class _Hidden:
+    """What the page found: there, and not usable. The wait asks it."""
+
+    def is_displayed(self):
+        return False
+
+    def is_enabled(self):
+        return False
+
+
 class _Page:
     """A driver that answers the probe with whatever the page would say."""
 
     current_url = "https://example.test/tickets"
     title = "Tickets"
 
-    def __init__(self, answer, found=True, raises=None):
+    def __init__(self, answer, found=True, raises=None, count=1):
         self.answer = answer
         self.found = found
         self.raises = raises
+        self.count = count
         self.scripts = []
+        self.args = []
 
     def find_elements(self, *_):
-        return ["<element>"] if self.found else []
+        return [_Hidden() for _ in range(self.count)] if self.found else []
 
     def find_element(self, *_):
         from selenium.common.exceptions import NoSuchElementException
@@ -36,23 +48,32 @@ class _Page:
 
     def execute_script(self, script, *args):
         self.scripts.append(script)
+        self.args.append(args)
         if self.raises:
             raise self.raises
+        if script is probe.USABLES_JS:
+            return [self.answer] * len(args[0])
         return self.answer
 
 
 @pytest.mark.parametrize(
-    "reason,detail,expected",
+    "reason,extra,expected",
     [
-        ("hidden", "ul.menu-content", "ul.menu-content is hidden"),
-        ("covered", "div#cookie-banner", "div#cookie-banner is on top of it"),
-        ("zero_size", "a.link", "has no size"),
-        ("offscreen", "button.save", "outside the viewport"),
-        ("disabled", "button.submit", "is disabled"),
+        ("hidden", {"detail": "ul.menu-content"}, "ul.menu-content is hidden"),
+        ("covered", {"detail": "div#modal"}, "div#modal is on top of it at its centre"),
+        ("covered", {"detail": "div#cookie-banner", "overlay": True},
+         "like a cookie banner or an overlay"),
+        ("unpainted", {"detail": "rect.frame-background"},
+         "paints nothing at its centre, so the click goes through to rect.frame-background"),
+        ("invisible_cover", {"detail": "rect#hot", "selector": {"css": "#hot"}},
+         'It may be the real target: try selector={"css": "#hot"}'),
+        ("zero_size", {"detail": "a.link"}, "has no size"),
+        ("offscreen", {"detail": "button.save"}, "outside the viewport"),
+        ("disabled", {"detail": "button.submit"}, "is disabled"),
     ],
 )
-def test_the_page_is_asked_what_is_wrong(reason, detail, expected):
-    driver = _Page({"reason": reason, "detail": detail})
+def test_the_page_is_asked_what_is_wrong(reason, extra, expected):
+    driver = _Page({"reason": reason, **extra})
     assert expected in probe.explain(driver, (By.CSS_SELECTOR, "a"))
 
 
@@ -103,14 +124,66 @@ def test_a_hidden_element_names_what_would_reveal_it():
     assert ":hover" in sentence, "and why a script cannot do it instead"
 
 
-def test_a_hidden_element_with_nothing_visible_above_it_says_less():
-    """No trigger found means no instruction to give: the sentence still names
-    what is hidden, and does not invent something to hover."""
-    driver = _Page({"reason": "hidden", "detail": "html"})
-    sentence = probe.explain(driver, (By.CSS_SELECTOR, "a"))
-    assert "html is hidden" in sentence
-    assert "hover" in sentence, "the class of problem is still worth naming"
-    assert 'interact(action="hover") on' not in sentence
+T = (By.CSS_SELECTOR, "a")
+
+
+def test_a_plain_cover_is_not_called_a_cookie_banner():          # brief 2
+    assert "cookie" not in probe.explain(_Page({"reason": "covered", "detail": "rect.bg"}), T)
+
+
+def test_a_hidden_element_with_nothing_visible_above_it_says_less():   # ruling 12
+    assert probe.explain(_Page({"reason": "hidden", "detail": "html"}), T) == "It exists, but html is hidden."
+
+
+def test_an_unread_stylesheet_is_admitted_not_hidden():              # ruling 12, Dr K's wording
+    page = _Page({"reason": "hidden", "detail": "ul.menu", "trigger": None, "unread": True})
+    assert probe.explain(page, T) == (
+        "It exists, but ul.menu is hidden. A stylesheet on this page couldn't be read, "
+        "so if ul.menu opens on mouse-over, hover what opens it.")
+
+
+def test_a_found_trigger_outranks_an_unread_sheet():
+    page = _Page({"reason": "hidden", "detail": "ul", "trigger": "#dd", "gesture": "hover", "unread": True})
+    assert "couldn't be read" not in probe.explain(page, T)
+
+
+def test_nothing_matching_says_so():                               # ruling 8
+    assert probe.explain(_Page({}, found=False), T) == "Nothing on the page matches it."
+
+
+def test_several_matches_are_listed_with_why():                    # ruling 1, brief 1
+    page = _Page({"reason": "hidden", "detail": "section.thumbs"}, count=2)
+    assert probe.explain(page, T) == (
+        "2 elements match it, and none could be used: "
+        "[0] section.thumbs is hidden; [1] section.thumbs is hidden.")
+
+
+def test_more_than_listed_says_how_many_more():
+    page = _Page({"reason": "offscreen", "detail": "a"}, count=7)
+    assert probe.explain(page, T).endswith("[4] it is outside the viewport; and 2 more.")
+
+
+def test_more_than_candidates_says_to_narrow():                    # Review Focus 2
+    page = _Page({"reason": "hidden", "detail": "li"}, count=probe.CANDIDATES + 10)
+    assert "Only the first 50 are tried; narrow the selector." in probe.explain(page, T)
+
+
+def test_the_list_carries_the_first_move():
+    page = _Page({"reason": "hidden", "detail": "ul", "trigger": "#toggle", "gesture": "click"}, count=2)
+    assert " [0]: #toggle opens it and says so with aria-expanded" in probe.explain(page, T)
+
+
+def test_explain_asks_about_the_element_it_is_given():             # ruling 9, brief 4
+    page = _Page({"reason": "unpainted", "detail": "rect.bg"})
+    page.find_elements = lambda *_: pytest.fail("re-queried")
+    assert "rect.bg" in probe.explain(page, T, element="<clicked>")
+    assert page.args[-1] == ("<clicked>",)
+
+
+def test_a_wait_with_nothing_matching_says_so():
+    with pytest.raises(TimeoutException) as timed_out:
+        browser.wait_for_clickable(_Page({}, found=False), T, timeout=0)
+    assert "Nothing on the page matches it." in str(timed_out.value)
 
 
 def test_an_offscreen_element_is_told_to_scroll_to_it():
@@ -122,7 +195,6 @@ def test_an_offscreen_element_is_told_to_scroll_to_it():
     "driver",
     [
         _Page({"reason": None, "detail": "a.link"}),
-        _Page({"reason": "hidden"}, found=False),
         _Page({}, raises=RuntimeError("the page went away")),
         _Page(None),
     ],
@@ -169,3 +241,102 @@ def test_the_failure_and_the_map_read_the_same_answer():
     assert helpers in probe.OUTLINE_JS
     assert probe.USABLE_JS.count("reasonFor = ") == 1
     assert probe.OUTLINE_JS.count("reasonFor = ") == 1
+
+
+def test_a_short_answer_list_still_counts_what_was_asked():
+    page = _Page({"reason": "offscreen", "detail": "a"}, count=7)
+    full = page.execute_script
+    page.execute_script = lambda script, *args: full(script, *args)[:2] if script is probe.USABLES_JS else full(script, *args)
+    text = probe.explain(page, T)
+    assert "[1] it is outside the viewport; [2] the page reports nothing wrong with it" in text
+    assert "[4] the page reports nothing wrong with it; and 2 more." in text
+    assert text.endswith("and 2 more.")
+
+
+def test_a_none_entry_does_not_lose_the_others():
+    page = _Page({"reason": "offscreen", "detail": "a"}, count=3)
+    page.execute_script = lambda script, *a: [None, {"reason": "disabled"}, "junk"]
+    assert probe.explain(page, T) == (
+        "3 elements match it, and none could be used: "
+        "[0] the page reports nothing wrong with it; [1] it is disabled; "
+        "[2] the page reports nothing wrong with it.")
+
+
+@pytest.mark.parametrize("answer", [None, {"reason": None}, "x", {}])
+def test_short_takes_any_answer(answer):
+    assert probe.short(answer) == "the page reports nothing wrong with it"
+    assert probe.move_for(answer) == ""
+
+
+# ---- what received a click (spec 2026-11-13, rulings 13 and 14) ----------
+
+HIT = {"element": "div.spacer", "inside": True, "under": True, "painted": False,
+       "interactive": False, "overlay": False, "reason": None, "selector": None}
+OUT = {**HIT, "element": "rect#hot", "inside": False, "depth": None,
+       "reason": "invisible_cover", "selector": {"css": "#hot"}}
+
+
+def test_a_receiver_unknown_or_outside_a_click_reports_nothing():
+    assert probe.receiver_report({}) == {}
+    assert probe.receiver_report(OUT, "click") == {}
+
+
+def test_a_double_click_that_went_elsewhere_says_where_and_why():  # ruling 14
+    assert probe.receiver_report(OUT, "double_click") == {
+        "received_by": {"element": "rect#hot", "depth": None, "painted": False},
+        "warning": ("The double-click went to rect#hot, not to the element you selected, "
+                    "because an invisible rect#hot is on top of it. If that is what you "
+                    'meant, it is selector={"css": "#hot"}.')}
+
+
+def test_a_right_click_on_a_plain_cover_has_no_selector_clause():
+    plain = {**OUT, "element": "div.card", "painted": True, "reason": "covered", "selector": None}
+    assert probe.receiver_report(plain, "right_click")["warning"] == (
+        "The right-click went to div.card, not to the element you selected, "
+        "because div.card is on top of it.")
+
+
+def test_the_inside_warning_names_the_gesture():
+    warning = probe.receiver_report({**HIT, "depth": 10, "painted": True}, "double_click")["warning"]
+    assert warning.startswith("The double-click landed on div.spacer, 10 levels inside")
+    assert "sees the double-click." in warning
+
+
+def test_the_target_itself_is_reported_without_a_warning():
+    assert probe.receiver_report({**HIT, "element": "button#go", "depth": 0, "painted": True}) == {
+        "received_by": {"element": "button#go", "depth": 0, "painted": True}}
+
+
+def test_a_shallow_painted_hit_is_no_warning():                     # Review Focus 5
+    assert "warning" not in probe.receiver_report({**HIT, "depth": 1, "painted": True})
+
+
+def test_an_unpainted_hit_warns():                                  # ruling 13
+    assert probe.receiver_report({**HIT, "depth": 1})["warning"] == (
+        "The click landed on div.spacer, 1 level inside the element you selected, which "
+        "paints nothing there, and nothing in between is a control: only a handler on the "
+        "selected element, or above it, sees the click. If you meant something inside it, "
+        "select that instead.")
+
+
+def test_a_deep_hit_warns():                                        # brief 3
+    warning = probe.receiver_report({**HIT, "element": "rect.frame-background", "depth": 10, "painted": True})["warning"]
+    assert warning.startswith("The click landed on rect.frame-background, 10 levels inside the element you selected, and nothing")
+
+
+def test_a_control_in_between_is_no_warning():
+    assert "warning" not in probe.receiver_report({**HIT, "depth": 10, "interactive": True})
+
+
+def test_received_never_fails_a_gesture():
+    assert probe.received(_Page({}, raises=RuntimeError("gone")), "<el>") == {}
+
+
+def test_received_logs_a_failure_by_its_type_never_its_message(caplog):
+    secret = "http://10.1.2.3:4444/session/abc123deadbeef"
+    page = _Page({}, raises=RuntimeError(f"node {secret} stopped answering"))
+    with caplog.at_level("DEBUG"):
+        assert probe.received(page, object()) == {}
+    text = "\n".join(r.getMessage() + str(r.exc_info) for r in caplog.records)
+    assert "RuntimeError" in text
+    assert "abc123deadbeef" not in text and "10.1.2.3" not in text

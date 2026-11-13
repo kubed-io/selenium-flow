@@ -327,12 +327,13 @@ ROADS = {
     ),
     "interact click": (
         {}, lambda a: a.interact("abc", "click", selector=AT, url=OTHER),
-        ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
-         "element.is_enabled", "element.click", "current_url", "title"],
+        ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
+         "element.is_enabled", "execute_script", "element.click", "current_url",
+         "title"],
     ),
     "interact hover": (
         {}, lambda a: a.interact("abc", "hover", selector=AT),
-        ["reconnect", "find_element", "current_url", "title"],
+        ["reconnect", "find_elements", "current_url", "title"],
     ),
     "drag": (
         {"scripts": {"innerWidth": [1000, 800]}},
@@ -340,7 +341,7 @@ ROADS = {
         # Task 19: no `execute_script` between the wait and the drop. The
         # window's size comes back with the approach's landing (center.js),
         # so the separate viewport read is gone.
-        ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
+        ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
          "element.is_enabled", "execute", "current_url", "title"],
     ),
     "frame switch": (
@@ -370,13 +371,13 @@ ROADS = {
     ),
     "write": (
         {}, lambda a: a.write("abc", "hi", selector=AT, url=OTHER),
-        ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
+        ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
          "element.is_enabled", "element.clear", "element.send_keys",
          "element.get_attribute", "current_url", "title"],
     ),
     "press_key at an element": (
         {}, lambda a: a.press_key("abc", "Tab", selector=AT, url=OTHER),
-        ["reconnect", "current_url", "get", "find_element", "element.is_displayed",
+        ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
          "element.is_enabled", "element.send_keys", "current_url", "title"],
     ),
     "press_key wherever focus is": (
@@ -459,25 +460,25 @@ CENTER = {"at": [10, 10], "scrolled": False, "outside": False, "viewport": [1000
 MOVES = {
     "interact click": (
         lambda a: a.interact("abc", "click", selector=AT),
-        ["reconnect", "find_element", "element.is_displayed", "element.is_enabled",
-         "execute_script", "execute", "execute_script", "element.click",
-         "current_url", "title"],
+        ["reconnect", "find_elements", "element.is_displayed", "element.is_enabled",
+         "execute_script", "execute", "execute_script", "execute_script",
+         "element.click", "current_url", "title"],
     ),
     "interact hover glide": (
         lambda a: a.interact("abc", "hover", selector=AT, glide=True),
-        ["reconnect", "find_element", "execute_script", "execute_script", "execute",
+        ["reconnect", "find_elements", "execute_script", "execute_script", "execute",
          "execute_script", "current_url", "title"],
     ),
     "drag by an offset": (
         lambda a: a.drag("abc", selector=AT, by_x=5),
-        ["reconnect", "find_element", "element.is_displayed", "element.is_enabled",
+        ["reconnect", "find_elements", "element.is_displayed", "element.is_enabled",
          "execute_script", "execute", "execute_script", "execute", "current_url",
          "title"],
     ),
     "drag to an element": (
         lambda a: a.drag("abc", selector=AT, to={"css": "#y"}),
-        ["reconnect", "find_element", "element.is_displayed", "element.is_enabled",
-         "execute_script", "execute", "execute_script", "find_element",
+        ["reconnect", "find_elements", "element.is_displayed", "element.is_enabled",
+         "execute_script", "execute", "execute_script", "find_elements",
          "execute_script", "execute", "current_url", "title"],
     ),
 }
