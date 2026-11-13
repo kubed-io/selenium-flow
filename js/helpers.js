@@ -192,6 +192,23 @@ const numberOr = (value, initial) => {
 const REPLACED = ['img', 'video', 'canvas', 'iframe', 'embed', 'object', 'input',
                   'textarea', 'select'];
 
+// Whether the node's ::before or ::after draws: content other than an empty or
+// blank string (an icon font's glyph, text, an image), or an empty one with a
+// background, on a box that is shown and not fully transparent (a CSS tooltip
+// waits at opacity 0). A hit on a pseudo-element is the node itself (ruling 11,
+// amended 11-13 by Dr K). Where on the node it draws is not asked, as for text.
+const BLANK = /^(["'])\s*\1$/;
+const pseudoPainted = (node) => ['::before', '::after'].some((which) => {
+  let style;
+  try { style = getComputedStyle(node, which); } catch (e) { return false; }
+  const content = (style.content || 'none').trim();
+  if (content === 'none' || content === 'normal') return false;
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+  if (numberOr(style.opacity, 1) === 0) return false;
+  if (!BLANK.test(content)) return true;
+  return alpha(style.backgroundColor) > 0 || (style.backgroundImage || 'none') !== 'none';
+});
+
 // Whether a pointer at this node's centre would hit something that is drawn
 // (spec ruling 11). Borders and shadows are not counted.
 const painted = (node) => {
@@ -218,7 +235,7 @@ const painted = (node) => {
   for (const child of node.childNodes) {
     if (child.nodeType === 3 && child.nodeValue.trim() !== '') return true;
   }
-  return false;
+  return pseudoPainted(node);
 };
 
 // Whether `top`, which is not inside `el`, is an overlay: it or an ancestor not
@@ -258,10 +275,11 @@ const receiverAt = (el, interactive) => {
     }
   }
   const overlay = !inside && overlayAbove(top, el);
+  const drawn = painted(top);
   let reason = null;
-  if (!inside) reason = !under ? 'unpainted' : (!painted(top) ? 'invisible_cover' : 'covered');
+  if (!inside) reason = !under ? 'unpainted' : (!drawn ? 'invisible_cover' : 'covered');
   return {element: nameOf(top), inside: inside, under: under, depth: depth,
-          painted: painted(top), interactive: control, overlay: overlay,
+          painted: drawn, interactive: control, overlay: overlay,
           reason: reason, selector: inside ? null : selectorFor(top)};
 };
 

@@ -411,20 +411,90 @@ def test_a_control_between_the_hit_and_the_target_is_noticed():
     assert receiver(html, "#card", GEOMETRY + stack("icon", "link", "card"))["interactive"] is True
 
 
+# jsdom computes no pseudo-element style (it answers `content: normal`), so a
+# test that needs one stubs it, from attributes: `data-before` / `data-after` is
+# that pseudo-element's computed `content`, and `data-pseudo-<property>` sets
+# one property for both. What is pinned is the decision over those values.
+PSEUDO = (
+    "const real = window.getComputedStyle.bind(window);"
+    "window.getComputedStyle = (el, which) => {"
+    " if (!which) return real(el);"
+    " const content = el.getAttribute(which === '::before' ? 'data-before' : 'data-after');"
+    " const own = (name, initial) => el.getAttribute('data-pseudo-' + name) || initial;"
+    " return {content: content === null ? 'none' : content,"
+    " display: own('display', 'inline'), visibility: own('visibility', 'visible'),"
+    " opacity: own('opacity', '1'), backgroundColor: own('bg', 'rgba(0, 0, 0, 0)'),"
+    " backgroundImage: own('image', 'none')}; };"
+)
+
 # Dr K's QA, 11-13 14:06: each of these reached its handler and was warned.
-@pytest.mark.parametrize("html, ids", [
+QA = [
     ('<a id="card" href="/x"><div id="d1"><div id="d2"><h3 id="title">Go</h3></div></div></a>',
      ("title", "d2", "d1", "card")),
     ('<button id="card"><i id="icon" class="ico"></i></button>', ("icon", "card")),
     ('<button id="card"><span id="s"><svg id="svg"><path id="p"></path></svg></span></button>',
      ("p", "svg", "s", "card")),
-])
+]
+
+
+@pytest.mark.parametrize("html, ids", QA)
 def test_a_selected_control_is_noticed(html, ids):
     assert receiver(html, "#card", GEOMETRY + stack(*ids))["interactive"] is True
+
+
+@pytest.mark.parametrize("html, ids", QA)
+def test_a_click_inside_a_selected_control_is_not_warned(html, ids):     # ruling 13, amended
+    hit = receiver(html, "#card", GEOMETRY + stack(*ids))
+    report = probe.receiver_report(hit, "click")
+    assert report["received_by"]["depth"] == len(ids) - 1 and "warning" not in report
+
+
+def test_a_deep_click_inside_a_plain_div_still_warns():                  # ruling 13
+    html = '<div id="card"><div id="d1"><div id="d2"><h3 id="title">Go</h3></div></div></div>'
+    hit = receiver(html, "#card", GEOMETRY + stack("title", "d2", "d1", "card"))
+    assert "3 levels inside" in probe.receiver_report(hit, "click")["warning"]
+
 
 def test_a_selected_pointer_group_is_not_a_control():                     # #116's board
     html = '<svg><g id="board" style="cursor:pointer"><g id="g"><rect id="bg"></rect></g></g></svg>'
     assert receiver(html, "#board", GEOMETRY + stack("bg", "g", "board"))["interactive"] is False
+
+
+def test_an_icon_font_glyph_is_paint():                                   # ruling 11, amended
+    html = '<div id="card"><i id="icon" class="ico" data-before="&quot;&#xe900;&quot;"></i></div>'
+    hit = receiver(html, "#card", GEOMETRY + PSEUDO + stack("icon", "card"))
+    assert hit["painted"] is True
+    assert "warning" not in probe.receiver_report(hit, "click")
+
+
+@pytest.mark.parametrize("attrs, painted", [
+    ('data-after="&quot;&quot;" data-pseudo-bg="rgb(255, 0, 0)"', True),   # a drawn shape
+    ('data-after="&quot;&quot;" data-pseudo-image="url(x.png)"', True),     # a drawn image
+    ('data-before="url(x.png)"', True),                                     # an image as content
+    ('data-before="&quot;&quot;"', False),                                  # empty content
+    ('data-before="&quot; &quot;"', False),                                 # a blank glyph
+    ('data-before="none" data-after="normal"', False),                      # no box at all
+    ('data-before="&quot;Go&quot;" data-pseudo-display="none"', False),
+    ('data-before="&quot;Go&quot;" data-pseudo-visibility="hidden"', False),
+    ('data-before="&quot;Go&quot;" data-pseudo-opacity="0"', False),        # a CSS tooltip
+])
+def test_pseudo_content_is_paint_only_when_it_draws(attrs, painted):
+    html = f'<div id="card"><i id="icon" {attrs}></i></div>'
+    assert receiver(html, "#card", GEOMETRY + PSEUDO + stack("icon", "card"))["painted"] is painted
+
+
+def test_an_unpainted_icon_inside_a_plain_div_still_warns():              # ruling 13
+    html = '<div id="card"><i id="icon" class="ico"></i></div>'
+    hit = receiver(html, "#card", GEOMETRY + PSEUDO + stack("icon", "card"))
+    assert "warning" in probe.receiver_report(hit, "click")
+
+
+def test_a_stretched_link_is_still_an_invisible_cover():                  # ruling 10
+    html = ('<div><a id="stretch" href="/x" data-after="&quot;&quot;"></a>'
+            '<button id="go">Go</button></div>')
+    hit = receiver(html, "#go", GEOMETRY + PSEUDO + stack("stretch", "go"))
+    assert (hit["inside"], hit["reason"]) == (False, "invisible_cover")
+
 
 def test_the_outline_names_what_an_unpainted_element_lets_through():
     html = '<main><div id="behind" style="background:#fff"></div><button id="go"></button></main>'

@@ -1038,7 +1038,10 @@ stylesheet couldn't be read" when that is why it is guessing (ruling 12). Do not
 bring back the canned "cookie banner".
 
 **"Painted" lives in `js/helpers.js` alone** (`painted`, `receiverAt`). The
-probe and the click's result both ask it, so they cannot disagree.
+probe and the click's result both ask it, so they cannot disagree. A
+`::before` or `::after` that draws is its element's paint, so an icon font's
+glyph counts (ruling 11). jsdom computes no pseudo-element style, so its tests
+stub one (`PSEUDO` in `tests/test_js_behaviour.py`).
 
 ## Frame switches are Grid-side and sticky
 
