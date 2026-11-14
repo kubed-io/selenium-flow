@@ -54,6 +54,13 @@ BODY_CAP = 100_000
 REPLAY_DEPTH = 100  # Chrome replays the last 100 per browsing context (measured)
 WORKSPACES = 256  # plan ruling 15
 
+# While the secrets in scope on a context's new origin are read, its events
+# wait, raw, and are masked once they land (secret-scope spec, rulings 9 and
+# 22): at most PENDING_EVENTS per context, and none older than PENDING_SECONDS
+# when the next arrives. What either bound drops is counted, never kept raw.
+PENDING_EVENTS = 200
+PENDING_SECONDS = 10
+
 # Masking (ruling 13).
 MASK = "•••"
 MASKED_HEADERS = frozenset(

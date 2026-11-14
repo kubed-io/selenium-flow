@@ -248,6 +248,11 @@ class SeleniumMCP:
             hints=self.flows.flows_here if self.flows is not None else None,
             catalogue=self.secrets,
         )
+        # Capture is the origin's second source, and holds a page's events
+        # until the secrets in scope there are in its masker (secret-scope
+        # spec, rulings 8 and 9). With secrets off it holds nothing.
+        if self.secrets is not None:
+            self.capture.heard = self.workspaces.capture_heard
         # A browser that ended however it ended - quit here, reaped by the
         # Grid, found gone by a call - takes its origin and the secret forms
         # held for it with it.

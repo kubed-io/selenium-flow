@@ -581,6 +581,12 @@ async def test_the_value_reached_every_surface_it_was_checked_on(server, leaky, 
     assert MARKED in answers[request], request
 
 
+def test_capture_hears_the_origin_while_secrets_are_on(server):
+    """Source 2 (ruling 8): the server hands capture its ask, so a captured
+    page's events wait for the secrets in scope there."""
+    assert server.capture.heard == server.workspaces.capture_heard
+
+
 # ---- the middleware on its own ------------------------------------------------
 
 
