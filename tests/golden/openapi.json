@@ -3935,7 +3935,7 @@
         "description": "One secret a caller may bind. Never its value.",
         "properties": {
           "allowed_urls": {
-            "description": "The sites it may be typed on. Empty means anywhere only when restricted is false; a declaration that named no usable site allows nowhere.",
+            "description": "The sites it may be typed on, and only there. Empty means nowhere.",
             "items": {
               "type": "string"
             },
@@ -4015,8 +4015,12 @@
             },
             "type": "array"
           },
+          "refused": {
+            "description": "Why the secret cannot be used, and how an operator fixes it. Present only when it cannot.",
+            "type": "string"
+          },
           "restricted": {
-            "description": "Whether the secret declares where it may be used. True with no allowed_urls is usable nowhere.",
+            "description": "Whether the secret declares where it may be used. False means it cannot be used.",
             "type": "boolean"
           }
         },
@@ -8597,7 +8601,7 @@
     },
     "/secrets": {
       "get": {
-        "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nA secret listing allowed_urls may only be used on those sites. One that is not restricted may be used anywhere. If an entry carries allowed_urls_rejected, its leash is broken and it cannot be used at all until an operator fixes the file.",
+        "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how.",
         "operationId": "listSecrets",
         "parameters": [
           {

@@ -13,7 +13,7 @@
   {#if reason}<div class="small error">{reason}</div>{/if}
   {#if s.keys}
     <div class="fact"><span class="k">keys</span>{#each s.keys as k (k)}<span class="pill">{keyLabel(s, k)}</span>{/each}</div>
-    <div class="fact"><span class="k">allowed</span>{s.restricted ? (s.allowed_urls || []).join(', ') || '—' : 'any site'}</div>
+    <div class="fact"><span class="k">allowed</span>{(s.allowed_urls || []).join(', ') || '—'}</div>
   {/if}
   {#if s.origins?.length}<div class="fact"><span class="k">from</span><span class="small muted">{fromOf(s)}</span></div>{/if}
 </div>

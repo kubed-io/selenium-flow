@@ -40,11 +40,12 @@ STEPS = [
 @pytest.fixture
 def slow_server(tmp_path, tmp_path_factory, monkeypatch):
     """A server whose `navigate` takes a moment, and records that it ran. It
-    holds one secret, `demo`, usable anywhere."""
+    holds one secret, `demo`, allowed on example.test."""
     monkeypatch.delenv("DATA_DIR", raising=False)
     secrets_dir = tmp_path_factory.mktemp("secrets")
     (secrets_dir / "demo").mkdir()
     (secrets_dir / "demo" / "password").write_text("hunter2")
+    (secrets_dir / "demo" / "_allowed_urls").write_text("https://example.test")
     server = SeleniumMCP(
         Settings(
             grid={"url": "http://grid.invalid:4444"},

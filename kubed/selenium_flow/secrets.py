@@ -387,6 +387,22 @@ class Catalogue:
         self._clock = clock
         self.config = config
         self._cache: tuple[float, dict, dict] | None = None
+        self._warned: set[str] = set()  # refused names already logged
+
+    @staticmethod
+    def _refusal(entry: dict, leash_from_config: bool) -> str | None:
+        """Why a secret cannot be used for its leash, naming where to fix it."""
+        in_directory = any(o["source"] != "config" for o in entry["origins"])
+        directory = in_directory and not leash_from_config
+        if not entry.get("restricted"):
+            return UNLEASHED.format(
+                fix=_DIRECTORY_UNLEASHED if directory else _CONFIG_UNLEASHED
+            )
+        if entry.get("allowed_urls_rejected") or not entry.get("allowed_urls"):
+            return UNPARSED.format(
+                fix=_DIRECTORY_UNPARSED if directory else _CONFIG_UNPARSED
+            )
+        return None
 
     def _snapshot(self) -> tuple[dict, dict]:
         """Every secret, and which source each of its keys came from, read together.
@@ -409,6 +425,7 @@ class Catalogue:
             return self._cache[1], self._cache[2]
         entries: dict[str, dict] = {}
         owners: dict[str, dict] = {}
+        from_config: set[str] = set()  # leash declared by `secrets.entries`
         for source in self.sources:
             for name in source.names():
                 if name in entries:
@@ -436,6 +453,7 @@ class Catalogue:
                     entry["allowed_urls"] = list(conf.allowed_urls)
                     entry["restricted"] = True
                     entry.pop("allowed_urls_rejected", None)
+                    from_config.add(name)
                 key_owners = dict(owners.get(name, {}))
                 key_sources = dict(entry["key_sources"])
                 for key, ref in conf.keys.items():
@@ -457,6 +475,13 @@ class Catalogue:
                     entry["inline_keys"] = inline
                 entries[name] = entry
                 owners[name] = key_owners
+        for name, entry in entries.items():
+            refused = self._refusal(entry, name in from_config)
+            if refused:
+                entry["refused"] = refused
+                if name not in self._warned:
+                    self._warned.add(name)
+                    log.warning("secret %s cannot be used: %s", name, refused)
         self._cache = (now + self._ttl, entries, owners)
         return entries, owners
 
@@ -501,20 +526,17 @@ class Catalogue:
     def allows(self, name: str, url: str) -> bool:
         """Whether this secret may be used on the page the browser is on.
 
-        **No declaration** means no restriction — the pragmatic default for a
-        homelab, and the listing marks which secrets those are so the gap is
-        visible rather than assumed.
+        **No declaration means nowhere.** Every secret names its sites, and one
+        that does not carries `refused` in its listing entry.
 
-        **A declaration that does not parse means nowhere.** Failing open there
-        would turn one typo in a metadata file into an unleashed credential, and
-        would do it silently. A broken leash is still a leash.
+        **A declaration that does not parse means nowhere.** One typo in a
+        metadata file must not leave an unleashed credential. A broken leash is
+        still a leash.
         """
         entry = self.entry(name)
         if entry is None:
             return False
-        if not entry.get("restricted"):
-            return True
-        if entry.get("allowed_urls_rejected"):
+        if not entry.get("restricted") or entry.get("refused"):
             return False
         allowed = entry.get("allowed_urls") or []
         return bool(allowed) and origin(url) in allowed
@@ -544,6 +566,26 @@ def from_settings(
 
 LIST_URI = "secret://secrets"
 
+# What a listing entry's `refused` says, with `{fix}` naming the source the
+# secret came from. A secret that cannot be used is published with the reason
+# and the way out, because the listing is where an operator looks.
+UNLEASHED = "no allowed sites are declared, so it cannot be used: {fix}"
+UNPARSED = "its allowed sites do not parse, so it cannot be used: {fix}"
+
+_DIRECTORY_UNLEASHED = (
+    "add an `_allowed_urls` file to its directory with one origin per line "
+    "(such as `https://app.example.com`), or `allowed_urls` to its "
+    "`secrets.entries` entry."
+)
+_CONFIG_UNLEASHED = (
+    "add `allowed_urls` to its `secrets.entries` entry, one origin per item "
+    "(such as `https://app.example.com`)."
+)
+_DIRECTORY_UNPARSED = "fix the lines listed in `allowed_urls_rejected`."
+_CONFIG_UNPARSED = (
+    "fix `allowed_urls` in its `secrets.entries` entry, which names no usable site."
+)
+
 LIST_DESCRIPTION = (
     "The secrets you can bind to a field, by name.\n\n"
     "You never see a value — not here, not anywhere. Each entry gives the "
@@ -553,10 +595,9 @@ LIST_DESCRIPTION = (
     "write a secret instead of text — secret={'name': ..., 'key': ...} — or "
     "in a saved flow put the same thing in that step's args. The server reads "
     "it and types it; it never passes through you, which is the point.\n\n"
-    "A secret listing allowed_urls may only be used on those sites. One that "
-    "is not restricted may be used anywhere. If an entry carries "
-    "allowed_urls_rejected, its leash is broken and it cannot be used at all "
-    "until an operator fixes the file."
+    "Every secret names the sites it may be used on (allowed_urls), and only "
+    "there. One that carries `refused` cannot be used at all until an operator "
+    "fixes it, and the sentence says how."
 )
 
 
@@ -626,19 +667,13 @@ class Refused(ValueError):
     """
 
 
-def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") -> str:
-    """The value a `secret` reference names, or refuse.
+def check(catalogue, reference, tool: str = "write") -> dict:
+    """The catalogue entry a `secret` reference names, or refuse.
 
-    **The only function in this package that returns a secret value**, and it
-    returns it to exactly one caller: whichever surface is about to type it into
-    a field. It is not cached, not logged, and not put in any result.
-
-    ``url`` is the page the browser is **actually on**, read at the moment of
-    the bind. Checking anything else would check a permission against a page
-    other than the one receiving the keystroke. In a frame it is the top page
-    and then the frame's origin (`binding.receiving`), and **each** must be
-    allowed: the frame is a tightening, so nothing the top-page check refused
-    can pass. A refusal names the first one that is not.
+    Everything that needs no page: the reference's shape, the tool, the
+    catalogue, the entry, the key, and the leash being usable at all. `bind`
+    asks it first, and `binding.bind_into` asks it before the page is read, so
+    a refused secret costs no WebDriver round trip.
     """
     # Shape-checked here, not only in the typed MCP parameter: the HTTP surface
     # passes raw JSON straight in, so a bare string reached `.get` and
@@ -676,6 +711,34 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
             f"the secret {name!r} has no key {key!r}. It has: "
             f"{', '.join(entry['keys']) or 'none'}"
         )
+    if entry.get("refused"):
+        # Loudest of anything here: a secret is being asked for and cannot be
+        # used until an operator fixes its leash. Identifiers only.
+        log.warning(
+            "REFUSED binding secret %s/%s: no usable allowed sites",
+            entry.get("name") or "?", key,
+        )
+        raise Refused(f"the secret {name!r} cannot be used: {entry['refused']}")
+    return entry
+
+
+def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") -> str:
+    """The value a `secret` reference names, or refuse.
+
+    **The only function in this package that returns a secret value**, and it
+    returns it to exactly one caller: whichever surface is about to type it into
+    a field. It is not cached, not logged, and not put in any result.
+
+    ``url`` is the page the browser is **actually on**, read at the moment of
+    the bind. Checking anything else would check a permission against a page
+    other than the one receiving the keystroke. In a frame it is the top page
+    and then the frame's origin (`binding.receiving`), and **each** must be
+    allowed: the frame is a tightening, so nothing the top-page check refused
+    can pass. A refusal names the first one that is not. A secret with no usable
+    leash is refused before any page is considered (`check`).
+    """
+    entry = check(catalogue, reference, tool)
+    name, key = reference["name"], reference["key"]
 
     # What the audit lines below name the secret by. Taken from the catalogue's
     # own record rather than from the caller's reference, which is both safer
@@ -801,10 +864,9 @@ def perform_write(
 
 
 def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
-    """The secrets allowed on ``host``, names and keys only. A secret with no
-    `allowed_urls` is usable anywhere and is not listed under every site; one
-    with `allowed_urls_rejected` is usable nowhere, its valid lines included
-    (`Catalogue.allows`), so it is not listed either."""
+    """The secrets allowed on ``host``, names and keys only. One that carries
+    `refused` or `allowed_urls_rejected` is usable nowhere, its valid lines
+    included (`Catalogue.allows`), so it is not listed."""
     return [
         {
             "name": s["name"],
@@ -812,6 +874,7 @@ def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
             "keys": list(s.get("keys") or []),
         }
         for s in secrets or []
-        if not s.get("allowed_urls_rejected")
+        if not s.get("refused")
+        and not s.get("allowed_urls_rejected")
         and any(host_of(u) == host for u in s.get("allowed_urls") or [])
     ]

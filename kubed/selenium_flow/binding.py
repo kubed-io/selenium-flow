@@ -157,6 +157,7 @@ def bind_into(
     problems = check_pair({**kwargs, SECRET_ARG: reference}, say)
     if problems:
         raise secrets.Refused(problems[0])
+    secrets.check(catalogue, reference, tool)  # before the page is read
     here = page() if callable(page) else page
     kwargs[SUPPLIES] = secrets.bind(catalogue, reference, here, tool=tool)
     if tool in READ_BACK_OFF:

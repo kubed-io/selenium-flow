@@ -11,7 +11,7 @@ const data = {
       key_sources: { password: { from: 'env' as const, name: 'ADMIN_PW' } },
       origins: [{ source: 'config' as const, location: '/etc/c.yaml' }],
     },
-    { name: 'open', keys: ['token'], restricted: false },
+    { name: 'open', keys: ['token'], restricted: false, refused: 'no allowed sites are declared, so it cannot be used: add one.' },
   ],
 }
 
@@ -21,13 +21,13 @@ test('one card per secret in a list scroller', () => {
   expect(screen.getAllByRole('listitem')).toHaveLength(2)
   expect(screen.getByText('The admin login')).toBeInTheDocument()
   expect(screen.getByText('2 keys · 1 site')).toBeInTheDocument()
-  expect(screen.getByText('1 key · any site')).toBeInTheDocument()
+  expect(screen.getByText('1 key · 0 sites')).toBeInTheDocument()
 })
 
 test('a card warns as the admin pane does', () => {
   render(SecretsView, { props: { data } })
   const open = screen.getByRole('button', { name: 'open' })
-  expect(open.querySelector('.pill.warn')).toHaveTextContent('any site')
+  expect(open.querySelector('.pill.warn')).toHaveTextContent('unusable until fixed')
   expect(screen.getByRole('button', { name: 'admin' }).querySelector('.pill.warn')).toBeNull()
 })
 

@@ -43,7 +43,7 @@ class Vault:
         self.secret = value
 
     def entry(self, name):
-        return {"name": name, "keys": ["password"], "allowed_urls": []}
+        return {"name": name, "keys": ["password"], "allowed_urls": [], "restricted": True}
 
     def allows(self, name, url):
         return True
@@ -1495,7 +1495,7 @@ def test_a_parameter_can_never_reach_the_name_of_a_secret():
         ],
     }
     run(Watching(), document, "b", params={"who": "root-password"}, catalogue=vault)
-    assert vault.names == ["${who}"], "the reference was substituted"
+    assert set(vault.names) == {"${who}"}, "the reference was substituted"
 
 
 def test_the_page_is_read_only_for_a_step_that_binds_a_secret():

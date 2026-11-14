@@ -12,7 +12,7 @@ test('Loading…, then a card per secret with keys, allowed and source (S1)', as
     secrets: [
       { name: 'admin', description: 'The token.', keys: ['token'], restricted: true, allowed_urls: ['https://a'],
         origins: [{ source: 'filesystem', location: '/s/admin' }] },
-      { name: 'open', keys: ['k'], restricted: false },
+      { name: 'open', keys: ['k'], restricted: false, refused: 'no allowed sites are declared, so it cannot be used: add an `_allowed_urls` file.' },
       { name: 'bad', keys: ['k'], allowed_urls_rejected: ['ftp://x'] },
     ],
   } } })
@@ -23,7 +23,10 @@ test('Loading…, then a card per secret with keys, allowed and source (S1)', as
   expect(admin).toHaveTextContent('🔑admin')
   expect(admin).toHaveTextContent('allowedhttps://a')
   expect(admin).toHaveTextContent('fromfilesystem · /s/admin')
-  expect(open.querySelector('.pill.warn')).toHaveTextContent('any site')
+  expect(open.querySelector('.pill.warn')).toHaveTextContent('unusable until fixed')
+  expect(open).toHaveTextContent('no allowed sites are declared, so it cannot be used')
+  expect(open).toHaveTextContent('allowed—')
+  expect(open).not.toHaveTextContent('any site')
   expect(bad.querySelector('.pill.warn')).toHaveTextContent('unusable until fixed')
   expect(bad).toHaveTextContent('allowed_urls: ftp://x')
 })
@@ -56,11 +59,11 @@ test('config secrets: key sources, every origin, and the two new warnings', asyn
   expect(github).toHaveTextContent('token: env GITHUB_TOKEN is not set')
 })
 
-test('an unrestricted secret with an inline key shows both its warnings, not just one', async () => {
+test('an unleashed secret with an inline key shows both its warnings, not just one', async () => {
   fakeFetch({ 'GET /admin/secrets': { body: {
     enabled: true,
     secrets: [
-      { name: 'wide-open', keys: ['k'], restricted: false, inline_keys: ['k'],
+      { name: 'wide-open', keys: ['k'], restricted: false, refused: 'no allowed sites are declared, so it cannot be used: add `allowed_urls`.', inline_keys: ['k'],
         key_sources: { k: { from: 'value' } } },
     ],
   } } })
@@ -69,7 +72,8 @@ test('an unrestricted secret with an inline key shows both its warnings, not jus
   const [card] = container.querySelectorAll('.card.secret')
   const pills = Array.from(card.querySelectorAll('.pill.warn')).map((p) => p.textContent)
   expect(pills).toContain('inline value')
-  expect(pills).toContain('any site')
+  expect(pills).toContain('unusable until fixed')
+  expect(pills).not.toContain('any site')
 })
 
 test('a broken leash and unresolved keys both show, not just the leash', async () => {

@@ -8,6 +8,7 @@ plain tree it looks like from outside.
 """
 
 import json
+import time
 from types import SimpleNamespace
 from urllib.parse import quote_plus
 
@@ -33,6 +34,15 @@ def make_secret(root, name, **keys):
     for key, value in keys.items():
         (directory / key).write_text(value)
     return directory
+
+
+def make(root, secrets_: dict[str, dict[str, str]], ttl=secrets.CACHE_SECONDS,
+         clock=time.monotonic) -> Catalogue:
+    """A catalogue over ``root`` holding each named secret's keys (`_allowed_urls`
+    and `_description` are keys like any other)."""
+    for name, keys in secrets_.items():
+        make_secret(root, name, **keys)
+    return Catalogue([FilesystemSource(root)], ttl=ttl, clock=clock)
 
 
 @pytest.fixture
@@ -241,11 +251,9 @@ def test_allowed_urls_are_matched_by_origin_never_by_substring(tmp_path, url, ex
     assert catalogue.allows("app", url) is expected
 
 
-def test_a_secret_with_no_declaration_is_unrestricted(tmp_path):
-    """The pragmatic default, and the listing shows which those are."""
-    make_secret(tmp_path, "app", password="p")
-    catalogue = Catalogue([FilesystemSource(tmp_path)])
-    assert catalogue.allows("app", "https://anywhere.test/") is True
+def test_a_secret_with_no_declaration_is_allowed_nowhere(tmp_path):
+    catalogue = make(tmp_path, {"app": {"password": "p"}})
+    assert catalogue.allows("app", "https://anywhere.test/") is False
     assert catalogue.entry("app")["allowed_urls"] == []
 
 
@@ -470,11 +478,10 @@ def test_a_bare_origin_is_accepted_with_or_without_a_trailing_slash(tmp_path, li
     assert len(entry["allowed_urls"]) == 1
 
 
-def test_a_secret_with_no_declaration_is_marked_unrestricted(tmp_path):
-    make_secret(tmp_path, "app", password="p")
-    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+def test_a_secret_with_no_declaration_is_marked_unrestricted_and_refused(tmp_path):
+    entry = make(tmp_path, {"app": {"password": "p"}}).entry("app")
     assert entry["restricted"] is False
-    assert Catalogue([FilesystemSource(tmp_path)]).allows("app", "https://x.test") is True
+    assert "refused" in entry
 
 
 def test_an_unreadable_directory_does_not_take_down_the_catalogue(tmp_path):
@@ -513,6 +520,7 @@ def bindable(tmp_path):
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
     make_secret(tmp_path, "anywhere", token="free")
+    make_secret(tmp_path, "everywhere", token="free", **{ALLOWED_URLS: "https://wherever.test"})
     return Catalogue([FilesystemSource(tmp_path)])
 
 
@@ -540,11 +548,68 @@ def test_the_origin_suffix_attack_is_refused_at_bind_time(bindable):
         )
 
 
-def test_an_unrestricted_secret_binds_anywhere(bindable):
+def test_an_unleashed_secret_is_refused_at_bind_time(bindable):
+    with pytest.raises(secrets.Refused, match="cannot be used: no allowed sites"):
+        secrets.bind(
+            bindable, {"name": "anywhere", "key": "token"},
+            "https://wherever.test/",
+        )
+
+
+def test_a_leashed_secret_binds_on_its_site(bindable):
     assert secrets.bind(
-        bindable, {"name": "anywhere", "key": "token"},
+        bindable, {"name": "everywhere", "key": "token"},
         "https://wherever.test/",
     ) == "free"
+
+
+def test_a_secret_with_no_declaration_is_refused(tmp_path):            # ruling 5
+    catalogue = make(tmp_path, {"open": {"password": "x"}})
+    entry = catalogue.entry("open")
+    assert entry["restricted"] is False
+    assert entry["refused"].startswith("no allowed sites are declared")
+    assert "_allowed_urls" in entry["refused"]
+    assert catalogue.allows("open", "https://anything.example") is False
+
+
+def test_an_unleashed_secret_is_refused_by_bind_before_the_page_is_read(tmp_path):
+    from kubed.selenium_flow import binding
+
+    catalogue = make(tmp_path, {"open": {"password": "x"}})
+    read = []
+    with pytest.raises(secrets.Refused, match="cannot be used: no allowed sites"):
+        binding.bind_into({"secret": {"name": "open", "key": "password"}}, catalogue,
+                          lambda: read.append(1) or ("https://a",), "write", binding.DIRECT)
+    assert read == []
+
+
+def test_check_returns_the_entry_of_a_usable_secret(tmp_path):
+    catalogue = make(tmp_path, {"ok": {"password": "x", ALLOWED_URLS: "https://a.example"}})
+    assert secrets.check(catalogue, {"name": "ok", "key": "password"})["name"] == "ok"
+
+
+def test_a_broken_leash_is_refused_with_its_own_reason(tmp_path):
+    catalogue = make(tmp_path, {"bad": {"password": "x", "_allowed_urls": "not a url"}})
+    entry = catalogue.entry("bad")
+    assert entry["refused"].startswith("its allowed sites do not parse")
+    assert "allowed_urls_rejected" in entry["refused"]
+
+
+def test_a_refused_secret_is_logged_once(tmp_path, caplog):
+    catalogue = make(tmp_path, {"open": {"password": "x"}}, ttl=0)
+    with caplog.at_level("WARNING"):
+        catalogue.listing()
+        catalogue.listing()
+    assert len([r for r in caplog.records if "open cannot be used" in r.getMessage()]) == 1
+
+
+def test_a_refused_bind_is_logged_without_a_value(tmp_path, caplog):
+    catalogue = make(tmp_path, {"open": {"password": "hunter22"}})
+    with caplog.at_level("WARNING"), pytest.raises(secrets.Refused):
+        secrets.bind(catalogue, {"name": "open", "key": "password"}, "https://a.example")
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "REFUSED binding secret open/password: no usable allowed sites" in text
+    assert "hunter22" not in text
 
 
 @pytest.mark.parametrize("tool", ["execute_script", "navigate", "press_key", "extract"])

@@ -9,7 +9,7 @@
   // there is no single-secret resource to read (secrets.py, "one read").
   let open = $state<string | null>(null)
   const chosen = $derived(data.secrets.find((s) => s.name === open))
-  const reach = (s: Secret) => (s.restricted ? plural((s.allowed_urls ?? []).length, 'site') : 'any site')
+  const reach = (s: Secret) => plural((s.allowed_urls ?? []).length, 'site')
 </script>
 
 {#if chosen}
