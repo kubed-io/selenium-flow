@@ -67,7 +67,7 @@ from ..core.actions import OPEN_PRIVATE, Actions
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
-from ..monitor.monitor import ATTACH_FAILED
+from ..monitor.monitor import ATTACH_FAILED, DEFAULT_TIMEOUT
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
 from ..site_data import snapshot as site_data_module
@@ -354,6 +354,7 @@ class Workspaces:
         channels=None,
         control=None,
         hints: Callable[[str, str], list[dict]] | None = None,
+        keep_alive: int = 0,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -387,6 +388,10 @@ class Workspaces:
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
         # is hinted. Asked only by `_hinted`, never inside a store write.
         self.hints = hints
+        # Seconds a browser is kept alive past its last call (`session.keep_alive`);
+        # 0 keeps nothing. With the node's own timeout it is the window a reopen
+        # is judged against: idle past it is a reap, inside it a lost browser.
+        self.keep_alive = keep_alive
 
     @property
     def kind(self) -> str:
@@ -571,7 +576,11 @@ class Workspaces:
 
         # The Grid reaped it. Reopen where the caller left off, with the same
         # settings, so a refresh does not silently change the browser's shape.
-        log.info("the browser is gone from the grid, reopening for workspace %s", name)
+        cause = self._cause(record, time.time())
+        log.info(
+            "the browser is gone from the grid (%s), reopening for workspace %s",
+            cause, name,
+        )
         self._ended(name, record.session_id, "lost")
         saved = self._restorable(record)
         replay = dict(record.settings or {})
@@ -602,8 +611,8 @@ class Workspaces:
             **({"site_data": saved} if saved else {}),
             **replay,
         )
-        # Nobody asked for this reopen, so the first result after it says what
-        # came back: the record holds the report until `touch` hands it over.
+        # Nobody asked for this reopen, so the first result after it says so:
+        # the record holds the notice until `touch` hands it over.
         # A reopen alongside this one may bind first; then act on its browser.
         # The settings this browser was opened with: without `record` when
         # recording is off, so nothing reports a video nobody is making.
@@ -615,7 +624,7 @@ class Workspaces:
             replay,
             set_by=sources,
             replacing=record.session_id,
-            report=opened.get("site_data"),
+            reopened={"cause": cause, "report": opened.get("site_data")},
             grid_timeout=timeout,
             window_seen=_measured(opened),
             sent=opened.get("sent"),
@@ -641,6 +650,19 @@ class Workspaces:
                     "recording for %s cannot be filed: %s", name, faults.message(exc)
                 )
         return kept, replay.get("browser") or DEFAULT_BROWSER
+
+    def _cause(self, record: Workspace, now: float) -> str:
+        """Why a browser is gone: ``reaped`` when the workspace sat idle for the
+        window, ``lost`` when it was in use, so something else ended it.
+
+        The window is the longer of the Grid's own timeout (the node's, as read
+        at the open; the default when it did not say) and ``keep_alive``. An
+        open is activity, so idleness is measured from the later of the last
+        call and the open.
+        """
+        window = max(record.grid_timeout or DEFAULT_TIMEOUT, self.keep_alive)
+        last = max(record.called_at, record.opened_at)
+        return "reaped" if now - last >= window else "lost"
 
     def _recorded(self, name: str, settings: dict) -> dict:
         """The arguments a recorded open adds: the video's name, and a note
@@ -851,11 +873,9 @@ class Workspaces:
             tool="paste",
             surface="http",
         )
-        self.settle(name, result, browser=session_id, url=None)
-        # A paste slides the TTL but is not the agent's call: the reopen report
-        # it was handed is put back for the next result that is.
-        if result.get("site_data"):
-            self._hold_again(name, result["site_data"], session_id)
+        # A paste slides the TTL but is not the agent's call: a held notice
+        # stays held for the next result that is.
+        self.settle(name, result, browser=session_id, url=None, deliver=False)
         return {"typed": result["typed"]}
 
     def handed_back(
@@ -934,8 +954,9 @@ class Workspaces:
             log.warning(
                 "a hand-back for %s did not settle: %s", name, type(exc).__name__
             )
-        if settled.get("site_data"):
-            summary["site_data"] = settled["site_data"]
+        for key in ("reopened", "site_data"):
+            if settled.get(key):
+                summary[key] = settled[key]
         return summary
 
     def settle(
@@ -949,20 +970,25 @@ class Workspaces:
         url=FROM_RESULT,
         since: str | None = None,
         hint: bool = True,
+        deliver: bool = True,
     ) -> None:
         """What a finished action means for the record, in place on ``result``.
 
         **Every record write after an action comes through here**: a single
         call (`act`), a flow step and the run's pages (`flows/api.run_for`),
         and a bound write (`secrets.perform_write`). So the capture is stripped
-        and stored, the page recorded and a reopen's report handed over in one
-        place, and a new consumer cannot forget to forward the report.
+        and stored, the page recorded and a reopen's notice handed over in one
+        place, and a new consumer cannot forget to forward the notice.
 
         ``url`` is the page to record: the result's own by default, ``None``
         to withhold it (§F1.24) — the TTL still slides — or the pages a run
         reached, in order. ``touch=False`` is for a flow step: the runner
         records its pages before a save step and at the end rather than after
-        every step, and so carries a reopen's report on the run, not on a step.
+        every step, and so carries a reopen's notice on the run, not on a step.
+
+        ``deliver=False`` writes the record and leaves a held notice held: a
+        paste is not the agent's call, and a run's flush before a save step
+        leaves it for the run's own result (ruling 23).
 
         ``browser`` is the one that produced ``result``: once the record names
         another, its page is not recorded and its save is not kept.
@@ -986,31 +1012,38 @@ class Workspaces:
             if url is FROM_RESULT:
                 url = result.get("url")
             pages = url if isinstance(url, (list, tuple)) else (url,)
-            told, page = self._touch(name, *pages, browser=browser, since=since)
+            told, page = self._touch(
+                name, *pages, browser=browser, since=since, deliver=deliver
+            )
             if hint and page:
                 here = self._hinted(name, page)
                 if here:
                     result["flows_here"] = here
         if told:
-            result["site_data"] = told
+            result["reopened"] = {
+                "cause": told["cause"],
+                "message": faults.REOPENED[told["cause"]],
+            }
+            if told["report"]:
+                result["site_data"] = told["report"]
         try:
             if reshapes:
                 self.reshape(name, result, browser=browser)
             self._save_site_data(name, result, captured, browser)
         except Exception:
-            # The caller gets the error, not this result: the reopen's report
+            # The caller gets the error, not this result: the reopen's notice
             # goes back on the record for the next one (Copilot, #51).
             if told:
                 self._hold_again(name, told, browser)
             raise
 
-    def _hold_again(self, name: str, report: dict, browser: str | None) -> None:
-        """Put a reopen's report back when the result carrying it failed."""
+    def _hold_again(self, name: str, notice: dict, browser: str | None) -> None:
+        """Put a reopen's notice back when the result carrying it failed."""
 
         def held(r: Workspace) -> Workspace | None:
             if r.reopened or (browser and r.session_id != browser):
                 return None
-            return replace(r, reopened={"browser": r.session_id, "report": report})
+            return replace(r, reopened={"browser": r.session_id, **notice})
 
         with contextlib.suppress(Exception):  # the caller's own error is the one to see
             self.store.update(name, held)
@@ -1251,7 +1284,7 @@ class Workspaces:
         settings: dict | None = None,
         replacing: str | None = None,
         forget_site_data: bool = False,
-        report: dict | None = None,
+        reopened: dict | None = None,
         opened_by: dict | object | None = KEEP,
         grid_timeout: int | None = None,
         window_seen: str | None = None,
@@ -1279,9 +1312,9 @@ class Workspaces:
         the same write that binds, so an open that loses erases nothing from
         the browser that won.
 
-        ``report`` is a silent reopen's site data report: the record holds it
-        for this browser until `touch` hands it to the first result. Any other
-        bind drops whatever an earlier reopen still held.
+        ``reopened`` is a silent reopen's cause and report: the record holds
+        them for this browser until `touch` hands them to the first result. Any
+        other bind drops whatever an earlier reopen still held.
 
         ``set_by`` says who set each of the settings, by key; a setting it
         does not name is the caller's, which is what handing them in directly
@@ -1306,8 +1339,8 @@ class Workspaces:
                     for k in (settings or {})
                 },
                 site_data={} if forget_site_data or r is None else dict(r.site_data),
-                # Reset explicitly: any other bind drops an earlier reopen's report.
-                reopened={"browser": session_id, "report": report} if report else {},
+                # Reset explicitly: any other bind drops an earlier reopen's notice.
+                reopened={"browser": session_id, **reopened} if reopened else {},
                 **({} if opened_by is KEEP else {"opened_by": opened_by}),
                 grid_timeout=grid_timeout,
                 window_seen=window_seen,
@@ -1360,8 +1393,8 @@ class Workspaces:
         another, this page is not that browser's: the TTL still slides, the
         history is left alone (Copilot, #50).
 
-        Returns a silent reopen's report the first time this browser is touched
-        after it, and never again.
+        Returns a silent reopen's notice, ``{"cause", "report"}``, the first
+        time this browser is touched after it, and never again.
         """
         return self._touch(name, *urls, browser=browser)[0]
 
@@ -1371,6 +1404,7 @@ class Workspaces:
         *urls: str | None,
         browser: str | None = None,
         since: str | None = None,
+        deliver: bool = True,
     ) -> tuple[dict | None, str | None]:
         """:meth:`touch`, and the page to hint for: the last of ``urls`` with
         an origin, when its host, port, path or route differs from the page before
@@ -1380,19 +1414,23 @@ class Workspaces:
         Decided inside the store's ``fn``, against the record as it is at write
         time, with `page_key` only, which is pure and never raises: the hint
         itself is slow work, asked for outside it by the caller.
+
+        Stamps ``called_at`` on every write, and hands over the held notice
+        only when ``deliver``.
         """
         ttl = self.store.ttl
 
         def at(r: Workspace) -> tuple[Workspace, tuple[dict | None, str | None]]:
+            now = time.time()
             if browser and r.session_id != browser:
-                return r, (None, None)
-            held = r.reopened
-            report = held.get("report") if held.get("browser") == r.session_id else None
+                return replace(r, called_at=now), (None, None)
+            notice = r.notice if deliver else None
             before = page_key(r.url if since is None else since)
             after = next((u for u in reversed(urls) if origin_of(u or "")), None)
             key = page_key(after)
             page = after if key is not None and key != before else None
-            return r.visited(*urls, ttl=ttl).delivered(), (report, page)
+            fresh = replace(r.visited(*urls, ttl=ttl), called_at=now)
+            return (fresh.delivered() if deliver else fresh), (notice, page)
 
         noted = self.store.change(name, at)[1]
         return noted if noted is not None else (None, None)

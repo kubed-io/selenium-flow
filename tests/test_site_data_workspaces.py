@@ -2,13 +2,15 @@
 restore on open and on a silent reopen, and the one report each makes."""
 
 import json
+import time
 from dataclasses import replace
 
 import pytest
 
+from kubed.selenium_flow import faults
 from kubed.selenium_flow.site_data import snapshot as site_data
 from kubed.selenium_flow.workspace.store import MemoryStore
-from kubed.selenium_flow.workspace.workspaces import Caller
+from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 from tests.conftest import NAMED, RecordingActions, manager
 
 URL = "https://app.example.com/x"
@@ -72,6 +74,12 @@ def reopened(m, **kw):
 def reaped(m):
     """The Grid took the browser: the next call reopens it on its own."""
     m.actions.grid.alive.clear()
+
+
+def idle(m, seconds, grid_timeout=300):
+    """The workspace's last call and open were ``seconds`` ago."""
+    then = time.time() - seconds
+    m.store.update(NAMED, lambda r: replace(r, called_at=then, opened_at=then, grid_timeout=grid_timeout))
 
 
 def test_a_save_is_stored_and_never_returned_raw(named_caller):
@@ -155,8 +163,62 @@ def test_the_call_that_reopens_a_reaped_browser_says_what_came_back(named_caller
     first = m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
     assert m.actions.site_data_seen[-1]["cookies"], "the reopen restored"
     assert first["site_data"] == REPORT
-    assert "site_data" not in m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
+    assert first["reopened"] == {"cause": "lost", "message": faults.REOPENED["lost"]}
+    second = m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
+    assert "site_data" not in second and "reopened" not in second
     assert m.store.get(NAMED).reopened == {}
+
+
+def test_a_reap_with_no_site_data_is_said_once(named_caller):  # ruling 2
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    reaped(m)
+    first = m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert first["reopened"]["cause"] == "lost" and "site_data" not in first
+    assert "reopened" not in m.act(Caller(NAMED), lambda s: {"url": URL})
+
+
+@pytest.mark.parametrize("keep_alive, grid_timeout, seconds, cause", [
+    (900, 300, 899, "lost"), (900, 300, 900, "reaped"),
+    (0, 300, 299, "lost"), (0, 300, 300, "reaped"),
+    (0, None, 299, "lost"), (0, None, 300, "reaped"),
+    (120, 300, 200, "lost"),  # the longer of the two (ruling 14)
+])
+def test_the_cause_is_judged_by_the_window(named_caller, keep_alive, grid_timeout, seconds, cause):
+    m = Workspaces(SiteActions(), MemoryStore(), keep_alive=keep_alive)
+    m.open_browser(Caller(NAMED))
+    idle(m, seconds, grid_timeout)
+    reaped(m)
+    assert m.act(Caller(NAMED), lambda s: {"url": URL})["reopened"]["cause"] == cause
+
+
+def test_an_open_counts_as_activity_for_the_cause(named_caller):  # ruling 14
+    """Last called yesterday, opened 10 s ago: a browser gone now was lost."""
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    now = time.time()
+    m.store.update(
+        NAMED,
+        lambda r: replace(r, called_at=now - 1000, opened_at=now - 10, grid_timeout=300),
+    )
+    reaped(m)
+    assert m.act(Caller(NAMED), lambda s: {"url": URL})["reopened"]["cause"] == "lost"
+
+
+def test_a_call_stamps_called_at(named_caller):  # ruling 10
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    before = time.time()
+    m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert m.store.get(NAMED).called_at >= before
+
+
+def test_a_save_step_leaves_the_notice_for_the_run(named_caller, tmp_path):  # ruling 23
+    store, m = flow_world(tmp_path, [{"tool": "save_site_data", "args": {}}])
+    m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
+    reaped(m)
+    report = run(store, m)
+    assert report["reopened"]["cause"] == "lost" and report["site_data"] == REPORT
 
 
 def test_a_report_waits_for_a_call_that_finishes(named_caller):
@@ -193,7 +255,9 @@ def test_a_retried_touch_hands_over_only_what_its_last_run_saw(named_caller):
     store.first = store.get(NAMED)
     store.between = lambda: store.update(NAMED, lambda r: replace(r, session_id="newer"))
     assert m.touch(NAMED, URL, browser=browser) is None
-    assert store.get(NAMED).reopened["report"] == REPORT
+    held = store.get(NAMED).reopened
+    assert held["browser"] == browser
+    assert (held["cause"], held["report"]) == ("lost", REPORT)
 
 
 def test_an_open_drops_a_report_nobody_collected(named_caller):
@@ -247,8 +311,10 @@ def test_a_flow_run_that_reopened_the_browser_says_so_once(named_caller, tmp_pat
     reaped(m)
     report = run(store, m)
     assert report["site_data"] == REPORT
+    assert report["reopened"]["cause"] == "lost"
     assert "site_data" not in report["steps"][0]
-    assert "site_data" not in run(store, m)
+    again = run(store, m)
+    assert "site_data" not in again and "reopened" not in again
 
 
 # ---- a save never reverts what landed while it worked -------------------------

@@ -21,6 +21,34 @@ from .urls import without_userinfo
 # an exception is a library's or a log's, and never reaches a caller.
 PAGE_NOTE = "This call caused "
 
+# How the note begins that says a call's browser was replaced before it, and
+# why (`Workspaces.settle`, `Workspaces.failed`).
+REOPEN_NOTE = "The browser was replaced before this call: "
+REOPENED = {
+    "reaped": REOPEN_NOTE + (
+        "the old one sat idle too long and the Grid ended it, so a new one was "
+        "opened at the same page with the same settings. Anything that lived "
+        "only in the old page is gone: unsaved work, page state and the page's "
+        "own connections. Check the page before you go on."
+    ),
+    "lost": REOPEN_NOTE + (
+        "the old one ended while this workspace was in use (its Grid node may "
+        "have stopped or restarted), so a new one was opened at the same page "
+        "with the same settings. Anything that lived only in the old page is "
+        "gone: unsaved work, page state and the page's own connections. Check "
+        "the page before you go on."
+    ),
+}
+
+
+def reopen_note(cause: str, restored: int) -> str:
+    """What a replaced browser says: its cause, and how many sites' saved data
+    was put back."""
+    text = REOPENED[cause]
+    if restored:
+        text += f" Saved site data was put back for {restored} site(s)."
+    return text
+
 
 class AssertionFailed(Exception):
     """An `assert` step's JavaScript came back false.

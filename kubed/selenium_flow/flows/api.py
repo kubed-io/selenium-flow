@@ -743,13 +743,13 @@ def run_for(
     # A save reads the localStorage of every site in the history, and the run
     # writes its pages once, at the end: so just before a save step the pages
     # reached so far go in, in one write, and the end writes only the rest.
-    # A reopen's report a flush is handed waits in `flushed` for the run's.
-    flushed: dict = {}
+    # The flush leaves a held notice for the run's own result (ruling 23).
     count = [0]
 
     def before_save(pages):
         workspaces.settle(
-            workspace, flushed, url=pages[count[0]:], browser=resolved, hint=False
+            workspace, {}, url=pages[count[0]:], browser=resolved, hint=False,
+            deliver=False,
         )
         count[0] = len(pages)
 
@@ -793,16 +793,13 @@ def run_for(
     ][count[0]:]
     if report.get("url") and not report.get("url_redacted"):
         visited.append(report["url"])
-    # The run's browser replaced a reaped one: what came back, once — on the
-    # run, whether this write or a flush before a save step was handed it.
+    # The run's browser replaced a gone one: the notice, once, on the run.
     workspaces.settle(
         workspace, report, url=visited, browser=resolved, since=before,
         # A withheld page never hints (ruling 6): `visited` stops short of it,
         # and a hint for the last page it does hold names a page left behind.
         hint=not report.get("url_redacted"),
     )
-    if "site_data" in flushed and "site_data" not in report:
-        report["site_data"] = flushed["site_data"]
     return report
 
 

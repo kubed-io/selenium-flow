@@ -1074,7 +1074,8 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
     )
     report = {"restored": ["nc.example.com"], "skipped": [], "uri": "workspace://site-data"}
     monkeypatch.setattr(
-        server.workspaces, "_touch", lambda name, url, browser=None, **kw: (report, None)
+        server.workspaces, "_touch",
+        lambda name, url, browser=None, **kw: ({"cause": "lost", "report": report}, None),
     )
 
     write = await server.mcp.get_tool("write")
@@ -1083,6 +1084,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         secret={"name": "nextcloud", "key": "password"},
     )
     assert result["site_data"] == report
+    assert result["reopened"]["cause"] == "lost"
 
 
 def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
