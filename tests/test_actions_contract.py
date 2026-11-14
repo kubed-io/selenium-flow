@@ -24,6 +24,7 @@ from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import wait as selenium_wait
 
 from kubed.selenium_flow.core import browser, pointer
+from kubed.selenium_flow.core.actions import EXTRACT_JS
 from kubed.selenium_flow.core.browser import NAVIGATION_SETTLE
 from kubed.selenium_flow.errors import status_for
 
@@ -511,11 +512,21 @@ def test_every_url_argument_refuses_the_same_schemes(actions, untouched, name, u
 
 def test_extract_returns_html_text_and_page_state_and_nothing_else(actions, scripted):
     driver = scripted()
-    driver.element.text, driver.element.html = "hello", "<i>hello</i>"
+    driver.element.text = "hello"
+    driver.scripts[EXTRACT_JS] = "<i>hello</i>"
     result = actions.extract("abc", selector={"css": "#x"})
     assert result == {
         "html": "<i>hello</i>", "text": "hello", "url": PAGE, "title": "Example",
     }
+
+
+def test_write_reads_back_nothing_from_a_password_field(actions, scripted):
+    driver = scripted()
+    element = driver.element
+    answers = {"type": "password", "value": "hunter22"}
+    element.get_attribute = lambda name: (element._do("get_attribute", name), answers.get(name))[1]
+    result = actions.write("abc", "hunter22", selector={"css": "#x"})
+    assert result["value"] is None
 
 
 def test_extract_waits_for_presence_not_for_clickability(actions, scripted):
@@ -674,7 +685,7 @@ ROADS = {
         {}, lambda a: a.write("abc", "hi", selector=AT, url=OTHER),
         [*ARRIVE, "current_url", "get", "find_elements", "element.is_displayed",
          "element.is_enabled", "element.clear", "element.send_keys",
-         "element.get_attribute", "current_url", "title"],
+         "element.get_attribute", "element.get_attribute", "current_url", "title"],
     ),
     "press_key at an element": (
         {}, lambda a: a.press_key("abc", "Tab", selector=AT, url=OTHER),
@@ -703,7 +714,7 @@ ROADS = {
     ),
     "extract": (
         {}, lambda a: a.extract("abc", selector=AT, url=OTHER),
-        [*ARRIVE, "current_url", "get", "find_element", "element.get_attribute",
+        [*ARRIVE, "current_url", "get", "find_element", "execute_script",
          "current_url", "title"],
     ),
     "screenshot": (

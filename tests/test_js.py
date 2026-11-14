@@ -55,6 +55,7 @@ COMPOSED = {
     "OUTLINE_JS": probe.OUTLINE_JS,
     "USABLES_JS": probe.USABLES_JS,
     "RECEIVER_JS": probe.RECEIVER_JS,
+    "EXTRACT_JS": actions.EXTRACT_JS,
     "NUDGE_JS": pointer.NUDGE_JS,
     "CENTER_JS": pointer.CENTER_JS,
 }
@@ -87,6 +88,7 @@ def test_every_script_is_used(name):
             pointer.NUDGE_JS,
             pointer.CENTER_JS,
             actions.FOCUSED,
+            actions.EXTRACT_JS,
         ]
     )
     assert js.read(name) in composed, f"{name} is packaged and loaded by nothing"

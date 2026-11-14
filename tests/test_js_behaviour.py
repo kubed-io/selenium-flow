@@ -567,3 +567,43 @@ def test_the_outline_names_what_an_unpainted_element_lets_through():
     html = '<main><div id="behind" style="background:#fff"></div><button id="go"></button></main>'
     entry = outline(html, setup=GEOMETRY + stack("behind"))["elements"][0]
     assert (entry["reason"], entry["blocked_by"]) == ("unpainted", "div#behind")
+
+
+def test_extract_never_returns_a_password_value():  # ruling 24, the issue's repro
+    html = '<form id="f"><input type="password" value="hunter22"><input name="u" value="kept"></form>'
+    out = run("extract.js", html, [{"$css": "#f"}])
+    assert "hunter22" not in out and 'value="kept"' in out
+    assert 'type="password"' in out
+
+
+def test_extract_of_the_password_input_itself_drops_its_value():
+    html = '<input id="p" type="PASSWORD" value="hunter22" name="pw">'
+    out = run("extract.js", html, [{"$css": "#p"}])
+    assert "hunter22" not in out and 'name="pw"' in out and out.startswith("<input")
+
+
+def test_extract_leaves_every_other_element_as_innerhtml_has_it():
+    html = '<div id="d"><b>x</b> <input value="a"><textarea>t</textarea></div>'
+    out = run("extract.js", html, [{"$css": "#d"}])
+    assert out == '<b>x</b> <input value="a"><textarea>t</textarea>'
+
+
+def test_the_outline_names_no_password_by_its_value():
+    html = '<input id="p" type="password" value="hunter22">'
+    answer = outline(html)
+    assert "hunter22" not in json.dumps(answer)
+
+
+def test_extract_strips_password_values_inside_templates_however_deep():
+    html = (
+        '<div id="d"><template><input type="password" value="hunter22">'
+        '<template><input type="password" value="deeper33"></template></template>'
+        '<input name="u" value="kept"></div>'
+    )
+    out = run("extract.js", html, [{"$css": "#d"}])
+    assert "hunter22" not in out and "deeper33" not in out and 'value="kept"' in out
+
+
+def test_extract_of_an_element_with_a_content_attribute_is_its_innerhtml():
+    html = '<head><meta id="m" name="description" content="x"></head>'
+    assert run("extract.js", html, [{"$css": "#m"}]) == ""

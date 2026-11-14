@@ -162,6 +162,9 @@ CANNOT_TYPE = "this browser cannot type some of these characters (emoji, for one
 # ChromeDriver's refusal of a character outside the Basic Multilingual Plane.
 BMP_REFUSAL = "only supports characters in the BMP"
 FOCUSED = js.read("focused.js")
+
+# An element's HTML with no password input's value in it (spec 2026-11-14, ruling 24).
+EXTRACT_JS = js.read("extract.js")
 FRAME_REFUSAL = (
     "a secret cannot be typed into an element that hosts another document; "
     "switch into the frame first"
@@ -1159,7 +1162,9 @@ class Actions:
             element.send_keys(str(text))
             # Read the value back before any submit: submitting navigates, which
             # makes the element reference stale.
-            read = None if bound else element.get_attribute("value")
+            # A password field's value is never read back, bound or not.
+            password = (element.get_attribute("type") or "").lower() == "password"
+            read = None if bound or password else element.get_attribute("value")
             if as_bool(submit, False):
                 element.send_keys(Keys.RETURN)
                 # And then wait for the navigation it may have caused, or the
@@ -1387,7 +1392,7 @@ class Actions:
 
         def read(at):
             return {
-                "html": at.element.get_attribute("innerHTML"),
+                "html": at.driver.execute_script(EXTRACT_JS, at.element),
                 "text": at.element.text,
             }
 

@@ -58,7 +58,7 @@ const accessibleName = (el) => {
     const placeholder = (el.getAttribute('placeholder') || '').trim();
     if (placeholder) return placeholder.slice(0, 80);
     const value = (el.value || '').trim();
-    if (value && (el.type === 'submit' || el.type === 'button')) {
+    if (value && el.type !== 'password' && (el.type === 'submit' || el.type === 'button')) {
       return value.slice(0, 80);
     }
     return (el.getAttribute('name') || '').trim().slice(0, 80);
