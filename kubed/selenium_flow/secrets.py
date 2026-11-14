@@ -28,9 +28,18 @@ leash entirely — a broken one included, because the config was validated at
 boot and this one parses.
 
 **No caller ever sees a value.** This module hands out names, keys, descriptions
-and allowed URLs; the value is read at the moment it is bound and is never
-returned, never cached and never logged. `value()` exists for the binding path
-(E9) and has no surface of its own.
+and allowed URLs; a value is read and is never returned, never cached by this
+module and never logged. `value()` exists for the binding path (E9) and has no
+surface of its own.
+
+§F1.23's rule that a value is read only at the moment it is bound has three
+more read paths (spec 2026-11-14-secret-scope, ruling 12), all through
+`forms_for` and `leashed` and all feeding the scrubber: **activation** (a
+browser arrives on an origin a secret is allowed on), **rotation** (`revision`
+moved, so the current origin's set is rebuilt) and the **unknown-origin
+fail-closed read** (`leashed`, every usable secret). What they read is held, as
+forms, in process memory for that workspace's browser only: never written,
+logged, put in a record or returned.
 
 That guarantee is precise and worth stating in its limits, because a security
 feature that overstates itself is worse than none: **the value never passes
@@ -50,6 +59,7 @@ from urllib.parse import urlsplit
 
 from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
 from .names import InvalidName, valid_name
+from .redaction import Forms
 from .urls import host_of
 from .workspace import locks
 
@@ -306,6 +316,24 @@ class FilesystemSource:
             entry["allowed_urls_rejected"] = rejected
         return entry
 
+    def stamp(self, name: str) -> tuple:
+        """What identifies each key file as it is now, for noticing a rotation.
+
+        `(key, inode, mtime_ns, size)` per key, from `os.stat`, which follows
+        the `..data` symlink a Kubernetes mount swaps: a rotated key is a new
+        inode. A file that cannot be statted is left out. Never a value.
+        """
+        stamps = []
+        for key, path in sorted(self._files(name).items()):
+            if key.startswith(RESERVED_PREFIX):
+                continue
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            stamps.append((key, st.st_ino, st.st_mtime_ns, st.st_size))
+        return tuple(stamps)
+
     def value(self, name: str, key: str) -> str | None:
         """One value, read now and returned to exactly one caller.
 
@@ -355,6 +383,22 @@ class ConfigEntries:
             return None if Path(ref.file).is_file() else f"file {ref.file} is missing"
         return None
 
+    @staticmethod
+    def stamp(ref) -> tuple:
+        """A `FromFile`'s identity, shaped like `FilesystemSource.stamp` (a tuple
+        of tuples, so the two sort together), else `()`.
+
+        An env reference and an inline value are fixed for the process's life,
+        so they never rotate.
+        """
+        if not isinstance(ref, FromFile):
+            return ()
+        try:
+            st = Path(ref.file).stat()
+        except OSError:
+            return ()
+        return ((ref.file, st.st_ino, st.st_mtime_ns, st.st_size),)
+
     def value(self, ref) -> str | None:
         if isinstance(ref, FromEnv):
             return self._env().get(ref.env) or None
@@ -386,7 +430,7 @@ class Catalogue:
         self._ttl = ttl
         self._clock = clock
         self.config = config
-        self._cache: tuple[float, dict, dict] | None = None
+        self._cache: tuple[float, dict, dict, int] | None = None
         self._warned: set[str] = set()  # refused names already logged
 
     @staticmethod
@@ -404,7 +448,7 @@ class Catalogue:
             )
         return None
 
-    def _snapshot(self) -> tuple[dict, dict]:
+    def _snapshot(self) -> tuple[dict, dict, int]:
         """Every secret, and which source each of its keys came from, read together.
 
         **One snapshot, because the two are one fact.** The entry carries the
@@ -416,13 +460,17 @@ class Catalogue:
 
         A bind is a policy and a value about the same secret, or it is nothing.
 
+        The third part is the **revision**: a hash of the stamps of every usable
+        secret's key files, so it moves when a key is rotated and, being made
+        here, at most every `CACHE_SECONDS`.
+
         Owners are per key, not per secret: `secrets.entries` can replace one
         key of a directory's secret while leaving its other keys owned by the
         filesystem, so "who owns this name" is not one answer.
         """
         now = self._clock()
         if self._cache is not None and now < self._cache[0]:
-            return self._cache[1], self._cache[2]
+            return self._cache[1], self._cache[2], self._cache[3]
         entries: dict[str, dict] = {}
         owners: dict[str, dict] = {}
         from_config: set[str] = set()  # leash declared by `secrets.entries`
@@ -482,8 +530,29 @@ class Catalogue:
                 if name not in self._warned:
                     self._warned.add(name)
                     log.warning("secret %s cannot be used: %s", name, refused)
-        self._cache = (now + self._ttl, entries, owners)
-        return entries, owners
+        revision = hash(tuple(sorted(self._stamps(entries, owners))))
+        self._cache = (now + self._ttl, entries, owners, revision)
+        return entries, owners, revision
+
+    def _stamps(self, entries: dict, owners: dict) -> list:
+        """The stamps of every usable secret's key files, each with its name."""
+        stamps = []
+        for name, entry in entries.items():
+            if not entry.get("restricted") or entry.get("refused"):
+                continue
+            seen = set()
+            for owner in owners[name].values():
+                if isinstance(owner, (FromFile, FromEnv, FromValue)):
+                    # A config ref is only an owner when `self.config` exists.
+                    stamp = self.config.stamp(owner)
+                elif id(owner) in seen:
+                    continue
+                else:
+                    seen.add(id(owner))
+                    # A source without `stamp` stamps `()`: it never notices a rotation.
+                    stamp = getattr(owner, "stamp", lambda _name: ())(name)
+                stamps.append((name, stamp))
+        return stamps
 
     def _entries(self) -> dict:
         return self._snapshot()[0]
@@ -508,7 +577,8 @@ class Catalogue:
         make a check atomic would be a poor trade. What the snapshot fixes is
         *which secret and which owner*, not what is inside it.
         """
-        owner = self._snapshot()[1].get(name, {}).get(key)
+        _, owners, _ = self._snapshot()
+        owner = owners.get(name, {}).get(key)
         if owner is None:
             return None
         if isinstance(owner, (FromFile, FromEnv, FromValue)):
@@ -540,6 +610,58 @@ class Catalogue:
             return False
         allowed = entry.get("allowed_urls") or []
         return bool(allowed) and origin(url) in allowed
+
+    def revision(self) -> int:
+        """Moves when a usable secret's key file is replaced (ruling 10).
+
+        A stat-based hash computed with the listing, so it lags a rotation by at
+        most `CACHE_SECONDS`. It carries no value.
+        """
+        return self._snapshot()[2]
+
+    def _forms(self, wanted) -> Forms:
+        """The forms of every usable secret `wanted(entry)` accepts, one read per key.
+
+        A refused or unleashed secret is never read. A key that cannot be read
+        adds nothing, and is logged by its exception's type alone: a value must
+        not reach a log line, and a secret never read cannot have been typed.
+        """
+        forms = Forms()
+        for name, entry in self._entries().items():
+            if not entry.get("restricted") or entry.get("refused") or not wanted(entry):
+                continue
+            for key in entry["keys"]:
+                try:
+                    value = self.value(name, key)
+                except Exception as exc:  # noqa: BLE001 - one key must not fail all
+                    log.warning(
+                        "could not read %s/%s: %s", name, key, type(exc).__name__
+                    )
+                    continue
+                forms = forms | Forms.of(value, (name, key))
+        return forms
+
+    def forms_for(self, origin_: str) -> Forms:
+        """Every form of every secret allowed on this origin, read now.
+
+        One of ruling 12's three read paths (see `bind`): origin activation, and
+        rotation, which rebuilds the current origin's set. The values are held by
+        the caller in process memory for one browser, never written, logged,
+        recorded or returned; only a `Forms` leaves. Origins compare as `allows`
+        does.
+        """
+        target = origin(origin_)
+        if not target:
+            return Forms()
+        return self._forms(lambda entry: target in (entry.get("allowed_urls") or []))
+
+    def leashed(self) -> Forms:
+        """Every form of every usable secret: the unknown-origin fail-closed read.
+
+        The third of ruling 12's read paths. A refused secret has no scope and is
+        never read.
+        """
+        return self._forms(lambda entry: True)
 
 
 def from_settings(
@@ -728,6 +850,13 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
     **The only function in this package that returns a secret value**, and it
     returns it to exactly one caller: whichever surface is about to type it into
     a field. It is not cached, not logged, and not put in any result.
+
+    It still reads fresh at the moment it types, so a rotated credential is the
+    one typed. It has a second reader now: the scrubber (Task 5), which reads
+    through `Catalogue.forms_for` and `leashed` on ruling 12's three paths
+    (activation, rotation, unknown-origin fail-closed) so that a value allowed
+    on a page is masked wherever it appears, typed or not. That reader holds
+    forms in process memory for one browser and returns no bare value.
 
     ``url`` is the page the browser is **actually on**, read at the moment of
     the bind. Checking anything else would check a permission against a page

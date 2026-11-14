@@ -20,6 +20,7 @@ from kubed.selenium_flow.secrets import (
     ALLOWED_URLS,
     DESCRIPTION,
     Catalogue,
+    ConfigEntries,
     FilesystemSource,
     origin,
 )
@@ -1559,3 +1560,104 @@ async def test_a_direct_bound_writes_dead_browser_keeps_its_type_and_status(
     assert errors.status_for(caught.value) == 404
     assert VALUE not in str(caught.value)
     assert "[secret:nextcloud/password]" in str(caught.value)
+
+
+# ---- the forms of an origin, and when they rotate -----------------------------
+
+
+def swap(path, text):
+    """Replace a file the way Kubernetes does: a new file, then a rename."""
+    fresh = path.with_name(path.name + ".new")
+    fresh.write_text(text)
+    fresh.replace(path)
+
+
+def test_forms_for_an_origin_are_the_secrets_allowed_there(tmp_path):
+    catalogue = make(tmp_path, {
+        "a": {"password": "alpha-1", "_allowed_urls": "https://a.test"},
+        "b": {"password": "bravo-2", "_allowed_urls": "https://b.test"},
+        "open": {"password": "open-3"}})
+    forms = catalogue.forms_for("https://a.test")
+    assert forms.ids == {("a", "password")}
+    assert not catalogue.forms_for("https://nowhere.test")
+
+
+def test_leashed_is_every_usable_secret_and_never_a_refused_one(tmp_path):
+    catalogue = make(tmp_path, {
+        "a": {"password": "alpha-1", "_allowed_urls": "https://a.test"},
+        "b": {"password": "bravo-2", "_allowed_urls": "https://b.test"},
+        "open": {"password": "open-3"},
+        "broken": {"password": "broken-4", "_allowed_urls": "not a url"}})
+    assert catalogue.leashed().ids == {("a", "password"), ("b", "password")}
+
+
+def test_the_revision_moves_when_a_key_file_is_replaced(tmp_path):
+    clock = [0.0]
+    catalogue = make(tmp_path, {"a": {"password": "one", "_allowed_urls": "https://a.test"}},
+                     clock=lambda: clock[0])
+    before = catalogue.revision()
+    swap(tmp_path / "a" / "password", "two")
+    assert catalogue.revision() == before
+    clock[0] += secrets.CACHE_SECONDS + 1
+    assert catalogue.revision() != before
+
+
+def test_a_key_that_cannot_be_read_adds_nothing(tmp_path, monkeypatch):
+    catalogue = make(tmp_path, {"a": {
+        "password": "alpha-1", "username": "alice-9", "_allowed_urls": "https://a.test"}})
+    real = catalogue.value
+
+    def flaky(name, key):
+        if key == "password":
+            raise PermissionError("alpha-1")
+        return real(name, key)
+
+    monkeypatch.setattr(catalogue, "value", flaky)
+    forms = catalogue.forms_for("https://a.test")
+    assert forms.ids == {("a", "username")}
+    assert catalogue.leashed().ids == {("a", "username")}
+
+
+def test_forms_for_never_reads_a_refused_secret(tmp_path, monkeypatch):
+    catalogue = make(tmp_path, {
+        "a": {"password": "alpha-1", "_allowed_urls": "https://a.test"},
+        "open": {"password": "open-3"}})
+    read = []
+    real = catalogue.value
+    monkeypatch.setattr(catalogue, "value",
+                        lambda name, key: read.append(name) or real(name, key))
+    catalogue.forms_for("https://a.test")
+    catalogue.leashed()
+    assert set(read) == {"a"}
+
+
+def test_config_keys_stamp_only_a_file(tmp_path):
+    from kubed.selenium_flow.config import FromFile, FromValue
+
+    path = tmp_path / "k"
+    path.write_text("v")
+    conf = ConfigEntries({}, None)
+    assert conf.stamp(FromValue(value="x")) == ()
+    assert conf.stamp(FromFile(file=str(path)))
+    assert conf.stamp(FromFile(file=str(tmp_path / "missing"))) == ()
+
+
+def test_a_directory_secret_with_a_config_file_key_lists_and_rotates(tmp_path):
+    from kubed.selenium_flow.config import FromFile, SecretEntry
+
+    root = tmp_path / "dir"
+    make_secret(root, "a", username="alice-9", _allowed_urls="https://a.test")
+    keyfile = tmp_path / "override"
+    keyfile.write_text("one")
+    clock = [0.0]
+    conf = ConfigEntries(
+        {"a": SecretEntry(keys={"password": FromFile(file=str(keyfile))})}, None)
+    catalogue = Catalogue([FilesystemSource(root)], clock=lambda: clock[0], config=conf)
+    assert catalogue.listing()["count"] == 1
+    assert catalogue.allows("a", "https://a.test/x")
+    assert catalogue.forms_for("https://a.test").ids == {
+        ("a", "username"), ("a", "password")}
+    before = catalogue.revision()
+    swap(keyfile, "two")
+    clock[0] += secrets.CACHE_SECONDS + 1
+    assert catalogue.revision() != before
