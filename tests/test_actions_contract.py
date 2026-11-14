@@ -683,7 +683,8 @@ ROADS = {
     ),
     "press_key wherever focus is": (
         {}, lambda a: a.press_key("abc", "Tab"),
-        [*ARRIVE, "find_element", "element.send_keys", "current_url", "title"],
+        [*ARRIVE, "switch_to.active_element", "element.send_keys", "current_url",
+         "title"],
     ),
     "outline": (
         {"scripts": {"": {"elements": [], "total": 0}}},
@@ -735,6 +736,21 @@ def test_each_action_takes_its_road_in_the_same_order(
     call(actions)
     assert _road(driver.log) == road
     assert driver.reconnects == 1
+
+
+def test_press_key_with_no_selector_presses_at_the_focused_element(actions, scripted):
+    """Element Send Keys focuses its target first, so keys sent to `<body>` took
+    focus off the link a caller had focused, and Enter on it followed nothing
+    (#135). The focused element is already active, so it keeps focus."""
+    driver = scripted()
+    focused = ScriptedElement(log=[])
+    driver.__dict__["focused"] = focused
+
+    actions.press_key("abc", "Tab")
+
+    assert [entry[1] for entry in focused.log] == ["send_keys"]
+    assert "find_element" not in driver.names()
+    assert ("element", "send_keys") not in [entry[:2] for entry in driver.log]
 
 
 def test_print_reads_the_page_once_it_is_kept(actions, monkeypatch):

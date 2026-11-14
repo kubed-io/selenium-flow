@@ -514,6 +514,11 @@ class _ScriptedSwitch:
     def parent_frame(self):
         self._driver.log.append(("switch_to", "parent_frame"))
 
+    @property
+    def active_element(self):
+        self._driver.log.append(("switch_to", "active_element"))
+        return self._driver.focused
+
 
 class ScriptedDriver:
     """A driver that does nothing and remembers everything.
@@ -527,7 +532,8 @@ class ScriptedDriver:
     reading ``current_url`` or ``title`` raises ``UnexpectedAlertPresentException``
     as a real driver does. ``scripts`` maps a substring of a script to what
     ``execute_script`` returns for it, first match winning, else None. ``element``
-    is what every locator finds.
+    is what every locator finds, and ``focused`` what ``switch_to.active_element``
+    answers: the same element unless a test sets another.
     """
 
     PNG = (
@@ -546,6 +552,7 @@ class ScriptedDriver:
         d["window"] = {"width": window[0], "height": window[1]}
         d["session_id"] = session_id
         d["element"] = ScriptedElement(d["log"])
+        d["focused"] = d["element"]
         d["switch_to"] = _ScriptedSwitch(self)
         d["screenshot_data"] = self.PNG
 

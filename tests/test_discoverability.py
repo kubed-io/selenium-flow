@@ -10,6 +10,7 @@ accepts. See saga §F2.1 and §F2.2.
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from selenium.webdriver.common.keys import Keys
@@ -137,8 +138,10 @@ class _Driver:
     def __init__(self):
         self.sent = []
 
-    def find_element(self, *_):
-        return self
+    @property
+    def switch_to(self):
+        # What has focus: press_key with no selector sends there (#135).
+        return SimpleNamespace(active_element=self)
 
     def send_keys(self, *keys):
         self.sent.append("".join(keys))

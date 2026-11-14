@@ -25,7 +25,6 @@ from selenium.common.exceptions import (
     WebDriverException,
 )
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
@@ -1176,11 +1175,12 @@ class Actions:
     def paste(self, session_id: str, text: str) -> dict:
         """Type ``text`` at the element a person focused, wherever the caret is.
 
-        Not through `press_key`, whose keys go to ``<body>`` and so blur what
-        the person focused; and with no ``clear()``, so the text lands at the
-        caret. The element is followed into a focused frame and an open shadow
-        root, and the agent is always left in the top document. Refused while
-        the agent has a frame selected: putting it back at the top would move it.
+        Not through `press_key`, which sends to the selected document's active
+        element and stops at a focused frame or shadow host; and with no
+        ``clear()``, so the text lands at the caret. The element is followed
+        into a focused frame and an open shadow root, and the agent is always
+        left in the top document. Refused while the agent has a frame selected:
+        putting it back at the top would move it.
 
         One trailing newline is dropped before the cap, the usual leftover of a
         terminal copy, which would submit a form; newlines inside still type.
@@ -1247,8 +1247,11 @@ class Actions:
         def press(at):
             driver, element = at.driver, at.element
             if element is None:
-                # No selector: wherever focus is, which the page's body reaches.
-                element = driver.find_element(By.TAG_NAME, "body")
+                # No selector: wherever focus is. Element Send Keys focuses its
+                # target first, so sending to <body> took focus off the element
+                # that had it (#135); the active element keeps it, and is
+                # <body> when nothing is focused.
+                element = driver.switch_to.active_element
             element.send_keys(resolved)
             # Only the keys that can submit a form. Tab, Escape and the arrows
             # never navigate, and making every one of them wait to find that out

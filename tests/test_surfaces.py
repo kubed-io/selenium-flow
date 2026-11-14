@@ -6,6 +6,7 @@ other breaks that quietly, so it is asserted here rather than trusted.
 """
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -284,8 +285,10 @@ class _Driver:
     current_url = "https://example.test/"
     title = "t"
 
-    def find_element(self, *_):
-        return self
+    @property
+    def switch_to(self):
+        # What has focus: press_key with no selector sends there (#135).
+        return SimpleNamespace(active_element=self)
 
     def send_keys(self, *_):
         pass

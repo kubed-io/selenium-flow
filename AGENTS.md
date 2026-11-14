@@ -16,10 +16,12 @@ is where the vocabulary below comes from.
 
 **`docs/` is the GitHub wiki**, checked out as a submodule: the generated
 pages at its root, hand-written `notes/`, and the design record in
-`superpowers/` and `saga/`. Changing a spec or plan is a commit inside it,
-pushed straight to the wiki's `master`, and a pointer bump here: a spec is
-public as soon as it is written, like any wiki page, and its status line says
-whether it is settled.
+`superpowers/` and `saga/`. Changing a spec or plan, or regenerating the pages,
+is a commit inside it, pushed to the wiki branch named after this branch
+(`issue-137` for `issue-137`), and a pointer bump here. **Never push to the
+wiki's `master`**: it is the public wiki, and only `wiki.yml` on main writes it,
+merging the merged branch's pin with `master` and regenerating, so the wiki only
+ever describes merged code. A spec's status line says whether it is settled.
 
 **[`docs/saga/`](docs/saga/) is deprecated** and kept as written: four chapters
 (flows, pilot reports, other clients, the Hangar) that came before the specs.
