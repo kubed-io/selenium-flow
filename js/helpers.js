@@ -40,8 +40,9 @@ const cssPath = (el) => {
 // Whether the text inside `el` is its own: at each level, at most one child
 // carries any. A child with none, the icon in
 // <button><svg>…</svg><span>Save</span></button>, does not count. Two that do
-// would be read with nothing between them ("SaveCancel"), so neither the name
-// nor the text selector uses text that is not its own (saga §F2.10, #138).
+// would be read with nothing between them ("SaveCancel"), so the text selector
+// never uses text that is not its own (saga §F2.10), and nor does the name of
+// anything but a control, which ARIA names from its content (#138).
 const ownsItsText = (el) => {
   const kids = [...el.children].filter((kid) => /\S/.test(kid.textContent || ''));
   if (kids.length === 0) return true;

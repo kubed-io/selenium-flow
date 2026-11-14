@@ -239,20 +239,34 @@ def test_every_outline_selector_matches_exactly_the_element_it_describes():
 
 
 # An element with no label of its own used to be named by its whole subtree's
-# textContent, so two controls side by side read "SaveCancel" and a container
-# read as everything in it (#138). A name is text the element owns: one child
-# carrying text at each level, as for the text selector (saga §F2.10).
+# textContent, so a toolbar read "SaveCancel" and a container read as
+# everything in it (#138). A control is still named from its content,
+# descendants included, as ARIA names a link or a button; anything else is
+# named only from text it owns, as for the text selector (saga §F2.10).
 def names(page, interactive=True, text=""):
     answer = outline(page, text=text, interactive=interactive)
     return [(e["role"], e["name"]) for e in answer["elements"]]
 
 
-def test_the_outline_never_names_an_element_from_its_descendants_run_together():
+def test_a_toolbar_is_not_named_by_its_buttons_run_together():
     page = (
-        '<main><div role="button"><span>Save</span><span>Cancel</span></div>'
-        '<div role="button"><div>Save</div><div>Cancel</div></div></main>'
+        '<main><div role="toolbar"><button>Save</button><button>Cancel</button>'
+        "</div></main>"
     )
-    assert names(page) == [("button", ""), ("button", "")]
+    assert names(page, interactive=False) == [
+        ("main", ""), ("toolbar", ""), ("button", "Save"), ("button", "Cancel")]
+
+
+def test_a_grid_row_and_a_tree_item_are_containers_not_controls():
+    page = (
+        '<main><div role="row"><div role="gridcell">John</div>'
+        '<div role="gridcell">42</div></div>'
+        '<div role="treeitem"><span>Docs</span><div role="group">'
+        '<div role="treeitem">A</div><div role="treeitem">B</div></div></div></main>'
+    )
+    named = names(page, interactive=False)
+    assert ("row", "") in named and ("gridcell", "John") in named
+    assert ("treeitem", "") in named and ("treeitem", "A") in named
 
 
 def test_a_container_is_not_named_by_everything_inside_it():
@@ -260,11 +274,23 @@ def test_a_container_is_not_named_by_everything_inside_it():
     assert ("section", "") in names(page, interactive=False)
 
 
-def test_a_label_split_across_elements_is_the_price_of_never_fusing():
-    # Known cost, ruled in #140: telling "John Smith" from "SaveCancel" needs
-    # more than the markup says, so both go unnamed rather than one fused.
-    page = '<main><a href="/p"><span>John</span> <span>Smith</span></a></main>'
-    assert names(page) == [("link", "")]
+def test_a_link_and_a_button_are_named_from_the_spans_inside_them():
+    # QA on #140: ARIA names a control from its content, descendants included,
+    # with the spacing the DOM has between them.
+    page = (
+        '<main><a href="#x"><span>Open</span> <span>file</span></a>'
+        "<button><span>Open</span> <span>file</span></button></main>"
+    )
+    assert names(page) == [("link", "Open file"), ("button", "Open file")]
+    assert names(page, text="open file") == [("link", "Open file"), ("button", "Open file")]
+
+
+def test_an_explicit_role_is_named_from_its_content_too():
+    page = (
+        '<main><div role="Button" tabindex="0"><span>Open</span> <span>file</span></div>'
+        '<div role="tab button" tabindex="0"><span>Last</span> <span>run</span></div></main>'
+    )
+    assert names(page) == [("Button", "Open file"), ("tab button", "Last run")]
 
 
 ICON = '<main><button><svg><path d="M0 0h1"/></svg><span>Save</span></button></main>'
