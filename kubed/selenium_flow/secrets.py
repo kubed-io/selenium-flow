@@ -761,42 +761,46 @@ def perform_write(
 
     calls = workspaces.calls
     resolved, kind = workspaces.resolved(name)
-    with locks.driving(resolved):
-        # Refused here while a person holds the browser: after the turn,
-        # before the page is read or the call is begun (live control, ruling 32).
-        begun = calls.begin(name, resolved, browser=kind, tool="write")
-        try:
-            given, guarded = binding.bind_into(
-                kwargs,
-                catalogue,
-                lambda: binding.receiving(actions.page(resolved)),
-                "write",
-                binding.DIRECT,
-            )
-            hidden = binding.forms_of(given, guarded)
-            calls.bound(name, hidden)
-            rest = {k: v for k, v in given.items() if k not in ("text", "url")}
+    try:
+        with locks.driving(resolved):
+            # Refused here while a person holds the browser: after the turn,
+            # before the page is read or the call is begun (live control, ruling 32).
+            begun = calls.begin(name, resolved, browser=kind, tool="write")
             try:
-                result = actions.write(resolved, given["text"], **rest)
-            except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
-                # An action puts its arguments in its error text.
-                raise ValueError(redact.scrub(str(exc), hidden)) from None
-        except Exception as exc:
-            calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
-            raise
-        page = calls.end(begun, tool="write", surface=surface, browser=kind)
-    shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
-    # Only remember a page the value never reached; a later reattach would
-    # navigate to it. Touched either way. Withholding the page must not also
-    # stop the clock: `touch` slides the TTL, and skipping it entirely let a
-    # workspace expire *because* its URL was correctly kept out of the store.
-    #
-    # The first call after a silent reopen says what came back: `settle` puts
-    # that on `shown`.
-    safe = binding.safe_url(result, hidden)
-    workspaces.settle(name, shown, url=safe, browser=resolved)
-    if page is not None:
-        shown["page"] = page
+                given, guarded = binding.bind_into(
+                    kwargs,
+                    catalogue,
+                    lambda: binding.receiving(actions.page(resolved)),
+                    "write",
+                    binding.DIRECT,
+                )
+                hidden = binding.forms_of(given, guarded)
+                calls.bound(name, hidden)
+                rest = {k: v for k, v in given.items() if k not in ("text", "url")}
+                try:
+                    result = actions.write(resolved, given["text"], **rest)
+                except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
+                    # An action puts its arguments in its error text.
+                    raise ValueError(redact.scrub(str(exc), hidden)) from None
+            except Exception as exc:
+                calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
+                raise
+            page = calls.end(begun, tool="write", surface=surface, browser=kind)
+        shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
+        # Only remember a page the value never reached; a later reattach would
+        # navigate to it. Touched either way. Withholding the page must not also
+        # stop the clock: `touch` slides the TTL, and skipping it entirely let a
+        # workspace expire *because* its URL was correctly kept out of the store.
+        #
+        # The first call after a silent reopen says what came back: `settle` puts
+        # that on `shown`.
+        safe = binding.safe_url(result, hidden)
+        workspaces.settle(name, shown, url=safe, browser=resolved)
+        if page is not None:
+            shown["page"] = page
+    except Exception as exc:
+        workspaces.failed(name, exc, browser=resolved)
+        raise
     return shown
 
 

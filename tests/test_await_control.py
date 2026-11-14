@@ -14,6 +14,7 @@ import re
 import threading
 import time
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import replace
 
 import httpx2
 import pytest
@@ -23,6 +24,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_request
 from fastmcp_tasks import call_tool_task
 
+from kubed.selenium_flow import faults
 from kubed.selenium_flow.config import ConfigError, Settings, load
 from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
@@ -218,6 +220,16 @@ async def test_nobody_in_control_answers_at_once(server, named):
     assert summary["message"] == NOBODY
     assert NOBODY == "nobody has control of this browser: carry on."
     assert server.store.get("w1").history == HISTORY
+
+
+async def test_a_held_notice_is_said_by_await_control(server, named):
+    server.store.update(
+        "w1", lambda r: replace(r, reopened={"browser": GRID, "cause": "reaped", "report": None}))
+    async with asyncio.timeout(1), legacy(server) as client:
+        result = await client.call_tool("await_control")
+    assert result.structured_content["reopened"] == {
+        "cause": "reaped", "message": faults.REOPENED["reaped"]}
+    assert server.store.get("w1").reopened == {}
 
 
 async def test_an_unsaid_hand_back_is_returned_once(server, named):

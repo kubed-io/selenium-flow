@@ -2,18 +2,24 @@
 why, and which it still owes something.
 
 A *session* is the live browser a workspace holds, and it holds the Grid's
-session, whose id is its ``session_id``. **Every session is announced; only
-owed ones are watched.** `opened` and `ended` publish ``session.opened`` and
-``session.ended`` for every session the workspaces open or end. A session is
-*watched* only while something is owed on it — a recording (``"recording"``),
-and from E3 capture — and only watched ones cost anything: one task, which runs
-while a watch exists and ends with the last (AGENTS.md: a bounded wait for
-something this server was told to expect).
+session, whose id is its ``session_id``. **Every session is announced, and
+watched while something is owed on it.** `opened` and `ended` publish
+``session.opened`` and ``session.ended`` for every session the workspaces open
+or end. What is owed is a recording (``"recording"``), capture, a person's
+control, or the keep-alive (``KEEPALIVE``). With the keep-alive on, it is owed
+at every open and every call, so every open session is watched. Its watch
+outlives the window: past it nothing is sent, and the watch goes on listing
+until the Grid lists the session gone or it ends (spec rulings 3, 18, 19).
+Only watched sessions cost anything: one task, which runs while a watch exists
+and ends with the last (AGENTS.md: a bounded wait for something this server
+was told to expect).
 
 **Whether a watched session still runs is read off the Grid's status, never
 asked of the browser.** Each look takes one ``GET /status`` listing
-(``listing``, in a worker thread), shared by every watch; a WebDriver command
-would be activity and would stop the Grid ever reaping the browser. A session
+(``listing``, in a worker thread), shared by every watch. A WebDriver command
+is activity, and the Grid would never reap a browser asked after it; that is
+why liveness comes from the listing. The keep-alive's ping is the one such
+command sent on purpose, and only inside a session's window. A session
 is **gone** when two listings in a row, each showing at least one node and
 taken after its watch began, do not list it — or one, after its connection
 dropped. A listing that failed says nothing, and so does one that shows no
@@ -28,10 +34,16 @@ gone itself (KEDA at zero, an evicted node, a Grid redeployed).
 that names BiDi events (``events_for``), until the watch's deadline — its last
 activity plus its node's ``sessionTimeout`` — and then closed, so a busy page's
 events cannot keep the browser alive past the Grid's own timer (programme R3).
-The Grid reaps; this server ends no session on a timer. A connection outlives
-its session (measured), so the monitor closes it when the watch ends, and
-closes it clean: `Connection.close` unsubscribes and removes the data
-collectors it added first (capture spec, ruling 7).
+The keep-alive (``KEEPALIVE``) is the one session command this monitor sends,
+``ping``, and only inside a session's window: ``keep_alive`` seconds after its
+last activity, every `ping_interval` of its node's timeout. Past the window it
+sends nothing, and the Grid reaps (spec 2026-11-14-reopen-notice-keep-alive).
+A ping is not a touch: it extends neither the window nor a connection's
+deadline. The keep-alive has no events and no sink, so it never holds a
+connection. A connection outlives its session (measured), so the monitor
+closes it when the watch ends, and closes it clean: `Connection.close`
+unsubscribes and removes the data collectors it added first (capture spec,
+ruling 7).
 
 **The deadline never closes a connection under a call.** A call is
 `calling` from its start and `called` at its end (`workspace.calls`), each a
@@ -96,6 +108,17 @@ ENDED_MEMORY = 4096
 ATTACH_TIMEOUT = 15.0
 # The longest wait between attempts to hold a connection: 1, 2, 4 … 30 s.
 BACKOFF_MAX = 30.0
+# The reason a session is kept alive for a window after its last activity: no
+# events, no sink, never a connection; one ping when it falls due.
+KEEPALIVE = "keepalive"
+# The shortest wait between two pings, in seconds.
+PING_FLOOR = 60.0
+# The wait between pings when the node does not say its timeout.
+PING_FALLBACK = 240.0
+# A ping falls due at this share of the node's timeout ...
+PING_SHARE = 0.8
+# ... or this many seconds before it, whichever comes first.
+PING_MARGIN = 60.0
 ATTACH_FAILED = (
     "capture needs the browser's BiDi channel and the Grid's /se/bidi route "
     "did not answer, so this browser was ended: retry, or open without capture"
@@ -128,6 +151,15 @@ class Sink(Protocol):
     def lost(self, workspace: str, session_id: str) -> None: ...
 
 
+def ping_interval(timeout: int | None) -> float:
+    """Seconds between keep-alive pings for a node whose idle timeout is
+    ``timeout``: a share of it with a margin, never under ``PING_FLOOR``, and
+    ``PING_FALLBACK`` when the node did not say (spec ruling 25)."""
+    if not timeout:
+        return PING_FALLBACK
+    return max(PING_FLOOR, min(PING_SHARE * timeout, timeout - PING_MARGIN))
+
+
 @dataclass
 class Watch:
     """One session the monitor owes something, and what it knows of it."""
@@ -150,6 +182,8 @@ class Watch:
     # yet `detached`: what an event, a drop or a replay is routed to.
     heard: set[str] = field(default_factory=set)
     top: str | None = None  # the top-level context the hold learned
+    pinged: float = 0.0  # when the last keep-alive ping was sent; never a touch
+    ping_gone: bool = False  # a ping found the session gone: no more pings
     # Held while the connection is opened, extended or closed, so a look and an
     # attach never work on one watch's connection at once.
     busy: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
@@ -169,7 +203,10 @@ class Monitor:
     such a reason. ``collectors_for`` maps a reason to the parameters of the
     data collector it adds when a connection is held. ``connect(url,
     on_close=)`` builds a `Connection`; a test seam. ``sinks`` maps a reason
-    to the `Sink` that hears what a connection delivers for it.
+    to the `Sink` that hears what a connection delivers for it. ``ping(session_id)``
+    is the keep-alive's one cheap command (`Grid.ping`), False once the
+    session is gone, and ``keep_alive`` the window in seconds after a
+    session's last activity it is sent in; without either, nothing is kept.
     """
 
     def __init__(
@@ -182,9 +219,16 @@ class Monitor:
         collectors_for: Mapping[str, dict] | None = None,
         connect: Callable[..., Connection] | None = None,
         sinks: Mapping[str, Sink] | None = None,
+        ping: Callable[[str], bool] | None = None,
+        keep_alive: float = 0,
         clock: Callable[[], float] = time.time,
         tick: float = LISTING_TICK,
     ):
+        for given in (events_for, collectors_for, sinks):
+            if given and KEEPALIVE in given:
+                # The keep-alive holds no connection (spec ruling 18): events,
+                # a collector or a sink for it would open one.
+                raise ValueError(f"{KEEPALIVE!r} takes no events, collector or sink")
         self.bus = bus
         self.listing = listing
         self.socket_url = socket_url
@@ -192,6 +236,8 @@ class Monitor:
         self.collectors_for = dict(collectors_for or {})
         self.connect = connect or Connection
         self.sinks: dict[str, Sink] = dict(sinks or {})
+        self.ping = ping
+        self.keep_alive = keep_alive
         self.clock = clock
         self.tick = tick
         self.watches: dict[str, Watch] = {}
@@ -227,6 +273,7 @@ class Monitor:
                 workspace, session_id, browser, grid_timeout, reopened, self.clock()
             )
         )
+        self.keep(workspace, session_id, browser=browser, grid_timeout=grid_timeout)
 
     def ended(self, workspace: str, session_id: str, cause: str) -> bool:
         """Announce that ``session_id`` ended, once. False if it already was."""
@@ -258,6 +305,24 @@ class Monitor:
                 self._ensure()
 
         self._post(apply)
+
+    def keep(
+        self,
+        workspace: str,
+        session_id: str,
+        *,
+        browser: str = "",
+        grid_timeout: int | None = None,
+    ) -> None:
+        """Owe the keep-alive on this session, with it on: from now, and
+        while the session is listed, it is pinged inside its window. Owed at
+        every open and every call, so a session opened before a restart is
+        kept from its next call. Nothing, with the keep-alive off."""
+        if self.keep_alive <= 0 or self.ping is None:
+            return
+        self.watch(
+            session_id, workspace, KEEPALIVE, browser=browser, grid_timeout=grid_timeout
+        )
 
     def attach(
         self,
@@ -478,8 +543,46 @@ class Monitor:
                         self.ended(w.workspace, w.session_id, "gone")  # drops it
                         continue
             await self._keep(w, now)
+            if self.watches.get(w.session_id) is w:  # not ended while `_keep` awaited
+                await self._pinged(w, now)
 
     # ---- inside -------------------------------------------------------------
+
+    def _ping_due(self, w: Watch, now: float) -> float | None:
+        """When this watch's next keep-alive ping falls due, or None while it
+        is owed none: not kept, its pings over, past its window, or under a
+        call, which is activity of its own (spec ruling 20)."""
+        if (
+            self.ping is None
+            or KEEPALIVE not in w.owed
+            or w.ping_gone
+            or now - w.touched >= self.keep_alive
+            or self._in_call(w)
+        ):
+            return None
+        return max(w.touched, w.pinged) + ping_interval(w.timeout)
+
+    async def _pinged(self, w: Watch, now: float) -> None:
+        """Send the keep-alive's ping when it is due. Never a touch: ``touched``
+        and so the window and a connection's deadline stay where they were.
+        False ends this watch's pings and nothing else, since only the listing
+        says a session is gone; a failure is logged by type and tried again at
+        the next interval."""
+        due = self._ping_due(w, now)
+        if due is None or now < due:
+            return
+        w.pinged = now  # first, so a slow ping is not sent twice
+        try:
+            alive = await anyio.to_thread.run_sync(self.ping, w.session_id)
+        except Exception as exc:  # noqa: BLE001 - the next interval tries again
+            log.info(
+                "monitor: a keep-alive ping for %s failed (%s)",
+                w.workspace,
+                type(exc).__name__,
+            )
+            return
+        if not alive:
+            w.ping_gone = True
 
     def _unlisted(self, w: Watch, now: float) -> bool:
         """No node listed for the whole of this watch's idle timeout and a tick."""
@@ -886,6 +989,11 @@ class Monitor:
             w.retry_at - now
             for w in self.watches.values()
             if w.connection is None and w.retry_at > now
+        ]
+        waits += [  # a keep-alive ping falls due inside its window
+            due - now
+            for w in self.watches.values()
+            if (due := self._ping_due(w, now)) is not None
         ]
         return max(0.05, min([self.tick, *waits]))
 

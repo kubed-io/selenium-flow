@@ -1074,7 +1074,8 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
     )
     report = {"restored": ["nc.example.com"], "skipped": [], "uri": "workspace://site-data"}
     monkeypatch.setattr(
-        server.workspaces, "_touch", lambda name, url, browser=None, **kw: (report, None)
+        server.workspaces, "_touch",
+        lambda name, url, browser=None, **kw: ({"cause": "lost", "report": report}, None),
     )
 
     write = await server.mcp.get_tool("write")
@@ -1083,6 +1084,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         secret={"name": "nextcloud", "key": "password"},
     )
     assert result["site_data"] == report
+    assert result["reopened"]["cause"] == "lost"
 
 
 def test_an_http_binding_naming_two_sources_is_refused(bound_http, monkeypatch):
@@ -1286,6 +1288,7 @@ def framed(tmp_path):
 
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        failed=lambda *a, **k: None,
         calls=Calls(),
     )
 
@@ -1416,6 +1419,7 @@ def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
     driver.element.tag = tag
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        failed=lambda *a, **k: None,
         calls=Calls(),
     )
     with pytest.raises(ValueError) as refused:
@@ -1452,6 +1456,7 @@ def test_a_bound_write_into_a_field_still_types(targeting, tag):
     driver.element.tag = tag
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        failed=lambda *a, **k: None,
         calls=Calls(),
     )
     shown = secrets.perform_write(

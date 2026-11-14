@@ -5,6 +5,7 @@ ruling 12; plan rulings 4-8)."""
 import itertools
 import logging
 import threading
+from dataclasses import replace
 
 import pytest
 from selenium.common.exceptions import TimeoutException
@@ -42,6 +43,9 @@ class FakeMonitor:
         self.loop = None
         self.owed: set[str] = set()  # sessions that owe capture
         self.attached: list = []
+
+    def keep(self, *a, **k):
+        pass
 
     def calling(self, session_id):
         self.touched.append(("calling", session_id))
@@ -372,7 +376,32 @@ def test_only_our_note_reaches_a_caller():
     assert faults.message(exc) == "bad This call caused 1 page error(s) and 0 failed request(s): read x."
 
 
+def test_the_reopen_note_comes_before_the_page_note():
+    exc = ValueError("bad")
+    exc.add_note(f"{faults.PAGE_NOTE}1 page error(s) and 0 failed request(s): read x.")
+    exc.add_note(faults.reopen_note("reaped", 0))
+    exc.add_note("an internal note")
+    assert faults.message(exc) == (
+        "bad " + faults.REOPENED["reaped"] + " This call caused 1 page error(s) and 0 failed request(s): read x.")
+
+
 # ---- the bound write ----------------------------------------------------------
+
+
+def test_a_bound_write_after_a_reap_says_the_notice_on_its_error(captured_ws, catalogue):
+    workspaces, _, _ = captured_ws
+    sid = workspaces.store.get("ws").session_id
+    workspaces.store.update(
+        "ws", lambda r: replace(r, reopened={"browser": sid, "cause": "reaped", "report": None}))
+
+    def broken(sid, text, **kw):
+        raise ValueError("the field is gone")
+
+    workspaces.actions.write = broken
+    with pytest.raises(ValueError) as exc:
+        perform_write(catalogue, workspaces.actions, workspaces, "ws",
+                      {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}})
+    assert faults.REOPENED["reaped"] in faults.message(exc.value)
 
 
 def test_a_bound_write_registers_its_value_before_typing(captured_ws, catalogue):

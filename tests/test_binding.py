@@ -60,6 +60,9 @@ def direct(args, schemas):
         def resolved(self, name):
             return "browser-1", "chrome"
 
+        def failed(self, *a, **k):
+            pass
+
     with pytest.raises(secrets.Refused) as caught:
         secrets.perform_write(Nobody(), Nobody(), FakeWorkspaces(), "s", args)
     return caught.value
