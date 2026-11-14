@@ -1545,3 +1545,92 @@ def test_a_second_park_keeps_the_first(make):
     s.ended("w", "g2")  # parks g2's, over g1's
     s.carry("w", "g2", "g3")
     assert scrub("alpha-11", s.forms("w", "g3", [B, B])) == "[secret:a/password]"
+
+
+# --- network_body: the request's origin, and a body cut at its cap ----------
+# (final review 3 and 11)
+
+LONG = "alpha-11-0123456789abcdef"
+
+
+@pytest.fixture
+def on_b():
+    """A browser on B, where nothing is allowed; A allows ``LONG``."""
+    made = scoped(BindingCatalogue({A: {("a", "password"): LONG}, B: {}}), url=f"{B}/")
+    yield made
+    made.scrubber.close()
+
+
+def body(text, truncated=False, **more):
+    return {"id": "3.7", "uri": "workspace://network/3.7", "mime": "text/plain",
+            "size": len(text), "binary": False, "text": text,
+            "truncated": truncated, **more}
+
+
+def test_a_body_is_scrubbed_with_every_leashed_secret(on_b):
+    """The body came from the request's origin, never visited, maybe: A's value
+    is masked on B's page, whatever the answer says about where it is."""
+    on_b.actions.result = body(f"x {LONG} y", url=f"{B}/")
+    assert act(on_b, "network_body")["text"] == "x [secret:a/password] y"
+
+
+def test_a_body_cut_at_its_cap_masks_the_start_of_a_value(on_b):
+    on_b.actions.result = body("token=" + LONG[:12], truncated=True)
+    assert act(on_b, "network_body")["text"] == "token=[secret:a/password]"
+
+
+def test_a_body_not_cut_keeps_its_end(on_b):
+    on_b.actions.result = body("token=" + LONG[:12])
+    assert act(on_b, "network_body")["text"] == "token=" + LONG[:12]
+
+
+def test_another_action_is_not_read_as_cut(on_b):
+    on_b.actions.result = {"url": f"{B}/", "title": "t", "text": LONG[:12],
+                           "truncated": True}
+    assert act(on_b, "extract")["text"] == LONG[:12]
+
+
+def test_an_outline_name_cut_partway_into_a_value_is_masked(ws):
+    """outline ends a name it cut in `…`; what is left of the value is masked."""
+    ws.actions.result = {"url": f"{A}/", "title": "t", "count": 1, "total": 1,
+                         "elements": [{"role": "button", "name": "Token alpha-1…"}]}
+    assert act(ws, "outline")["elements"][0]["name"] == "Token [secret:a/password]…"
+
+
+# --- flows_here: a flow's own words are scrubbed (final review 10) ----------
+
+HINTED = [{"name": "login", "uri": "flow://flows/login",
+           "description": "signs in as alpha-11"}]
+
+
+@pytest.fixture
+def hinted():
+    made = Workspaces(ScopeActions(), MemoryStore(),
+                      catalogue=BindingCatalogue(SECRET_A),
+                      hints=lambda name, url: [dict(h) for h in HINTED])
+    yield made
+    made.scrubber.close()
+
+
+def test_a_hint_on_a_result_is_scrubbed_as_flow_flows_is(hinted):
+    hinted.open_browser(CALLER, url=f"{A}/")
+    hinted.actions.result = {"url": f"{A}/next", "title": "t"}
+    told = act(hinted)
+    assert told["flows_here"][0]["description"] == "signs in as [secret:a/password]"
+
+
+def test_a_hint_on_an_open_is_scrubbed_too(hinted):
+    told = hinted.open_browser(CALLER, url=f"{A}/")
+    assert told["flows_here"][0]["description"] == "signs in as [secret:a/password]"
+
+
+def test_a_hint_that_cannot_be_scrubbed_is_dropped_never_the_call(hinted, monkeypatch):
+    hinted.open_browser(CALLER, url=f"{A}/")
+    hinted.actions.result = {"url": f"{A}/next", "title": "t"}
+
+    def failed(name, value):
+        raise faults.ScrubFailed()
+
+    monkeypatch.setattr(hinted.scrubber, "resource", failed)
+    told = act(hinted)
+    assert "flows_here" not in told and "alpha-11" not in json.dumps(told)

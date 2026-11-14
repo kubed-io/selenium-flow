@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A secret's value comes back as `[secret:name/key]` in every result and error on the sites it is allowed on, typed or not.
+- **BREAKING:** A secret must declare its allowed sites (`_allowed_urls`); one that does not is listed as refused and cannot be used.
+- `outline` ends a name it cut at 80 characters with `…`.
 - A flow's `paths` can name a hash route (`/#/auth/*`), and `url=` moves between hash routes.
 - Fixed: `outline` no longer names a toolbar, list or other container by its children's text run together, and says an invisible cover takes the click.
 - Fixed: a call that moves a single-page app to a new route reports that route's title.

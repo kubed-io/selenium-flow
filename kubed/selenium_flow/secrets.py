@@ -438,7 +438,8 @@ class Catalogue:
         A bind is a policy and a value about the same secret, or it is nothing.
 
         The third part is the **revision**: a hash of the stamps of every usable
-        secret's key files, so it moves when a key is rotated and, being made
+        secret's key files and of its leash, so it moves when a key is rotated
+        or an origin is added to or taken from `allowed_urls`, and, being made
         here, at most every `CACHE_SECONDS`.
 
         Owners are per key, not per secret: `secrets.entries` can replace one
@@ -507,9 +508,24 @@ class Catalogue:
                 if name not in self._warned:
                     self._warned.add(name)
                     log.warning("secret %s cannot be used: %s", name, refused)
-        revision = hash(tuple(sorted(self._stamps(entries, owners))))
+        revision = hash((
+            tuple(sorted(self._stamps(entries, owners))),
+            tuple(self._leashes(entries)),
+        ))
         self._cache = (now + self._ttl, entries, owners, revision)
         return entries, owners, revision
+
+    @staticmethod
+    def _leashes(entries: dict) -> list:
+        """Every usable secret's leash, each with its name: a browser's set for
+        an origin is built from the leash, so an origin added to it must
+        rebuild the sets as a rotation does, or the value is typed there and
+        read back raw."""
+        return sorted(
+            (name, tuple(sorted(entry.get("allowed_urls") or [])))
+            for name, entry in entries.items()
+            if entry.get("restricted") and not entry.get("refused")
+        )
 
     def _stamps(self, entries: dict, owners: dict) -> list:
         """The stamps of every usable secret's key files, each with its name."""
@@ -589,7 +605,8 @@ class Catalogue:
         return bool(allowed) and origin(url) in allowed
 
     def revision(self) -> int:
-        """Moves when a usable secret's key file is replaced (ruling 10).
+        """Moves when a usable secret's key file is replaced (ruling 10), or its
+        leash names other origins.
 
         A stat-based hash computed with the listing, so it lags a rotation by at
         most `CACHE_SECONDS`. It carries no value.
@@ -624,13 +641,16 @@ class Catalogue:
         One of ruling 12's three read paths (see `bind`): origin activation, and
         rotation, which rebuilds the current origin's set. The values are held by
         the caller in process memory for one browser, never written, logged,
-        recorded or returned; only a `Forms` leaves. Origins compare as `allows`
-        does.
+        recorded or returned; only a `Forms` leaves.
+
+        ``origin_`` is an origin already, as `urls.scope_origin` spells it, and
+        is compared as it is with the leash's lines, spelt the same way: parsed
+        again, an IPv6 host, unbracketed there, is no origin at all, and a
+        secret `allows` would type would be in scope nowhere.
         """
-        target = origin(origin_)
-        if not target:
+        if not isinstance(origin_, str) or not origin_:
             return Forms()
-        return self._forms(lambda entry: target in (entry.get("allowed_urls") or []))
+        return self._forms(lambda entry: origin_ in (entry.get("allowed_urls") or []))
 
     def leashed(self) -> Forms:
         """Every form of every usable secret: the unknown-origin fail-closed read.
@@ -680,7 +700,11 @@ _CONFIG_UNLEASHED = (
     "add `allowed_urls` to its `secrets.entries` entry, one origin per item "
     "(such as `https://app.example.com`)."
 )
-_DIRECTORY_UNPARSED = "fix the lines listed in `allowed_urls_rejected`."
+_DIRECTORY_UNPARSED = (
+    "fix the lines listed in `allowed_urls_rejected`, or, when none are listed "
+    "(an empty `_allowed_urls` file), add one origin per line (such as "
+    "`https://app.example.com`)."
+)
 _CONFIG_UNPARSED = (
     "fix `allowed_urls` in its `secrets.entries` entry, which names no usable site."
 )
@@ -696,7 +720,9 @@ LIST_DESCRIPTION = (
     "it and types it; it never passes through you, which is the point.\n\n"
     "Every secret names the sites it may be used on (allowed_urls), and only "
     "there. One that carries `refused` cannot be used at all until an operator "
-    "fixes it, and the sentence says how."
+    "fixes it, and the sentence says how. "
+    "A value you typed comes back as [secret:name/key] in every later read on "
+    "its sites."
 )
 
 

@@ -682,7 +682,9 @@ def register(
         To type a secret, pass secret={"name": ..., "key": ...} instead of text;
         secret://secrets lists them. The server types it and you never see it: value
         comes back null. A secret works only on the sites it allows, checked against
-        the page you are on, so navigate there first.
+        the page you are on, so navigate there first. A value typed from a secret, or
+        any value of a secret allowed on this site, comes back as [secret:name/key] in
+        every later read here.
         """
 
     # The key names are not listed here: a name that is not one is refused with
@@ -808,6 +810,9 @@ def register(
         person what you saw, give them the file's url: it opens in any
         browser without a token, and ![](url) works. Do not describe the
         image instead.
+
+        Pixels cannot be scrubbed: a page showing a secret's value in a field that is
+        not a password field shows it here.
 
         save=false stores nothing; file_error says why a save failed, and the image
         still comes back.

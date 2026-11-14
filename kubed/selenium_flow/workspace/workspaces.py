@@ -946,8 +946,17 @@ class Workspaces:
             for key in _NOT_TEXT + (_PIXELS if tool == "screenshot" else ()):
                 if key in result:
                     aside[key] = result.pop(key)
+        origins = [before, after]
+        cut: tuple[str, ...] = ()
+        if tool == "network_body":
+            # A body comes from the request's origin, which the browser may
+            # never have been on: unknown, so every leashed secret. One cut at
+            # its cap may end partway into a value.
+            origins.append(None)
+            if isinstance(result, dict) and result.get("truncated"):
+                cut = ("text",)
         scrubbed, hidden = self.scrubber.result(
-            name, session_id, result, [before, after]
+            name, session_id, result, origins, cut=cut
         )
         if aside:
             scrubbed.update(aside)
@@ -1175,7 +1184,7 @@ class Workspaces:
             pages = url if isinstance(url, (list, tuple)) else (url,)
             told, page = self._touch(name, *pages, browser=browser, since=since)
             if hint and page:
-                here = self._hinted(name, page)
+                here = self._hinted(name, page, scrubbed=True)
                 if here:
                     result["flows_here"] = here
         try:
@@ -1443,7 +1452,7 @@ class Workspaces:
         told, _ = self.scrubber.result(name, kept, told, [landed])
         # The page it opened on, new or remembered, is a page this caller has
         # not been told about in this browser (ruling 19).
-        here = self._hinted(name, told.get("url"))
+        here = self._hinted(name, told.get("url"), scrubbed=True)
         if here:
             told["flows_here"] = here
         return {"workspace": name, **told}
@@ -1636,14 +1645,21 @@ class Workspaces:
         noted = self.store.change(name, at)[1]
         return noted if noted is not None else (None, None)
 
-    def _hinted(self, name: str, url: str | None) -> list[dict]:
+    def _hinted(self, name: str, url: str | None, scrubbed: bool = False) -> list[dict]:
         """The flows saved to apply to ``url``, or [] — the one caller of
         ``hints``. A hint is never a reason to fail a call (ruling 24), so
-        anything it raises is logged by type and answers []."""
+        anything it raises is logged by type and answers [].
+
+        ``scrubbed`` for a hint put on an answer after its scrub: a flow's
+        description is a caller's words, and is checked as `flow://flows`
+        checks it, as a resource read is (spec 2026-11-14-secret-scope,
+        ruling 16). A scrub that fails drops the hint, never the call.
+        """
         if self.hints is None or not url:
             return []
         try:
-            return list(self.hints(name, url) or [])
+            here = list(self.hints(name, url) or [])
+            return self.scrubber.resource(name, here) if scrubbed and here else here
         except Exception as exc:  # noqa: BLE001 - a hint never fails a call
             log.warning(
                 "flows for workspace %s could not be hinted: %s",

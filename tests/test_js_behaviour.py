@@ -607,3 +607,25 @@ def test_extract_strips_password_values_inside_templates_however_deep():
 def test_extract_of_an_element_with_a_content_attribute_is_its_innerhtml():
     html = '<head><meta id="m" name="description" content="x"></head>'
     assert run("extract.js", html, [{"$css": "#m"}]) == ""
+
+
+@pytest.mark.parametrize(
+    "html",
+    [
+        '<button id="b">{}</button>',
+        '<img id="b" alt="{}">',
+        '<input id="b" placeholder="{}">',
+    ],
+)
+def test_the_outline_marks_a_name_it_cut(html):
+    """A name past 80 characters ends in `…`, so the scrub reads it as cut and
+    masks the start of a value the cut went through (final review 3)."""
+    name = "Your personal access token is " + "a1" * 40
+    entry = outline(html.format(name), interactive=False)["elements"][0]
+    assert entry["name"] == name[:80] + "…"
+
+
+def test_the_outline_leaves_a_name_of_80_characters_as_it_is():
+    name = "n" * 80
+    entry = outline(f'<button id="b">{name}</button>')["elements"][0]
+    assert entry["name"] == name

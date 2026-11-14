@@ -184,3 +184,44 @@ def test_scrub_values_reaches_into_tuples_and_sets_keeping_their_type():
     assert shown["n"] == Pair(M, (M,)) and type(shown["n"]) is Pair
     assert shown["k"] == {(M, 1): "v"}
     assert scrub_values(("s3cr3t",), forms) == (M,)
+
+
+# --- a text cut short (final review 3) ---------------------------------------
+
+TOKEN = "ghp_0123456789abcdefABCDEF0123456789abcdef"
+TOKEN_ID = ("github", "token")
+TF = Forms.of(TOKEN, TOKEN_ID)
+TM = "[secret:github/token]"
+
+
+def test_a_cut_text_masks_what_is_left_of_a_value_at_its_end():
+    text = "Your personal access token is " + TOKEN[:20]
+    assert scrub(text, TF, cut=True) == "Your personal access token is " + TM
+
+
+def test_a_text_ending_in_an_ellipsis_is_read_as_cut():
+    """outline marks a name it cut with `…`; the scrub needs no other word."""
+    assert scrub("token: " + TOKEN[:12] + "…", TF) == "token: " + TM + "…"
+
+
+def test_a_cut_tail_matches_case_blind_like_the_rest():
+    assert scrub("x " + TOKEN.upper()[:10], TF, cut=True) == "x " + TM
+
+
+def test_a_tail_shorter_than_a_short_value_is_left_alone():
+    """Under `SHORT` characters a prefix is anybody's word."""
+    assert scrub("price: ghp", TF, cut=True) == "price: ghp"
+
+
+def test_a_text_not_cut_keeps_its_tail():
+    assert scrub("Your token is " + TOKEN[:20], TF) == "Your token is " + TOKEN[:20]
+
+
+def test_a_cut_tail_is_found_beside_whole_values():
+    text = TOKEN + " and " + TOKEN[:8]
+    assert scrub(text, TF, cut=True) == TM + " and " + TM
+
+
+def test_scrub_values_reads_an_ellipsis_as_cut_anywhere_it_sits():
+    value = {"elements": [{"name": "Token " + TOKEN[:30] + "…"}]}
+    assert scrub_values(value, TF) == {"elements": [{"name": "Token " + TM + "…"}]}

@@ -1181,3 +1181,20 @@ def test_detached_keeps_what_waited_from_before_the_hold_again():
     asks[A](password("alpha-11"))
     asks["*"](password("alpha-11"))
     assert shown(cap) == ["m0"]
+
+
+def test_a_weight_that_drifted_never_breaks_the_byte_bound(monkeypatch):
+    """Weight left over by a handler that raised mid-replay is more than every
+    held event: the oldest go until none is held, then the loop stops (final
+    review 12) rather than asking `min` of nothing."""
+    from kubed.selenium_flow.capture import store
+
+    monkeypatch.setattr(store, "QUEUE_BYTES", 20_000)
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"), console(TOP, "m0"))
+    cap._sessions["g1"].weight += 10**6
+    ingest(cap, console(TOP, "m1"))
+    assert cap._sessions["g1"].weight == 0  # nothing held, so it heals
+    ingest(cap, console(TOP, "m2 alpha-11"))
+    asks[A](password("alpha-11"))
+    assert shown(cap) == ["m2 [secret:a/password]"]

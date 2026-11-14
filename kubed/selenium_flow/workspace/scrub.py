@@ -489,23 +489,33 @@ class Scrubber:
     # --- scrubbing ----------------------------------------------------------
 
     def result(
-        self, workspace: str, browser: str, value, origins: Iterable
+        self, workspace: str, browser: str, value, origins: Iterable,
+        cut: Iterable[str] = (),
     ) -> tuple[object, bool]:
         """``value`` scrubbed, and whether its top-level ``url`` carried a value.
 
         That URL is withheld from the record (ruling 21). With nothing in scope
         the value comes back as it is, the same object, unscanned.
+
+        ``cut`` names the top-level text fields of ``value`` that were cut
+        short, so what is left at the end of a value the cut went through is
+        masked too (`redaction.scrub`'s ``cut``).
         """
         if self._catalogue is None:
             return value, False
         origins = list(origins)
+        cut = tuple(cut)
 
         def scrubbing():
             forms = self._forms(workspace, browser, origins)
             if not forms:
                 return value, False
             url = value.get("url") if isinstance(value, dict) else None
-            return scrub_values(value, forms), taints(url, forms)
+            scrubbed = scrub_values(value, forms)
+            for key in cut if isinstance(value, dict) else ():
+                if isinstance(value.get(key), str):
+                    scrubbed[key] = scrub(value[key], forms, cut=True)
+            return scrubbed, taints(url, forms)
 
         return self._guarded(scrubbing)
 

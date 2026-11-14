@@ -13,6 +13,7 @@ Plain: no Selenium, no protocol layer (`tests/test_boundaries.py`).
 from __future__ import annotations
 
 import base64
+import bisect
 import html
 import json
 import math
@@ -62,6 +63,10 @@ HTML_QUOTES = (
     ("&quot;", "&apos;", "+"),
     ("&#34;", "&#39;", "&#43;"),
 )
+
+# What a text ends in when it was cut short on its way here (outline's names):
+# the characters before it may be the start of a value the cut went through.
+CUT = "\u2026"
 
 _NAME = r"[^\[\]\s|/]+"
 _KEY = r"[^\[\]\s|]+"
@@ -238,6 +243,34 @@ class Scanner:
         self._exact = sorted(exact.items(), key=lambda item: -len(item[0]))
         self._folded = sorted(folded.items(), key=lambda item: -len(item[0]))
         self._ids = forms.ids
+        self._heads: tuple | None = None  # for `tail`, built when first asked
+
+    def tail(self, text: str, end: int) -> Span | None:
+        """What is left of a value a cut at ``end`` went through: the longest
+        run of ``text`` ending there, at least `SHORT` long, that begins a
+        form; None when there is none.
+
+        A text cut short ends partway into a value it held, and a prefix
+        matches no form whole, so a cut text is asked this as well as
+        `spans`. Nothing is read past ``end``; a run inside a marker of this
+        scanner's own ids stands aside, as `spans` lets it.
+        """
+        if self._heads is None:
+            self._heads = tuple(
+                (sorted(needles), dict(needles), max(map(len, needles), default=0))
+                for needles in (dict(self._exact), dict(self._folded))
+            )
+        (exact, exact_ids, longest), (folded, folded_ids, longer) = self._heads
+        reach = max(longest, longer)
+        for start in range(max(0, end - reach), end - SHORT + 1):
+            piece = text[start:end]
+            ids = _heads_of(exact, exact_ids, piece) | _heads_of(
+                folded, folded_ids, piece.translate(ASCII_LOWER)
+            )
+            if ids:
+                kept = self._outside_markers(text, [(start, end, ids)])
+                return kept[0] if kept else None
+        return None
 
     def spans(self, text: str, sheltered: bool = True) -> list[Span]:
         """Every place a form is in ``text``: `(start, end, ids)`, unmerged.
@@ -294,6 +327,16 @@ class Scanner:
         ]
 
 
+def _heads_of(needles: list[str], ids_of: dict, piece: str) -> frozenset:
+    """The ids of every form in ``needles`` (sorted) that ``piece`` begins."""
+    found: frozenset = frozenset()
+    at = bisect.bisect_left(needles, piece)
+    while at < len(needles) and needles[at].startswith(piece):
+        found = found | ids_of[needles[at]]
+        at += 1
+    return found
+
+
 def merge(spans) -> list[Span]:
     """Overlapping or touching spans as one, holding the union of their ids."""
     merged: list[Span] = []
@@ -317,17 +360,27 @@ def render(text: str, spans, mask: str = MASK) -> str:
     return "".join(out)
 
 
-def scrub(text: str, forms: Forms) -> str:
+def scrub(text: str, forms: Forms, cut: bool = False) -> str:
     """``text`` with every value in ``forms`` shown as its marker.
 
     Needed because an action puts its arguments in its error text: `upload_file`
     naming a kept file that is not there raises `no file at <uri>`, and a bad URL
     comes back from Selenium with the URL in it. A mangled message beats a
     leaked credential.
+
+    A text that was cut short - ``cut``, or one ending in `CUT` - is also
+    masked at its end where it ends partway into a value (`Scanner.tail`):
+    `network_body`'s body past its cap, an outline name past 80 characters.
     """
     if not forms or not isinstance(text, str) or not text:
         return text
-    spans = forms.scanner.spans(text)
+    scanner = forms.scanner
+    spans = scanner.spans(text)
+    end = len(text) - len(CUT) if text.endswith(CUT) else len(text) if cut else None
+    if end is not None:
+        tail = scanner.tail(text, end)
+        if tail is not None:
+            spans = [*spans, tail]
     return render(text, spans) if spans else text
 
 

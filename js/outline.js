@@ -34,6 +34,12 @@ const FROM_CONTENT = new Set(['button', 'cell', 'checkbox', 'columnheader',
 const fromContent = (el) =>
   FROM_CONTENT.has(roleOf(el).toLowerCase().split(/\s+/)[0]);
 
+// A name is cut at 80 characters, and one that was ends in `…`: the server's
+// scrub reads that as cut, and masks the start of a secret the cut went
+// through, which no whole value matches (spec 2026-11-14-secret-scope).
+const NAME_CAP = 80;
+const capped = (text) => text.length > NAME_CAP ? text.slice(0, NAME_CAP) + '\u2026' : text;
+
 const accessibleName = (el) => {
   const aria = (el.getAttribute('aria-label') || '').trim();
   if (aria) return aria;
@@ -46,22 +52,22 @@ const accessibleName = (el) => {
       .map(id => document.getElementById(id))
       .filter(Boolean)
       .map(node => textOf(node));
-    if (parts.length) return parts.join(' ').trim().slice(0, 80);
+    if (parts.length) return capped(parts.join(' ').trim());
   }
   const tag = el.tagName.toLowerCase();
-  if (tag === 'img') return (el.getAttribute('alt') || '').trim().slice(0, 80);
+  if (tag === 'img') return capped((el.getAttribute('alt') || '').trim());
   if (tag === 'input' || tag === 'select' || tag === 'textarea') {
     if (el.id) {
       const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
-      if (label) return textOf(label).slice(0, 80);
+      if (label) return capped(textOf(label));
     }
     const placeholder = (el.getAttribute('placeholder') || '').trim();
-    if (placeholder) return placeholder.slice(0, 80);
+    if (placeholder) return capped(placeholder);
     const value = (el.value || '').trim();
     if (value && el.type !== 'password' && (el.type === 'submit' || el.type === 'button')) {
-      return value.slice(0, 80);
+      return capped(value);
     }
-    return (el.getAttribute('name') || '').trim().slice(0, 80);
+    return capped((el.getAttribute('name') || '').trim());
   }
   // A control is named from its content, descendants included, with the
   // spacing the DOM has: <a><span>Open</span> <span>file</span></a> is
@@ -69,8 +75,8 @@ const accessibleName = (el) => {
   // in the DOM run together in the name too. Anything else is named only from
   // text it owns: a toolbar's or a list's textContent is every descendant's
   // run together, which names nothing (#138).
-  if (fromContent(el)) return textOf(el).slice(0, 80);
-  return ownsItsText(el) ? textOf(el).slice(0, 80) : '';
+  if (fromContent(el)) return capped(textOf(el));
+  return ownsItsText(el) ? capped(textOf(el)) : '';
 };
 
 // Which landmark an element sits in. A page's chrome - its navigation, banner,

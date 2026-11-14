@@ -598,6 +598,16 @@ def test_a_broken_leash_is_refused_with_its_own_reason(tmp_path):
     assert "allowed_urls_rejected" in entry["refused"]
 
 
+def test_an_empty_leash_is_told_how_to_fill_it(tmp_path):
+    """No line is listed in `allowed_urls_rejected` for an empty file, so the
+    sentence says what to add as well as what to fix (final review 5)."""
+    catalogue = make(tmp_path, {"bad": {"password": "x", "_allowed_urls": ""}})
+    entry = catalogue.entry("bad")
+    assert "allowed_urls_rejected" not in entry
+    assert entry["refused"].startswith("its allowed sites do not parse")
+    assert "one origin per line" in entry["refused"]
+
+
 def test_a_refused_secret_is_logged_once(tmp_path, caplog):
     catalogue = make(tmp_path, {"open": {"password": "x"}}, ttl=0)
     with caplog.at_level("WARNING"):
@@ -1756,3 +1766,82 @@ def test_a_directory_secret_with_a_config_file_key_lists_and_rotates(tmp_path):
     swap(keyfile, "two")
     clock[0] += secrets.CACHE_SECONDS + 1
     assert catalogue.revision() != before
+
+
+@pytest.mark.parametrize("leash", [None, "https://b.test"])
+def test_a_leash_edit_moves_the_revision_and_the_origins_forms(tmp_path, leash):
+    """Adding an origin to a secret's leash rescopes it: the revision moves, so
+    a browser rebuilds its sets, and the origin's forms hold it (final review 1)."""
+    keys = {"password": "alpha-1"}
+    if leash:
+        keys["_allowed_urls"] = leash
+    clock = [0.0]
+    catalogue = make(tmp_path, {"a": keys}, clock=lambda: clock[0])
+    before = catalogue.revision()
+    assert not catalogue.forms_for("https://a.test")
+    swap(tmp_path / "a" / "_allowed_urls", "https://b.test\nhttps://a.test\n")
+    clock[0] += secrets.CACHE_SECONDS + 1
+    assert catalogue.allows("a", "https://a.test/")
+    assert catalogue.revision() != before
+    assert catalogue.forms_for("https://a.test").ids == {("a", "password")}
+
+
+def test_a_leash_edit_rebuilds_the_browsers_set(tmp_path):
+    """Through the scrubber: a set built before the edit is not taken as current."""
+    clock = [0.0]
+    catalogue = make(tmp_path, {"a": {
+        "password": "alpha-1", "_allowed_urls": "https://b.test"}},
+        clock=lambda: clock[0])
+    scrubber = Scrubber(catalogue, ttl=60)
+    try:
+        scrubber.build("w", "g1", "https://a.test").result(5)
+        shown, _ = scrubber.result("w", "g1", {"t": "alpha-1"}, ["https://a.test"] * 2)
+        assert shown == {"t": "alpha-1"}  # not allowed there yet
+        swap(tmp_path / "a" / "_allowed_urls", "https://b.test\nhttps://a.test\n")
+        clock[0] += secrets.CACHE_SECONDS + 1
+        shown, _ = scrubber.result("w", "g1", {"t": "alpha-1"}, ["https://a.test"] * 2)
+        assert shown == {"t": "[secret:a/password]"}
+    finally:
+        scrubber.close()
+
+
+IPV6 = ["https://[::1]:8443", "http://[::1]", "https://[2001:db8::7]"]
+
+
+@pytest.mark.parametrize("leash", IPV6)
+def test_an_ipv6_literal_is_in_scope_where_it_is_allowed(tmp_path, leash):
+    """`forms_for` takes an origin as `scope_origin` spells it, unbracketed, and
+    never parses it again (final review 2)."""
+    catalogue = make(tmp_path, {"a": {"password": "alpha-1", "_allowed_urls": leash}})
+    url = leash + "/login"
+    assert catalogue.allows("a", url)
+    assert catalogue.forms_for(secrets.origin(url)).ids == {("a", "password")}
+    assert catalogue.leashed().ids == {("a", "password")}
+
+
+AGREEMENT = [  # (a URL, the `_allowed_urls` line naming its origin, or None)
+    ("https://a.test/x", "https://a.test"),
+    ("HTTPS://A.Test/", "https://a.test"),
+    ("https://a.test:443/", "https://a.test:443"),
+    ("https://a.test:8443/x", "https://a.test:8443"),
+    ("https://user:pw@a.test/", "https://a.test"),
+    ("http://[::1]:8080/", "http://[::1]:8080"),
+    ("https://[2001:db8::7]/", "https://[2001:db8::7]"),
+    ("chrome-error://chromewebdata/", "chrome-error://chromewebdata"),
+    ("about:blank", None),
+    ("data:text/html,hi", None),
+    ("javascript:alert(1)", None),
+    ("file:///etc/hosts", None),
+    ("", None),
+]
+
+
+@pytest.mark.parametrize("url,leash", AGREEMENT)
+def test_allows_and_forms_for_agree_on_every_origin_shape(tmp_path, url, leash):
+    """A secret leashed to a URL's own origin is in scope there exactly when it
+    may be typed there; an opaque page has no origin a leash can name."""
+    keys = {"password": "alpha-1", "_allowed_urls": leash or "https://elsewhere.test"}
+    catalogue = make(tmp_path, {"a": keys})
+    in_scope = ("a", "password") in catalogue.forms_for(secrets.origin(url)).ids
+    assert catalogue.allows("a", url) is in_scope
+    assert in_scope is bool(leash)

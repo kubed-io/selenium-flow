@@ -608,7 +608,11 @@ class Capture:
             oldest = min(
                 (p for p in held.waiting.values() if p.events),
                 key=lambda p: p.events[0].order,
+                default=None,
             )
+            if oldest is None:  # a weight that drifted: nothing is held, so none
+                held.weight = 0
+                break
             self._shed(held, oldest)
         # True for a None context, and for every context while the top is
         # unknown: harmless, since a frame's arrival never moves the top origin

@@ -1265,7 +1265,7 @@
       "read_only_hint": false,
       "title": "Capture a screenshot"
     },
-    "description": "Capture a PNG of the viewport, of one element (selector), or of the whole\npage (full_page), returned as an image. Use it only when the look is the\nanswer; extract reads content far more cheaply.\n\nBy default the capture is also kept with the workspace's files. To show a\nperson what you saw, give them the file's url: it opens in any\nbrowser without a token, and ![](url) works. Do not describe the\nimage instead.\n\nsave=false stores nothing; file_error says why a save failed, and the image\nstill comes back.",
+    "description": "Capture a PNG of the viewport, of one element (selector), or of the whole\npage (full_page), returned as an image. Use it only when the look is the\nanswer; extract reads content far more cheaply.\n\nBy default the capture is also kept with the workspace's files. To show a\nperson what you saw, give them the file's url: it opens in any\nbrowser without a token, and ![](url) works. Do not describe the\nimage instead.\n\nPixels cannot be scrubbed: a page showing a secret's value in a field that is\nnot a password field shows it here.\n\nsave=false stores nothing; file_error says why a save failed, and the image\nstill comes back.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1503,7 +1503,7 @@
       "read_only_hint": false,
       "title": "Type text into a field"
     },
-    "description": "Type into an input, textarea or contenteditable, and read the value back so\nyou can see it landed. clear (default true) replaces what is there;\nsubmit=true presses Enter afterwards.\n\nTo type a secret, pass secret={\"name\": ..., \"key\": ...} instead of text;\nsecret://secrets lists them. The server types it and you never see it: value\ncomes back null. A secret works only on the sites it allows, checked against\nthe page you are on, so navigate there first.",
+    "description": "Type into an input, textarea or contenteditable, and read the value back so\nyou can see it landed. clear (default true) replaces what is there;\nsubmit=true presses Enter afterwards.\n\nTo type a secret, pass secret={\"name\": ..., \"key\": ...} instead of text;\nsecret://secrets lists them. The server types it and you never see it: value\ncomes back null. A secret works only on the sites it allows, checked against\nthe page you are on, so navigate there first. A value typed from a secret, or\nany value of a secret allowed on this site, comes back as [secret:name/key] in\nevery later read here.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
