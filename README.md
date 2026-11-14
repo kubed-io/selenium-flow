@@ -30,7 +30,7 @@ The browser lives on the Grid, so the server can restart without anyone losing a
 
 ## 🧰 Every action, both ways
 
-Twenty actions, each an MCP tool **and** an HTTP endpoint, with one schema between them. Hand a whole job to an agent, or drive the same steps yourself from an n8n HTTP node when you want exact control.
+Twenty actions, each an MCP tool and an HTTP endpoint with one schema between them. Hand a whole job to an agent, or drive the same steps yourself from an n8n HTTP node.
 
 | Action | |
 |---|---|
@@ -63,7 +63,7 @@ Most of them take an optional `url`: if the browser is somewhere else it goes th
 
 Name your workspace, with `?workspace=research-bot` on the URL or an `Sf-Workspace` header, and you get the browser that belongs to that name. There is no session id anywhere. Call again with the same name after a reconnect, a restart or a week away, and you are back on the same browser at the same page.
 
-When the Grid reaps an idle browser, or an operator ends one, the workspace keeps the page it was on and the settings it was opened with, so recovery is one call:
+When the Grid reaps an idle browser, or an admin ends one, the workspace keeps the page it was on and the settings it was opened with, so recovery is one call:
 
 ```
 open_session()      # back where you were, with the settings you chose
@@ -75,7 +75,7 @@ Between calls the server keeps your browser alive for 15 minutes, so an agent th
 
 ## 👀 Watch it live, and take the wheel
 
-The admin UI shows each workspace's browser live in its Live tab. When an agent hits a captcha or a sign-in it can't do, take **Control**. While you hold it, an agent's calls that would change the page are refused and its reads still answer. You solve it and hand back; the agent, waiting in `await_control`, learns which pages you went through.
+The admin UI shows each workspace's browser live in its Live tab. When an agent hits a captcha or a sign-in it can't do, take control. While you hold it, the agent's calls that would change the page are refused and its reads still answer. Solve it and hand back: the agent, waiting in `await_control`, learns which pages you went through.
 
 ---
 
@@ -123,9 +123,9 @@ Give the server a data directory and every screenshot and print is kept with the
 
 ## 📖 It teaches you how to use it
 
-The server ships an **Agent Skill** at `skill://selenium-flow/SKILL.md`: how to name a workspace, why `extract` beats `screenshot`, how to reach a page in one call, and what a timeout usually means. Each reference is its own resource, so an agent loads only what its task needs.
+The server ships an Agent Skill at `skill://selenium-flow/SKILL.md`: seven rules, a whole task end to end, and a table of when to reach for each tool. Eight references, from reading pages to troubleshooting, are each their own resource, so an agent loads only the one its task needs.
 
-A client that speaks the agents extension also finds the **explorer**, a subagent that explores a site in your workspace, runs the flows that fit each page, saves new ones and reports back.
+A client that speaks the agents extension also finds the explorer, a subagent that explores a site in your workspace, runs the flows that fit each page, saves new ones and reports back.
 
 ---
 
@@ -154,16 +154,16 @@ curl -X POST localhost:8000/browser \
 
 Point an MCP client at `http://localhost:8000/mcp?workspace=demo`, and open `http://localhost:8000` to watch the `demo` workspace in its Live tab. 👀
 
-In production, set `AUTH_TOKEN` and send it as `Authorization: Bearer <token>`. Every setting is a config file key, an environment variable and a flag.
+In production, set `AUTH_TOKEN` and send it as `Authorization: Bearer <token>`. Every setting is a config file key, an environment variable and a flag: see [Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration).
 
 ---
 
 ## 📚 Where next
 
-- **[The wiki](https://github.com/kubed-io/selenium-flow/wiki)**: [Installing](https://github.com/kubed-io/selenium-flow/wiki/Installing) in Claude, VS Code, n8n and others, [Deployment](https://github.com/kubed-io/selenium-flow/wiki/Deployment), [Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration), and a page per action.
-- **[The spec](https://github.com/kubed-io/selenium-flow/wiki/Specification)**: every requirement, one area per file, in the wiki's `superpowers/specs/`.
-- **[CONTRIBUTING.md](CONTRIBUTING.md)**: setting up the repo, the tests, CI and releases.
-- **[Docker Hub](https://hub.docker.com/r/kubed/selenium-flow)**: `kubed/selenium-flow`.
+- [The wiki](https://github.com/kubed-io/selenium-flow/wiki): [Installing](https://github.com/kubed-io/selenium-flow/wiki/Installing) in Claude, VS Code, n8n and others, [Deployment](https://github.com/kubed-io/selenium-flow/wiki/Deployment), [Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration), and a page per action.
+- [The spec](https://github.com/kubed-io/selenium-flow/wiki/Specification): every requirement, one area per file.
+- [CONTRIBUTING.md](CONTRIBUTING.md): setting up the repo, the tests, CI and releases.
+- [Docker Hub](https://hub.docker.com/r/kubed/selenium-flow): `kubed/selenium-flow`.
 
 ---
 

@@ -43,7 +43,7 @@ services:
       # as 65534, which then cannot write it. First, once:
       #   mkdir -p data/recordings && chmod -R 777 data
       # then uncomment these two settings, the volume below, and the Grid's
-      # recording lines. The README's "Recording" section has the details.
+      # recording lines. The wiki's Deployment page has the details, under Recordings.
       # DATA_DIR: /data
       # RECORDING_ENABLED: "true"
     # volumes:

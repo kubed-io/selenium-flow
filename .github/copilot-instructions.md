@@ -15,7 +15,7 @@ Back every comment with these files:
 
 ## Signal over volume
 
-Three real findings beat fifteen where twelve are cosmetic.
+Leave the few findings that matter, and skip the cosmetic ones.
 
 - Always worth a comment: security, correctness, and an action that reaches one surface only.
 - Usually skip: wording, a slightly stale comment, a missing type on an internal helper.
@@ -30,8 +30,7 @@ Three real findings beat fifteen where twelve are cosmetic.
    route that skips `http/auth.py` or compares with `==`; a new answer `test_scrub_coverage`
    doesn't cover.
 2. **Surface parity.** A capability on one surface only, or a pull request that edits
-   `tests/test_surfaces.py` instead of adding the missing half. This is the most important comment
-   you can leave.
+   `tests/test_surfaces.py` instead of adding the missing half.
 3. **Tool schemas.** A loose or missing annotation in `mcp/tools.py` ships a worse tool.
 4. **Correctness.** Error paths and edge cases. Derive what a test should expect from the spec,
    not from the code under review.
@@ -42,17 +41,17 @@ Three real findings beat fifteen where twelve are cosmetic.
 
 ## Changelog entries
 
-`[Unreleased]` is the release notes, verbatim. Comment on a paragraph where a line would do (and
-propose the line), an entry for internal work (the `no changelog` label is the answer), an edit to
-a released section, or a hand-written version. A short preamble, a bold lead and a terse entry are
-house style.
+`[Unreleased]` is the release notes, verbatim, and CONTRIBUTING's "The changelog" has the rules.
+Comment on a paragraph where a line would do (and propose the line), an entry for internal work
+(the `no changelog` label is the answer), an edit to a released section, or a hand-written version.
+A short preamble, a bold lead and a terse entry are house style.
 
 ## Settled: don't flag
 
-- Fetching any URL the caller names is the product, not SSRF. Flag undocumented egress, or a path
+- Fetching any URL the caller names is what the server is for. Flag undocumented egress, or a path
   that reaches the Grid's own control plane.
 - `execute_script` running caller JavaScript is the documented escape hatch.
-- The unroutable Grid address in the unit tests is deliberate.
+- The unit tests point at an unroutable Grid address.
 - The tool declarations in `mcp/tools.py` are written out by hand; generating them would erase
   the signature that is the schema.
 - Actions are pinned to release tags (`unpinned-uses` in `.github/zizmor.yml`).

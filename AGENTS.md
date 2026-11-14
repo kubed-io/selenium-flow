@@ -1,76 +1,46 @@
 # AGENTS.md
 
-Rules for an agent working in selenium-flow. Everything a person needs is in the files below;
-this one adds only what an agent would otherwise get wrong.
+Rules for an agent working in selenium-flow. [CONTRIBUTING.md](CONTRIBUTING.md) is the guide for
+working in the repo and binds you too; this file adds only what an agent would otherwise get wrong.
 
 ## Read first
 
-1. [`docs/superpowers/specs/Specification.md`](https://github.com/kubed-io/selenium-flow/wiki/Specification): what the server does,
-   the area index, the glossary and the architecture. Before changing a behaviour, read its area
-   file.
-2. [CONTRIBUTING.md](CONTRIBUTING.md): setup, commands, tests, CI, releases, and the rules for
-   writing code here.
+1. [`docs/superpowers/specs/Specification.md`](https://github.com/kubed-io/selenium-flow/wiki/Specification):
+   what the server does, the area index, the rules for requirement ids, the glossary and the
+   architecture. Before changing a behaviour, read its area file.
+2. [CONTRIBUTING.md](CONTRIBUTING.md): setup, commands, tests, CI, releases, the docs and where each
+   goes, and the rules for writing code here.
 3. [`plugin/skills/selenium-flow/SKILL.md`](plugin/skills/selenium-flow/SKILL.md): how a model is
    meant to use the server.
 
-Use the glossary's words. A **workspace** is what a caller names (`?workspace=` or
-`Sf-Workspace`); a **session** is the live browser open in it, at most one at a time. Never call a
-workspace a session.
+Use the glossary's words. A workspace is what a caller names (`?workspace=` or `Sf-Workspace`); a
+session is the live browser open in it, at most one at a time. Never call a workspace a session.
 
-## Where things go
+## Docs
 
-| What | Where |
-|---|---|
-| A requirement | `docs/superpowers/specs/<area>.md` |
-| A design or a plan | `docs/superpowers/plans/YYYY-MM-DD-<topic>-design.md`, `YYYY-MM-DD-<topic>.md` |
-| How to use a feature, for a user | a hand-written wiki page, `docs/<Page>.md` |
-| What a schema cannot say about one tool | `docs/notes/<tool>.notes.md` |
-| What a user can now do | one line under `## [Unreleased]` in `CHANGELOG.md` |
-
-- **A behaviour change edits its area file in the same pull request.** Add, change or remove the
-  requirement. A new requirement takes the area's next number; a removed one leaves a gap, and
-  ids are never reused.
-- A requirement that is not built yet is written like the others and tagged *(proposed)*. The pull
-  request that builds it removes the tag.
-- The spec states what is true now: present tense, symbol names, no line numbers, dates, issue
-  numbers or history. Why it is that way goes in the design under `plans/`.
+- A behaviour change edits its area file in the same pull request, following the Ids section of
+  Specification.md. Why it is that way goes in the design under `plans/`.
 - A design opens with a `> **History.**` header saying what shipped and which requirement ids hold
   it now. Plans are history: add to the header, leave the body.
-- The project's history is `docs/superpowers/plans/Ledger.md`. The saga it replaced is gone; code
-  that still cites a saga section as `§F1.n` can look it up in the ledger's last table, and loses
-  the citation in the refactor round.
-- The generated wiki pages (one per tool, `Configuration.md`) are written by
-  `scripts/generate_wiki.py`. Change the code or the notes and regenerate; never edit the page.
-
-## The wiki submodule
-
-`docs/` is the GitHub wiki, a separate repository checked out as a submodule, and the spec and
-plans live in it.
-
-- Commit inside `docs/` first, on the wiki branch with the same name as this repo's branch
-  (`issue-137` for `issue-137`). Push that branch, then commit the new `docs` pointer here.
-- Never push to the wiki's `master`. It is the public wiki, and only `wiki.yml` on main writes it,
-  after a merge.
+- The project's history is `docs/superpowers/plans/Ledger.md`. Code that still cites a section of
+  the deleted saga as `§F1.n` can look it up in the ledger's last table.
+- Never edit a generated wiki page (one per tool, `Configuration.md`). Change the code or
+  `docs/notes/<tool>.notes.md` and run `scripts/generate_wiki.py`.
+- `docs/` is the wiki's own repository. CONTRIBUTING's "The wiki" says which branch to commit on;
+  never push the wiki's `master`.
 
 ## Rules
 
-- **The maintainer is Dr K.** This is a public repo: no personal names, emails, hostnames or
-  internal URLs in code, docs, commits or pull requests. Examples use `example.com`.
-- **A failing guard test is the design saying no.** When `test_surfaces`, `test_boundaries`,
-  `test_scrub_coverage`, `test_show_inventory`, `test_wiki` or a golden fails, fix the code (add
-  the missing half, regenerate the page), never the assertion. A golden is regenerated only for
-  a contract change you meant, in a commit of its own (CONTRIBUTING, "Tests").
-- **Don't add an integration test to be thorough.** Add a flow under `tests/integration/flows/`
-  only when you can name what a person would see break that no flow catches. Everything else is a
-  unit test.
-- **Tool declarations are a contract.** In `mcp/tools.py` a signature is the tool's schema and a
-  docstring is the description a model reads and the wiki page's text. Edit one only to change
-  the tool, and write it for a model choosing what to call. A comment or prose pass leaves them
-  alone.
-- **Change an argument's shape in two steps.** Clients cache tool schemas; see CONTRIBUTING,
-  "Changing an argument".
-- **Internal work earns no changelog line.** A refactor, CI change, test pass or dependency bump
-  takes the `no changelog` label.
+- The maintainer is Dr K. This is a public repo: no personal names, emails, hostnames or internal
+  URLs in code, docs, commits or pull requests. Examples use `example.com`.
+- When `test_surfaces`, `test_boundaries`, `test_scrub_coverage`, `test_show_inventory`,
+  `test_wiki` or a golden fails, fix the code (add the missing half, regenerate the page), never the
+  assertion. A golden is regenerated only for a contract change you meant, in a commit of its own.
+- A comment or prose pass leaves the signatures and docstrings in `mcp/tools.py` alone: they are the
+  tool schemas and the descriptions a model reads. Edit one only to change the tool.
+- The CONTRIBUTING rules agents break most often: an integration test added only to be thorough
+  ("Tests"), an argument's shape changed in one release ("Changing an argument"), and a changelog
+  line for internal work ("The changelog").
 - Read before you claim. A statement about the code, in the spec or a pull request, comes from
   reading the code, not from a design or this file.
 
@@ -79,9 +49,9 @@ plans live in it.
 The issue, pull request and review agents (`.github/workflows/agent-*.yml`) follow everything
 above, and also:
 
-- **The checks** are CI's ([CONTRIBUTING.md, "CI"](CONTRIBUTING.md#ci)); run the lint, the unit
-  suite and, when `ui/` changed, the UI's, from its Commands table. The integration tests need a
-  Grid and run in CI only.
-- **You never commit.** What you leave changed is committed after you answer, `docs/` included:
-  the workflow commits it to the wiki branch and moves the pointer.
-- **You never edit `.github/`.** A person commits workflow changes.
+- The checks are CI's ([CONTRIBUTING.md, "CI"](CONTRIBUTING.md#ci)). Run the lint, the unit suite
+  and, when `ui/` changed, the UI's, from its Commands table. The integration tests need a Grid and
+  run in CI only.
+- You never commit. What you leave changed is committed after you answer, `docs/` included: the
+  workflow commits it to the wiki branch and moves the pointer.
+- You never edit `.github/`. A person commits workflow changes.

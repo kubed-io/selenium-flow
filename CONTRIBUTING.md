@@ -35,13 +35,15 @@ docker compose up --build
 ```
 
 That starts the server on port 8000 and a standalone Chromium Grid on 4444, with auth off. Saved
-flows, kept files and recordings are commented out in `docker-compose.yaml`; its comments say what
-to uncomment.
+flows, kept files and recordings are commented out in `docker-compose.yaml`; the wiki's
+[Deployment](https://github.com/kubed-io/selenium-flow/wiki/Deployment#recordings) page says how to
+turn them on.
 
-Against a Grid you already have, without containers:
+Without containers, against a Grid on `localhost:4444` (the default `grid.url`; set `GRID_URL` for
+another):
 
 ```bash
-GRID_URL=http://localhost:4444 AUTH_TOKEN=dev python -m kubed.selenium_flow
+AUTH_TOKEN=dev python -m kubed.selenium_flow
 ```
 
 Every setting has a config file key, an environment variable and a flag; the wiki's
@@ -81,7 +83,7 @@ The spec's [architecture](https://github.com/kubed-io/selenium-flow/wiki/Specifi
 
 ## Writing code here
 
-These rules are how the code stays one design. Each has a test or a spec requirement behind it.
+Each rule here has a test or a spec requirement behind it.
 
 ### One action, two surfaces
 
@@ -104,7 +106,7 @@ These rules are how the code stays one design. Each has a test or a spec require
   (`str | None = None`, never `str = None`), prefer `Literal[...]` for a closed set, and never a
   bare `dict` or untyped `**kwargs`.
 - A docstring there is the description a model reads, and the wiki page's text. Write it for a
-  model choosing a tool. The declarations are written out by hand on purpose: a decorator that
+  model choosing a tool. The declarations are written out by hand, since a decorator that
   forwarded arguments would erase the signature.
 - `@mcp.tool` returns the plain function, so a computed description goes in `description=`
   (`press_key` interpolates its key list that way).
@@ -215,21 +217,21 @@ The unit suite wires a server against an unroutable Grid address and drives both
 the real ASGI app. A test that reaches a Grid is an integration test and is marked
 `@pytest.mark.integration`. `asyncio_mode = "auto"`, so an `async def test_` needs no decorator.
 
-- **Use the shared doubles.** `FakeGrid`, `ScriptedDriver`, the fake clock, Redis and BiDi are in
+- Use the shared doubles. `FakeGrid`, `ScriptedDriver`, the fake clock, Redis and BiDi are in
   `tests/fakes.py`; `tests/conftest.py` re-exports them beside `RecordingActions`, `manager()` and
   the `named_caller` / `unnamed_caller` fixtures. Don't write another copy.
-- **A published shape is a golden.** The tool list in both modes, the OpenAPI document, the error
+- A published shape is a golden. The tool list in both modes, the OpenAPI document, the error
   table, the admin routes and a run's report are compared with `tests/golden/`. If the change was
   meant, run `GOLDEN_UPDATE=1 pytest`, read the diff, and commit it on its own.
-- **The page scripts run under jsdom.** `tests/js/run.mjs` evaluates a script from `js/` the way
+- The page scripts run under jsdom. `tests/js/run.mjs` evaluates a script from `js/` the way
   `execute_script` does. It needs `node`.
-- **Test a behaviour once, at the layer that owns it.** What a record does when a browser ends is
+- Test a behaviour once, at the layer that owns it. What a record does when a browser ends is
   `test_workspaces.py`'s; the admin route's test checks the status, the shape and the auth.
-- **Integration tests: less is more.** A test in `tests/integration/` is a flow file in
+- Keep the integration suite small. A test in `tests/integration/` is a flow file in
   `tests/integration/flows/`, run against the server's own admin page by one parametrised test.
   Add one only when you can name what a user would see break that no flow catches. A detail of a
-  covered behaviour is a unit test; a tool the admin UI doesn't need is not tested here; and no
-  Python goes beside the flows. `test_responsive.py` is the one exception.
+  covered behaviour is a unit test, a tool the admin UI doesn't need is not tested here, and no
+  Python goes beside the flows except `test_responsive.py`.
 
 To run the integration suite, give it a Grid and the address where the browser reaches this
 server, which is never `localhost`:
@@ -247,7 +249,7 @@ Set `REDIS_URL` and `WORKSPACE_STORE=redis` to run it as production does.
 |---|---|
 | `README.md` | What the server does, for someone deciding whether to use it. It is also the Docker Hub description, cut at 25,000 bytes (`tests/test_readme.py`) |
 | `docs/superpowers/specs/` | The spec: one file per area, numbered requirements, true of the code |
-| `docs/superpowers/plans/` | Dated designs and plans, each with a History header |
+| `docs/superpowers/plans/` | Dated designs and plans, each with a History header, and `Ledger.md`, the project's history |
 | Wiki, hand-written pages | How to use a feature |
 | Wiki, generated pages | Each tool's reference and the Configuration page |
 | `CHANGELOG.md` | The release notes |
@@ -308,9 +310,9 @@ formatting in [yaml.instructions.md](.github/instructions/yaml.instructions.md).
 
 ## Releases
 
-Actions → 🧬 Publish Version, picking `patch`, `minor` or `major` (or a pre-release). Run it once with `push=false`: it runs the
-tests, computes the version and builds the image and the package without pushing, so a broken
-build never strands a tag. Then run it with `push=true`:
+Run Actions → 🧬 Publish Version, picking `patch`, `minor` or `major` (or a pre-release). Run it
+once with `push=false`: it runs the tests, computes the version and builds the image and the
+package without pushing, so a broken build never strands a tag. Then run it with `push=true`:
 
 1. `test` (the full 3.11 to 3.14 matrix) and `ui` gate everything.
 2. `version` rolls `[Unreleased]` into a version heading with `duplocloud/version-bump`, commits
@@ -337,8 +339,7 @@ Versions come from git tags through `setuptools_scm`; never write one by hand.
 
 ## Deploying
 
-This repo ships an image and a Python package, and doesn't deploy itself. The manifests live in
-the cluster repo at `apps/selenium/components/mcp`, deployed as a component of the Selenium app,
-since the server does nothing without a Grid. To roll out a release, bump `newTag` there. How to
-run it elsewhere is the wiki's
-[Deployment](https://github.com/kubed-io/selenium-flow/wiki/Deployment) page.
+This repo ships an image and a Python package and deploys nothing. The maintainer's deployment is
+the private `kubed-io/selenium` repository, where the server is the `components/mcp` component of
+the Selenium app; a release rolls out by bumping `newTag` there. How to run it anywhere is the
+wiki's [Deployment](https://github.com/kubed-io/selenium-flow/wiki/Deployment) page.
