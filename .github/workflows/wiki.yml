@@ -27,7 +27,7 @@ on:
     branches: [main]
     paths:
     - kubed/**
-    - wiki
+    - docs
     - scripts/generate_wiki.py
     - .github/workflows/wiki.yml
   # every merge, not only one that changes the pages: after it, the open PRs are brought up

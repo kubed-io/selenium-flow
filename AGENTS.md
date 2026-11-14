@@ -5,7 +5,7 @@ this one adds only what an agent would otherwise get wrong.
 
 ## Read first
 
-1. [`docs/superpowers/specs/README.md`](docs/superpowers/specs/README.md): what the server does,
+1. [`docs/superpowers/specs/Specification.md`](https://github.com/kubed-io/selenium-flow/wiki/Specification): what the server does,
    the area index, the glossary and the architecture. Before changing a behaviour, read its area
    file.
 2. [CONTRIBUTING.md](CONTRIBUTING.md): setup, commands, tests, CI, releases, and the rules for

@@ -1,7 +1,7 @@
 # Contributing
 
 How to set up the repo, run and test the server, and ship a change. What the server does is in
-[the spec](docs/superpowers/specs/README.md); how to use it is on the
+[the spec](https://github.com/kubed-io/selenium-flow/wiki/Specification); how to use it is on the
 [wiki](https://github.com/kubed-io/selenium-flow/wiki).
 
 ## Set up
@@ -64,7 +64,7 @@ and [config.md](docs/superpowers/specs/config.md) holds the rules.
 
 ## Where things live
 
-The spec's [architecture](docs/superpowers/specs/README.md#architecture) maps the packages under
+The spec's [architecture](https://github.com/kubed-io/selenium-flow/wiki/Specification#architecture) maps the packages under
 `kubed/selenium_flow/`. Outside it:
 
 | Path | Holds |

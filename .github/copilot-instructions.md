@@ -9,7 +9,7 @@ Back every comment with these files:
 - [CONTRIBUTING.md](../CONTRIBUTING.md), "Writing code here": the rules the code follows, and
   the changelog rules.
 - [AGENTS.md](../AGENTS.md): where requirements, designs and docs go.
-- [`docs/superpowers/specs/`](../docs/superpowers/specs/README.md): what the server does, one
+- [`docs/superpowers/specs/`](../docs/superpowers/specs/Specification.md): what the server does, one
   area per file. A behaviour change edits its area file in the same pull request.
 - The path rules in [instructions/](instructions/).
 

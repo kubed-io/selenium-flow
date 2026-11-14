@@ -161,7 +161,7 @@ In production, set `AUTH_TOKEN` and send it as `Authorization: Bearer <token>`. 
 ## 📚 Where next
 
 - **[The wiki](https://github.com/kubed-io/selenium-flow/wiki)**: [Installing](https://github.com/kubed-io/selenium-flow/wiki/Installing) in Claude, VS Code, n8n and others, [Deployment](https://github.com/kubed-io/selenium-flow/wiki/Deployment), [Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration), and a page per action.
-- **[The spec](docs/superpowers/specs/README.md)**: every requirement, one area per file, in the wiki's `superpowers/specs/`.
+- **[The spec](https://github.com/kubed-io/selenium-flow/wiki/Specification)**: every requirement, one area per file, in the wiki's `superpowers/specs/`.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)**: setting up the repo, the tests, CI and releases.
 - **[Docker Hub](https://hub.docker.com/r/kubed/selenium-flow)**: `kubed/selenium-flow`.
 
