@@ -20,6 +20,19 @@ const roleOf = (el) => {
   return ROLES[tag] || tag;
 };
 
+// The roles ARIA names from their content (WAI-ARIA 1.2, "Name From:
+// contents"), and `disclosure`, which is how `roleOf` reads a <summary>. Not
+// `row` or `treeitem`: they hold cells and groups, which a browser spaces or
+// drops and textContent runs together ("John42", "DocsAB"), so they are
+// containers here.
+const FROM_CONTENT = new Set(['button', 'cell', 'checkbox', 'columnheader',
+  'disclosure', 'gridcell', 'heading', 'link', 'menuitem', 'menuitemcheckbox',
+  'menuitemradio', 'option', 'radio', 'rowheader', 'switch', 'tab', 'tooltip']);
+
+// A `role` attribute is a list read case-insensitively, and the first token
+// is the role.
+const fromContent = (el) =>
+  FROM_CONTENT.has(roleOf(el).toLowerCase().split(/\s+/)[0]);
 
 const accessibleName = (el) => {
   const aria = (el.getAttribute('aria-label') || '').trim();
@@ -50,7 +63,14 @@ const accessibleName = (el) => {
     }
     return (el.getAttribute('name') || '').trim().slice(0, 80);
   }
-  return textOf(el).slice(0, 80);
+  // A control is named from its content, descendants included, with the
+  // spacing the DOM has: <a><span>Open</span> <span>file</span></a> is
+  // "Open file", as ARIA names it. Its cost: spans with nothing between them
+  // in the DOM run together in the name too. Anything else is named only from
+  // text it owns: a toolbar's or a list's textContent is every descendant's
+  // run together, which names nothing (#138).
+  if (fromContent(el)) return textOf(el).slice(0, 80);
+  return ownsItsText(el) ? textOf(el).slice(0, 80) : '';
 };
 
 // Which landmark an element sits in. A page's chrome - its navigation, banner,

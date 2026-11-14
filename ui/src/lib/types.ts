@@ -101,6 +101,8 @@ export interface FlowDoc {
   steps?: unknown
   parameters?: unknown
   uses?: unknown
+  sites?: unknown
+  paths?: unknown
   yaml?: string
 }
 

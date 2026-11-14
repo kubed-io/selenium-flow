@@ -80,8 +80,9 @@ def test_page_key_reads_host_port_and_path():
         "localhost",
         8080,
         "/login",
+        None,
     )
-    assert urls.page_key("https://example.com") == ("example.com", 443, "")
+    assert urls.page_key("https://example.com") == ("example.com", 443, "", None)
 
 
 @pytest.mark.parametrize(
@@ -145,13 +146,42 @@ def test_page_key_reads_host_port_and_path():
         ({"paths": []}, "paths is empty: leave it out to match any path"),
         ({"paths": ["login"]}, "paths: 'login' must start with /"),
         (
-            {"paths": ["/login?next=/a"]},
-            "paths: '/login?next=/a' has a query or fragment; write /login: a path matches whatever query follows it",
+            {"paths": ["#/auth/*"]},
+            "paths: '#/auth/*' must start with /; write /#/auth/* for a route on the root path",
+        ),
+        (
+            {"paths": ["/#/a#b"]},
+            "paths: '/#/a#b' has more than one #; write one, before the route, as in /#/auth/*",
         ),
         (
             {"paths": ["/a#top"]},
-            "paths: '/a#top' has a query or fragment; write /a: a path matches whatever query follows it",
+            "paths: '/a#top' has a fragment that is not a route; write /a: only a fragment starting with / or !/ is matched",
         ),
+        (
+            {"paths": ["/#"]},
+            "paths: '/#' has a fragment that is not a route; write /: only a fragment starting with / or !/ is matched",
+        ),
+        (
+            {"paths": ["/login?next=/a#top"]},
+            "paths: '/login?next=/a#top' has a fragment that is not a route; write /login: only a fragment starting with / or !/ is matched",
+        ),
+        (
+            {"paths": ["/login?next=/a"]},
+            "paths: '/login?next=/a' has a query; write /login: a path matches whatever query follows it",
+        ),
+        (
+            {"paths": ["/#/workspace?team-id=1"]},
+            "paths: '/#/workspace?team-id=1' has a query; write /#/workspace: a path matches whatever query follows it",
+        ),
+        (
+            {"paths": ["/a?x#/b"]},
+            "paths: '/a?x#/b' has a query; write /a#/b: a path matches whatever query follows it",
+        ),
+        (
+            {"paths": ["/#/a**"]},
+            "paths: '/#/a**' has ** inside a segment; ** stands alone between slashes, as in /docs/**",
+        ),
+        ({"paths": ["/#!//a"]}, "paths: '/#!//a' has an empty segment (//)"),
         (
             {"paths": ["/docs/a**"]},
             "paths: '/docs/a**' has ** inside a segment; ** stands alone between slashes, as in /docs/**",
@@ -163,12 +193,42 @@ def test_problems_say_what_to_write(document, sentence):
     assert problems(document) == [sentence]
 
 
+PENPOT = {"sites": ["penpot.example"], "paths": ["/#/auth/*"]}
+
+
+@pytest.mark.parametrize(
+    "document, url, applies",
+    [
+        (PENPOT, "https://penpot.example/#/auth/login", True),
+        (PENPOT, "https://penpot.example/#/dashboard/recent", False),
+        (PENPOT, "https://penpot.example/#/auth/login?next=/x", True),
+        (PENPOT, "https://penpot.example/", False),
+        (PENPOT, "https://penpot.example/#auth", False),
+        ({"paths": ["/#!/auth/*"]}, "https://t/#/auth/login", True),
+        ({"paths": ["/#/auth/*"]}, "https://t/#!/auth/login", True),
+        ({"paths": ["/#/"]}, "https://t/#/", True),
+        ({"paths": ["/#/"]}, "https://t/", False),
+        ({"paths": ["/#/"]}, "https://t/#/dashboard", False),
+        ({"paths": ["/app/#/settings/**"]}, "https://t/app/#/settings", True),
+        ({"paths": ["/app/#/settings/**"]}, "https://t/app/#/settings/a/b", True),
+        ({"paths": ["/app/#/settings/**"]}, "https://t/#/settings", False),
+        ({"paths": ["/"]}, "https://t/#/workspace?file-id=1", True),
+        ({"paths": ["/"]}, "https://t/#/auth/login", True),
+        ({"paths": ["/#/**"]}, "https://t/#access_token=x", False),
+        ({"paths": ["/#/**"]}, "https://t/", False),
+    ],
+)
+def test_where_a_flow_applies_by_route(document, url, applies):
+    assert Places.parse(document).applies(url) is applies
+
+
 @pytest.mark.parametrize(
     "document",
     [
         {},
         {"sites": None, "paths": None},
         {"sites": [" Example.com "], "paths": [" /a/** "]},
+        {"paths": ["/#/auth/*", "/app/#/settings/**", "/#!/a", "/#/"]},
     ],
 )
 def test_good_documents_have_no_problems(document):
@@ -221,6 +281,7 @@ def test_the_matcher_and_the_leash_share_no_code():
         ("/**" * 10 + "/b", "https://t" + "/a" * 25, False),
         ("/**" * 10 + "/b", "https://t" + "/a" * 25 + "/b", True),
         ("/**/*a*a*a*b/**", "https://t" + ("/" + "a" * 30) * 20, False),
+        ("/#/*a*a*a*a*a*a*a*b", "https://t/#/" + "a" * 60, False),
     ],
 )
 def test_a_pattern_cannot_stall_the_hint(pattern, url, applies):

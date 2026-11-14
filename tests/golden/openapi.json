@@ -50,7 +50,7 @@
             "type": "boolean"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -279,7 +279,7 @@
                       "type": "string"
                     },
                     "reason": {
-                      "description": "Why it cannot be used: hidden, covered, unpainted (it paints nothing at its centre), invisible_cover (an invisible element is on top), zero_size, offscreen or disabled.",
+                      "description": "Why it cannot be used: hidden, covered, unpainted (it paints nothing at its centre), invisible_cover (an invisible element on top, named in blocked_by, takes the click; clicking it, or something inside it, may be what you want), zero_size, offscreen or disabled.",
                       "type": "string"
                     },
                     "region": {
@@ -377,7 +377,7 @@
             "type": "object"
           },
           "visited": {
-            "description": "Every page the person reached, oldest first: the last with its whole URL, earlier ones origin and path. Absent when the pages could not be followed.",
+            "description": "Every page the person reached, oldest first: the last with its whole URL, earlier ones origin, path and hash route. Absent when the pages could not be followed.",
             "items": {
               "properties": {
                 "title": {
@@ -441,7 +441,7 @@
             "type": "string"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -648,7 +648,7 @@
             "type": "string"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -864,7 +864,7 @@
       "ExecuteScriptResponse": {
         "properties": {
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -1029,7 +1029,7 @@
       "ExtractResponse": {
         "properties": {
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -1290,7 +1290,7 @@
             "type": "object"
           },
           "paths": {
-            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. For an app that routes after #, add the route: /#/auth/* or /app/#/settings/**; an entry without # matches any route. The query is ignored, and so is any fragment that is not a route. Leave it out to match any path.",
             "items": {
               "type": "string"
             },
@@ -1370,7 +1370,7 @@
             "type": "string"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -1592,7 +1592,7 @@
             "type": "object"
           },
           "paths": {
-            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. For an app that routes after #, add the route: /#/auth/* or /app/#/settings/**; an entry without # matches any route. The query is ignored, and so is any fragment that is not a route. Leave it out to match any path.",
             "items": {
               "type": "string"
             },
@@ -1686,7 +1686,7 @@
             "type": "object"
           },
           "paths": {
-            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+            "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. For an app that routes after #, add the route: /#/auth/* or /app/#/settings/**; an entry without # matches any route. The query is ignored, and so is any fragment that is not a route. Leave it out to match any path.",
             "items": {
               "type": "string"
             },
@@ -1794,7 +1794,7 @@
             "type": "string"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -2006,7 +2006,7 @@
             "type": "string"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -2191,7 +2191,7 @@
       "NavigateResponse": {
         "properties": {
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -2792,7 +2792,7 @@
                   "type": "string"
                 },
                 "reason": {
-                  "description": "Why it cannot be used: hidden, covered, unpainted (it paints nothing at its centre), invisible_cover (an invisible element is on top), zero_size, offscreen or disabled.",
+                  "description": "Why it cannot be used: hidden, covered, unpainted (it paints nothing at its centre), invisible_cover (an invisible element on top, named in blocked_by, takes the click; clicking it, or something inside it, may be what you want), zero_size, offscreen or disabled.",
                   "type": "string"
                 },
                 "region": {
@@ -2818,7 +2818,7 @@
             "type": "array"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -2990,7 +2990,7 @@
       "PressKeyResponse": {
         "properties": {
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -3183,7 +3183,7 @@
             "$ref": "#/components/schemas/FileEntry"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -3383,7 +3383,7 @@
       "ResizeResponse": {
         "properties": {
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -3538,7 +3538,7 @@
       "SaveSiteDataResponse": {
         "properties": {
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -3791,7 +3791,7 @@
             "type": "string"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -4370,7 +4370,7 @@
             "type": "string"
           },
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -4765,7 +4765,7 @@
       "WriteResponse": {
         "properties": {
           "flows_here": {
-            "description": "Present only when this call left the browser on a different page (host, port or path) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
+            "description": "Present only when this call left the browser on a different page (host, port, path or hash route) and saved flows say they apply there: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
               "properties": {
                 "description": {
@@ -6394,7 +6394,7 @@
     },
     "/browser/outline": {
       "post": {
-        "description": "Map the page: the elements worth acting on, each with a selector checked to match exactly one element, and whether it can be used now.\n\nUse it to find selectors instead of reading HTML. When visible is false, reason says why: hidden (often a closed menu; revealed_by and open_with say what opens it), covered (blocked_by names what is on top), unpainted (it paints nothing at its centre), invisible_cover (an invisible element is on top), zero_size, offscreen or disabled.\n\nContent is listed before navigation, header, footer and sidebars, and region names each entry's landmark. A total above count means the list was cut: scope it with selector, filter by text, or raise limit. interactive=false lists every element.",
+        "description": "Map the page: the elements worth acting on, each with a selector checked to match exactly one element, and whether it can be used now.\n\nUse it to find selectors instead of reading HTML. When visible is false, reason says why: hidden (often a closed menu; revealed_by and open_with say what opens it), covered (blocked_by names what is on top), unpainted (it paints nothing at its centre), invisible_cover (an invisible element on top, named in blocked_by, takes the click; clicking it, or something inside it, may be what you want), zero_size, offscreen or disabled.\n\nContent is listed before navigation, header, footer and sidebars, and region names each entry's landmark. A total above count means the list was cut: scope it with selector, filter by text, or raise limit. interactive=false lists every element.",
         "operationId": "outline",
         "parameters": [
           {
@@ -8240,7 +8240,7 @@
                     "type": "object"
                   },
                   "paths": {
-                    "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. The query and fragment are ignored. Leave it out to match any path.",
+                    "description": "The paths this flow applies at: exact, with * for one segment and ** for any depth, such as /login or /apps/*/settings. For an app that routes after #, add the route: /#/auth/* or /app/#/settings/**; an entry without # matches any route. The query is ignored, and so is any fragment that is not a route. Leave it out to match any path.",
                     "items": {
                       "type": "string"
                     },

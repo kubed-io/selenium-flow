@@ -5,7 +5,9 @@ site is a host with an optional port; without a port it matches any (ruling 2),
 which is right for finding a flow and wrong for a password's leash, so this is
 not `secrets.origin` and shares no code with it (ruling 8). The scheme is
 ignored and a site is never a URL (ruling 9). A path is exact, with `*` for one segment
-and `**` for any depth, matched with case and without the query (ruling 10).
+and `**` for any depth, matched with case and without the query (ruling 10). A path
+entry may name a hash route after `#`, which is matched as a second path (spec
+2026-11-13-hash-routes).
 Hosts are IDNA-encoded and a port is explicit or the scheme's default, as the
 browser reports them (ruling 23). Plain Python: no selenium, no `secrets`.
 """
@@ -31,8 +33,10 @@ SITES_DESCRIPTION = (
 )
 PATHS_DESCRIPTION = (
     "The paths this flow applies at: exact, with * for one segment and ** for any "
-    "depth, such as /login or /apps/*/settings. The query and fragment are ignored. "
-    "Leave it out to match any path."
+    "depth, such as /login or /apps/*/settings. For an app that routes after #, add "
+    "the route: /#/auth/* or /app/#/settings/**; an entry without # matches any "
+    "route. The query is ignored, and so is any fragment that is not a route. Leave "
+    "it out to match any path."
 )
 
 SITES_SHAPE = "sites must be a list of sites, such as [localhost:8080, example.com]"
@@ -47,9 +51,22 @@ class Site:
 
 
 @dataclass(frozen=True)
+class PathEntry:
+    path: PathGlob
+    route: PathGlob | None  # None: any route (an entry without #)
+
+    def matches(self, path: str, route: str | None) -> bool:
+        if not self.path.matches(path):
+            return False
+        if self.route is None:
+            return True
+        return route is not None and self.route.matches(route)
+
+
+@dataclass(frozen=True)
 class Places:
     sites: tuple[Site, ...] | None  # None: any site
-    paths: tuple[PathGlob, ...] | None  # None: any path
+    paths: tuple[PathEntry, ...] | None  # None: any path
 
     @classmethod
     def parse(cls, document) -> Places | None:
@@ -62,19 +79,19 @@ class Places:
             return None
         return cls(
             None if sites is None else tuple(_site(s) for s in sites),
-            None if paths is None else tuple(_path(p) for p in paths),
+            None if paths is None else tuple(_entry(p) for p in paths),
         )
 
     def applies(self, url: str | None) -> bool:
         key = urls.page_key(url)
         if key is None:
             return False
-        host, port, path = key
+        host, port, path, route = key
         if self.sites is not None and not any(
             _site_matches(s, host, port) for s in self.sites
         ):
             return False
-        return self.paths is None or any(p.matches(path) for p in self.paths)
+        return self.paths is None or any(p.matches(path, route) for p in self.paths)
 
 
 def _site_matches(site: Site, host: str, port: int) -> bool:
@@ -206,21 +223,40 @@ def _site(entry: str) -> Site:
 
 def _path_problem(entry: str) -> str | None:
     text, p = entry.strip(), repr(entry)
+    if text.startswith("#"):
+        return (
+            f"paths: {p} must start with /; write /{text} for a route on the root path"
+        )
     if not text.startswith("/"):
         return f"paths: {p} must start with /"
-    if re.search(r"[?#]", text):
-        bare = re.split(r"[?#]", text, maxsplit=1)[0]
+    path, hashed, route = text.partition("#")
+    if "#" in route:
         return (
-            f"paths: {p} has a query or fragment; write {bare}: "
+            f"paths: {p} has more than one #; "
+            "write one, before the route, as in /#/auth/*"
+        )
+    bare = path.split("?", 1)[0]
+    if hashed and not route.startswith(("/", "!/")):
+        return (
+            f"paths: {p} has a fragment that is not a route; write {bare}: "
+            "only a fragment starting with / or !/ is matched"
+        )
+    if "?" in path or "?" in route:
+        fix = bare + (hashed + route.split("?", 1)[0] if hashed else "")
+        return (
+            f"paths: {p} has a query; write {fix}: "
             "a path matches whatever query follows it"
         )
-    segments = text.split("/")[1:]
-    if any("**" in seg and seg != "**" for seg in segments):
+    route = route.removeprefix("!")
+    if any(
+        "**" in seg and seg != "**"
+        for seg in path.split("/")[1:] + route.split("/")[1:]
+    ):
         return (
             f"paths: {p} has ** inside a segment; "
             "** stands alone between slashes, as in /docs/**"
         )
-    if "//" in text:
+    if "//" in path or "//" in route:
         return f"paths: {p} has an empty segment (//)"
     return None
 
@@ -298,3 +334,9 @@ def _path(entry: str) -> PathGlob:
             continue  # `/**/**` is `/**`
         units.append(unit)
     return PathGlob(tuple(units))
+
+
+def _entry(entry: str) -> PathEntry:
+    """A path entry: its path part, and its route part when it has a ``#``."""
+    path, hashed, route = entry.strip().partition("#")
+    return PathEntry(_path(path), _path(route.removeprefix("!")) if hashed else None)

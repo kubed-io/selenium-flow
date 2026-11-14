@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A flow's `paths` can name a hash route (`/#/auth/*`), and `url=` moves between hash routes.
+- Fixed: `outline` no longer names a toolbar, list or other container by its children's text run together, and says an invisible cover takes the click.
+- Fixed: a call that moves a single-page app to a new route reports that route's title.
 - Fixed: `press_key` with no selector presses at the focused element, so Enter follows a focused link and Tab moves on from it.
 - An explorer agent, served through `agents/list`, explores a site for a main agent, using and saving flows.
 - selenium-flow declares the agents extension (`agents/list`, `agents/get`).
