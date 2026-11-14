@@ -9,8 +9,10 @@ import pytest
 from selenium.common.exceptions import TimeoutException
 
 from kubed.selenium_flow.redaction import (
+    SHORT,
     Forms,
     Unscrubbed,
+    clip,
     marker,
     render,
     scrub,
@@ -186,7 +188,7 @@ def test_scrub_values_reaches_into_tuples_and_sets_keeping_their_type():
     assert scrub_values(("s3cr3t",), forms) == (M,)
 
 
-# --- a text cut short (final review 3) ---------------------------------------
+# --- no prefix is ever matched: scrub first, then cut ------------------------
 
 TOKEN = "ghp_0123456789abcdefABCDEF0123456789abcdef"
 TOKEN_ID = ("github", "token")
@@ -194,34 +196,51 @@ TF = Forms.of(TOKEN, TOKEN_ID)
 TM = "[secret:github/token]"
 
 
-def test_a_cut_text_masks_what_is_left_of_a_value_at_its_end():
-    text = "Your personal access token is " + TOKEN[:20]
-    assert scrub(text, TF, cut=True) == "Your personal access token is " + TM
+@pytest.mark.parametrize("end", ["", "…"])
+def test_a_prefix_of_a_value_is_only_text(end):
+    """Masking what begins a value would answer a guess, a character at a time."""
+    for n in range(SHORT, len(TOKEN)):
+        assert scrub("x " + TOKEN[:n] + end, TF) == "x " + TOKEN[:n] + end
 
 
-def test_a_text_ending_in_an_ellipsis_is_read_as_cut():
-    """outline marks a name it cut with `…`; the scrub needs no other word."""
-    assert scrub("token: " + TOKEN[:12] + "…", TF) == "token: " + TM + "…"
+def test_a_whole_value_before_an_ellipsis_is_still_masked():
+    assert scrub("token: " + TOKEN + "…", TF) == "token: " + TM + "…"
 
 
-def test_a_cut_tail_matches_case_blind_like_the_rest():
-    assert scrub("x " + TOKEN.upper()[:10], TF, cut=True) == "x " + TM
+def test_clip_leaves_a_short_text_alone():
+    assert clip("abc", 3) == ("abc", False)
+    assert clip("", 0) == ("", False)
+    assert clip("é" * 3, 6, unit="bytes") == ("é" * 3, False)
 
 
-def test_a_tail_shorter_than_a_short_value_is_left_alone():
-    """Under `SHORT` characters a prefix is anybody's word."""
-    assert scrub("price: ghp", TF, cut=True) == "price: ghp"
+def test_clip_cuts_characters():
+    assert clip("abcdef", 4) == ("abcd", True)
 
 
-def test_a_text_not_cut_keeps_its_tail():
-    assert scrub("Your token is " + TOKEN[:20], TF) == "Your token is " + TOKEN[:20]
+def test_clip_cuts_bytes_on_a_character():
+    """`é` is two bytes: a cut at an odd byte lands before it, never inside."""
+    assert clip("é" * 5, 5, unit="bytes") == ("é" * 2, True)
+    assert clip("a€b", 3, unit="bytes") == ("a", True)  # `€` is three bytes
+    assert clip("a€b", 4, unit="bytes") == ("a€", True)
 
 
-def test_a_cut_tail_is_found_beside_whole_values():
-    text = TOKEN + " and " + TOKEN[:8]
-    assert scrub(text, TF, cut=True) == TM + " and " + TM
+def test_clip_never_lands_inside_a_marker():
+    text = "abc " + TM + " tail"
+    for limit in range(4, 4 + len(TM)):
+        assert clip(text, limit) == ("abc ", True)
+    assert clip(text, 4 + len(TM)) == ("abc " + TM, True)
 
 
-def test_scrub_values_reads_an_ellipsis_as_cut_anywhere_it_sits():
-    value = {"elements": [{"name": "Token " + TOKEN[:30] + "…"}]}
-    assert scrub_values(value, TF) == {"elements": [{"name": "Token " + TM + "…"}]}
+def test_clip_in_bytes_never_lands_inside_a_marker():
+    text = "é " + TM + " tail"  # `é ` is three bytes
+    assert clip(text, 3 + 5, unit="bytes") == ("é ", True)
+    assert clip(text, 3 + len(TM), unit="bytes") == ("é " + TM, True)
+
+
+def test_clip_lands_before_a_marker_whose_start_it_would_split():
+    text = "ab" + TM
+    assert clip(text, 4) == ("ab", True)  # `[s` of `[secret:` would be left
+
+
+def test_clip_keeps_text_that_only_looks_like_a_marker_start():
+    assert clip("ab[secret:open ended", 6) == ("ab[sec", True)

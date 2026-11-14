@@ -671,13 +671,19 @@ rulings are cited by number. What must not break:
   secret's `allowed_urls`, recomputed with the 30 s snapshot; env and inline
   keys are fixed for the process's life. A leash edit is a rotation: a set built
   before an origin was added to it would otherwise stay current there.
-- **A text cut short is masked at its end.** A prefix matches no form whole, so
-  a text cut on its way here is also masked where it ends partway into a value
-  (`redaction.scrub(cut=True)`, `Scanner.tail`: a run of at least 4 characters
-  that begins a form). `outline` ends a name it cut at 80 characters in `…`,
-  which the scrub reads as cut wherever it sits; `network_body` passes its
-  body as cut when `truncated`. A new truncation point says so one of those
-  two ways.
+- **A text is scrubbed whole, then cut.** Where the server cuts text
+  (`network_body`'s body at 100 000 bytes, an `outline` name at 80 characters,
+  which then ends in `…`) the scrub sees the whole text and the cut comes after
+  (`core/actions.CUTS`, applied by `Workspaces._scrubbed` on every branch,
+  secrets off included, by the hand-back to its outline, and by the admin body
+  route), never inside a marker: one that would land in a marker lands before
+  it (`redaction.clip`). Nothing is matched by prefix, since masking the start
+  of a value would answer a guess; a trailing `…` a caller wrote is only text.
+  A new truncation point cuts after the scrub (ruling 27). Capture's rows are the one
+  cut before it: capture masks the secrets allowed on the row's origin, then
+  cuts (`Masker.text`, which also masks the end of what it read whatever it
+  holds), so a secret leashed elsewhere and cut there is not caught by the
+  read's every-leashed scrub.
 - **Fail closed** (ruling 2). Any scrub failure is `faults.ScrubFailed`, a 500
   with a fixed sentence, never the raw result. `redaction.scrub_error` scrubs an
   error in place and keeps its type, so its status stands (ruling 23); it raises
@@ -690,7 +696,7 @@ rulings are cited by number. What must not break:
 - **Capture holds, never leaks.** It holds a context's events raw until its
   origin's forms are in the masker, so no event is stored before its origin is
   known. A child frame whose origin is `""` (about:blank, srcdoc) inherits its
-  parent's or opener's needs; a popup with neither waits for every leashed
+  parent's or opener's needs (ruling 26); a popup with neither waits for every leashed
   secret. A failed read is retried as the every-leashed read. Past
   `PENDING_EVENTS` (200) or `QUEUE_BYTES`, or `PENDING_SECONDS` (10, checked
   when an event arrives: no timer), the oldest held events are dropped and
@@ -710,11 +716,14 @@ rulings are cited by number. What must not break:
   `screenshot.image`), the live view, recordings, binary resource contents, and
   a file opened from its signed link (`/files/{id}/{name}`: kept files,
   downloads, screenshots, recordings), which is served as it is, unscrubbed, a
-  kept text file included (ruling 16; a value in a file name masks the link in
-  the listing) — text is read scrubbed through its `workspace://` resource;
+  kept text file included (rulings 16 and 25; a value in a file name masks the
+  link in the listing) — text is read scrubbed through its `workspace://`
+  resource;
   `execute_script`, which can transform or send a value away in ways no
   encoding list anticipates; non-ASCII case variants, since folding is
-  ASCII-only so spans stay aligned (ruling 18).
+  ASCII-only so spans stay aligned (ruling 18); and what the page itself
+  compares, unscrubbed, such as `outline`'s `text=` filter or an XPath
+  `contains()`, which answer a guess as any page script can.
 - **The admin API and UI are not scrubbed** (ruling 17): they are the operator's
   view across workspaces, and the Site data tab exists to show what is stored.
   The exception is where they share an agent's read path: the Captured tab's

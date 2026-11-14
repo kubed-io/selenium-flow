@@ -63,7 +63,7 @@ from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
 from ..capture.store import Buffer
 from ..core import guidance, session_caps
-from ..core.actions import OPEN_PRIVATE, Actions
+from ..core.actions import CUTS, OPEN_PRIVATE, Actions, cut_names
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
@@ -106,6 +106,7 @@ HEADLESS_RECORD_REMEMBERED = (
     "this workspace's browser is headless, remembered from an earlier open: "
     "pass headless=false to record"
 )
+
 
 # `settle`'s default page: the one the result itself reports.
 FROM_RESULT = object()
@@ -937,30 +938,29 @@ class Workspaces:
         a captured site data save, which `settle` stores and strips and a
         restore must get back exactly, and a screenshot's pixels, which cannot
         be scrubbed (ruling 12) and would only be corrupted by a match.
+
+        Then the tool's cut (`actions.CUTS`), on every branch, secrets off
+        too: a text is scrubbed whole and cut after, so a value the cut would
+        go through is masked first and nothing is matched by prefix.
         """
+        cut = CUTS.get(tool, lambda as_it_is: as_it_is)
         after = self._arrived(name, session_id, result)
-        if not self.scrubber.active:  # secrets off: the very object, untouched
-            return result, False
+        if not self.scrubber.active:  # secrets off: the very object, unscanned
+            return cut(result), False
         aside = {}
         if isinstance(result, dict):
             for key in _NOT_TEXT + (_PIXELS if tool == "screenshot" else ()):
                 if key in result:
                     aside[key] = result.pop(key)
         origins = [before, after]
-        cut: tuple[str, ...] = ()
         if tool == "network_body":
             # A body comes from the request's origin, which the browser may
-            # never have been on: unknown, so every leashed secret. One cut at
-            # its cap may end partway into a value.
+            # never have been on: unknown, so every leashed secret.
             origins.append(None)
-            if isinstance(result, dict) and result.get("truncated"):
-                cut = ("text",)
-        scrubbed, hidden = self.scrubber.result(
-            name, session_id, result, origins, cut=cut
-        )
+        scrubbed, hidden = self.scrubber.result(name, session_id, result, origins)
         if aside:
             scrubbed.update(aside)
-        return scrubbed, hidden
+        return cut(scrubbed), hidden
 
     def act(
         self,
@@ -1110,6 +1110,8 @@ class Workspaces:
                 tool="await_control",
                 surface=surface,
             ).result
+            # Said as `await_control`, cut as the outline it is, after its scrub.
+            read = cut_names(read)
         except Exception as exc:  # noqa: BLE001 - the hand-back is said regardless
             # By type: a Grid failure's text quotes the Grid's URL.
             log.info(

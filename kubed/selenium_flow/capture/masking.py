@@ -586,10 +586,15 @@ class Masker:
         )
 
     def text(
-        self, value: str, cap: int = TEXT_CAP, *, also: tuple[int, int] | None = None
+        self,
+        value: str,
+        cap: int | None = TEXT_CAP,
+        *,
+        also: tuple[int, int] | None = None,
     ) -> str:
         """``value`` with every occurrence of every secret masked, cut to
-        ``cap``.
+        ``cap``; whole when ``cap`` is None (`network_body`, which cuts after
+        the workspace's scrub).
 
         Occurrences are found in the original text and overlapping or touching
         ones become one mask: replacing one secret after another (or matching
@@ -609,6 +614,11 @@ class Masker:
         secrets' (a URL's password, so a secret holding it is masked whole).
         """
         _, scanners, _, longest = self._state  # once: see `__init__`
+        if cap is None:  # the whole text, uncut: its reader cuts it after
+            spans = _scan(value, scanners)
+            if also is not None:
+                spans.append((also[0], min(also[1], len(value)), frozenset()))
+            return render(value, spans, MASK) if spans else value
         read = value[: cap + longest]
         spans = _scan(read, scanners)
         return _shown(read, len(value), cap, spans, longest, also)

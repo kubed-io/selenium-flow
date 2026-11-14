@@ -9,6 +9,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.core.actions import BODY_CAP
 from kubed.selenium_flow.http.admin import capture as admin_capture
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
@@ -148,6 +149,15 @@ def test_a_body_is_asked_of_the_live_browser(admin_client, fed, monkeypatch):
     )
     r = admin_client.post("/admin/workspaces/ws/network/1.1/body", headers=AUTH)
     assert r.status_code == 200 and r.json() == {"body": "{}"} and asked == [("s1", "1.1")]
+
+
+def test_a_body_is_cut_at_its_cap_for_the_admin_too(admin_client, fed, monkeypatch):
+    """The action returns a body whole, for the scrub; the admin route cuts it."""
+    monkeypatch.setattr(fed.workspaces, "browser", lambda key: "s1")
+    whole = {"text": "x" * (BODY_CAP + 10), "truncated": False}
+    monkeypatch.setattr(fed.actions, "network_body", lambda sid, id: dict(whole))
+    got = admin_client.post("/admin/workspaces/ws/network/1.1/body", headers=AUTH).json()
+    assert got == {"text": "x" * BODY_CAP, "truncated": True}
 
 
 def test_an_unknown_body_id_is_400(admin_client, fed, monkeypatch):

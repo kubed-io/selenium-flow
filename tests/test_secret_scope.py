@@ -8,6 +8,7 @@ nothing at all.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import threading
@@ -19,6 +20,7 @@ import pytest
 from selenium.common.exceptions import InvalidSessionIdException, TimeoutException
 
 from kubed.selenium_flow import errors, faults, secrets, urls
+from kubed.selenium_flow.core.actions import BODY_CAP
 from kubed.selenium_flow.redaction import Forms, scrub
 from kubed.selenium_flow.workspace import scrub as scrub_module
 from kubed.selenium_flow.workspace.origins import OriginChanged, Origins
@@ -1572,10 +1574,11 @@ def test_a_second_park_keeps_the_first(make):
     assert scrub("alpha-11", s.forms("w", "g3", [B, B])) == "[secret:a/password]"
 
 
-# --- network_body: the request's origin, and a body cut at its cap ----------
-# (final review 3 and 11)
+# --- network_body: the request's origin; scrubbed whole, then cut ----------
+# (final review 3 and 11; the prefix oracle, review 12)
 
 LONG = "alpha-11-0123456789abcdef"
+LONG_MARK = "[secret:a/password]"
 
 
 @pytest.fixture
@@ -1586,40 +1589,129 @@ def on_b():
     made.scrubber.close()
 
 
-def body(text, truncated=False, **more):
+@pytest.fixture
+def on_a():
+    """A browser on A, which allows ``LONG``."""
+    made = scoped(BindingCatalogue({A: {("a", "password"): LONG}}))
+    yield made
+    made.scrubber.close()
+
+
+def body(text, **more):
+    """`network_body`'s answer: the whole masked body, never cut by the action."""
     return {"id": "3.7", "uri": "workspace://network/3.7", "mime": "text/plain",
-            "size": len(text), "binary": False, "text": text,
-            "truncated": truncated, **more}
+            "size": len(text.encode()), "binary": False, "text": text,
+            "truncated": False, **more}
 
 
 def test_a_body_is_scrubbed_with_every_leashed_secret(on_b):
     """The body came from the request's origin, never visited, maybe: A's value
     is masked on B's page, whatever the answer says about where it is."""
     on_b.actions.result = body(f"x {LONG} y", url=f"{B}/")
-    assert act(on_b, "network_body")["text"] == "x [secret:a/password] y"
+    assert act(on_b, "network_body")["text"] == f"x {LONG_MARK} y"
 
 
-def test_a_body_cut_at_its_cap_masks_the_start_of_a_value(on_b):
-    on_b.actions.result = body("token=" + LONG[:12], truncated=True)
-    assert act(on_b, "network_body")["text"] == "token=[secret:a/password]"
+def prefixes(value):
+    """Every guess at ``value`` short of it whole, as a script would spell one."""
+    guesses = []
+    for n in range(4, len(value)):
+        part = value[:n]
+        for guess in (part, part.upper(), part.encode().hex(),
+                      base64.b64encode(part.encode()).decode()):
+            guesses += [guess, guess + "…"]
+    return guesses
 
 
-def test_a_body_not_cut_keeps_its_end(on_b):
-    on_b.actions.result = body("token=" + LONG[:12])
-    assert act(on_b, "network_body")["text"] == "token=" + LONG[:12]
+def test_a_script_returning_prefixes_gets_every_one_back_unchanged(on_a):
+    """Masking the start of a value would answer each guess, one character at a
+    time: nothing is matched by prefix, an ellipsis or no."""
+    guesses = prefixes(LONG)
+    on_a.actions.result = {"url": f"{A}/", "title": "t", "result": list(guesses)}
+    assert act(on_a, "execute_script")["result"] == guesses
 
 
-def test_another_action_is_not_read_as_cut(on_b):
-    on_b.actions.result = {"url": f"{B}/", "title": "t", "text": LONG[:12],
-                           "truncated": True}
-    assert act(on_b, "extract")["text"] == LONG[:12]
+def test_a_value_the_cap_cuts_through_comes_back_as_its_marker(on_b):
+    """Scrubbed whole, then cut: the value straddles the byte cap, its marker
+    (shorter than it) ends before it."""
+    at = BODY_CAP - 20
+    on_b.actions.result = body("x" * at + LONG + "y" * 100)
+    got = act(on_b, "network_body")
+    assert got["text"] == "x" * at + LONG_MARK + "y"
+    assert got["truncated"] is True and LONG[:4] not in got["text"]
 
 
-def test_an_outline_name_cut_partway_into_a_value_is_masked(ws):
-    """outline ends a name it cut in `…`; what is left of the value is masked."""
-    ws.actions.result = {"url": f"{A}/", "title": "t", "count": 1, "total": 1,
-                         "elements": [{"role": "button", "name": "Token alpha-1…"}]}
-    assert act(ws, "outline")["elements"][0]["name"] == "Token [secret:a/password]…"
+def test_a_marker_the_cap_would_cut_is_cut_before(on_b):
+    at = BODY_CAP - 10
+    on_b.actions.result = body("x" * at + LONG + "y" * 100)
+    got = act(on_b, "network_body")
+    assert got["text"] == "x" * at and got["truncated"] is True
+
+
+def test_a_body_under_the_cap_is_whole(on_b):
+    on_b.actions.result = body("token=" + LONG[:12] + " and " + LONG)
+    got = act(on_b, "network_body")
+    assert got["text"] == "token=" + LONG[:12] + " and " + LONG_MARK
+    assert got["truncated"] is False
+
+
+def test_a_body_is_cut_at_its_cap_with_secrets_off(ws_without_secrets):
+    ws_without_secrets.actions.result = body("é" * BODY_CAP)
+    got = act(ws_without_secrets, "network_body")
+    assert got["text"] == "é" * (BODY_CAP // 2) and got["truncated"] is True
+
+
+def test_another_action_is_never_cut(ws_without_secrets):
+    long = "x" * (BODY_CAP + 10)
+    ws_without_secrets.actions.result = {"url": f"{A}/", "title": "t", "text": long,
+                                         "elements": [{"name": long}]}
+    got = act(ws_without_secrets, "extract")
+    assert got["text"] == long and got["elements"][0]["name"] == long
+
+
+def outlined(*names):
+    return {"url": f"{A}/", "title": "t", "count": len(names), "total": len(names),
+            "elements": [{"role": "button", "name": name} for name in names]}
+
+
+def test_an_outline_name_the_cap_cuts_through_keeps_its_marker(on_a):
+    """The value straddles character 80; its marker ends before it."""
+    on_a.actions.result = outlined("n" * 60 + LONG + "z" * 10)
+    name = act(on_a, "outline")["elements"][0]["name"]
+    assert name == "n" * 60 + LONG_MARK + "z" + "…"
+
+
+def test_an_outline_name_whose_marker_the_cap_would_cut_is_cut_before(on_a):
+    on_a.actions.result = outlined("n" * 70 + LONG + "z" * 10)
+    name = act(on_a, "outline")["elements"][0]["name"]
+    assert name == "n" * 70 + "…" and LONG[:4] not in name
+
+
+def test_an_outline_name_of_80_characters_is_left_as_it_is(ws):
+    ws.actions.result = outlined("n" * 80, "short")
+    names = [e["name"] for e in act(ws, "outline")["elements"]]
+    assert names == ["n" * 80, "short"]
+
+
+def test_an_outline_name_is_cut_at_80_with_secrets_off(ws_without_secrets):
+    ws_without_secrets.actions.result = outlined("n" * 100)
+    name = act(ws_without_secrets, "outline")["elements"][0]["name"]
+    assert name == "n" * 80 + "…"
+
+
+def test_the_hand_backs_outline_is_cut_too(ws_without_secrets):
+    ws_without_secrets.actions.outline = ws_without_secrets.actions.do
+    ws_without_secrets.actions.result = outlined("n" * 100)
+    summary = ws_without_secrets.handed_back("w", None)
+    assert summary["outline"]["elements"][0]["name"] == "n" * 80 + "…"
+
+
+def test_the_hand_backs_outline_is_scrubbed_before_it_is_cut(on_a):
+    """Cut after `_said`'s scrub: the value straddling character 80 is its
+    marker, never a prefix."""
+    on_a.actions.outline = on_a.actions.do
+    on_a.actions.result = outlined("n" * 60 + LONG + "z" * 10)
+    summary = on_a.handed_back("w", None)
+    assert summary["outline"]["elements"][0]["name"] == "n" * 60 + LONG_MARK + "z…"
 
 
 # --- flows_here: a flow's own words are scrubbed (final review 10) ----------

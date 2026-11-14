@@ -617,15 +617,9 @@ def test_extract_of_an_element_with_a_content_attribute_is_its_innerhtml():
         '<input id="b" placeholder="{}">',
     ],
 )
-def test_the_outline_marks_a_name_it_cut(html):
-    """A name past 80 characters ends in `…`, so the scrub reads it as cut and
-    masks the start of a value the cut went through (final review 3)."""
+def test_the_outline_returns_a_long_name_whole(html):
+    """The server cuts a name, after its scrub, so a value the cut would go
+    through is masked whole first (spec 2026-11-14-secret-scope)."""
     name = "Your personal access token is " + "a1" * 40
     entry = outline(html.format(name), interactive=False)["elements"][0]
-    assert entry["name"] == name[:80] + "…"
-
-
-def test_the_outline_leaves_a_name_of_80_characters_as_it_is():
-    name = "n" * 80
-    entry = outline(f'<button id="b">{name}</button>')["elements"][0]
     assert entry["name"] == name

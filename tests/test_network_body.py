@@ -8,8 +8,9 @@ import pytest
 from kubed.selenium_flow import errors
 from kubed.selenium_flow.capture import MASK
 from kubed.selenium_flow.capture.store import Capture
-from kubed.selenium_flow.core.actions import BODY_CAP, Actions
+from kubed.selenium_flow.core.actions import BODY_CAP, Actions, cut_body, cut_names
 from kubed.selenium_flow.faults import NotFound
+from kubed.selenium_flow.redaction import Forms
 
 from .capture_events import done, nav_started, req
 from .fakes import FakeChannel, FakeGrid
@@ -56,12 +57,33 @@ def test_text_comes_back_whole_under_the_cap(actions, fed):
     assert fed.channel.params("network.getData") == {"dataType": "response", "request": "r1"}
 
 
-def test_text_over_100_kb_is_cut_on_a_character_and_marked(actions, fed):
+def test_text_over_100_kb_comes_back_whole_for_the_scrub_to_cut(actions, fed):
+    """The action never cuts: `Workspaces` scrubs the whole body, then cuts it
+    (`cut_body`), so no cut ends partway into a value."""
     fed.channel.bodies["r1"] = body_of("é" * 60_000)            # 120 000 bytes
     got = actions.network_body("s1", "1.1")
-    assert got["truncated"] is True and len(got["text"].encode()) <= BODY_CAP
-    assert got["text"] == "é" * 50_000
+    assert got["truncated"] is False and got["text"] == "é" * 60_000
     assert got["size"] == 120_000
+
+
+def test_cut_body_cuts_on_a_character_and_marks_it():
+    got = cut_body({"text": "é" * 60_000, "truncated": False, "size": 120_000})
+    assert got["text"] == "é" * 50_000 and got["truncated"] is True
+    assert len(got["text"].encode()) <= BODY_CAP and got["size"] == 120_000
+
+
+def test_cut_body_leaves_a_short_or_binary_body_alone():
+    assert cut_body({"text": "ok", "truncated": False}) == {"text": "ok", "truncated": False}
+    assert cut_body({"text": None, "truncated": False}) == {"text": None, "truncated": False}
+    assert cut_body("not a dict") == "not a dict"
+    assert cut_body({}) == {}
+
+
+def test_cut_names_cuts_a_long_name_and_marks_it():
+    got = cut_names({"elements": [{"name": "n" * 81}, {"name": "n" * 80}, {"role": "x"}, 7]})
+    assert got["elements"] == [{"name": "n" * 80 + "…"}, {"name": "n" * 80}, {"role": "x"}, 7]
+    assert cut_names({"elements": None}) == {"elements": None}
+    assert cut_names(None) is None
 
 
 def test_binary_returns_its_type_and_size_only(actions, fed):
@@ -139,12 +161,22 @@ def test_a_bound_secret_echoed_in_a_body_comes_back_masked(actions, fed):
     assert got["size"] == len(sent) and got["truncated"] is False
 
 
-def test_a_secret_straddling_the_body_cap_is_masked_before_the_cut(actions, fed):
+def test_a_secret_past_the_body_cap_is_masked_whole(actions, fed):
+    """The whole body is masked, its end too: the cut comes after."""
     fed.capture.secret("ws", ["hunter2"])
-    fed.channel.bodies["r1"] = body_of("x" * (BODY_CAP - 3) + "hunter2" + "y" * 10)
+    sent = "x" * (BODY_CAP - 3) + "hunter2" + "y" * 10 + "hunter2"
+    fed.channel.bodies["r1"] = body_of(sent)
     got = actions.network_body("s1", "1.1")
-    assert "hun" not in got["text"] and got["truncated"] is True
-    assert len(got["text"].encode()) <= BODY_CAP
+    assert got["text"] == "x" * (BODY_CAP - 3) + MASK + "y" * 10 + MASK
+    assert got["size"] == len(sent)
+
+
+def test_a_value_masked_into_a_longer_marker_is_not_cut_off(actions, fed):
+    """A marker is longer than its value: the masked text is not cut back to
+    the body's own length."""
+    fed.capture.secret("ws", Forms.of("pw12", ("a", "pw")))
+    fed.channel.bodies["r1"] = body_of("a pw12")
+    assert actions.network_body("s1", "1.1")["text"] == "a [secret:a/pw]"
 
 
 # ---- answered from the row when asking would cost the connection (I4) ----------

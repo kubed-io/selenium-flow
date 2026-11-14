@@ -543,11 +543,12 @@ class Capture:
             buffer = None if held is None else self._cache.get(held.workspace)
             return None if buffer is None else buffer.index.get(id)
 
-    def mask(self, session_id: str, text: str, cap: int) -> str | None:
+    def mask(self, session_id: str, text: str, cap: int | None) -> str | None:
         """``text`` with the secrets bound in ``session_id``'s browser masked,
-        cut to ``cap`` characters (`Masker.text`); None when capture no longer
-        knows that browser. The masking runs outside the lock: it reads at
-        most ``cap`` plus the longest secret."""
+        cut to ``cap`` characters, or whole when ``cap`` is None
+        (`Masker.text`); None when capture no longer knows that browser. The
+        masking runs outside the lock: it reads at most ``cap`` plus the
+        longest secret, or all of ``text``."""
         with self._lock:
             held = self._sessions.get(session_id)
         return None if held is None else held.masker.text(text, cap)
