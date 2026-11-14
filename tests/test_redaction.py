@@ -26,14 +26,22 @@ ID = ("ldap", "password")
 F = Forms.of(PW, ID)
 M = "[secret:ldap/password]"
 
-GOLDEN = [  # one row per encoding (Dr K's table, 11-13 22:15)
-    ("raw", PW), ("html", html.escape(PW)), ("query", quote(PW, safe="")),
-    ("form", quote_plus(PW)), ("json", json.dumps(PW)[1:-1]),
-    ("base64", base64.b64encode(PW.encode()).decode()),
-    ("base64 url-safe", base64.urlsafe_b64encode(PW.encode()).decode()),
-    ("hex", PW.encode().hex()), ("HEX", PW.encode().hex().upper()),
-    ("upper", PW.upper()), ("reversed", PW[::-1]), ("repr", repr(PW)[1:-1]),
-]
+def golden(value: str) -> list[tuple[str, str]]:
+    """One row per encoding of ``value`` (Dr K's table, 11-13 22:15).
+
+    A function so `test_scrub_coverage` spells its own value the same ways.
+    """
+    return [
+        ("raw", value), ("html", html.escape(value)), ("query", quote(value, safe="")),
+        ("form", quote_plus(value)), ("json", json.dumps(value)[1:-1]),
+        ("base64", base64.b64encode(value.encode()).decode()),
+        ("base64 url-safe", base64.urlsafe_b64encode(value.encode()).decode()),
+        ("hex", value.encode().hex()), ("HEX", value.encode().hex().upper()),
+        ("upper", value.upper()), ("reversed", value[::-1]), ("repr", repr(value)[1:-1]),
+    ]
+
+
+GOLDEN = golden(PW)
 
 
 @pytest.mark.parametrize("name,spelt", GOLDEN, ids=[g[0] for g in GOLDEN])

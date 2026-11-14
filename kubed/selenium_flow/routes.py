@@ -289,6 +289,8 @@ def register(
         return await answer_module.answer(
             request, token, "site-data/list",
             lambda caller, _body: resources.site_listing(workspaces, caller.name), log,
+            # A site's words, as `workspace://site-data` is (ruling 16).
+            scrubbed=workspaces.scrubbed,
         )
 
     @mcp.custom_route(
@@ -301,6 +303,7 @@ def register(
             request, token, "site-data/get",
             lambda caller, _body: resources.one_site(workspaces, caller.name, site),
             log,
+            scrubbed=workspaces.scrubbed,
         )
 
     # The calls that wait, each a body of its own, awaited on the loop: a long

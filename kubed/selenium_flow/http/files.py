@@ -573,7 +573,9 @@ def keep(actions, workspaces, store, uri, name: str, session_id=None) -> dict:
             raise NoSession(NO_DOWNLOADS)
         data = actions.grid.read_file(session_id, leaf)
         landed = store.write_file(workspace, _unreserved(leaf), data, FILES)
-        log.info("kept %s as %s/%s", uri, workspace, landed["name"])
+        # Not by name: a download is named by the site, and a site can put a
+        # secret's value in it (spec 2026-11-14-secret-scope).
+        log.info("kept a download in %s's Files", workspace)
     return {
         "kept": True,
         "from": uri_of(folder_of, leaf),
@@ -842,7 +844,11 @@ def register(
         if store is None:
             raise ValueError(OFF)
         parse_uri(uri)
-        return keep(actions, workspaces, store, uri, clients.caller().name)
+        name = clients.caller().name
+        # A download's name is the site's: checked as its listing is (ruling 16).
+        return workspaces.scrubbed(
+            name, lambda: keep(actions, workspaces, store, uri, name)
+        )
 
     _routes(mcp, actions, workspaces, store, token, base, prefix, ttl)
     return set()
@@ -872,7 +878,11 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
     async def answer(request: Request, what: str, call) -> JSONResponse:
         """One request, answered the way every other tree answers one."""
         label = "browser/downloads" if what == "downloads" else f"files/{what}"
-        return await answer_module.answer(request, token, label, call, log)
+        # A listing names what a site named, a download (spec
+        # 2026-11-14-secret-scope, ruling 16): checked as its resource is.
+        return await answer_module.answer(
+            request, token, label, call, log, scrubbed=workspaces.scrubbed
+        )
 
     @mcp.custom_route(path("list"), methods=["GET"], name="files_list")
     async def list_files(request: Request) -> JSONResponse:

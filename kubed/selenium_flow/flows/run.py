@@ -62,6 +62,7 @@ def run(
     before_save=None,
     bound=None,
     step_done=None,
+    in_scope=None,
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
@@ -69,8 +70,8 @@ def run(
     never opens or ends one, which is what lets the same flow run on Chrome and
     then on Firefox unedited (§F1.9).
 
-    ``after_step``, ``before_step``, ``before_save``, ``bound`` and
-    ``step_done`` are the `engine.Hooks`, each optional; ``stop`` is a
+    ``after_step``, ``before_step``, ``before_save``, ``bound``,
+    ``step_done`` and ``in_scope`` are the `engine.Hooks`, each optional; ``stop`` is a
     `threading.Event` that ends the run at the next step or the next poll of a
     waiting one.
 
@@ -90,7 +91,8 @@ def run(
         clock=time.monotonic,
         default_timeout=RUN_TIMEOUT,
         hooks=engine.Callbacks(
-            before_step, after_step, before_save, bound=bound, step_done=step_done
+            before_step, after_step, before_save, bound=bound, step_done=step_done,
+            in_scope=in_scope,
         ),
         params=params,
         verbose=verbose,

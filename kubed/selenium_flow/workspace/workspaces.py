@@ -892,6 +892,41 @@ class Workspaces:
             return None
         return self.origins.arrived(name, session_id, result["url"])
 
+    def scrubbed(self, name: str, call: Callable[[], object]):
+        """``call()``'s answer, or its failure, checked for secrets as a resource
+        read is (spec 2026-11-14-secret-scope, ruling 16): for what is not a
+        call on the browser but may still carry a page's words - a site-data
+        snapshot, a file listing, a flow saved, a file kept. Every leashed
+        secret, and what the workspace holds; ``name`` may be "" (none named).
+
+        Blocking. A failure is scrubbed in place and re-raised with its own
+        type; one that cannot be scrubbed is `faults.ScrubFailed`.
+        """
+        failure = None
+        try:
+            result = call()
+        except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
+            failure = exc
+        if failure is not None:
+            # Outside the `except`: see `_said`.
+            self.scrubber.error(name, "", failure, [None])
+            raise failure
+        return self.scrubber.resource(name, result)
+
+    def in_scope(
+        self, name: str, session_id: str, result, before: str | None
+    ) -> Forms:
+        """What a flow step on ``session_id`` that began on ``before`` is
+        scrubbed with (spec 2026-11-14-secret-scope, "Flows"): ``result`` is
+        noted as a call's is - its URL, its ``in_frame`` - then the secrets in
+        scope on the origins before and after it are read. ``result`` is None
+        for a step that raised, whose page is unknown: every leashed secret.
+
+        Blocking, for the run's worker thread. Raises `faults.ScrubFailed`.
+        """
+        after = None if result is None else self._arrived(name, session_id, result)
+        return self.scrubber.forms(name, session_id, [before, after])
+
     def _scrubbed(
         self, name: str, session_id: str, result, before: str | None, tool: str = ""
     ) -> tuple[object, bool]:

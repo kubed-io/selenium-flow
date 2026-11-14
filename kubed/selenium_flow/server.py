@@ -44,6 +44,7 @@ from .mcp import (
     mirror,
     prompts,
     resources,
+    scrubbed,
     show,
     skill,
     tools,
@@ -418,6 +419,11 @@ class SeleniumMCP:
         # notice follows the sentence `Explained` has already written.
         self.mcp.add_middleware(control.Notices(self.controls))
         failures.install(self.mcp)
+        # Inside `failures`: a read that cannot be scrubbed answers the fixed
+        # sentence, which `Explained` passes on as it is (spec
+        # 2026-11-14-secret-scope, ruling 16). `show` and `read_resource` read
+        # through it too.
+        scrubbed.install(self.mcp, self.workspaces)
         # The same workspaces the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.
         routes.register(
