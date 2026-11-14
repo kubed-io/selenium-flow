@@ -170,7 +170,7 @@ def test_the_http_surface_is_unchanged(server):
 async def test_an_in_flight_call_carries_control_in_structured_content(server, monkeypatch):
     """Asked mid-call: the call before the request still holds its turn, so the
     grant waits, and the call's result says ``requested``."""
-    tunnel = Tunnel(FakePeer(), who="kelly", workspace="w1", session="s", grace=1)
+    tunnel = Tunnel(FakePeer(), who="alex", workspace="w1", session="s", grace=1)
     server.tunnels.add("g1", tunnel)
     parse = files_module.parse_uri
 
@@ -194,7 +194,7 @@ async def test_an_in_flight_call_carries_control_in_structured_content(server, m
         with turn.lock:
             result = await c.call_tool("keep_file", {"uri": URI})
     control = result.structured_content["control"]
-    assert control["state"] == "requested" and control["who"] == ["kelly"]
+    assert control["state"] == "requested" and control["who"] == ["alex"]
     assert ISO.fullmatch(control["since"])
     assert control["hint"] == hint_at(NOTICE_REQUESTED, control)
     assert result.content[-1].text == control["hint"]

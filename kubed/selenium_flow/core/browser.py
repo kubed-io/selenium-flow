@@ -315,7 +315,7 @@ class Grid:
 
         Derived from ``url``, never read from the browser's ``webSocketUrl``
         capability: the Grid fills that in with its own in-cluster name
-        (measured: ``ws://selenium-grid-selenium-hub.flow:4444/...``).
+        (measured: ``ws://hub:4444/...``).
         """
         parts = urlsplit(self.url)
         scheme = "wss" if parts.scheme == "https" else "ws"

@@ -387,7 +387,7 @@ def test_an_unreachable_grid_on_download_is_a_503_not_a_404(client):
         browser.Grid,
         "read_file",
         side_effect=requests.ConnectionError(
-            "HTTPConnectionPool(host='selenium-grid.selenium.svc.cluster.local', "
+            "HTTPConnectionPool(host='grid.invalid', "
             "port=4444): Max retries exceeded"
         ),
     ):

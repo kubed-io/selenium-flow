@@ -246,9 +246,9 @@ async def test_the_refusal_says_who_and_when():
 
 async def test_the_requested_refusal_says_who_and_when(controls, passed):
     passed.value = False
-    controls.ask(FakeTunnel("kelly"))
+    controls.ask(FakeTunnel("alex"))
     assert str(controls.refusal("g1", "navigate")) == REQUESTED.format(
-        who="kelly", at="15:12"
+        who="alex", at="15:12"
     )
 
 
@@ -275,13 +275,13 @@ async def test_the_gate_is_read_from_a_worker_thread(controls, t1):
 
 async def test_the_notice_while_requested(controls, passed):
     passed.value = False
-    controls.ask(FakeTunnel("kelly"))
+    controls.ask(FakeTunnel("alex"))
     assert controls.notice("w1") == {
         "state": "requested",
-        "who": ["kelly"],
+        "who": ["alex"],
         "since": "2026-10-27T15:12:11Z",
         "hint": (
-            "kelly asked for control of this browser at 15:12 UTC; it is theirs "
+            "alex asked for control of this browser at 15:12 UTC; it is theirs "
             "once this call ends. Call await_control, which returns when they hand back."
         ),
     }

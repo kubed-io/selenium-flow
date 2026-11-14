@@ -136,9 +136,9 @@ hand it back.
 
 A refusal is one sentence (over HTTP, a 409):
 
-> kelly has control of this browser since 14:02 UTC. Call await_control (POST /browser/await-control), which returns when they hand back.
+> alex has control of this browser since 14:02 UTC. Call await_control (POST /browser/await-control), which returns when they hand back.
 
-If they have only asked so far, it reads `kelly asked for control of this
+If they have only asked so far, it reads `alex asked for control of this
 browser at 14:02 UTC. …` and ends the same way. A person the server has no name
 for is "a person". Do not retry the refused call, and do not reach for another
 tool to get round it — every tool that acts is refused the same way. Call
@@ -164,7 +164,7 @@ JavaScript, so they count as acting; so do `open_session` and `end_browser`.
 `await_control()` takes no arguments and returns when they hand back. A
 client that runs MCP background tasks gets one, which waits as long as it takes.
 Any other gets a blocking call that answers after about 90 seconds with
-`handed_back: false` and `still in kelly's control; call again.` — so call it
+`handed_back: false` and `still in alex's control; call again.` — so call it
 again, until it hands back. With nobody in control it answers at once:
 `control: null`, or the hand-back you had not been told of yet.
 

@@ -9254,8 +9254,8 @@
   ],
   "servers": [
     {
-      "description": "In-cluster Service.",
-      "url": "http://selenium-flow.flow.svc.cluster.local:8000"
+      "description": "The server this document was fetched from.",
+      "url": "/"
     },
     {
       "description": "docker compose, where auth is off by default.",
