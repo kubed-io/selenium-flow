@@ -28,7 +28,7 @@ def test_the_environment_is_read_in_two_modules_only():
 def test_a_server_built_from_settings_uses_them(tmp_path):
     s = Settings(grid=GRID, auth={"token": "t"}, route_prefix="/flow",
                  data={"dir": str(tmp_path)}, mcp={"skill": False},
-                 session={"browser": "firefox"}, workspace={"ttl": 42})
+                 session={"browser": "firefox", "keep_alive": 600}, workspace={"ttl": 42})
     server = SeleniumMCP(s)
     assert server.settings is s
     assert server.auth_token == "t"
@@ -36,6 +36,13 @@ def test_a_server_built_from_settings_uses_them(tmp_path):
     assert server.flows is not None
     assert server.skill is None
     assert server.workspaces.defaults == {"browser": "firefox"}
+    assert server.monitor.keep_alive == 600
+    assert server.workspaces.keep_alive == 600
+    assert server.monitor.ping == server.grid.ping
+    from kubed.selenium_flow.monitor.monitor import KEEPALIVE
+    assert KEEPALIVE not in server.monitor.sinks
+    assert KEEPALIVE not in server.monitor.events_for
+    assert KEEPALIVE not in server.monitor.collectors_for
     assert server.store._ttl == 42
     assert server.sources["workspace.ttl"] == "args"
 

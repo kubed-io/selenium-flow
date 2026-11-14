@@ -2,13 +2,15 @@
 restore on open and on a silent reopen, and the one report each makes."""
 
 import json
+import time
 from dataclasses import replace
 
 import pytest
 
+from kubed.selenium_flow import faults
 from kubed.selenium_flow.site_data import snapshot as site_data
 from kubed.selenium_flow.workspace.store import MemoryStore
-from kubed.selenium_flow.workspace.workspaces import Caller
+from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 from tests.conftest import NAMED, RecordingActions, manager
 
 URL = "https://app.example.com/x"
@@ -72,6 +74,12 @@ def reopened(m, **kw):
 def reaped(m):
     """The Grid took the browser: the next call reopens it on its own."""
     m.actions.grid.alive.clear()
+
+
+def idle(m, seconds, grid_timeout=300):
+    """The workspace's last call and open were ``seconds`` ago."""
+    then = time.time() - seconds
+    m.store.update(NAMED, lambda r: replace(r, called_at=then, opened_at=then, grid_timeout=grid_timeout))
 
 
 def test_a_save_is_stored_and_never_returned_raw(named_caller):
@@ -155,20 +163,105 @@ def test_the_call_that_reopens_a_reaped_browser_says_what_came_back(named_caller
     first = m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
     assert m.actions.site_data_seen[-1]["cookies"], "the reopen restored"
     assert first["site_data"] == REPORT
-    assert "site_data" not in m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
+    assert first["reopened"] == {"cause": "lost", "message": faults.REOPENED["lost"]}
+    second = m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
+    assert "site_data" not in second and "reopened" not in second
     assert m.store.get(NAMED).reopened == {}
 
 
-def test_a_report_waits_for_a_call_that_finishes(named_caller):
+def test_a_reap_with_no_site_data_is_said_once(named_caller):  # ruling 2
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    reaped(m)
+    first = m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert first["reopened"]["cause"] == "lost" and "site_data" not in first
+    assert "reopened" not in m.act(Caller(NAMED), lambda s: {"url": URL})
+
+
+@pytest.mark.parametrize("keep_alive, grid_timeout, seconds, cause", [
+    (900, 300, 899, "lost"), (900, 300, 900, "reaped"),
+    (0, 300, 299, "lost"), (0, 300, 300, "reaped"),
+    (0, None, 299, "lost"), (0, None, 300, "reaped"),
+    (120, 300, 200, "lost"),  # the longer of the two (ruling 14)
+])
+def test_the_cause_is_judged_by_the_window(named_caller, keep_alive, grid_timeout, seconds, cause):
+    m = Workspaces(SiteActions(), MemoryStore(), keep_alive=keep_alive)
+    m.open_browser(Caller(NAMED))
+    idle(m, seconds, grid_timeout)
+    reaped(m)
+    assert m.act(Caller(NAMED), lambda s: {"url": URL})["reopened"]["cause"] == cause
+
+
+def test_an_open_counts_as_activity_for_the_cause(named_caller):  # ruling 14
+    """Last called yesterday, opened 10 s ago: a browser gone now was lost."""
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    now = time.time()
+    m.store.update(
+        NAMED,
+        lambda r: replace(r, called_at=now - 1000, opened_at=now - 10, grid_timeout=300),
+    )
+    reaped(m)
+    assert m.act(Caller(NAMED), lambda s: {"url": URL})["reopened"]["cause"] == "lost"
+
+
+def test_a_call_stamps_called_at(named_caller):  # ruling 10
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    before = time.time()
+    m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert m.store.get(NAMED).called_at >= before
+
+
+def test_a_save_step_leaves_the_notice_for_the_run(named_caller, tmp_path):  # ruling 23
+    store, m = flow_world(tmp_path, [{"tool": "save_site_data", "args": {}}])
+    m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
+    reaped(m)
+    report = run(store, m)
+    assert report["reopened"]["cause"] == "lost" and report["site_data"] == REPORT
+
+
+def test_a_failed_first_call_carries_the_notice_once(named_caller):  # Review Focus 1
     m = opened_with_save()
     reaped(m)
 
     def fails(_):
         raise RuntimeError("the page broke")
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError) as exc:
         m.act(Caller(NAMED), fails)
-    assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
+    assert faults.message(exc.value) == (
+        "the page broke " + faults.REOPENED["lost"] + " Saved site data was put back for 1 site(s).")
+    after = m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert "reopened" not in after and "site_data" not in after
+
+
+def test_a_failed_first_call_with_nothing_saved_says_only_the_notice(named_caller):
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    reaped(m)
+    with pytest.raises(RuntimeError) as exc:
+        m.act(Caller(NAMED), lambda s: (_ for _ in ()).throw(RuntimeError("x")))
+    assert faults.message(exc.value) == "x " + faults.REOPENED["lost"]
+
+
+def test_a_failed_call_stamps_called_at(named_caller):  # ruling 15
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    m.store.update(NAMED, lambda r: replace(r, called_at=1.0))
+    with pytest.raises(RuntimeError):
+        m.act(Caller(NAMED), lambda s: (_ for _ in ()).throw(RuntimeError("x")))
+    assert m.store.get(NAMED).called_at > 1.0
+
+
+def test_a_run_that_fails_to_start_after_a_reap_says_so(named_caller, tmp_path):
+    from kubed.selenium_flow.flows import api as flowapi
+
+    store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.example.com/"}}])
+    reaped(m)
+    with pytest.raises(ValueError) as exc:  # `read_one`: no flow called 'no-such-flow'
+        flowapi.run_for(store, m.actions, m, NAMED, "no-such-flow")
+    assert faults.REOPENED["lost"] in faults.message(exc.value)
 
 
 def test_a_report_is_never_handed_to_a_result_from_another_browser(named_caller):
@@ -179,6 +272,20 @@ def test_a_report_is_never_handed_to_a_result_from_another_browser(named_caller)
     m.settle(NAMED, told, browser="an-older-browser")
     assert "site_data" not in told
     assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
+
+
+def test_a_failure_from_another_browser_only_stamps_the_call(named_caller):
+    m = opened_with_save()
+    reaped(m)
+    m.resolve(NAMED)
+    before = m.store.get(NAMED)
+    assert before.reopened
+    error = ValueError("the old browser's call failed")
+    m.failed(NAMED, error, browser="old-id")
+    after = m.store.get(NAMED)
+    assert not getattr(error, "__notes__", [])
+    assert after.reopened == before.reopened
+    assert after.called_at >= before.called_at
 
 
 def test_a_retried_touch_hands_over_only_what_its_last_run_saw(named_caller):
@@ -193,7 +300,9 @@ def test_a_retried_touch_hands_over_only_what_its_last_run_saw(named_caller):
     store.first = store.get(NAMED)
     store.between = lambda: store.update(NAMED, lambda r: replace(r, session_id="newer"))
     assert m.touch(NAMED, URL, browser=browser) is None
-    assert store.get(NAMED).reopened["report"] == REPORT
+    held = store.get(NAMED).reopened
+    assert held["browser"] == browser
+    assert (held["cause"], held["report"]) == ("lost", REPORT)
 
 
 def test_an_open_drops_a_report_nobody_collected(named_caller):
@@ -247,8 +356,10 @@ def test_a_flow_run_that_reopened_the_browser_says_so_once(named_caller, tmp_pat
     reaped(m)
     report = run(store, m)
     assert report["site_data"] == REPORT
+    assert report["reopened"]["cause"] == "lost"
     assert "site_data" not in report["steps"][0]
-    assert "site_data" not in run(store, m)
+    again = run(store, m)
+    assert "site_data" not in again and "reopened" not in again
 
 
 # ---- a save never reverts what landed while it worked -------------------------
@@ -366,22 +477,23 @@ def test_a_result_from_the_browser_held_still_moves_the_page(named_caller):
     assert record.settings["width"] == 640
 
 
-def test_a_report_survives_a_result_that_fails_after_it_was_handed_over(named_caller, monkeypatch):
-    # The touch hands the report to the result; a save that then fails turns
-    # that result into an error, and the report must wait for the next one.
+def test_a_result_that_fails_after_the_touch_says_the_notice_on_its_error(named_caller, monkeypatch):
+    # The touch hands the notice to the result; a save that then fails turns
+    # that result into an error, and the error says it.
     m = opened_with_save()
     reaped(m)
-    real = m._save_site_data
 
     def broken(*args, **kwargs):
         raise ValueError("the cookie jar is over the cap")
 
+    real = m._save_site_data
     monkeypatch.setattr(m, "_save_site_data", broken)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as exc:
         m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert faults.REOPENED["lost"] in faults.message(exc.value)
     monkeypatch.setattr(m, "_save_site_data", real)
-    assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
-    assert "site_data" not in m.act(Caller(NAMED), lambda s: {"url": URL})
+    after = m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert "reopened" not in after and "site_data" not in after
 
 
 @pytest.mark.parametrize("corrupt", [

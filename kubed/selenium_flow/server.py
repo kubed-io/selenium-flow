@@ -141,7 +141,8 @@ class SeleniumMCP:
         # Which sessions are open, ended and owed (session monitor spec): one
         # bus, one monitor, in this process. The monitor watches by the Grid's
         # status listing and holds a BiDi socket only for a reason that needs
-        # its events; E2 has none. Built before the collector and the
+        # its events. It keeps a browser alive for `session.keep_alive` after
+        # its last call. Built before the collector and the
         # workspaces, which tell it what they open, end and owe.
         self.bus = LocalBus()
         # Console and network capture (capture spec): the monitor holds a
@@ -162,6 +163,8 @@ class SeleniumMCP:
             },
             collectors_for={"capture": capture_module.COLLECTOR},
             sinks={"capture": self.capture, "control": self.pages},
+            ping=self.grid.ping,
+            keep_alive=settings.session.keep_alive,
         )
         self.pages.connection = self.monitor.connection
         # Who has control of which browser (live control spec): requested while
@@ -238,6 +241,7 @@ class SeleniumMCP:
             defaults=workspace_settings.from_settings(settings.session),
             recordings=self.collector,
             monitor=self.monitor,
+            keep_alive=settings.session.keep_alive,
             capture=self.capture,
             channels=self.actions.channels,
             # A person's control in the live view refuses the calls that

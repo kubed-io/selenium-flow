@@ -370,3 +370,9 @@ async def test_open_session_takes_version_and_raw_capabilities(server, monkeypat
     async with Client(server.mcp) as client:
         await client.call_tool("open_session", {"version": "152", "capabilities": raw})
     assert seen["version"] == "152" and seen["capabilities"] == raw
+
+
+def test_a_screenshot_keeps_the_notice_beside_its_image():
+    from kubed.selenium_flow.mcp import tools as tools_module
+
+    assert "reopened" in tools_module._BESIDE_THE_IMAGE

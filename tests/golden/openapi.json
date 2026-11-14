@@ -118,6 +118,28 @@
             ],
             "type": "object"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "script": {
             "description": "The expression that was true.",
             "type": "string"
@@ -328,6 +350,28 @@
             "description": "Present instead of page and outline when they could not be read.",
             "type": "string"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -510,6 +554,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },
@@ -740,6 +806,28 @@
             ],
             "type": "object"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -932,6 +1020,28 @@
             ],
             "type": "object"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "result": {
             "description": "Whatever the script returned. Any JSON type."
           },
@@ -1098,6 +1208,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },
@@ -1455,6 +1587,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },
@@ -1866,6 +2020,28 @@
             ],
             "type": "object"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -2112,6 +2288,28 @@
             },
             "type": "object"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -2256,6 +2454,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },
@@ -2886,6 +3106,28 @@
             ],
             "type": "object"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -3067,6 +3309,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },
@@ -3255,6 +3519,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },
@@ -3455,6 +3741,28 @@
             ],
             "type": "object"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -3603,6 +3911,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },
@@ -3865,6 +4195,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },
@@ -4438,6 +4790,28 @@
             ],
             "type": "object"
           },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
+            ],
+            "type": "object"
+          },
           "site_data": {
             "description": "Present only when site data was restored, skipped or forgotten in this call.",
             "properties": {
@@ -4838,6 +5212,28 @@
               "errors",
               "failed_requests",
               "see"
+            ],
+            "type": "object"
+          },
+          "reopened": {
+            "description": "Present only on the first result after this workspace's browser was replaced by a new one. What lived only in the old page is gone. Said once.",
+            "properties": {
+              "cause": {
+                "description": "reaped: it sat idle past the keep-alive window and the Grid ended it. lost: it ended while the workspace was in use.",
+                "enum": [
+                  "reaped",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              "message": {
+                "description": "The same, as a sentence to act on.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "cause",
+              "message"
             ],
             "type": "object"
           },

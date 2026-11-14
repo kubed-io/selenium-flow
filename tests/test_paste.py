@@ -262,16 +262,13 @@ def test_a_paste_waits_for_a_call_in_flight(held):
     assert ("element", "send_keys", "hello") in driver.log
 
 
-def test_a_paste_leaves_a_reopen_report_for_the_agent(held):
+def test_a_paste_leaves_the_notice_for_the_agent(held):
     workspaces, _ = held
-    report = {"reopened": True}
-    workspaces.store.update(
-        "w1",
-        lambda r: replace(r, reopened={"browser": "abc", "report": report}),
-    )
+    held_notice = {"browser": "abc", "cause": "reaped", "report": None}
+    workspaces.store.update("w1", lambda r: replace(r, reopened=held_notice))
     workspaces.paste("w1", "hello")
-    assert workspaces.store.get("w1").reopened == {"browser": "abc", "report": report}
-    assert workspaces.touch("w1", browser="abc") == report
+    assert workspaces.store.get("w1").reopened == held_notice
+    assert workspaces.touch("w1", browser="abc") == {"cause": "reaped", "report": None}
 
 
 def test_a_paste_takes_the_sessions_turn_before_the_call_begins(held, monkeypatch):

@@ -778,67 +778,68 @@ def run_for(
     # A save reads the localStorage of every site in the history, and the run
     # writes its pages once, at the end: so just before a save step the pages
     # reached so far go in, in one write, and the end writes only the rest.
-    # A reopen's report a flush is handed waits in `flushed` for the run's.
-    flushed: dict = {}
+    # The flush leaves a held notice for the run's own result (ruling 23).
     count = [0]
 
     def before_save(pages):
         workspaces.settle(
-            workspace, flushed, url=pages[count[0]:], browser=resolved, hint=False
+            workspace, {}, url=pages[count[0]:], browser=resolved, hint=False,
+            deliver=False,
         )
         count[0] = len(pages)
 
-    report = run_one(
-        store,
-        actions,
-        workspace,
-        name,
-        params=params,
-        verbose=verbose,
-        session_id=resolved,
-        after_step=remember,
-        before_step=step_started,
-        before_save=before_save,
-        bound=bound,
-        step_done=step_done,
-        in_scope=in_scope,
-        stop=stop,
-        secrets_catalogue=secrets_catalogue,
-        skill_available=skill_available,
-    )
-    page = calls_module.total(step_hints)
-    if page is not None:
-        report["page"] = page
-    # A touch at the end, not one per step: the point of running server-side
-    # is that the bookkeeping happens once (a save step flushes the pages so
-    # far first, above). It carries every page the run reached since, in
-    # order, so the history has each step's site and not only the last.
-    #
-    # Only pages the report itself shows. A step's `url` is there only when
-    # the step moved and the page was safe to show, so a failed step's — the
-    # scrubbed one, a URL that does not exist — is left out. And the run's own
-    # page is withheld when redaction had to touch it: a submitting bound
-    # write lands on `?q=<what was typed>`, and `Workspaces.resolve` would
-    # reopen the browser there after the Grid reaped it.
-    #
-    # The touch happens regardless: it slides the TTL, and a run is the
-    # clearest evidence there is that a workspace is in use.
-    visited = [
-        step["url"] for step in report.get("steps") or []
-        if step.get("ok") and step.get("url")
-    ][count[0]:]
-    if report.get("url") and not report.get("url_redacted"):
-        visited.append(report["url"])
-    # The run's browser replaced a reaped one: what came back, once — on the
-    # run, whether this write or a flush before a save step was handed it.
-    workspaces.settle(
-        workspace, report, url=visited, browser=resolved, since=before,
-        # A withheld page never hints (ruling 6): `visited` stops short of it,
-        # and a hint for the last page it does hold names a page left behind.
-        hint=not report.get("url_redacted"),
-    )
-    if "site_data" in flushed and "site_data" not in report:
-        report["site_data"] = flushed["site_data"]
+    try:
+        report = run_one(
+            store,
+            actions,
+            workspace,
+            name,
+            params=params,
+            verbose=verbose,
+            session_id=resolved,
+            after_step=remember,
+            before_step=step_started,
+            before_save=before_save,
+            bound=bound,
+            step_done=step_done,
+            in_scope=in_scope,
+            stop=stop,
+            secrets_catalogue=secrets_catalogue,
+            skill_available=skill_available,
+        )
+        page = calls_module.total(step_hints)
+        if page is not None:
+            report["page"] = page
+        # A touch at the end, not one per step: the point of running server-side
+        # is that the bookkeeping happens once (a save step flushes the pages so
+        # far first, above). It carries every page the run reached since, in
+        # order, so the history has each step's site and not only the last.
+        #
+        # Only pages the report itself shows. A step's `url` is there only when
+        # the step moved and the page was safe to show, so a failed step's — the
+        # scrubbed one, a URL that does not exist — is left out. And the run's own
+        # page is withheld when redaction had to touch it: a submitting bound
+        # write lands on `?q=<what was typed>`, and `Workspaces.resolve` would
+        # reopen the browser there after the Grid reaped it.
+        #
+        # The touch happens regardless: it slides the TTL, and a run is the
+        # clearest evidence there is that a workspace is in use.
+        visited = [
+            step["url"] for step in report.get("steps") or []
+            if step.get("ok") and step.get("url")
+        ][count[0]:]
+        if report.get("url") and not report.get("url_redacted"):
+            visited.append(report["url"])
+        # The run's browser replaced a gone one: the notice, once, on the run.
+        workspaces.settle(
+            workspace, report, url=visited, browser=resolved, since=before,
+            # A withheld page never hints (ruling 6): `visited` stops short of it,
+            # and a hint for the last page it does hold names a page left behind.
+            hint=not report.get("url_redacted"),
+        )
+    except Exception as exc:
+        workspaces.failed(workspace, exc, browser=resolved)
+        raise
     return report
 
 

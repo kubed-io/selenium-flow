@@ -1086,6 +1086,21 @@ def test_an_error_is_scrubbed_and_keeps_its_status(ws):
     assert errors.status_for(raised.value) == 400
 
 
+def test_an_error_after_a_reopen_is_scrubbed_and_says_the_reopen(ws):
+    ws.store.update(
+        "w",
+        lambda r: replace(
+            r, reopened={"browser": r.session_id, "cause": "lost", "report": None}
+        ),
+    )
+    ws.actions.raises = TimeoutException(msg=f"waited on {A}/?q=alpha-11")
+    with pytest.raises(TimeoutException) as raised:
+        act(ws)
+    said = faults.message(raised.value)
+    assert "alpha-11" not in said and "[secret:a/password]" in said
+    assert faults.REOPENED["lost"] in said
+
+
 def test_a_url_carrying_a_value_is_marked_and_never_recorded(ws):  # Review Focus 3
     ws.actions.result = {"url": f"{A}/search?q=alpha-11", "title": "t"}
     assert "[secret:a/password]" in act(ws)["url"]
@@ -1513,9 +1528,12 @@ def test_a_reopen_landing_on_a_value_never_records_it(ws, monkeypatch):  # fix 2
 
 def test_the_reopen_report_is_scrubbed_when_handed_over(ws, monkeypatch):  # fix 3
     report = {"cookies": 0, "sites": [], "skipped": [{"reason": "page said alpha-11"}]}
-    monkeypatch.setattr(ws, "_touch", lambda *a, **k: (report, None))
+    monkeypatch.setattr(
+        ws, "_touch", lambda *a, **k: ({"cause": "lost", "report": report}, None)
+    )
     result = act(ws)
     assert result["site_data"]["skipped"][0]["reason"] == "page said [secret:a/password]"
+    assert result["reopened"]["cause"] == "lost"
 
 
 def test_an_open_whose_scrub_fails_records_no_url(ws, monkeypatch):  # fix 4

@@ -1,5 +1,8 @@
 """What the workspaces tell the monitor, and the Grid's idle timeout they keep."""
 
+import json
+from dataclasses import replace
+
 import pytest
 
 from kubed.selenium_flow.workspace.store import Workspace
@@ -162,6 +165,22 @@ def test_without_a_monitor_nothing_is_announced_and_nothing_fails():
     m.open_browser(caller())
     m.end_browser(caller())
     assert m.store.get("bot").grid_timeout == 300
+
+
+def test_an_old_held_report_reads_as_reaped():  # Review Focus 2
+    raw = {"session_id": "a", "set_by": {}, "opened_at": 5.0,
+           "reopened": {"browser": "a", "report": {"restored": ["x.test"]}}}
+    record = Workspace.from_json(json.dumps(raw))
+    assert record.called_at == 0.0
+    assert record.notice == {"cause": "reaped", "report": {"restored": ["x.test"]}}
+    assert replace(record, session_id="b").notice is None
+
+
+@pytest.mark.parametrize("raw, read", [("12.5", 12.5), ('"x"', 0.0), ("null", 0.0), ("-5", 0.0), ("true", 0.0),
+                                      (str(10**400), 0.0)])
+def test_a_stored_called_at_is_read_only_when_it_is_a_number(raw, read):
+    record = Workspace.from_json(f'{{"session_id": "a", "set_by": {{}}, "called_at": {raw}}}')
+    assert record is not None and record.called_at == read
 
 
 def test_a_stored_timeout_is_read_back_only_when_it_is_a_positive_int():

@@ -14,7 +14,13 @@ while a builder is followed.
 
 from __future__ import annotations
 
-from ..core.capabilities import CAPABILITIES, FLOWS_HINT, PAGE_HINT, SITE_DATA_HINT
+from ..core.capabilities import (
+    CAPABILITIES,
+    FLOWS_HINT,
+    PAGE_HINT,
+    REOPENED_HINT,
+    SITE_DATA_HINT,
+)
 from ..flows import places
 from ..flows.document import PARAMETERS_DESCRIPTION, PARAMETERS_EXAMPLE
 
@@ -467,6 +473,8 @@ FLOW_SCHEMAS = {
             },
             # Present only when the run's browser was reopened after a reap.
             "site_data": SITE_DATA_HINT,
+            # Present only when the run's browser was replaced before it: said once.
+            "reopened": REOPENED_HINT,
             # Present only with capture on: the steps' hints, summed.
             "page": PAGE_HINT,
             # Present only when the run ended on a page it did not begin on and

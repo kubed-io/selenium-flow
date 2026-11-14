@@ -274,6 +274,7 @@ class InstructionsFor(Middleware):
 #   given only the image would look for a name never coming;
 # - `site_data`: the first call after a silent reopen says what came back
 #   (``Workspaces.settle``) — dropped here, it is never said at all;
+# - `reopened`: the first call after a reopen says so (`Workspaces.settle`);
 # - `page`: what the page reported while the call ran (`workspace.calls`);
 # - `flows_here`: `screenshot(url=...)` moves the record, so a hint dropped
 #   here is never said.

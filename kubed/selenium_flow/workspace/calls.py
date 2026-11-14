@@ -12,6 +12,8 @@ and that is the whole of what it does here:
   ruling 32). Every host calls `begin` holding its turn on the session's lock,
   so a call that queued before the person asked is refused when its turn comes
   (rulings 14, 33);
+- the monitor is asked to keep the session alive (`Monitor.keep`), so a
+  session opened before a restart is kept from its next call;
 - capture is held again when it is owed and was let go while the agent
   paused (the deadline closes an idle connection), so the call that comes back
   is captured too;
@@ -150,9 +152,11 @@ class Calls:
         self, workspace: str, session_id: str, *, browser: str = "", tool: str
     ) -> Begun:
         """A call starts: refused while a person holds the browser and ``tool``
-        would change it; else the monitor is told, capture is held again if it
+        would change it; else the monitor is asked to keep the session alive
+        and told the call is under way, capture is held again if it
         lapsed, then marked. Called holding the session's turn."""
         self.refuse(session_id, tool)
+        told(self.monitor, "keep", workspace, session_id, browser=browser)
         told(self.monitor, "calling", session_id)
         self._resume(workspace, session_id, browser)
         return Begun(workspace, session_id, self.clock(), self._mark(workspace))

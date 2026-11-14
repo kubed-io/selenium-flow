@@ -187,6 +187,15 @@ class SessionSettings(Section):
         None, description="Seconds a page may take to load."
     )
     script_timeout: int | None = Field(None, description="Seconds a script may run.")
+    # Dr K's bounds: an hour at most, and 0 is off. Not an open's default:
+    # `FROM_CONFIG` does not list it, so no session remembers it.
+    keep_alive: int = Field(
+        900,
+        ge=0,
+        le=3600,
+        description="Seconds a browser is kept alive after its last call, "
+        "0 for off; each holds a Grid slot.",
+    )
     version: str | None = Field(
         None, description="The browser version new sessions ask for, such as 152."
     )
@@ -497,7 +506,7 @@ class Settings(Section):
     )
     session: SessionSettings = Field(
         default_factory=SessionSettings,
-        description="How a session opens a browser.",
+        description="How a session opens a browser, and how long it is kept alive.",
     )
     redis: RedisSettings = Field(
         default_factory=RedisSettings,

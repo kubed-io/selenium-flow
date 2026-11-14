@@ -957,57 +957,63 @@ def perform_write(
     resolved, kind = workspaces.resolved(name)
     hidden = Forms()
     failure = None
-    with locks.driving(resolved):
-        # Where the browser was before the call: the scrub checks the secrets
-        # in scope there as well as where it landed (spec
-        # 2026-11-14-secret-scope, ruling 11).
-        before = workspaces.origins.current(name, resolved)
-        # Refused here while a person holds the browser: after the turn,
-        # before the page is read or the call is begun (live control, ruling 32).
-        begun = calls.begin(name, resolved, browser=kind, tool="write")
-        try:
-            given, guarded = binding.bind_into(
-                kwargs,
-                catalogue,
-                lambda: binding.receiving(actions.page(resolved)),
-                "write",
-                binding.DIRECT,
+    try:
+        with locks.driving(resolved):
+            # Where the browser was before the call: the scrub checks the secrets
+            # in scope there as well as where it landed (spec
+            # 2026-11-14-secret-scope, ruling 11).
+            before = workspaces.origins.current(name, resolved)
+            # Refused here while a person holds the browser: after the turn,
+            # before the page is read or the call is begun (live control, ruling 32).
+            begun = calls.begin(name, resolved, browser=kind, tool="write")
+            try:
+                given, guarded = binding.bind_into(
+                    kwargs,
+                    catalogue,
+                    lambda: binding.receiving(actions.page(resolved)),
+                    "write",
+                    binding.DIRECT,
+                )
+                hidden = binding.forms_of(given, guarded)
+                calls.bound(name, hidden)
+                rest = {k: v for k, v in given.items() if k not in ("text", "url")}
+                result = actions.write(resolved, given["text"], **rest)
+            except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
+                calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
+                failure = exc
+            if failure is not None:
+                # Scrubbed in place, never swallowed nor rewrapped, so it keeps its
+                # type and its status (ruling 23): an action puts its arguments in
+                # its error text. Outside the `except`, so a scrub that fails is
+                # never chained to the original.
+                _scrub_typed(failure, hidden)
+                workspaces.scrubber.error(name, resolved, failure, [before, None])
+                raise failure
+            page = calls.end(begun, tool="write", surface=surface, browser=kind)
+            # The page it landed on is heard whether or not it is recorded: the
+            # origin is what scopes the secrets, and it never carries a value.
+            after = workspaces.origins.arrived(name, resolved, result.get("url"))
+            shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
+            shown, carried = workspaces.scrubber.result(
+                name, resolved, shown, [before, after]
             )
-            hidden = binding.forms_of(given, guarded)
-            calls.bound(name, hidden)
-            rest = {k: v for k, v in given.items() if k not in ("text", "url")}
-            result = actions.write(resolved, given["text"], **rest)
-        except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
-            calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
-            failure = exc
-        if failure is not None:
-            # Scrubbed in place, never swallowed nor rewrapped, so it keeps its
-            # type and its status (ruling 23): an action puts its arguments in
-            # its error text. Outside the `except`, so a scrub that fails is
-            # never chained to the original.
-            _scrub_typed(failure, hidden)
-            workspaces.scrubber.error(name, resolved, failure, [before, None])
-            raise failure
-        page = calls.end(begun, tool="write", surface=surface, browser=kind)
-        # The page it landed on is heard whether or not it is recorded: the
-        # origin is what scopes the secrets, and it never carries a value.
-        after = workspaces.origins.arrived(name, resolved, result.get("url"))
-        shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
-        shown, carried = workspaces.scrubber.result(
-            name, resolved, shown, [before, after]
-        )
-    # Only remember a page no value reached, typed or in scope there (ruling
-    # 21); a later reattach would navigate to it. Touched either way.
-    # Withholding the page must not also stop the clock: `touch` slides the
-    # TTL, and skipping it entirely let a workspace expire *because* its URL
-    # was correctly kept out of the store.
-    #
-    # The first call after a silent reopen says what came back: `settle` puts
-    # that on `shown`.
-    safe = None if carried else binding.safe_url(result, hidden)
-    workspaces.settle(name, shown, url=safe, browser=resolved)
-    if page is not None:
-        shown["page"] = page
+        # Only remember a page no value reached, typed or in scope there (ruling
+        # 21); a later reattach would navigate to it. Touched either way.
+        # Withholding the page must not also stop the clock: `touch` slides the
+        # TTL, and skipping it entirely let a workspace expire *because* its URL
+        # was correctly kept out of the store.
+        #
+        # The first call after a silent reopen says what came back: `settle` puts
+        # that on `shown`.
+        safe = None if carried else binding.safe_url(result, hidden)
+        workspaces.settle(name, shown, url=safe, browser=resolved)
+        if page is not None:
+            shown["page"] = page
+    except Exception as exc:
+        # Scrubbed above before it was raised; the note `failed` adds is this
+        # server's fixed words and a count, never a page's.
+        workspaces.failed(name, exc, browser=resolved)
+        raise
     return shown
 
 

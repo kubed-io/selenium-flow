@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import threading
 import time
@@ -127,9 +128,14 @@ class Workspace:
     # record so it expires with it; never on this server's disk (with Redis,
     # as durable as Redis).
     site_data: dict = field(default_factory=dict)
-    # A silent reopen's site data report, held until the first result from
-    # that browser carries it: {"browser": id, "report": {...}}, or {}.
+    # A silent reopen's notice, held until the first result from that browser
+    # says it: {"browser": id, "cause": "reaped" | "lost", "report": {...} |
+    # None}, or {}. Held for every silent reopen, whether or not site data came
+    # back.
     reopened: dict = field(default_factory=dict)
+    # When this workspace's last call ended, in wall time; 0.0 before any. It
+    # is what tells a reap (idle past the window) from a lost browser.
+    called_at: float = 0.0
     # Who opened the browser this workspace holds — {"kind", "username"} — for
     # the admin list. Shown, never consulted (spec 2026-10-09-admin-oidc).
     opened_by: dict | None = None
@@ -151,14 +157,31 @@ class Workspace:
     # when it did not say. Kept when the session ends, like `sent`.
     ran: dict | None = None
     # How the last session ended, {"at", "by": "admin" | "caller"}, or None:
-    # set by `end_browser`, cleared by the next open. A reap writes nothing,
-    # because nothing watches a plain session.
+    # set by `end_browser`, cleared by the next open. A reap writes nothing.
     ended: dict | None = None
 
     @property
     def url(self) -> str:
         """The page the workspace is on: the top of its history, or ""."""
         return self.history[0]["url"] if self.history else ""
+
+    @property
+    def notice(self) -> dict | None:
+        """The notice held for the browser this record holds: ``{"cause",
+        "report"}``, or None.
+
+        A held notice with no valid cause, one written before causes were
+        kept, reads as ``reaped``.
+        """
+        held = self.reopened
+        if not held or held.get("browser") != self.session_id:
+            return None
+        cause = held.get("cause")
+        report = held.get("report")
+        return {
+            "cause": cause if cause in ("reaped", "lost") else "reaped",
+            "report": report if isinstance(report, dict) and report else None,
+        }
 
     @property
     def attached(self) -> bool:
@@ -208,6 +231,7 @@ class Workspace:
                 history=_visits(data.get("history")),
                 site_data=site_data if isinstance(site_data, dict) else {},
                 reopened=reopened if isinstance(reopened, dict) else {},
+                called_at=_seconds(data.get("called_at")),
                 opened_by=_opener(data.get("opened_by")),
                 grid_timeout=_timeout(data.get("grid_timeout")),
                 window_seen=_size(data.get("window_seen")),
@@ -280,7 +304,7 @@ class Workspace:
         return replace(self, history=self.history[:1])
 
     def delivered(self) -> Workspace:
-        """The same record, its reopen report handed to a caller."""
+        """The same record, its reopen notice handed to a caller."""
         return replace(self, reopened={})
 
     def detached(self, ended: dict | None = None) -> Workspace:
@@ -354,6 +378,16 @@ def _size(raw) -> str | None:
     if isinstance(raw, str) and re.fullmatch(r"[1-9][0-9]{0,5}x[1-9][0-9]{0,5}", raw):
         return raw
     return None
+
+
+def _seconds(raw) -> float:
+    """A stored time: a finite, non-negative number, or 0.0."""
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return 0.0
+    try:
+        return float(raw) if math.isfinite(raw) and raw >= 0 else 0.0
+    except OverflowError:  # an int too large for a float
+        return 0.0
 
 
 def _timeout(raw) -> int | None:
