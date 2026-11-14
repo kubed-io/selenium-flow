@@ -271,6 +271,17 @@ async def test_a_tail_gets_every_row_masked_and_reports_its_drops(capture):
     tail.close()
 
 
+async def test_a_catalogued_secret_reaches_a_row_as_its_marker(capture):
+    from kubed.selenium_flow.redaction import Forms
+
+    attach(capture)
+    capture.secret("ws", Forms.of("hunter22", ("ldap", "password")))
+    tail = capture.tail("ws", "console")
+    feed(capture, log("pw hunter22"))
+    assert (await tail.next())["text"] == "pw [secret:ldap/password]"
+    tail.close()
+
+
 def test_discard_forgets_the_workspace(capture):
     attach(capture)
     feed(capture, nav_started("https://a.test/"), log("a"))
@@ -755,3 +766,435 @@ def test_a_credential_too_long_to_mask_is_counted_where_dropped_is(capture):
         feed(capture, req(f"r{i + 2}", "https://a.test/api", headers=[("Cookie", huge)]))
     assert capture.counts("ws")["unmasked"] == 1
     assert capture.console("ws")["unmasked"] == 1 and capture.network("ws")["unmasked"] == 1
+
+
+# ---- the secrets in scope: capture hears the origin, and holds until it is known --
+# Spec 2026-11-14-secret-scope, "Capture as source 2", rulings 8, 9, 13 and 22.
+
+A = "https://a.test"
+B = "https://b.test"
+TOP = "top-1"
+
+
+class Asks(dict):
+    """What capture asked for: origin ("*" for every leashed secret) -> the
+    ``done`` it handed over, kept so a test decides when the forms land."""
+
+    def __init__(self):
+        super().__init__()
+        self.calls: list[tuple] = []
+
+    def __call__(self, workspace, session_id, url, frame, done):
+        from kubed.selenium_flow.urls import scope_origin
+
+        self.calls.append((workspace, session_id, url, frame))
+        self["*" if url is None else scope_origin(url)] = done
+
+    def asked(self, origin):
+        from kubed.selenium_flow.urls import scope_origin
+
+        return [c for c in self.calls if ("*" if c[2] is None else scope_origin(c[2])) == origin]
+
+
+def capture_with_recorder(clock=None, browser="chrome"):
+    cap = Capture(clock=clock or Clock())
+    asks = Asks()
+    cap.heard = asks
+    cap.attached("w", "g1", browser, TOP, again=False)
+    return cap, asks
+
+
+def nav(ctx, url, **kw):
+    return nav_started(url, ctx=ctx, **kw)
+
+
+def console(ctx, text, **kw):
+    return log(text, ctx=ctx, **kw)
+
+
+def ingest(cap, *events):
+    for method, params in events:
+        cap.ingest("w", "g1", method, params)
+
+
+def shown(cap, pages=1):
+    return [e["text"] for e in cap.console("w", pages=pages)["entries"]]
+
+
+def password(value, name="a"):
+    from kubed.selenium_flow.redaction import Forms
+
+    return Forms.of(value, (name, "password"))
+
+
+def test_a_new_origin_holds_its_events_until_its_forms_land():          # ruling 9
+    cap, asks = capture_with_recorder()
+    cap.ingest("w", "g1", "browsingContext.navigationStarted", nav(TOP, f"{A}/")[1])
+    cap.ingest("w", "g1", "log.entryAdded", console(TOP, "pw alpha-11")[1])
+    assert cap.console("w")["entries"] == []            # held, never stored raw
+    asks[A](password("alpha-11"))
+    assert cap.console("w")["entries"][0]["text"] == "pw [secret:a/password]"
+    assert [p["url"] for p in cap.console("w")["pages"]] == [f"{A}/"]   # _started ran
+
+
+def test_a_frame_navigation_is_asked_for_too():                          # ruling 8
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"), nav("frame-1", f"{B}/inner"), console("frame-1", "x alpha-11"))
+    assert [c[3] for c in asks.asked(A)] == [False]
+    assert [c[3] for c in asks.asked(B)] == [True]
+    asks[A](password("other-value"))
+    assert shown(cap) == []                            # the frame waits on its own origin
+    asks[B](password("alpha-11"))
+    assert shown(cap) == ["x [secret:a/password]"]
+
+
+def test_a_navigation_request_before_navigation_started_holds_too():     # either BiDi order
+    cap, asks = capture_with_recorder()
+    ingest(cap, req("r1", f"{B}/login", dest="document", nav="n1"), console(TOP, "early alpha-11"),
+           nav(TOP, f"{B}/login"), console(TOP, "late alpha-11"))
+    assert len(asks.asked(B)) == 1                     # asked once, whichever came first
+    assert shown(cap) == [] and cap.network("w")["requests"] == []
+    asks[B](password("alpha-11"))
+    assert shown(cap) == ["late [secret:a/password]"]  # the start's mark split the page
+    assert [(e["text"], e["nav"]) for e in cap._cache["w"].console] == [
+        ("early [secret:a/password]", 0), ("late [secret:a/password]", 1)]
+    assert [r["url"] for r in cap._cache["w"].requests] == [f"{B}/login"]
+
+
+def test_a_redirect_to_another_origin_is_asked_for_and_waited_on():
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/go"), req("r1", f"{B}/landed", dest="document", nav="n1", redirect=1),
+           console(TOP, "pw alpha-11"))
+    asks[A](password("nothing-here"))
+    assert shown(cap) == []                            # still waiting on the redirect's origin
+    asks[B](password("alpha-11"))
+    assert shown(cap) == ["pw [secret:a/password]"]
+
+
+def test_a_failed_read_drops_and_counts_and_asks_again():                # ruling 22
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"), console(TOP, "pw alpha-11"))
+    asks[A](None)
+    assert cap.console("w")["entries"] == []
+    assert cap.counts("w")["dropped"] == 2             # the start and the entry, never raw
+    ingest(cap, console(TOP, "again alpha-11"))
+    assert len(asks.asked(A)) == 2                     # the next event asks again
+    assert shown(cap) == []
+    asks[A](password("alpha-11"))
+    assert shown(cap) == ["again [secret:a/password]"]
+    assert cap.counts("w")["dropped"] == 2
+
+
+def test_an_overflowing_hold_drops_the_oldest_and_counts():
+    from kubed.selenium_flow.capture import PENDING_EVENTS
+
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"), *[console(TOP, f"m{i}") for i in range(PENDING_EVENTS + 4)])
+    assert cap.console("w")["entries"] == []
+    assert cap.counts("w")["dropped"] == 5             # the start and m0..m3: the oldest
+    asks[A](password("alpha-11"))
+    view = cap.console("w")
+    assert view["total"] == PENDING_EVENTS and view["entries"][-1]["text"] == "m4"
+    assert view["entries"][0]["text"] == f"m{PENDING_EVENTS + 3}"
+
+
+def test_an_old_held_event_is_dropped_when_the_next_arrives(clock):
+    from kubed.selenium_flow.capture import PENDING_SECONDS
+
+    cap, asks = capture_with_recorder(clock)
+    ingest(cap, nav(TOP, f"{A}/"), console(TOP, "old"))
+    clock.now += PENDING_SECONDS                       # not older than the bound yet
+    ingest(cap, console(TOP, "kept"))
+    assert "dropped" not in cap.counts("w")
+    clock.now += 1
+    ingest(cap, console(TOP, "new"))                   # the start and "old" are past it now
+    assert cap.counts("w")["dropped"] == 2
+    asks[A](password("alpha-11"))
+    assert shown(cap) == ["new", "kept"]
+
+
+def test_a_hold_again_waits_for_every_leashed_secret():
+    cap, asks = capture_with_recorder(browser="firefox")
+    ingest(cap, nav(TOP, f"{A}/"))
+    asks[A](password("nothing-here"))
+    cap.attached("w", "g1", "firefox", TOP, again=True)
+    assert asks.calls[-1] == ("w", "g1", None, False)  # every leashed secret
+    ingest(cap, console(TOP, "pw alpha-11"))           # its origin is unknown now
+    assert shown(cap) == []
+    asks["*"](password("alpha-11", name="b"))
+    assert shown(cap) == ["pw [secret:b/password]"]
+    ingest(cap, console("frame-9", "lands at once"))   # every context is known to be "*"
+    assert shown(cap)[0] == "lands at once"
+
+
+def test_the_ask_happens_outside_the_lock():
+    import threading
+
+    cap = Capture(clock=Clock())
+    cap.heard = lambda w, s, url, frame, done: done(password("alpha-11"))   # already built
+    cap.attached("w", "g1", "chrome", TOP, again=False)
+    worker = threading.Thread(
+        target=ingest, args=(cap, nav(TOP, f"{A}/"), console(TOP, "pw alpha-11")), daemon=True)
+    worker.start()
+    worker.join(timeout=5)
+    assert not worker.is_alive()                       # a done under the lock would deadlock
+    assert shown(cap) == ["pw [secret:a/password]"]
+
+
+def test_an_origin_already_ready_is_not_held():
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"))
+    asks[A](password("alpha-11"))
+    ingest(cap, nav(TOP, f"{A}/next"), console(TOP, "pw alpha-11"))
+    assert shown(cap) == ["pw [secret:a/password]"]
+    assert len(asks.calls) == 1
+
+
+def test_an_opaque_page_is_never_asked_for_or_held():                    # ruling 13
+    cap, asks = capture_with_recorder()
+    ingest(cap, console(TOP, "before any page"), nav(TOP, "about:blank"), console(TOP, "blank"))
+    assert shown(cap) == ["blank"] and asks.calls == []
+
+
+def test_without_heard_nothing_is_held_or_asked(capture):
+    """Secrets off, or no server: capture is exactly what it was."""
+    attach(capture)
+    feed(capture, nav_started("https://a.test/"), log("lands"))
+    assert capture.heard is None and texts(capture) == ["lands"]
+    assert capture._sessions["s1"].waiting == {}
+
+
+def test_another_context_lands_while_one_waits():
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav("frame-1", f"{B}/"), console("frame-1", "held"), console(TOP, "top lands"))
+    assert shown(cap) == ["top lands"]
+    asks[B](password("alpha-11"))
+    assert shown(cap) == ["held", "top lands"]
+
+
+def test_a_lost_event_makes_every_context_unknown():
+    """A dropped event may have been a navigation: no context's origin can be
+    trusted after it, so they wait for every leashed secret (ruling 9)."""
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"))
+    asks[A](password("nothing-here"))
+    cap.lost("w", "g1")
+    ingest(cap, console(TOP, "pw alpha-11"))
+    assert shown(cap) == [] and len(asks.asked("*")) == 1
+    asks["*"](password("alpha-11"))
+    assert shown(cap) == ["pw [secret:a/password]"]
+
+
+def test_chrome_replay_is_aligned_when_its_forms_land_after_replayed():
+    cap, asks = capture_with_recorder()
+    first = [console(TOP, f"m{i}", ts=1000.0 + i) for i in range(3)]
+    ingest(cap, nav(TOP, f"{A}/"))
+    asks[A](password("nothing-here"))
+    ingest(cap, *first)
+    cap.attached("w", "g1", "chrome", TOP, again=True)
+    ingest(cap, *first[1:], console(TOP, "m3", ts=1003.0))   # Chrome's burst, held for "*"
+    cap.replayed("w", "g1")                                   # before the read lands
+    assert shown(cap) == ["m2", "m1", "m0"]
+    asks["*"](password("alpha-11"))
+    assert shown(cap) == ["m3", "m2", "m1", "m0"]
+
+
+def test_events_held_across_a_hold_again_land_before_the_replay_is_aligned():
+    cap, asks = capture_with_recorder()
+    held = [console(TOP, f"m{i}", ts=1000.0 + i) for i in range(2)]
+    ingest(cap, nav(TOP, f"{A}/"), *held)                    # waiting on A
+    cap.attached("w", "g1", "chrome", TOP, again=True)
+    ingest(cap, *held, console(TOP, "m2", ts=1002.0))        # Chrome replays what it sent
+    cap.replayed("w", "g1")
+    asks[A](password("alpha-11"))
+    assert shown(cap) == []                                   # and the new ones wait on "*"
+    asks["*"](password("alpha-11"))
+    assert shown(cap) == ["m2", "m1", "m0"]
+    assert cap._sessions["g1"].holding is None
+
+
+async def test_on_a_loop_the_forms_land_on_the_loop():
+    """`done` runs on a scrubber thread; the tails are asyncio queues, so the
+    landing is handed to the loop."""
+    import threading
+
+    cap, asks = capture_with_recorder()
+    tail = cap.tail("w", "console")
+    ingest(cap, nav(TOP, f"{A}/"), console(TOP, "pw alpha-11"))
+    worker = threading.Thread(target=asks[A], args=(password("alpha-11"),))
+    worker.start()
+    worker.join()
+    assert shown(cap) == [] and tail._queue.empty()           # not yet: the loop has not run
+    row = await asyncio.wait_for(tail.next(), 5)
+    assert row["text"] == "pw [secret:a/password]"
+    assert shown(cap) == ["pw [secret:a/password]"]
+    tail.close()
+
+
+def test_past_the_contexts_bound_a_forgotten_origin_makes_every_context_unknown():
+    """A context forgotten before its origin was read must not land as opaque,
+    and the contexts waiting are bounded like the ones remembered."""
+    cap, asks = capture_with_recorder()
+    ingest(cap, *[nav(f"f{i}", f"https://h{i}.test/") for i in range(CONTEXTS + 1)])
+    assert cap.counts("w")["dropped"] == 1            # f0's start: its wait let go
+    assert len(cap._sessions["g1"].waiting) == CONTEXTS
+    ingest(cap, console("never-navigated", "pw alpha-11"))
+    assert shown(cap) == [] and len(asks.asked("*")) == 1
+    asks["*"](password("alpha-11"))
+    assert shown(cap) == ["pw [secret:a/password]"]
+
+
+# ---- fix round 1 ---------------------------------------------------------------
+
+
+def _until(predicate, wait=5.0):
+    """Poll ``predicate`` until it holds: a real `Workspaces` reads on its own
+    threads, and with no loop `done` lands there."""
+    import time
+
+    deadline = time.monotonic() + wait
+    while not predicate():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.005)
+    return True
+
+
+@pytest.mark.parametrize(
+    "site, scope",
+    [("https://a.test", "https://a.test"), ("https://[::1]:8443", "https://::1:8443")],
+    ids=["a-host", "ipv6-literal"],
+)
+def test_capture_through_the_real_workspaces_lands_the_marker(site, scope):
+    """Review, round 1: the ask carries the navigation's URL, so the origin is
+    the one `Workspaces` reads, an IPv6 literal included (its unbracketed
+    origin is no URL of its own)."""
+    from .test_secret_scope import FakeCatalogue, scoped, sid
+
+    ws = scoped(FakeCatalogue({scope: {("a", "password"): "alpha-11"}}), url=f"{site}/")
+    try:
+        cap = Capture(clock=Clock())
+        cap.heard = ws.capture_heard
+        cap.attached("w", sid(ws), "chrome", TOP, again=False)
+        for method, params in (nav(TOP, f"{site}/login?next=1"), console(TOP, "pw alpha-11")):
+            cap.ingest("w", sid(ws), method, params)
+        assert _until(lambda: cap.console("w")["entries"])
+        assert shown(cap) == ["pw [secret:a/password]"]
+    finally:
+        ws.scrubber.close()
+
+
+def child(ctx, parent=TOP, opener=None):
+    _, params = context_created(ctx, parent=parent)
+    if opener is not None:
+        params["originalOpener"] = opener
+    return "browsingContext.contextCreated", params
+
+
+def test_a_srcdoc_child_of_a_waiting_top_waits_with_it():
+    """Controller ruling (round 1): a child's "" inherits its parent's origin,
+    so it waits on what its parent waits on, and lands after it."""
+    cap, asks = capture_with_recorder()
+    ingest(cap, child("frame-1"), child("frame-2"), nav(TOP, f"{A}/"),
+           nav("frame-1", "about:srcdoc"), console("frame-1", "srcdoc alpha-11"),
+           console("frame-2", "never navigated alpha-11"))
+    assert shown(cap) == [] and set(asks) == {A}
+    asks[A](password("alpha-11"))
+    rows = [(e["text"], e["nav"]) for e in cap._cache["w"].console]
+    assert rows == [("srcdoc [secret:a/password]", 1),
+                    ("never navigated [secret:a/password]", 1)]
+
+
+def test_a_child_of_a_ready_parent_is_ready():
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"))
+    asks[A](password("alpha-11"))
+    ingest(cap, child("frame-1"), nav("frame-1", "about:blank"), console("frame-1", "lands"))
+    assert shown(cap) == ["lands"] and len(asks.calls) == 1
+
+
+def test_a_grandchild_inherits_through_its_parent():
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"))
+    asks[A](password("nothing-here"))
+    ingest(cap, child("frame-1"), nav("frame-1", f"{B}/"), child("frame-2", parent="frame-1"),
+           console("frame-2", "pw alpha-11"))
+    assert shown(cap) == []
+    asks[B](password("alpha-11"))
+    assert shown(cap) == ["pw [secret:a/password]"]
+
+
+def test_a_popup_inherits_its_opener_and_without_one_waits_for_every_secret():
+    """A tab with no parent: its opener's origin when the event names one;
+    with none, fail-safe, every leashed secret (one read for the browser)."""
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"), child("popup-1", parent=None, opener=TOP),
+           console("popup-1", "opened alpha-11"))
+    assert shown(cap) == [] and "*" not in asks
+    asks[A](password("alpha-11"))
+    assert shown(cap) == ["opened [secret:a/password]"]
+    ingest(cap, child("popup-2", parent=None), console("popup-2", "orphan beta-22"))
+    assert shown(cap)[0] == "opened [secret:a/password]" and len(asks.asked("*")) == 1
+    asks["*"](password("beta-22", name="b"))
+    assert shown(cap)[0] == "orphan [secret:b/password]"
+
+
+def test_the_top_pages_blank_is_still_known_empty():                     # ruling 13
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, "about:blank"), child("frame-1"), console("frame-1", "lands"))
+    assert shown(cap) == ["lands"] and asks.calls == []
+
+
+def test_the_held_events_are_bounded_in_bytes_too(monkeypatch):
+    from kubed.selenium_flow.capture import store
+
+    monkeypatch.setattr(store, "QUEUE_BYTES", 20_000)   # each entry is ~8 kB: text and arg
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"), *[console(TOP, f"m{i} " + "x" * 4000) for i in range(3)])
+    assert cap.counts("w")["dropped"] == 2              # the start and m0: the oldest
+    asks[A](password("alpha-11"))
+    assert [t[:2] for t in shown(cap)] == ["m2", "m1"]
+    assert cap._sessions["g1"].weight == 0
+
+
+def test_detached_drops_a_replay_still_waiting_as_it_drops_one_held():
+    cap, asks = capture_with_recorder()
+    first = [console(TOP, f"m{i}", ts=1000.0 + i) for i in range(2)]
+    ingest(cap, nav(TOP, f"{A}/"))
+    asks[A](password("nothing-here"))
+    ingest(cap, *first)
+    cap.attached("w", "g1", "chrome", TOP, again=True)
+    ingest(cap, *first, console(TOP, "m2", ts=1002.0))   # the replay, waiting for "*"
+    cap.detached("w", "g1")
+    assert cap.counts("w")["dropped"] == 3
+    asks["*"](password("alpha-11"))
+    assert shown(cap) == ["m1", "m0"]
+
+
+def test_detached_keeps_what_waited_from_before_the_hold_again():
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"), console(TOP, "m0", ts=1000.0))   # waiting on A
+    cap.attached("w", "g1", "chrome", TOP, again=True)
+    ingest(cap, console(TOP, "m0", ts=1000.0))                      # its replay
+    cap.detached("w", "g1")
+    assert cap.counts("w")["dropped"] == 1
+    asks[A](password("alpha-11"))
+    asks["*"](password("alpha-11"))
+    assert shown(cap) == ["m0"]
+
+
+def test_a_weight_that_drifted_never_breaks_the_byte_bound(monkeypatch):
+    """Weight left over by a handler that raised mid-replay is more than every
+    held event: the oldest go until none is held, then the loop stops (final
+    review 12) rather than asking `min` of nothing."""
+    from kubed.selenium_flow.capture import store
+
+    monkeypatch.setattr(store, "QUEUE_BYTES", 20_000)
+    cap, asks = capture_with_recorder()
+    ingest(cap, nav(TOP, f"{A}/"), console(TOP, "m0"))
+    cap._sessions["g1"].weight += 10**6
+    ingest(cap, console(TOP, "m1"))
+    assert cap._sessions["g1"].weight == 0  # nothing held, so it heals
+    ingest(cap, console(TOP, "m2 alpha-11"))
+    asks[A](password("alpha-11"))
+    assert shown(cap) == ["m2 [secret:a/password]"]

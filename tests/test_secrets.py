@@ -8,6 +8,7 @@ plain tree it looks like from outside.
 """
 
 import json
+import time
 from types import SimpleNamespace
 from urllib.parse import quote_plus
 
@@ -19,10 +20,13 @@ from kubed.selenium_flow.secrets import (
     ALLOWED_URLS,
     DESCRIPTION,
     Catalogue,
+    ConfigEntries,
     FilesystemSource,
     origin,
 )
 from kubed.selenium_flow.workspace.calls import Calls
+from kubed.selenium_flow.workspace.origins import Origins
+from kubed.selenium_flow.workspace.scrub import Scrubber
 
 pytestmark = pytest.mark.unit
 
@@ -33,6 +37,15 @@ def make_secret(root, name, **keys):
     for key, value in keys.items():
         (directory / key).write_text(value)
     return directory
+
+
+def make(root, secrets_: dict[str, dict[str, str]], ttl=secrets.CACHE_SECONDS,
+         clock=time.monotonic) -> Catalogue:
+    """A catalogue over ``root`` holding each named secret's keys (`_allowed_urls`
+    and `_description` are keys like any other)."""
+    for name, keys in secrets_.items():
+        make_secret(root, name, **keys)
+    return Catalogue([FilesystemSource(root)], ttl=ttl, clock=clock)
 
 
 @pytest.fixture
@@ -241,11 +254,9 @@ def test_allowed_urls_are_matched_by_origin_never_by_substring(tmp_path, url, ex
     assert catalogue.allows("app", url) is expected
 
 
-def test_a_secret_with_no_declaration_is_unrestricted(tmp_path):
-    """The pragmatic default, and the listing shows which those are."""
-    make_secret(tmp_path, "app", password="p")
-    catalogue = Catalogue([FilesystemSource(tmp_path)])
-    assert catalogue.allows("app", "https://anywhere.test/") is True
+def test_a_secret_with_no_declaration_is_allowed_nowhere(tmp_path):
+    catalogue = make(tmp_path, {"app": {"password": "p"}})
+    assert catalogue.allows("app", "https://anywhere.test/") is False
     assert catalogue.entry("app")["allowed_urls"] == []
 
 
@@ -470,11 +481,10 @@ def test_a_bare_origin_is_accepted_with_or_without_a_trailing_slash(tmp_path, li
     assert len(entry["allowed_urls"]) == 1
 
 
-def test_a_secret_with_no_declaration_is_marked_unrestricted(tmp_path):
-    make_secret(tmp_path, "app", password="p")
-    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
+def test_a_secret_with_no_declaration_is_marked_unrestricted_and_refused(tmp_path):
+    entry = make(tmp_path, {"app": {"password": "p"}}).entry("app")
     assert entry["restricted"] is False
-    assert Catalogue([FilesystemSource(tmp_path)]).allows("app", "https://x.test") is True
+    assert "refused" in entry
 
 
 def test_an_unreadable_directory_does_not_take_down_the_catalogue(tmp_path):
@@ -513,6 +523,7 @@ def bindable(tmp_path):
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
     make_secret(tmp_path, "anywhere", token="free")
+    make_secret(tmp_path, "everywhere", token="free", **{ALLOWED_URLS: "https://wherever.test"})
     return Catalogue([FilesystemSource(tmp_path)])
 
 
@@ -540,11 +551,78 @@ def test_the_origin_suffix_attack_is_refused_at_bind_time(bindable):
         )
 
 
-def test_an_unrestricted_secret_binds_anywhere(bindable):
+def test_an_unleashed_secret_is_refused_at_bind_time(bindable):
+    with pytest.raises(secrets.Refused, match="cannot be used: no allowed sites"):
+        secrets.bind(
+            bindable, {"name": "anywhere", "key": "token"},
+            "https://wherever.test/",
+        )
+
+
+def test_a_leashed_secret_binds_on_its_site(bindable):
     assert secrets.bind(
-        bindable, {"name": "anywhere", "key": "token"},
+        bindable, {"name": "everywhere", "key": "token"},
         "https://wherever.test/",
     ) == "free"
+
+
+def test_a_secret_with_no_declaration_is_refused(tmp_path):            # ruling 5
+    catalogue = make(tmp_path, {"open": {"password": "x"}})
+    entry = catalogue.entry("open")
+    assert entry["restricted"] is False
+    assert entry["refused"].startswith("no allowed sites are declared")
+    assert "_allowed_urls" in entry["refused"]
+    assert catalogue.allows("open", "https://anything.example") is False
+
+
+def test_an_unleashed_secret_is_refused_by_bind_before_the_page_is_read(tmp_path):
+    from kubed.selenium_flow import binding
+
+    catalogue = make(tmp_path, {"open": {"password": "x"}})
+    read = []
+    with pytest.raises(secrets.Refused, match="cannot be used: no allowed sites"):
+        binding.bind_into({"secret": {"name": "open", "key": "password"}}, catalogue,
+                          lambda: read.append(1) or ("https://a",), "write", binding.DIRECT)
+    assert read == []
+
+
+def test_check_returns_the_entry_of_a_usable_secret(tmp_path):
+    catalogue = make(tmp_path, {"ok": {"password": "x", ALLOWED_URLS: "https://a.example"}})
+    assert secrets.check(catalogue, {"name": "ok", "key": "password"})["name"] == "ok"
+
+
+def test_a_broken_leash_is_refused_with_its_own_reason(tmp_path):
+    catalogue = make(tmp_path, {"bad": {"password": "x", "_allowed_urls": "not a url"}})
+    entry = catalogue.entry("bad")
+    assert entry["refused"].startswith("its allowed sites do not parse")
+    assert "allowed_urls_rejected" in entry["refused"]
+
+
+def test_an_empty_leash_is_told_how_to_fill_it(tmp_path):
+    """No line is listed in `allowed_urls_rejected` for an empty file, so the
+    sentence says what to add as well as what to fix (final review 5)."""
+    catalogue = make(tmp_path, {"bad": {"password": "x", "_allowed_urls": ""}})
+    entry = catalogue.entry("bad")
+    assert "allowed_urls_rejected" not in entry
+    assert entry["refused"].startswith("its allowed sites do not parse")
+    assert "one origin per line" in entry["refused"]
+
+
+def test_a_refused_secret_is_logged_once(tmp_path, caplog):
+    catalogue = make(tmp_path, {"open": {"password": "x"}}, ttl=0)
+    with caplog.at_level("WARNING"):
+        catalogue.listing()
+        catalogue.listing()
+    assert len([r for r in caplog.records if "open cannot be used" in r.getMessage()]) == 1
+
+
+def test_a_refused_bind_is_logged_without_a_value(tmp_path, caplog):
+    catalogue = make(tmp_path, {"open": {"password": "hunter22"}})
+    with caplog.at_level("WARNING"), pytest.raises(secrets.Refused):
+        secrets.bind(catalogue, {"name": "open", "key": "password"}, "https://a.example")
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "REFUSED binding secret open/password: no usable allowed sites" in text
+    assert "hunter22" not in text
 
 
 @pytest.mark.parametrize("tool", ["execute_script", "navigate", "press_key", "extract"])
@@ -784,6 +862,25 @@ def test_an_http_caller_can_bind_a_secret_it_never_sees(bound_http):
     assert response.json()["text_from"] == "secret"
 
 
+
+def test_an_http_write_whose_scrub_fails_answers_the_fixed_sentence(bound_http, monkeypatch):
+    """Ruling 2 over HTTP: an ordinary 500, saying the fixed sentence."""
+    from kubed.selenium_flow import faults
+
+    client, _ = bound_http
+
+    def broken(self):
+        raise OSError("cannot stat hunter2")
+
+    monkeypatch.setattr(secrets.Catalogue, "revision", broken)
+    response = client.post(
+        "/browser/write",
+        json={"selector": {"css": "#password"}, "secret": {"name": "nextcloud", "key": "password"}},
+        headers=AUTH,
+    )
+    assert response.status_code == 500
+    assert response.json() == {"error": faults.SCRUB_FAILED}
+
 def test_an_http_bind_on_a_disallowed_page_is_refused(bound_http, monkeypatch):
     client, typed = bound_http
     response = client.post(
@@ -878,7 +975,6 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     the credential URL went into the workspace record — from where a reattach
     would have navigated back to it.
     """
-    from kubed.selenium_flow.flows import run as flowrun
     from kubed.selenium_flow.server import SeleniumMCP
 
     from .conftest import NAMED, TOKEN, calling_as
@@ -886,7 +982,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("DATA_DIR", raising=False)
     make_secret(
-        tmp_path, "nextcloud", password=flowrun.HIDDEN,
+        tmp_path, "nextcloud", password="[secret:nextcloud/password]",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
     server = SeleniumMCP(Settings(
@@ -917,11 +1013,13 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
     )
+    # The value is the marker itself, which scrub leaves alone (ruling 20), so
+    # only `taints` knows it reached the page.
     # The page the value reached is never remembered, whatever the value is —
     # but the workspace is still touched, because withholding the page must not
     # also stop the clock that keeps the workspace alive.
     assert touched == [(None, "browser-1")], "touched as the browser it resolved"
-    assert result["url"] == f"https://nc.example.com/?q={flowrun.HIDDEN}"
+    assert result["url"] == "https://nc.example.com/?q=[secret:nextcloud/password]"
 
 
 async def test_a_direct_bound_write_still_remembers_an_untouched_page(
@@ -1019,8 +1117,8 @@ async def test_a_direct_bound_write_scrubs_every_spelling_it_comes_back_in(
     )
     shown = json.dumps(result)
     assert VALUE not in shown and quote_plus(VALUE) not in shown, shown
-    assert result["title"] == "Welcome back, <hidden>"
-    assert result["url"] == "https://nc.example.com/?q=<hidden>"
+    assert result["title"] == "Welcome back, [secret:nextcloud/password]"
+    assert result["url"] == "https://nc.example.com/?q=[secret:nextcloud/password]"
     assert touched == [(None, "browser-1")]
 
 
@@ -1037,7 +1135,8 @@ async def test_a_direct_bound_writes_failure_never_quotes_the_value(
             selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
         )
     assert VALUE not in str(caught.value)
-    assert caught.value.__suppress_context__, "the raw error must not ride along"
+    # Scrubbed in place (ruling 23): the same exception, so its type survives.
+    assert "[secret:nextcloud/password]" in str(caught.value)
 
 
 async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
@@ -1289,7 +1388,7 @@ def framed(tmp_path):
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
         failed=lambda *a, **k: None,
-        calls=Calls(),
+        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
     )
 
     def write(frame_origin=None, top=ALLOWED, forged=False):
@@ -1420,7 +1519,7 @@ def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
         failed=lambda *a, **k: None,
-        calls=Calls(),
+        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
     )
     with pytest.raises(ValueError) as refused:
         secrets.perform_write(
@@ -1457,7 +1556,7 @@ def test_a_bound_write_into_a_field_still_types(targeting, tag):
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
         failed=lambda *a, **k: None,
-        calls=Calls(),
+        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
     )
     shown = secrets.perform_write(
         catalogue, actions, held, "desktop",
@@ -1474,3 +1573,280 @@ def test_an_unbound_write_into_a_frame_element_still_types(targeting):
     driver.element.tag = "iframe"
     actions.write("b1", "hello", selector={"css": "iframe.editor"})
     assert typed_into(driver) == [("hello",)]
+
+
+async def test_a_direct_bound_writes_dead_browser_keeps_its_type_and_status(
+    tmp_path, monkeypatch
+):
+    """Ruling 23: scrubbed in place, so a dead browser stays a 404 and is not
+    rewrapped as the 400 a ValueError is."""
+    from selenium.common.exceptions import InvalidSessionIdException
+
+    from kubed.selenium_flow import errors
+
+    def write(sid, text, **kw):
+        raise InvalidSessionIdException(f"window gone while typing {text!r}")
+
+    server, _ = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    with pytest.raises(InvalidSessionIdException) as caught:
+        tool.fn(
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+        )
+    assert errors.status_for(caught.value) == 404
+    assert VALUE not in str(caught.value)
+    assert "[secret:nextcloud/password]" in str(caught.value)
+
+
+
+async def test_a_failed_bound_write_keeps_its_status(tmp_path, monkeypatch):
+    """Ruling 23, through the scope's scrub too: the error keeps its type, so
+    its status is the one its type has (a `NoSession` is the caller's 400)."""
+    from kubed.selenium_flow import errors, faults
+
+    def write(sid, text, **kw):
+        raise faults.NoSession(f"no session while typing {text!r}")
+
+    server, touched = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    with pytest.raises(faults.NoSession) as caught:
+        tool.fn(
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+        )
+    assert type(caught.value) is faults.NoSession
+    assert errors.status_for(caught.value) == errors.status_for(faults.NoSession("x"))
+    assert VALUE not in faults.message(caught.value)
+    assert "[secret:nextcloud/password]" in faults.message(caught.value)
+    assert touched == []
+    server.workspaces.scrubber.close()
+
+
+
+async def test_an_mcp_write_whose_scrub_fails_answers_the_fixed_sentence(
+    tmp_path, monkeypatch, caplog
+):
+    """Ruling 2 over MCP: a tool error saying the fixed sentence, nothing else."""
+    from fastmcp import Client
+
+    from kubed.selenium_flow import faults
+
+    def write(sid, text, **kw):
+        return {"value": None, "url": "https://nc.example.com/", "title": text}
+
+    server, _ = _direct(tmp_path, monkeypatch, write)
+
+    def broken():
+        raise OSError(f"cannot stat {VALUE}")
+
+    monkeypatch.setattr(server.secrets, "revision", broken)
+    async with Client(server.mcp) as client:
+        result = await client.call_tool(
+            "write",
+            {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
+            raise_on_error=False,
+        )
+    assert result.is_error
+    text = result.content[0].text
+    assert text.endswith(faults.SCRUB_FAILED) and VALUE not in text
+    assert "ScrubFailed" in caplog.text and VALUE not in caplog.text
+
+async def test_a_bound_write_marks_the_value_in_its_result(tmp_path, monkeypatch):
+    """The value comes back as its marker wherever the page echoes it, and the
+    URL it reached is withheld from the record."""
+    def write(sid, text, **kw):
+        return {
+            "value": None,
+            "url": f"https://nc.example.com/?q={quote_plus(text)}",
+            "title": "Home",
+            "html": f"<p>{text}</p>",
+        }
+
+    server, touched = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    result = tool.fn(
+        selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+    )
+    assert result["html"] == "<p>[secret:nextcloud/password]</p>"
+    assert "<hidden>" not in json.dumps(result)
+    assert touched == [(None, "browser-1")]
+    server.workspaces.scrubber.close()
+
+
+# ---- the forms of an origin, and when they rotate -----------------------------
+
+
+def swap(path, text):
+    """Replace a file the way Kubernetes does: a new file, then a rename."""
+    fresh = path.with_name(path.name + ".new")
+    fresh.write_text(text)
+    fresh.replace(path)
+
+
+def test_forms_for_an_origin_are_the_secrets_allowed_there(tmp_path):
+    catalogue = make(tmp_path, {
+        "a": {"password": "alpha-1", "_allowed_urls": "https://a.test"},
+        "b": {"password": "bravo-2", "_allowed_urls": "https://b.test"},
+        "open": {"password": "open-3"}})
+    forms = catalogue.forms_for("https://a.test")
+    assert forms.ids == {("a", "password")}
+    assert not catalogue.forms_for("https://nowhere.test")
+
+
+def test_leashed_is_every_usable_secret_and_never_a_refused_one(tmp_path):
+    catalogue = make(tmp_path, {
+        "a": {"password": "alpha-1", "_allowed_urls": "https://a.test"},
+        "b": {"password": "bravo-2", "_allowed_urls": "https://b.test"},
+        "open": {"password": "open-3"},
+        "broken": {"password": "broken-4", "_allowed_urls": "not a url"}})
+    assert catalogue.leashed().ids == {("a", "password"), ("b", "password")}
+
+
+def test_the_revision_moves_when_a_key_file_is_replaced(tmp_path):
+    clock = [0.0]
+    catalogue = make(tmp_path, {"a": {"password": "one", "_allowed_urls": "https://a.test"}},
+                     clock=lambda: clock[0])
+    before = catalogue.revision()
+    swap(tmp_path / "a" / "password", "two")
+    assert catalogue.revision() == before
+    clock[0] += secrets.CACHE_SECONDS + 1
+    assert catalogue.revision() != before
+
+
+def test_a_key_that_cannot_be_read_adds_nothing(tmp_path, monkeypatch):
+    catalogue = make(tmp_path, {"a": {
+        "password": "alpha-1", "username": "alice-9", "_allowed_urls": "https://a.test"}})
+    real = catalogue.value
+
+    def flaky(name, key):
+        if key == "password":
+            raise PermissionError("alpha-1")
+        return real(name, key)
+
+    monkeypatch.setattr(catalogue, "value", flaky)
+    forms = catalogue.forms_for("https://a.test")
+    assert forms.ids == {("a", "username")}
+    assert catalogue.leashed().ids == {("a", "username")}
+
+
+def test_forms_for_never_reads_a_refused_secret(tmp_path, monkeypatch):
+    catalogue = make(tmp_path, {
+        "a": {"password": "alpha-1", "_allowed_urls": "https://a.test"},
+        "open": {"password": "open-3"}})
+    read = []
+    real = catalogue.value
+    monkeypatch.setattr(catalogue, "value",
+                        lambda name, key: read.append(name) or real(name, key))
+    catalogue.forms_for("https://a.test")
+    catalogue.leashed()
+    assert set(read) == {"a"}
+
+
+def test_config_keys_stamp_only_a_file(tmp_path):
+    from kubed.selenium_flow.config import FromFile, FromValue
+
+    path = tmp_path / "k"
+    path.write_text("v")
+    conf = ConfigEntries({}, None)
+    assert conf.stamp(FromValue(value="x")) == ()
+    assert conf.stamp(FromFile(file=str(path)))
+    assert conf.stamp(FromFile(file=str(tmp_path / "missing"))) == ()
+
+
+def test_a_directory_secret_with_a_config_file_key_lists_and_rotates(tmp_path):
+    from kubed.selenium_flow.config import FromFile, SecretEntry
+
+    root = tmp_path / "dir"
+    make_secret(root, "a", username="alice-9", _allowed_urls="https://a.test")
+    keyfile = tmp_path / "override"
+    keyfile.write_text("one")
+    clock = [0.0]
+    conf = ConfigEntries(
+        {"a": SecretEntry(keys={"password": FromFile(file=str(keyfile))})}, None)
+    catalogue = Catalogue([FilesystemSource(root)], clock=lambda: clock[0], config=conf)
+    assert catalogue.listing()["count"] == 1
+    assert catalogue.allows("a", "https://a.test/x")
+    assert catalogue.forms_for("https://a.test").ids == {
+        ("a", "username"), ("a", "password")}
+    before = catalogue.revision()
+    swap(keyfile, "two")
+    clock[0] += secrets.CACHE_SECONDS + 1
+    assert catalogue.revision() != before
+
+
+@pytest.mark.parametrize("leash", [None, "https://b.test"])
+def test_a_leash_edit_moves_the_revision_and_the_origins_forms(tmp_path, leash):
+    """Adding an origin to a secret's leash rescopes it: the revision moves, so
+    a browser rebuilds its sets, and the origin's forms hold it (final review 1)."""
+    keys = {"password": "alpha-1"}
+    if leash:
+        keys["_allowed_urls"] = leash
+    clock = [0.0]
+    catalogue = make(tmp_path, {"a": keys}, clock=lambda: clock[0])
+    before = catalogue.revision()
+    assert not catalogue.forms_for("https://a.test")
+    swap(tmp_path / "a" / "_allowed_urls", "https://b.test\nhttps://a.test\n")
+    clock[0] += secrets.CACHE_SECONDS + 1
+    assert catalogue.allows("a", "https://a.test/")
+    assert catalogue.revision() != before
+    assert catalogue.forms_for("https://a.test").ids == {("a", "password")}
+
+
+def test_a_leash_edit_rebuilds_the_browsers_set(tmp_path):
+    """Through the scrubber: a set built before the edit is not taken as current."""
+    clock = [0.0]
+    catalogue = make(tmp_path, {"a": {
+        "password": "alpha-1", "_allowed_urls": "https://b.test"}},
+        clock=lambda: clock[0])
+    scrubber = Scrubber(catalogue, ttl=60)
+    try:
+        scrubber.build("w", "g1", "https://a.test").result(5)
+        shown, _ = scrubber.result("w", "g1", {"t": "alpha-1"}, ["https://a.test"] * 2)
+        assert shown == {"t": "alpha-1"}  # not allowed there yet
+        swap(tmp_path / "a" / "_allowed_urls", "https://b.test\nhttps://a.test\n")
+        clock[0] += secrets.CACHE_SECONDS + 1
+        shown, _ = scrubber.result("w", "g1", {"t": "alpha-1"}, ["https://a.test"] * 2)
+        assert shown == {"t": "[secret:a/password]"}
+    finally:
+        scrubber.close()
+
+
+IPV6 = ["https://[::1]:8443", "http://[::1]", "https://[2001:db8::7]"]
+
+
+@pytest.mark.parametrize("leash", IPV6)
+def test_an_ipv6_literal_is_in_scope_where_it_is_allowed(tmp_path, leash):
+    """`forms_for` takes an origin as `scope_origin` spells it, unbracketed, and
+    never parses it again (final review 2)."""
+    catalogue = make(tmp_path, {"a": {"password": "alpha-1", "_allowed_urls": leash}})
+    url = leash + "/login"
+    assert catalogue.allows("a", url)
+    assert catalogue.forms_for(secrets.origin(url)).ids == {("a", "password")}
+    assert catalogue.leashed().ids == {("a", "password")}
+
+
+AGREEMENT = [  # (a URL, the `_allowed_urls` line naming its origin, or None)
+    ("https://a.test/x", "https://a.test"),
+    ("HTTPS://A.Test/", "https://a.test"),
+    ("https://a.test:443/", "https://a.test:443"),
+    ("https://a.test:8443/x", "https://a.test:8443"),
+    ("https://user:pw@a.test/", "https://a.test"),
+    ("http://[::1]:8080/", "http://[::1]:8080"),
+    ("https://[2001:db8::7]/", "https://[2001:db8::7]"),
+    ("chrome-error://chromewebdata/", "chrome-error://chromewebdata"),
+    ("about:blank", None),
+    ("data:text/html,hi", None),
+    ("javascript:alert(1)", None),
+    ("file:///etc/hosts", None),
+    ("", None),
+]
+
+
+@pytest.mark.parametrize("url,leash", AGREEMENT)
+def test_allows_and_forms_for_agree_on_every_origin_shape(tmp_path, url, leash):
+    """A secret leashed to a URL's own origin is in scope there exactly when it
+    may be typed there; an opaque page has no origin a leash can name."""
+    keys = {"password": "alpha-1", "_allowed_urls": leash or "https://elsewhere.test"}
+    catalogue = make(tmp_path, {"a": keys})
+    in_scope = ("a", "password") in catalogue.forms_for(secrets.origin(url)).ids
+    assert catalogue.allows("a", url) is in_scope
+    assert in_scope is bool(leash)

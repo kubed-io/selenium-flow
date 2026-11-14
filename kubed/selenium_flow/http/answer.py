@@ -17,6 +17,7 @@ into a response is this module's job, which is why ``as_response`` lives here.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import logging
 from collections.abc import Callable
@@ -196,6 +197,7 @@ async def answer(
     log: logging.Logger,
     *,
     named: bool = True,
+    scrubbed: Callable | None = None,
 ) -> JSONResponse:
     """Authorise, read the body, name the workspace, run ``call``, shape a failure.
 
@@ -212,6 +214,12 @@ async def answer(
     Naming happens inside the try on purpose: an unnamed request and one
     carrying two names are both refusals ``errors`` already classifies, and they
     read the same here as everywhere else.
+
+    ``scrubbed`` is `Workspaces.scrubbed`, for a tree whose answers may carry a
+    page's words without being a call on the browser - site data, files, flow
+    documents (spec 2026-11-14-secret-scope, rulings 2 and 16): the answer and
+    its failure are checked for secrets, in the worker thread. Only for a
+    synchronous ``call``.
     """
     if not auth.authorized(request, token):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -238,6 +246,10 @@ async def answer(
         # nothing (§F4.19). One that returns an awaitable is awaited too.
         if inspect.iscoroutinefunction(call):
             result = await call(caller, body)
+        elif scrubbed is not None:
+            result = await run_in_threadpool(
+                scrubbed, caller.named, functools.partial(call, caller, body)
+            )
         else:
             result = await run_in_threadpool(call, caller, body)
             if hasattr(result, "__await__"):

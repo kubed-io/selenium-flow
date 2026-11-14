@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from ...core.actions import BODY_CLOSED
+from ...core.actions import BODY_CLOSED, cut_body
 from ...faults import NotFound
 from .. import answer, links
 from .workspaces import HEARTBEAT
@@ -122,7 +122,8 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
         """One captured request's response body, asked of the live browser.
 
         Never reopens a browser: a body lives only as long as the browser that
-        fetched it.
+        fetched it. Not scrubbed (ruling 17), but cut at the cap as an agent's
+        is (`cut_body`): the action returns it whole.
         """
         try:
             session_id = await run_in_threadpool(
@@ -135,7 +136,7 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, "request body", log)
-        return JSONResponse(body)
+        return JSONResponse(cut_body(body))
 
     @mcp.custom_route(
         f"{prefix}{TAIL_PATH}", methods=["GET"], name="admin_capture_tail"

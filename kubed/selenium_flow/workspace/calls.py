@@ -51,6 +51,7 @@ from ..capture import CONSOLE_URI, NETWORK_URI
 from ..capture.store import Mark
 from ..faults import PAGE_NOTE
 from ..monitor.events import CallFinished
+from ..redaction import Forms
 
 log = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ class Calls:
             error.add_note(sentence(page))
         return page
 
-    def bound(self, workspace: str, forms: Iterable[str]) -> None:
+    def bound(self, workspace: str, forms: Forms) -> None:
         """Mask ``forms`` in what this workspace captures from now on. Called
         before the keystrokes, and allowed to fail the write: typing a value
         capture would keep in the clear is worse than not typing it."""

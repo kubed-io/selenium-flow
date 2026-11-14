@@ -111,7 +111,7 @@
           "url": "https://example.test/write",
           "value": null
         },
-        "summary": "write css='#p' text=<hidden>",
+        "summary": "write css='#p' text=[secret:nextcloud/password]",
         "tool": "write",
         "url": "https://example.test/write"
       }
@@ -160,14 +160,14 @@
       {
         "n": 1,
         "ok": true,
-        "summary": "write css='#p' text=<hidden>",
+        "summary": "write css='#p' text=[secret:nextcloud/password]",
         "tool": "write"
       }
     ],
     "steps_run": 1,
     "steps_total": 1,
     "title": "t",
-    "url": "https://x.test/?q=<hidden>",
+    "url": "https://x.test/?q=[secret:nextcloud/password]",
     "url_redacted": true
   },
   "simple": {

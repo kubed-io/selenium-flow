@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from kubed.selenium_flow import faults, redaction
 from kubed.selenium_flow.flows import redact, template
 from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
@@ -43,7 +44,7 @@ class Vault:
         self.secret = value
 
     def entry(self, name):
-        return {"name": name, "keys": ["password"], "allowed_urls": []}
+        return {"name": name, "keys": ["password"], "allowed_urls": [], "restricted": True}
 
     def allows(self, name, url):
         return True
@@ -53,6 +54,8 @@ class Vault:
 
 
 SECRET_STEP = {"name": "nextcloud", "key": "password"}
+ID = ("nextcloud", "password")
+M = "[secret:nextcloud/password]"
 
 
 def guarded(steps, value="hunter2", actions=None, **extra):
@@ -340,7 +343,7 @@ def test_a_guarded_value_is_hidden_in_the_summary_too():
     ]
     document = flow(steps)
     report = run(FakeActions(), document, "b", catalogue=Vault())
-    assert report["steps"][0]["summary"].endswith("text=<hidden>")
+    assert report["steps"][0]["summary"].endswith("text=[secret:nextcloud/password]")
 
 
 def test_an_ordinary_parameter_is_not_hidden():
@@ -416,7 +419,7 @@ def test_the_guard_keys_off_the_argument_not_a_flag():
         FakeActions(), document, "b",
         catalogue=Vault("https://example.test/login?token=abc123"),
     )
-    assert "text=<hidden>" in report["steps"][0]["summary"]
+    assert "text=[secret:nextcloud/password]" in report["steps"][0]["summary"]
     assert "abc123" not in report["steps"][0]["summary"]
 
 
@@ -432,7 +435,7 @@ def test_an_unguarded_field_is_still_printed_beside_a_guarded_one():
         "summary"
     ]
     assert "css='#password'" in summary
-    assert "text=<hidden>" in summary
+    assert "text=[secret:nextcloud/password]" in summary
 
 
 @pytest.mark.parametrize("attribute", ["clear_files", "_at", "files", "__init__"])
@@ -572,7 +575,7 @@ def test_a_guarded_value_is_scrubbed_out_of_an_error():
 
     report = run(Leaky(), document, "b", catalogue=Vault())
     assert "hunter2" not in str(report)
-    assert "<hidden>" in report["steps"][0]["error"]
+    assert "[secret:nextcloud/password]" in report["steps"][0]["error"]
     # And the rest of the message survives, so the failure is still diagnosable.
     assert "could not type" in report["steps"][0]["error"]
 
@@ -839,7 +842,7 @@ def test_a_value_a_later_script_returns_as_a_key_is_hidden_too(return_, verbose)
             return {"result": {"hunter2": "hunter2"}, "url": "https://x.test/", "title": "t"}
 
     report = run(Keyed(), flow(steps), "b", verbose=verbose, catalogue=Vault())
-    assert report["steps"][1]["result"]["result"] == {"<hidden>": "<hidden>"}
+    assert report["steps"][1]["result"]["result"] == {"[secret:nextcloud/password]": "[secret:nextcloud/password]"}
     assert "hunter2" not in json.dumps(report)
 
 
@@ -905,10 +908,10 @@ def test_an_ordinary_run_does_not_claim_a_redacted_page():
 
 
 def test_a_secret_that_is_the_marker_is_still_a_redacted_page():
-    """The collision the equality check could not see: `<hidden>` scrubs to
-    itself, so comparing a URL with its scrubbed form said nothing had been
-    redacted while the credential was still in it. The question is whether the
-    value is in the URL, so that is what is asked."""
+    """The collision the equality check could not see: a value that is its own
+    marker scrubs to itself, so comparing a URL with its scrubbed form said
+    nothing had been redacted while the credential was still in it. The
+    question is whether the value is in the URL, so that is what is asked."""
     steps = [
         {"tool": "write", "args": {"selector": {"css": "#q"}, "secret": SECRET_STEP}}
     ]
@@ -918,7 +921,7 @@ def test_a_secret_that_is_the_marker_is_still_a_redacted_page():
         def write(self, session_id, text, **kwargs):
             return {"url": f"https://x.test/?q={text}", "title": "t"}
 
-    report = run(Submitting(), document, "b", catalogue=Vault())
+    report = run(Submitting(), document, "b", catalogue=Vault(M))
     assert report["url_redacted"] is True
 
 
@@ -952,23 +955,25 @@ def test_a_step_that_fails_after_typing_reports_a_redacted_page():
 
 
 def test_taints_asks_whether_the_value_is_there():
-    assert redact.taints("https://x.test/?q=hunter2", {"hunter2"}) is True
-    assert redact.taints("https://x.test/", {"hunter2"}) is False
-    # The marker is not evidence either way.
-    assert redact.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
-    assert redact.taints(None, {"hunter2"}) is False
+    forms = redaction.Forms.of("hunter2", ID)
+    assert redact.taints("https://x.test/?q=hunter2", forms) is True
+    assert redact.taints("https://x.test/", forms) is False
+    assert redact.taints(None, forms) is False
+    # A value that is its own marker is scrubbed once, but still taints.
+    own = redaction.Forms.of(M, ID)
+    assert redact.taints(f"https://x.test/?q={M}", own) is True
 
 
 def test_a_key_is_scrubbed_like_a_value_and_a_collision_keeps_the_later():
-    hidden = redact.hidden_forms(["s3cr3t"])
+    forms = redaction.Forms.of("s3cr3t", ID)
     page = {"a s3cr3t": 1, "s3cr3t": 2, "kept": {"x s3cr3t": [{"s3cr3t": 3}]}}
-    assert redact.scrub_values({"result": page}, hidden) == {
-        "result": {"a <hidden>": 1, "<hidden>": 2, "kept": {"x <hidden>": [{"<hidden>": 3}]}}
+    assert redact.scrub_values({"result": page}, forms) == {
+        "result": {f"a {M}": 1, M: 2, "kept": {f"x {M}": [{M: 3}]}}
     }
     # Two spellings of one value are two keys that scrub to one: the later wins.
-    hidden = redact.hidden_forms(["a/b"])
-    collided = redact.scrub_values({"result": {"a/b": "first", "a%2Fb": "later"}}, hidden)
-    assert collided == {"result": {"<hidden>": "later"}}
+    forms = redaction.Forms.of("a/b", ID)
+    collided = redact.scrub_values({"result": {"a/b": "first", "a%2Fb": "later"}}, forms)
+    assert collided == {"result": {M: "later"}}
 
 
 def test_a_value_echoed_json_or_html_escaped_is_scrubbed_whole():
@@ -977,9 +982,10 @@ def test_a_value_echoed_json_or_html_escaped_is_scrubbed_whole():
     never leaves the escape's remainder behind (PR review I2)."""
     hidden = redact.hidden_forms(['"q<é', "", None])
     assert "" not in hidden and None not in hidden
+    forms = redaction.Forms.of('"q<é', ID)
     # JSON's \" holds the plain "q<é inside it, after its backslash.
     for echo in ('\\"q<\\u00e9', '\\"q<é', "&quot;q&lt;é", '"q&lt;é'):
-        assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!"
+        assert redact.scrub(f"saw {echo}!", forms) == f"saw {M}!"
 
 
 def test_the_other_servers_escapes_of_a_value_are_scrubbed_whole():
@@ -988,6 +994,7 @@ def test_the_other_servers_escapes_of_a_value_are_scrubbed_whole():
     + as &#43;, and a JSON encoder may write its hex in capitals."""
     secret = "<>&'\"é+"
     hidden = redact.hidden_forms([secret])
+    forms = redaction.Forms.of(secret, ID)
     echoes = (
         "\\u003c\\u003e\\u0026'\\\"é+",  # Go encoding/json
         "&lt;&gt;&amp;&#039;&quot;é+",  # PHP 8.1+ htmlspecialchars
@@ -997,13 +1004,13 @@ def test_the_other_servers_escapes_of_a_value_are_scrubbed_whole():
     )
     for echo in echoes:
         assert echo in hidden, echo
-        assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!", echo
+        assert redact.scrub(f"saw {echo}!", forms) == f"saw {M}!", echo
     assert len(hidden) <= 16  # a fixed few forms per value, whatever it holds
 
 
 def test_the_responses_own_fields_are_never_scrubbed():
     """A secret that spells `url` must not rename the field a caller reads."""
-    assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, {"url"}) == {
+    assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, redaction.Forms.of("url", ID)) == {
         "url": "https://x.test/", "title": "t",
     }
 
@@ -1495,7 +1502,7 @@ def test_a_parameter_can_never_reach_the_name_of_a_secret():
         ],
     }
     run(Watching(), document, "b", params={"who": "root-password"}, catalogue=vault)
-    assert vault.names == ["${who}"], "the reference was substituted"
+    assert set(vault.names) == {"${who}"}, "the reference was substituted"
 
 
 def test_the_page_is_read_only_for_a_step_that_binds_a_secret():
@@ -1567,7 +1574,7 @@ def test_a_bound_value_is_handed_over_before_the_step_acts():
     )
     assert order == [
         ("acted", "navigate"),
-        ("bound", frozenset({"a b", "a%20b", "a+b"})),
+        ("bound", frozenset(redaction.Forms.of("a b", ID))),
         ("acted", "write"),
     ]
 
@@ -1599,3 +1606,234 @@ def test_a_step_refused_before_acting_is_never_done():
         step_done=lambda tool, error: done.append(tool),
     )
     assert report["status"] == "failed" and done == []
+
+
+# ---- the secrets in scope: armed by scope, not by use (spec 2026-11-14-secret-scope) --
+
+IN_SCOPE = "alpha-11"
+IN_SCOPE_ID = ("a", "password")
+IN_SCOPE_M = "[secret:a/password]"
+
+
+class Echoing(FakeActions):
+    """A page that shows a value nobody typed in this run, on a step that says
+    so, and lands on a URL carrying it when it navigates."""
+
+    def extract(self, session_id, **kwargs):
+        return {
+            **self._record("extract", session_id, **kwargs),
+            "text": f"signed in with {IN_SCOPE}",
+        }
+
+    def navigate(self, session_id, **kwargs):
+        self._record("navigate", session_id, **kwargs)
+        return {"url": f"https://a.test/?q={IN_SCOPE}", "title": "t"}
+
+    def page(self, session_id):
+        return {"url": f"https://a.test/failed?q={IN_SCOPE}", "title": IN_SCOPE}
+
+
+def scope(asked=None):
+    """An `in_scope` hook: the value is in scope after every step, and each
+    call is noted in ``asked``."""
+
+    def in_scope(result):
+        if asked is not None:
+            asked.append(result)
+        return redaction.Forms.of(IN_SCOPE, IN_SCOPE_ID)
+
+    return in_scope
+
+
+def test_a_step_echoing_a_value_never_typed_in_this_run_is_marked():  # ruling 1
+    """`Run.seen` was per run: only a value this run typed was hidden. A value
+    allowed on the page is hidden whoever typed it, or nobody."""
+    asked = []
+    steps = [{"tool": "extract", "args": {}, "return": True}]
+    report = run(Echoing(), flow(steps), "b", in_scope=scope(asked))
+    assert report["steps"][0]["result"]["text"] == f"signed in with {IN_SCOPE_M}"
+    assert IN_SCOPE not in json.dumps(report)
+    # Asked with the step's own result, raw: its URL is where the step ran.
+    assert asked == [{"url": "https://example.test/extract", "title": "Extract",
+                      "text": f"signed in with {IN_SCOPE}"}]
+
+
+def test_a_failed_step_is_scrubbed_with_every_leashed_secret():  # in_scope(None)
+    asked = []
+    actions = Echoing(fail_on={"interact"}, error=f"no button on ?q={IN_SCOPE}")
+    steps = [{"tool": "interact", "args": {"action": "click", "selector": {"css": "b"}}}]
+    report = run(actions, flow(steps), "b", in_scope=scope(asked))
+    assert asked == [None]  # a failed step has no result: its origin is unknown
+    assert report["status"] == "failed"
+    assert IN_SCOPE_M in report["steps"][0]["error"]
+    assert IN_SCOPE not in json.dumps(report)
+    assert report["url_redacted"] is True  # the page it failed on carries it
+
+
+def test_the_run_url_is_withheld_when_it_carries_an_in_scope_value():  # ruling 21
+    steps = [{"tool": "navigate", "args": {"url": "https://a.test/"}}]
+    report = run(Echoing(), flow(steps), "b", in_scope=scope())
+    assert report["url_redacted"] is True
+    assert "url" not in report["steps"][0]  # never reported as a place it went
+    assert report["url"] == f"https://a.test/?q={IN_SCOPE_M}"
+
+
+def test_a_step_whose_scrub_fails_stops_the_run_whatever_it_says(caplog):  # ruling 2
+    def broken(result):
+        raise RuntimeError(f"cannot read {IN_SCOPE}")
+
+    steps = [
+        {"tool": "extract", "args": {}, "return": True, "onError": "continue"},
+        {"tool": "navigate", "args": {"url": "https://a.test/"}},
+    ]
+    actions = Echoing()
+    report = run(actions, flow(steps), "b", in_scope=broken)
+    assert report["status"] == "failed" and report["steps_run"] == 1
+    assert report["steps"][0]["ok"] is False
+    assert report["steps"][0]["error"] == faults.SCRUB_FAILED
+    assert "result" not in report["steps"][0]
+    assert [c[0] for c in actions.calls] == ["extract"]
+    assert IN_SCOPE not in json.dumps(report) + caplog.text
+
+
+def test_a_failed_step_whose_scrub_fails_says_only_the_sentence():
+    def broken(result):
+        raise RuntimeError("no")
+
+    actions = Echoing(fail_on={"extract"}, error=f"no {IN_SCOPE} here")
+    report = run(actions, flow([{"tool": "extract", "args": {}}]), "b", in_scope=broken)
+    assert report["steps"][0]["error"] == faults.SCRUB_FAILED
+    assert IN_SCOPE not in json.dumps(report)
+
+
+def test_without_a_hook_a_run_reads_nothing_new():  # Review Focus 1
+    """No hook (a run with secrets off) is an empty set: the report is the
+    one a run gave before scope, value and all."""
+    report = run(Echoing(), flow([{"tool": "extract", "args": {}, "return": True}]), "b")
+    assert report["steps"][0]["result"]["text"] == f"signed in with {IN_SCOPE}"
+
+
+def test_a_run_scrubs_each_step_with_the_origins_it_began_and_ended_on(monkeypatch):
+    """`run_for`'s hook: before is where the step began, after is where its
+    result says it is; a failed step's after is unknown."""
+    from kubed.selenium_flow.flows import api as flowapi
+    from kubed.selenium_flow.workspace.store import MemoryStore
+    from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
+
+    from .conftest import RecordingActions
+    from .test_secret_scope import FakeCatalogue
+
+    a, b = "https://a.test", "https://b.test"
+    catalogue = FakeCatalogue({a: {IN_SCOPE_ID: IN_SCOPE}, b: {}})
+    workspaces = Workspaces(RecordingActions(), MemoryStore(), catalogue=catalogue)
+    workspaces.open_browser(Caller("w"), url=f"{b}/")
+    seen = {}
+
+    def step(kw, tool, result):
+        kw["before_step"]({"tool": tool}, 3)
+        forms = kw["in_scope"](result)
+        kw["step_done"](tool, None if result is not None else RuntimeError("x"))
+        return forms
+
+    def run_one(*_args, **kw):
+        seen["stayed"] = step(kw, "extract", {"url": f"{b}/x", "title": "t"})
+        seen["moved"] = step(kw, "navigate", {"url": f"{a}/", "title": "t"})
+        seen["leashed_before_failing"] = catalogue.calls["leashed"]
+        seen["failed"] = step(kw, "interact", None)
+        return {"status": "failed", "steps": []}
+
+    monkeypatch.setattr(flowapi, "run_one", run_one)
+    try:
+        flowapi.run_for(None, workspaces.actions, workspaces, "w", "login")
+        assert not seen["stayed"]  # nothing allowed on b: nothing to scan
+        assert seen["moved"].ids == {IN_SCOPE_ID}  # a's, read when it arrived
+        assert seen["leashed_before_failing"] == 0
+        assert seen["failed"].ids == {IN_SCOPE_ID}  # unknown: every leashed secret
+        assert catalogue.calls["leashed"] == 1
+        assert workspaces.origins.current("w", workspaces.store.get("w").session_id) == a
+    finally:
+        workspaces.scrubber.close()
+
+
+def test_a_steps_summary_is_scrubbed_with_its_scope():
+    """An argument holding a value allowed where the step ran: its summary says
+    the marker, beside the URL the report withholds."""
+    steps = [{"tool": "navigate", "args": {"url": f"https://a.test/?q={IN_SCOPE}"}}]
+    report = run(Echoing(), flow(steps), "b", in_scope=scope())
+    assert IN_SCOPE_M in report["steps"][0]["summary"]
+    assert IN_SCOPE not in json.dumps(report)
+
+
+def test_a_failed_steps_summary_is_scrubbed_too():
+    steps = [{"tool": "navigate", "args": {"url": f"https://a.test/?q={IN_SCOPE}"}}]
+    report = run(Echoing(fail_on={"navigate"}), flow(steps), "b", in_scope=scope())
+    assert report["status"] == "failed" and IN_SCOPE not in json.dumps(report)
+
+
+def test_a_step_that_could_not_be_checked_says_no_summary():
+    def broken(result):
+        raise RuntimeError("no")
+
+    steps = [{"tool": "navigate", "args": {"url": f"https://a.test/?q={IN_SCOPE}"}}]
+    report = run(Echoing(), flow(steps), "b", in_scope=broken)
+    assert "summary" not in report["steps"][0]
+    assert IN_SCOPE not in json.dumps(report)
+
+
+def test_the_progress_line_hides_what_the_run_typed():
+    """`before_step` is told before the step's scope is known: what the run has
+    typed is hidden from it already."""
+    entries = []
+    steps = [
+        {"tool": "write", "args": {"selector": {"css": "#q"}, "secret": SECRET_STEP}},
+        {"tool": "navigate", "args": {"url": "https://x.test/?q=hunter2"}},
+    ]
+    run(FakeActions(), flow(steps), "b", catalogue=Vault(),
+        before_step=lambda entry, total: entries.append(entry))
+    assert "hunter2" not in json.dumps(entries)
+    assert M in entries[1]["summary"]
+
+
+def _progress_run(monkeypatch, broken=False):
+    """`run_for` on a browser at a.test, a step whose argument holds the value,
+    and the progress lines its caller is handed."""
+    from kubed.selenium_flow.flows import api as flowapi
+    from kubed.selenium_flow.workspace.store import MemoryStore
+    from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
+
+    from .conftest import RecordingActions
+    from .test_secret_scope import FakeCatalogue
+
+    catalogue = FakeCatalogue({"https://a.test": {IN_SCOPE_ID: IN_SCOPE}})
+    workspaces = Workspaces(RecordingActions(), MemoryStore(), catalogue=catalogue)
+    workspaces.open_browser(Caller("w"), url="https://a.test/")
+    if broken:
+        catalogue.fail_forms_for = catalogue.fail_leashed = True
+        catalogue.rotate(catalogue.scopes)  # the next scrub reads again, and fails
+    lines = []
+
+    def run_one(*_args, **kw):
+        kw["before_step"](
+            {"n": 1, "tool": "navigate", "summary": f"navigate url='?q={IN_SCOPE}'"}, 1
+        )
+        return {"status": "ok", "steps": []}
+
+    monkeypatch.setattr(flowapi, "run_one", run_one)
+    try:
+        flowapi.run_for(
+            None, workspaces.actions, workspaces, "w", "login",
+            before_step=lambda entry, total: lines.append(entry),
+        )
+    finally:
+        workspaces.scrubber.close()
+    return lines
+
+
+def test_the_progress_line_is_scrubbed_with_where_the_step_begins(monkeypatch):
+    lines = _progress_run(monkeypatch)
+    assert lines[0]["summary"] == f"navigate url='?q={IN_SCOPE_M}'"
+
+
+def test_a_progress_line_that_cannot_be_checked_says_only_the_tool(monkeypatch):
+    lines = _progress_run(monkeypatch, broken=True)
+    assert lines[0]["summary"] == "navigate"

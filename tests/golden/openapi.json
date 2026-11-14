@@ -4287,7 +4287,7 @@
         "description": "One secret a caller may bind. Never its value.",
         "properties": {
           "allowed_urls": {
-            "description": "The sites it may be typed on. Empty means anywhere only when restricted is false; a declaration that named no usable site allows nowhere.",
+            "description": "The sites it may be typed on, and only there. Empty means nowhere.",
             "items": {
               "type": "string"
             },
@@ -4367,8 +4367,12 @@
             },
             "type": "array"
           },
+          "refused": {
+            "description": "Why the secret cannot be used, and how an operator fixes it. Present only when it cannot.",
+            "type": "string"
+          },
           "restricted": {
-            "description": "Whether the secret declares where it may be used. True with no allowed_urls is usable nowhere.",
+            "description": "Whether the secret declares where it may be used. False means it cannot be used.",
             "type": "boolean"
           }
         },
@@ -7401,7 +7405,7 @@
     },
     "/browser/screenshot": {
       "post": {
-        "description": "Capture a PNG of the viewport, of one element (selector), or of the whole\npage (full_page), returned as an image. Use it only when the look is the\nanswer; extract reads content far more cheaply.\n\nBy default the capture is also kept with the workspace's files. To show a\nperson what you saw, give them the file's url: it opens in any\nbrowser without a token, and ![](url) works. Do not describe the\nimage instead.\n\nsave=false stores nothing; file_error says why a save failed, and the image\nstill comes back.",
+        "description": "Capture a PNG of the viewport, of one element (selector), or of the whole\npage (full_page), returned as an image. Use it only when the look is the\nanswer; extract reads content far more cheaply.\n\nBy default the capture is also kept with the workspace's files. To show a\nperson what you saw, give them the file's url: it opens in any\nbrowser without a token, and ![](url) works. Do not describe the\nimage instead.\n\nPixels cannot be scrubbed: a page showing a secret's value in a field that is\nnot a password field shows it here.\n\nsave=false stores nothing; file_error says why a save failed, and the image\nstill comes back.",
         "operationId": "screenshot",
         "parameters": [
           {
@@ -7808,7 +7812,7 @@
     },
     "/browser/write": {
       "post": {
-        "description": "Type into an input, textarea or contenteditable, and read the value back so\nyou can see it landed. clear (default true) replaces what is there;\nsubmit=true presses Enter afterwards.\n\nTo type a secret, pass secret={\"name\": ..., \"key\": ...} instead of text;\nsecret://secrets lists them. The server types it and you never see it: value\ncomes back null. A secret works only on the sites it allows, checked against\nthe page you are on, so navigate there first.",
+        "description": "Type into an input, textarea or contenteditable, and read the value back so\nyou can see it landed. clear (default true) replaces what is there;\nsubmit=true presses Enter afterwards.\n\nTo type a secret, pass secret={\"name\": ..., \"key\": ...} instead of text;\nsecret://secrets lists them. The server types it and you never see it: value\ncomes back null. A secret works only on the sites it allows, checked against\nthe page you are on, so navigate there first. A value typed from a secret, or\nany value of a secret allowed on this site, comes back as [secret:name/key] in\nevery later read here.",
         "operationId": "write",
         "parameters": [
           {
@@ -8993,7 +8997,7 @@
     },
     "/secrets": {
       "get": {
-        "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nA secret listing allowed_urls may only be used on those sites. One that is not restricted may be used anywhere. If an entry carries allowed_urls_rejected, its leash is broken and it cannot be used at all until an operator fixes the file.",
+        "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites.",
         "operationId": "listSecrets",
         "parameters": [
           {

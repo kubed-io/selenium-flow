@@ -52,6 +52,51 @@ def origin_of(url: str) -> str:
     return f"{scheme}://{host}{shown}"
 
 
+def scope_origin(url) -> str:
+    """``url``'s origin as a secret's leash compares it, or "" when it has none.
+
+    Scheme, host and port, spelt as `secrets.origin` spells them: the host
+    lowercased and unbracketed, a port kept exactly when written, userinfo
+    never. "" is an opaque page (`about:blank`, `data:`, `javascript:`, a
+    file), which no `_allowed_urls` line can name, so no secret is in scope
+    there (spec 2026-11-14-secret-scope, ruling 13). Never raises: a URL that
+    will not parse has no origin either.
+
+    This is the leash's one rule: `secrets.origin` is this function, so what a
+    secret may be typed on and what the scrub keys its values on cannot drift
+    apart. It lives here because `workspace/` cannot import `secrets`.
+    """
+    try:
+        parts = urlsplit(url.strip())
+    except (ValueError, TypeError, AttributeError):
+        return ""
+    if not parts.scheme or not parts.netloc:
+        return ""
+    return scope_origin_of(parts)
+
+
+def scope_origin_of(parts) -> str:
+    """Scheme, host and port from an already-split URL, or "" without a host.
+
+    Built from `hostname` and `port`, never `netloc`: netloc includes
+    **userinfo**, so `https://user:pass@example.com/` would put a password into
+    the audit log and every refusal message, and compare unequal to the same
+    site without credentials. `port` *parses*, and raises for anything out of
+    range, so `https://host:99999` is no origin rather than an exception; and
+    it is tested with `is not None`, since port 0 is an explicit port and
+    dropping it would make two origins one at the exact-origin boundary.
+    """
+    host = (parts.hostname or "").lower()
+    if not host:
+        return ""
+    try:
+        declared = parts.port
+    except ValueError:
+        return ""
+    port = f":{declared}" if declared is not None else ""
+    return f"{parts.scheme.lower()}://{host}{port}"
+
+
 def route_of(url: str | None) -> str | None:
     """The hash route of ``url``, or None when its fragment is not one; never raises.
 

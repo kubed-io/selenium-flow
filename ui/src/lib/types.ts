@@ -111,6 +111,7 @@ export interface Secret {
   description?: string
   keys?: string[]
   restricted?: boolean
+  refused?: string
   allowed_urls?: string[]
   allowed_urls_rejected?: string | string[]
   origins?: { source: 'filesystem' | 'config'; location: string }[]

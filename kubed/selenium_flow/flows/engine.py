@@ -39,6 +39,7 @@ from typing import Protocol
 from .. import binding, faults, secrets
 from ..binding import SECRET_ARG
 from ..core import cancel
+from ..redaction import Forms, Id
 from ..workspace import locks
 from .document import ARGS, ASSERTION, declared_timeout
 from .redact import scrub, scrub_values, taints
@@ -105,6 +106,14 @@ class Hooks(Protocol):
     inside its turn on the browser — ``error`` is what it raised, or None. A
     step refused before it began (a bad binding, cancelled while it waited) is
     never done.
+
+    ``in_scope(result)`` after each step, still inside its turn: the forms of
+    the secrets allowed where the step ran, typed or not (spec
+    2026-11-14-secret-scope, ruling 1). ``result`` is the step's raw result,
+    or None for a step that raised, whose page is unknown. The step's report
+    line, its error, the page it landed on and the run's URL are scrubbed with
+    them and with every value the run typed. One that raises fails closed: the
+    step fails with `faults.SCRUB_FAILED` and the run stops there (ruling 2).
     """
 
     def before_step(self, entry: dict, total: int) -> None: ...
@@ -113,9 +122,11 @@ class Hooks(Protocol):
 
     def before_save(self, pages: list[str]) -> None: ...
 
-    def bound(self, forms: set[str]) -> None: ...
+    def bound(self, forms: Forms) -> None: ...
 
     def step_done(self, tool: str, error: BaseException | None) -> None: ...
+
+    def in_scope(self, result: dict | None) -> Forms: ...
 
 
 class Callbacks:
@@ -129,12 +140,14 @@ class Callbacks:
         *,
         bound=None,
         step_done=None,
+        in_scope=None,
     ):
         self._before_step = before_step
         self._after_step = after_step
         self._before_save = before_save
         self._bound = bound
         self._step_done = step_done
+        self._in_scope = in_scope
 
     def before_step(self, entry: dict, total: int) -> None:
         if self._before_step is not None:
@@ -148,13 +161,19 @@ class Callbacks:
         if self._before_save is not None:
             self._before_save(pages)
 
-    def bound(self, forms: set[str]) -> None:
+    def bound(self, forms: Forms) -> None:
         if self._bound is not None:
             self._bound(forms)
 
     def step_done(self, tool: str, error: BaseException | None) -> None:
         if self._step_done is not None:
             self._step_done(tool, error)
+
+    def in_scope(self, result: dict | None) -> Forms:
+        """No hook is nothing in scope: secrets off, or a run nobody wired."""
+        if self._in_scope is None:
+            return Forms()
+        return self._in_scope(result)
 
 
 _UNSET = object()
@@ -198,7 +217,9 @@ class Run:
     accumulated across the run, not scoped to a step: a submitting bound write
     in step two leaves the value in the browser's URL, and step five's page
     state would carry it back out if `seen` were recomputed per step. Once a
-    value has been typed, nothing later in this run may echo it.
+    value has been typed, nothing later in this run may echo it. Each step is
+    scrubbed with it and with the secrets in scope where that step ran
+    (`Hooks.in_scope`), which are handed to `acted` and `landed` as ``forms``.
 
     ``pages`` are the pages the report shows, in order, for `before_save`;
     ``was_at`` is the page the previous step ended on, so a step can say where it
@@ -211,7 +232,7 @@ class Run:
     budget: int
     deadline: float
     stop: threading.Event | None = None
-    seen: set = field(default_factory=set)
+    seen: Forms = field(default_factory=Forms)
     pages: list[str] = field(default_factory=list)
     was_at: str | None = None
     reports: list[dict] = field(default_factory=list)
@@ -227,10 +248,14 @@ class Run:
         self.status = "failed"
         return False
 
-    def acted(self, outcome: StepOutcome, raw, guarded: set, keep) -> None:
-        """Record a step that succeeded: its result, its page, its file."""
-        result = clean(raw, guarded, self.seen)
+    def acted(
+        self, outcome: StepOutcome, raw, guarded: dict[str, Id], keep, forms: Forms
+    ) -> None:
+        """Record a step that succeeded: its result, its page, its file, each
+        scrubbed with ``forms`` (`Hooks.in_scope` and what the run typed)."""
+        result = clean(raw, guarded, forms)
         outcome.ok = True
+        outcome.summary = scrub(outcome.summary, forms)
         # Recorded rather than inferred later by searching the string for
         # the marker, and asked of the raw URL rather than by comparing it
         # with its scrubbed form: a secret whose value happens to BE the
@@ -241,7 +266,7 @@ class Run:
         # flow that types a password and then navigates away ends somewhere
         # perfectly ordinary, and a sticky flag threw that page away and
         # left the workspace pointing at whatever it knew before.
-        self.redacted_url = isinstance(raw, dict) and taints(raw.get("url"), self.seen)
+        self.redacted_url = isinstance(raw, dict) and taints(raw.get("url"), forms)
         # Where this step went, and only when it went somewhere. Silence
         # means the page did not change, which is what makes a navigation
         # that did not happen visible in a report nobody asked to be
@@ -259,13 +284,15 @@ class Run:
         # anybody what it saw, which is most of why a flow took it — and a
         # person reading the report is exactly who it was for (pilot, §F2.15).
         made = raw.get("file") if isinstance(raw, dict) else None
-        if made and not taints(str(made), self.seen):
+        if made and not taints(str(made), forms):
             outcome.file = made
         self.last = result
         if keep:
             outcome.result = result
 
-    def landed(self, outcome: StepOutcome, page, guarded: set) -> None:
+    def landed(
+        self, outcome: StepOutcome, page, guarded: dict[str, Id], forms: Forms
+    ) -> None:
         """Record where a failed step actually left the browser.
 
         Where it actually failed, not where the last step succeeded. Swept,
@@ -274,7 +301,7 @@ class Run:
         write failed on is exactly the kind of place a credential turns up
         without anyone putting it there.
         """
-        landed = scrub_values(page, self.seen)
+        landed = scrub_values(page, forms)
         if landed.get("url") and "url" not in guarded:
             outcome.url = landed["url"]
             self.was_at = landed["url"]
@@ -283,7 +310,7 @@ class Run:
             # failed on is exactly as unsafe to store as one a step
             # succeeded on. Set where `last` changes, so the flag always
             # describes the page the report ends up carrying.
-            self.redacted_url = taints(page.get("url"), self.seen)
+            self.redacted_url = taints(page.get("url"), forms)
             self.last = {**self.last, **landed}
 
     def report(self, skill_available: bool) -> dict:
@@ -328,7 +355,7 @@ def resolve_step(
     params: dict,
     catalogue=None,
     page: str | tuple[str, ...] | Callable[[], str | tuple[str, ...]] = "",
-) -> tuple[dict, set]:
+) -> tuple[dict, dict[str, Id]]:
     """A step's keyword arguments, and **which of them** must not be echoed.
 
     Two mechanisms, deliberately unlike each other (§F1.38).
@@ -342,9 +369,9 @@ def resolve_step(
     into `text` — so the credential exists only as one keyword argument, and the
     guard set names that argument for the redaction that follows.
 
-    The guard is a set rather than a flag because the *result* redaction keys
-    off argument names, and a second guarded argument should not require
-    rewriting it.
+    The guard is a mapping (argument to secret id) rather than a flag because
+    the *result* redaction keys off argument names, and a second guarded
+    argument should not require rewriting it.
     """
     args = dict(step.get(ARGS) or {})
     # Substituted first, and the secret lifted out before it — so a parameter
@@ -353,7 +380,7 @@ def resolve_step(
     reference = args.pop(SECRET_ARG, None)
     kwargs = substitute(args, params)
     if reference is None:
-        return kwargs, set()
+        return kwargs, {}
 
     tool = step.get("tool", "")
     label = step.get("id") or tool
@@ -641,16 +668,21 @@ def _drive(
     if holder and call.library:
         kwargs[holder] = call.library
 
-    outcome.summary = summarise(tool, kwargs, guarded)
-    forms = binding.forms_of(kwargs, guarded)
-    run.seen |= forms
+    typed = binding.forms_of(kwargs, guarded)
+    run.seen |= typed
+    # Built from the step's arguments, which can hold a value: what the run has
+    # typed is hidden from it now, before `before_step` hands it to a watcher;
+    # the secrets in scope where the step runs, once they are known (`acted`,
+    # `_failed`). The watcher's own scope is its host's (`flows.api.run_for`).
+    outcome.summary = scrub(summarise(tool, kwargs, guarded), run.seen)
     # `step_done` once for a step that was begun, and never for one that was
     # not: a save whose pages could not be written first was still begun, and
     # a call never ended would keep its capture held past every deadline.
     acting = done = False
+    raw = failure = None
     try:
-        if forms:
-            call.hooks.bound(forms)
+        if typed:
+            call.hooks.bound(typed)
         call.hooks.before_step(outcome.entry(), run.total)
         acting = True
         if tool == SAVE_SITE_DATA:
@@ -661,36 +693,91 @@ def _drive(
         call.hooks.after_step(tool, raw)
         done = True
         call.hooks.step_done(tool, None)
-        run.acted(outcome, raw, guarded, call.verbose or step.get("return"))
     except Exception as exc:  # noqa: BLE001 - a failing step is an outcome
         # First, so a sentence about what the page reported (`workspace.calls`)
         # is on the error the step's line says.
         if acting and not done:
             call.hooks.step_done(tool, exc)
-        outcome.ok = False
-        # An action puts its arguments in its error text, so the message is
-        # scrubbed before it reaches either the report or the log. One line,
-        # as a single call answers: no driver stack trace, no Grid credential.
-        outcome.error = scrub(faults.message(exc), run.seen)
-        run.landed(outcome, page_state(call.actions, call.session_id), guarded)
-        log.info(
-            "flow %s step %s (%s) failed: %s", run.name, number, label, outcome.error
-        )
-        run.reports.append(outcome.entry())
-        # An assertion is never continued past, whatever the document
-        # says. Saving refuses the pairing; this is the second half, for a
-        # flow edited on disk - without it a false assertion could still
-        # end `ok`, which is the whole failure this action exists to stop.
-        # Nor is a step refused because a person holds the browser: the run
-        # stops there with the refusal (live control spec, ruling 3), since
-        # every step after it would be refused the same way.
-        if (
-            step.get("onError") == "continue"
-            and tool != ASSERTION
-            and not isinstance(exc, (cancel.Cancelled, faults.Controlled))
-        ):
+        failure = exc
+    # What this step's line is scrubbed with: every value the run typed, and
+    # the secrets allowed where it ran, typed or not (spec
+    # 2026-11-14-secret-scope, ruling 1). Asked with the raw result, or with
+    # None when the step raised: then where it is is unknown.
+    try:
+        scope = call.hooks.in_scope(None if failure is not None else raw)
+    except Exception as exc:  # noqa: BLE001 - fails closed, whatever it was
+        return _unchecked(run, number, label, outcome, exc)
+    forms = run.seen | scope
+    if failure is None:
+        try:
+            run.acted(outcome, raw, guarded, call.verbose or step.get("return"), forms)
+        except Exception as exc:  # noqa: BLE001 - a failing step is an outcome
+            failure = exc
+        else:
+            run.reports.append(outcome.entry())
             return True
-        run.status = "failed"
-        return False
+    return _failed(run, call, number, step, outcome, guarded, forms, failure)
+
+
+def _failed(
+    run: Run,
+    call: _Call,
+    number: int,
+    step: dict,
+    outcome: StepOutcome,
+    guarded: dict[str, Id],
+    forms: Forms,
+    exc: Exception,
+) -> bool:
+    """Record a step that raised ``exc``, scrubbed with ``forms``. True to go on."""
+    tool = step.get("tool")
+    label = step.get("id") or tool
+    outcome.ok = False
+    outcome.summary = scrub(outcome.summary, forms)
+    # An action puts its arguments in its error text, so the message is
+    # scrubbed before it reaches either the report or the log. One line,
+    # as a single call answers: no driver stack trace, no Grid credential.
+    outcome.error = scrub(faults.message(exc), forms)
+    run.landed(outcome, page_state(call.actions, call.session_id), guarded, forms)
+    log.info(
+        "flow %s step %s (%s) failed: %s", run.name, number, label, outcome.error
+    )
     run.reports.append(outcome.entry())
-    return True
+    # An assertion is never continued past, whatever the document
+    # says. Saving refuses the pairing; this is the second half, for a
+    # flow edited on disk - without it a false assertion could still
+    # end `ok`, which is the whole failure this action exists to stop.
+    # Nor is a step refused because a person holds the browser: the run
+    # stops there with the refusal (live control spec, ruling 3), since
+    # every step after it would be refused the same way.
+    if (
+        step.get("onError") == "continue"
+        and tool != ASSERTION
+        and not isinstance(exc, (cancel.Cancelled, faults.Controlled))
+    ):
+        return True
+    run.status = "failed"
+    return False
+
+
+def _unchecked(
+    run: Run, number: int, label, outcome: StepOutcome, exc: Exception
+) -> bool:
+    """End the run at a step whose answer could not be checked for secrets.
+
+    Fails closed (spec 2026-11-14-secret-scope, ruling 2): the step says only
+    the fixed sentence - not its result, its error, the page it landed on or
+    its summary, any of which may carry a value - and the run stops there whatever its
+    `onError` says, since nothing after it could be checked either. The
+    failure is logged by its type alone.
+    """
+    log.warning(
+        "flow %s step %s (%s) could not be checked for secrets: %s",
+        run.name, number, label, type(exc).__name__,
+    )
+    outcome.ok = False
+    outcome.summary = None
+    outcome.error = faults.SCRUB_FAILED
+    run.reports.append(outcome.entry())
+    run.status = "failed"
+    return False

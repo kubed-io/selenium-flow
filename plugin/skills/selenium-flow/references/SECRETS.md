@@ -29,12 +29,21 @@ call, and whatever your host logs. A password you *name* is in none of them.
  "source": "filesystem"}
 ```
 
+An entry no site is declared for is listed with `refused` instead, and cannot be used:
+
+```json
+{"name": "legacy", "keys": ["token"], "restricted": false,
+ "refused": "no allowed sites are declared, so it cannot be used: add an `_allowed_urls` file ...",
+ "source": "filesystem"}
+```
+
 | Field | Means |
 |---|---|
 | `keys` | what you may name as `key` — never the values |
 | `allowed_urls` | the only sites it may be typed on, as exact origins |
-| `restricted: false` | no sites declared: it may be used anywhere |
-| `allowed_urls_rejected` | its site list is broken, so it cannot be used at all until an operator fixes it |
+| `restricted` false | no sites declared, so `refused` is set and it cannot be used |
+| `refused` | a sentence saying why it cannot be used and how an operator fixes it: tell the person, do not retry |
+| `allowed_urls_rejected` | its site list is broken, so it is `refused` until an operator fixes it |
 
 If the tool says secrets are not enabled, the server was started without any —
 there is nothing to find, and asking again will not change it.
@@ -68,7 +77,7 @@ It comes back with `"text_from": "secret"` and no value. In a flow, the same
 }
 ```
 
-The report shows the typing steps as `text=<hidden>`. The `assert` is what proves
+The report shows the typing steps as `text=[secret:nextcloud/password]`. That marker, `[secret:name/key]`, is also what any later read on an allowed site shows where a secret's value was: it means a secret was here, and `write` with that name and key types it again. The `assert` is what proves
 you are in — `extract` reads content and never stops a flow. The last step keeps
 the sign-in:
 a reopened browser comes back signed in, and the password is not typed again
@@ -86,7 +95,7 @@ The rules, each of which is refused rather than guessed at:
 
 ## Allowed sites
 
-A restricted secret is typed only when the browser is on one of its
+Every secret names the sites it may be used on, and only there; one with no sites declared is refused, not allowed everywhere. A secret is typed only when the browser is on one of its
 `allowed_urls`, compared as an exact origin — scheme, host and port. A page on
 `https://nextcloud.example.com.evil.test` is not a match, and neither is plain
 `http://`. A refusal names the page it was on and the sites it would accept, so
@@ -114,6 +123,19 @@ read it back — `execute_script` most obviously. The server scrubs it from ever
 report, error and URL it returns to you; it cannot unsee the DOM. A flow that
 binds a secret is not a sandbox. Do not read a field you have just filled with
 one, and do not screenshot a page that shows it.
+
+What the scrub cannot reach:
+
+- **Pixels.** A screenshot, the live view and a recording show a value in any
+  field that is not a password field, and a screenshot's image is never scrubbed.
+- **`execute_script`** can transform a value in ways no encoding list
+  anticipates, and can send it away with its own `fetch`.
+- **Non-ASCII case variants** of a value are not matched; the rest of the
+  spellings (base64, hex, reversed, any ASCII case) are.
+- **A file opened from its signed link** (a kept file, a download, a
+  screenshot, a recording) is served as it is, unscrubbed, a text file
+  included. Read a text file through its `workspace://` resource instead,
+  which is scrubbed.
 
 A site that stores what you typed makes it readable in site data: a token typed
 through a secret that the page keeps in localStorage or sessionStorage is saved

@@ -34,6 +34,7 @@ from ..errors import GONE, UNAVAILABLE
 from ..faults import BidiUnavailable, NotFound, ScriptTimedOut
 from ..faults import message as failure_text
 from ..names import FILES_DIR, SCREENSHOTS_DIR
+from ..redaction import clip
 from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
 from ..urls import allowed_navigation
@@ -61,6 +62,9 @@ log = logging.getLogger(__name__)
 
 # `network_body`: text is cut at this many bytes; an id is a short string.
 BODY_CAP = 100_000
+# `outline`: a name is cut at this many characters, and ends in `…` when it was.
+NAME_CAP = 80
+CUT_MARK = "\u2026"
 # The largest text body asked of the browser, by the size its row says. Chrome
 # answers `network.getData` whole, in one frame, whatever the collector's
 # limit, and decoded: a compressed body can pass the connection's own limit
@@ -134,6 +138,34 @@ def _decoded_length(value: str) -> int:
     except ValueError:
         return 0
 
+
+def cut_body(result):
+    """`network_body`'s ``text`` cut to `BODY_CAP` bytes, ``truncated`` saying
+    whether it was. For a result already scrubbed (`CUTS`)."""
+    if isinstance(result, dict) and isinstance(result.get("text"), str):
+        result["text"], result["truncated"] = clip(
+            result["text"], BODY_CAP, unit="bytes"
+        )
+    return result
+
+
+def cut_names(result):
+    """Each of `outline`'s names past `NAME_CAP` characters cut to it and ended
+    in `…`. For a result already scrubbed (`CUTS`)."""
+    elements = result.get("elements") if isinstance(result, dict) else None
+    for element in elements if isinstance(elements, list) else ():
+        name = element.get("name") if isinstance(element, dict) else None
+        if isinstance(name, str) and len(name) > NAME_CAP:
+            element["name"] = clip(name, NAME_CAP)[0] + CUT_MARK
+    return result
+
+
+# Where the server cuts a text, by tool: after the scrub, never before it, so a
+# value the cut would go through is masked whole first and nothing is matched
+# by prefix (spec 2026-11-14-secret-scope). `Workspaces._scrubbed` applies it.
+CUTS = {"network_body": cut_body, "outline": cut_names}
+
+
 def _body_ended(id: str) -> str:
     return f"the browser that made request {id} has ended, and its body went with it"
 
@@ -162,6 +194,9 @@ CANNOT_TYPE = "this browser cannot type some of these characters (emoji, for one
 # ChromeDriver's refusal of a character outside the Basic Multilingual Plane.
 BMP_REFUSAL = "only supports characters in the BMP"
 FOCUSED = js.read("focused.js")
+
+# An element's HTML with no password input's value in it (spec 2026-11-14, ruling 24).
+EXTRACT_JS = js.read("extract.js")
 FRAME_REFUSAL = (
     "a secret cannot be typed into an element that hosts another document; "
     "switch into the frame first"
@@ -1159,7 +1194,9 @@ class Actions:
             element.send_keys(str(text))
             # Read the value back before any submit: submitting navigates, which
             # makes the element reference stale.
-            read = None if bound else element.get_attribute("value")
+            # A password field's value is never read back, bound or not.
+            password = (element.get_attribute("type") or "").lower() == "password"
+            read = None if bound or password else element.get_attribute("value")
             if as_bool(submit, False):
                 element.send_keys(Keys.RETURN)
                 # And then wait for the navigation it may have caused, or the
@@ -1387,7 +1424,7 @@ class Actions:
 
         def read(at):
             return {
-                "html": at.element.get_attribute("innerHTML"),
+                "html": at.driver.execute_script(EXTRACT_JS, at.element),
                 "text": at.element.text,
             }
 
@@ -1553,7 +1590,8 @@ class Actions:
         its size, so the body is asked on a connection of its own: a frame too
         large for it closes only that one, never the one capture holds, and is
         a 400. The text is masked like every other capture surface, and never
-        logged.
+        logged. It comes back whole: the caller scrubs it, then cuts it to
+        `BODY_CAP` (`cut_body`), so no cut ends partway into a value.
         """
         if not isinstance(id, str) or not 0 < len(id) <= ID_LIMIT:
             raise ValueError(f"id is a request id from {NETWORK_URI}, like 3.7")
@@ -1606,19 +1644,14 @@ class Actions:
         value = data.get("value") or ""
         if data.get("type") == "base64":
             return {**answer, "size": _decoded_length(value)}
-        # Masked like every other capture surface (ruling 13) before the cut,
-        # so a secret straddling it goes too; the size is what the browser sent.
-        size = len(value.encode())
-        masked = self.capture.mask(session_id, value, BODY_CAP)
+        # Masked whole like every other capture surface (ruling 13): no cap,
+        # since a marker can be longer than its value and the cut comes after
+        # the scrub (`cut_body`). The size is what the browser sent.
+        size = len(value.encode("utf-8", "surrogatepass"))
+        masked = self.capture.mask(session_id, value, None)
         if masked is None:  # capture forgot this browser while it was asked
             raise NotFound(_body_ended(id))
-        return {
-            **answer,
-            "size": size,
-            "binary": False,
-            "text": masked.encode()[:BODY_CAP].decode("utf-8", "ignore"),
-            "truncated": size > BODY_CAP,
-        }
+        return {**answer, "size": size, "binary": False, "text": masked}
 
     def network_body_closed(self, workspace: str, id) -> None:
         """`network_body` in a workspace with no session open: a request

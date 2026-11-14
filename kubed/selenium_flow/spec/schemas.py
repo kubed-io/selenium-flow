@@ -626,16 +626,22 @@ SECRET_SCHEMAS = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "The sites it may be typed on. Empty means anywhere only "
-                    "when restricted is false; a declaration that named no "
-                    "usable site allows nowhere."
+                    "The sites it may be typed on, and only there. Empty means "
+                    "nowhere."
                 ),
             },
             "restricted": {
                 "type": "boolean",
                 "description": (
-                    "Whether the secret declares where it may be used. True with "
-                    "no allowed_urls is usable nowhere."
+                    "Whether the secret declares where it may be used. False "
+                    "means it cannot be used."
+                ),
+            },
+            "refused": {
+                "type": "string",
+                "description": (
+                    "Why the secret cannot be used, and how an operator fixes "
+                    "it. Present only when it cannot."
                 ),
             },
             "allowed_urls_rejected": {

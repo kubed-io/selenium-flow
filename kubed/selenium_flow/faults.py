@@ -175,6 +175,26 @@ class NodeLost(Exception):
         super().__init__(NODE_LOST)
 
 
+SCRUB_FAILED = (
+    "this call's result could not be checked for secrets, so it is not "
+    "returned. The action itself may have run: read the page before you "
+    "repeat it."
+)
+
+
+class ScrubFailed(Exception):
+    """A result or error could not be checked for secrets: a 500 (spec
+    2026-11-14-secret-scope, ruling 2).
+
+    The scrub fails closed, so the call answers this rather than what it
+    would have returned. A fixed sentence and no arguments: the failure it
+    stands for may carry a value, so it is raised from nothing and logged by
+    its type alone (`workspace.scrub`)."""
+
+    def __init__(self):
+        super().__init__(SCRUB_FAILED)
+
+
 # How a browser that died under a call is reported: the hub's answer when its
 # node does not reply, and Chrome's two crash messages. Case-sensitive, as the
 # drivers write them.

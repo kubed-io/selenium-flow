@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A secret's value comes back as `[secret:name/key]` in every result and error on the sites it is allowed on, typed or not.
+- **BREAKING:** A secret must declare its allowed sites (`_allowed_urls`); one that does not is listed as refused and cannot be used.
+- `outline` ends a name it cut at 80 characters with `…`.
 - A call that finds its browser replaced says so once, in `reopened` (`reaped` or `lost`), whether or not site data came back.
 - A workspace's browser is kept alive for `session.keep_alive` (15 minutes) after its last call, so a pause of a few minutes no longer loses it.
 - A flow's `paths` can name a hash route (`/#/auth/*`), and `url=` moves between hash routes.

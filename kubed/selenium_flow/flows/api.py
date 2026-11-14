@@ -35,6 +35,7 @@ Two rules from the chapter show up here as code:
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 from typing import Annotated
@@ -56,7 +57,7 @@ from ..mcp.tools import SecretRef
 from ..names import GLOBAL_WORKSPACE, valid_name
 from ..workspace import calls as calls_module
 from . import document as flowdoc
-from . import engine, places, template
+from . import engine, places, redact, template
 from . import library as flowlib
 from . import run as flowrun
 
@@ -369,6 +370,7 @@ def run_one(
     before_save=None,
     bound=None,
     step_done=None,
+    in_scope=None,
 ) -> dict:
     """Run one flow against an already-resolved browser."""
     document = read_one(store, workspace, name)
@@ -384,6 +386,7 @@ def run_one(
         before_save=before_save,
         bound=bound,
         step_done=step_done,
+        in_scope=in_scope,
         catalogue=secrets_catalogue,
         skill_available=skill_available,
         # The CALLER's library, not `document["workspace"]`: a flow read from the
@@ -493,13 +496,17 @@ def register(
         if timeout is not None:
             document[flowdoc.TIMEOUT] = timeout
         document["steps"] = steps
-        library = clients.caller().library  # on the request, before the thread
+        caller = clients.caller()  # on the request, before the thread
+        library = caller.library
         steps_schemas = await schemas.get()
         # Validating, dumping and writing in a worker thread, as every other
         # save does: the data directory may be NFS, and a slow write on the
-        # loop stalls every other request.
+        # loop stalls every other request. What it says back is the document,
+        # checked for secrets as `flow://flows/{name}` is (ruling 16).
         return await anyio.to_thread.run_sync(
-            save_one, store, library, name, document, steps_schemas
+            workspaces.scrubbed,
+            caller.named,
+            functools.partial(save_one, store, library, name, document, steps_schemas),
         )
 
     @mcp.tool(
@@ -559,7 +566,10 @@ def register(
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )
     def delete_flow(name: str) -> dict:
-        return delete_one(store, clients.caller().library, name)
+        caller = clients.caller()
+        return workspaces.scrubbed(
+            caller.named, lambda: delete_one(store, caller.library, name)
+        )
 
     _routes(
         mcp, store, workspaces, actions, schemas, token, prefix, secrets_catalogue,
@@ -697,7 +707,8 @@ def run_for(
     Each step is a call like any other (`workspace.calls`): begun once the
     caller's own ``before_step`` has heard it, said when it is done, inside its
     turn on the browser. With capture on, the run's report carries ``page``,
-    its steps' hints summed.
+    its steps' hints summed. Each step's line is checked for the secrets
+    allowed where it ran, typed or not (`Workspaces.in_scope`).
     """
     resolved, kind = workspaces.resolved(workspace)
     # The page the run began on: its hint compares the end against this, since
@@ -706,15 +717,39 @@ def run_for(
     calls = workspaces.calls
     step_hints: list = []
     begun: list = []  # the step under way's, from `before_step` to `step_done`
+    # The origin the step under way began on, read inside its turn.
+    began_on: list = [None]
 
     def step_started(entry, total):
+        # Inside the step's turn (`engine._take`), before it begins, as a
+        # single call reads it (`Workspaces._said`).
+        began_on[0] = workspaces.origins.current(workspace, resolved)
         if before_step is not None:
-            before_step(entry, total)
-        # Inside the step's turn (`engine._take`): a step refused because a
-        # person holds the browser is never begun, and stops the run.
+            before_step(watched(entry), total)
+        # Inside the step's turn: a step refused because a person holds the
+        # browser is never begun, and stops the run.
         begun[:] = [
             calls.begin(workspace, resolved, browser=kind, tool=entry["tool"])
         ]
+
+    def watched(entry):
+        """The progress line, told before the step's scope is known: its
+        summary checked for the secrets allowed where the step begins, or
+        only its tool when that cannot be done - fails safe."""
+        summary = entry.get("summary")
+        if not summary:
+            return entry
+        try:
+            forms = workspaces.scrubber.forms(workspace, resolved, [began_on[0]])
+        except Exception as exc:  # noqa: BLE001 - said by type; the run goes on
+            log.info("a progress line was not checked: %s", type(exc).__name__)
+            return {**entry, "summary": str(entry.get("tool") or "")}
+        return {**entry, "summary": redact.scrub(summary, forms)}
+
+    def in_scope(result):
+        # The secrets allowed where the step ran, typed or not: the origins it
+        # began and ended on (spec 2026-11-14-secret-scope, "Flows").
+        return workspaces.in_scope(workspace, resolved, result, began_on[0])
 
     def step_done(tool, error):
         if begun:
@@ -767,6 +802,7 @@ def run_for(
             before_save=before_save,
             bound=bound,
             step_done=step_done,
+            in_scope=in_scope,
             stop=stop,
             secrets_catalogue=secrets_catalogue,
             skill_available=skill_available,
@@ -827,15 +863,23 @@ def _routes(
 
     flows_root = f"{prefix}/flows"
 
-    async def answer(request: Request, what: str, call) -> JSONResponse:
+    async def answer(
+        request: Request, what: str, call, *, scrub: bool = True
+    ) -> JSONResponse:
         """One request, answered the way every other tree answers one.
 
         Unnamed is allowed here: a flow belongs to a library, and ``caller.library``
         is the shared one when the request named no workspace. A run asks for
         ``caller.name``, because it drives a browser.
+
+        A flow document is checked for secrets as `flow://flows/{name}` is
+        (spec 2026-11-14-secret-scope, ruling 16), unless ``scrub`` is False:
+        the schema, which this server wrote, and a run, each of whose steps
+        was checked where it ran.
         """
         return await answer_module.answer(
-            request, token, f"flows/{what}", call, log, named=False
+            request, token, f"flows/{what}", call, log, named=False,
+            scrubbed=workspaces.scrubbed if scrub else None,
         )
 
     @mcp.custom_route(flows_root, methods=["GET"], name="flows_list")
@@ -855,7 +899,8 @@ def _routes(
         of that name.
         """
         return await answer(
-            request, "schema", lambda _caller, _body: _document_schema(schemas)
+            request, "schema", lambda _caller, _body: _document_schema(schemas),
+            scrub=False,
         )
 
     @mcp.custom_route(flows_root + "/{name}", methods=["GET"], name="flows_get")
@@ -877,14 +922,19 @@ def _routes(
             document = {key: body[key] for key in flowdoc.DOCUMENT_KEYS if key in body}
             library = caller.library
             steps_schemas = await schemas.get()
-            # Off the loop, as the MCP save is: see `save_flow` above.
+            # Off the loop, as the MCP save is: see `save_flow` above. What it
+            # says back is the document, checked as a flow read is.
             return await anyio.to_thread.run_sync(
-                save_one,
-                store,
-                library,
-                request.path_params["name"],
-                document,
-                steps_schemas,
+                workspaces.scrubbed,
+                caller.named,
+                functools.partial(
+                    save_one,
+                    store,
+                    library,
+                    request.path_params["name"],
+                    document,
+                    steps_schemas,
+                ),
             )
 
         return await answer(request, "save", call)
@@ -906,7 +956,8 @@ def _routes(
         return await answer(
             request,
             "run",
-            lambda caller, body: run_for(
+            scrub=False,
+            call=lambda caller, body: run_for(
                 store,
                 actions,
                 workspaces,

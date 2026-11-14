@@ -44,6 +44,7 @@ from .mcp import (
     mirror,
     prompts,
     resources,
+    scrubbed,
     show,
     skill,
     tools,
@@ -227,6 +228,12 @@ class SeleniumMCP:
                 name="recordings",
             )
 
+        # The secrets an agent may bind, or None when none were configured.
+        # Read-only and value-free: this holds a catalogue, never a credential.
+        # Built before the workspaces, whose every answer is checked for the
+        # secrets in scope where it ran (spec 2026-11-14-secret-scope).
+        self.secrets = secrets.from_settings(settings.secrets, settings.config_file)
+
         self.workspaces = Workspaces(
             self.actions,
             store=self.store,
@@ -243,11 +250,22 @@ class SeleniumMCP:
             # A result that lands on a new page names the saved flows that
             # say they apply there (spec 2026-11-12-flow-sites-paths).
             hints=self.flows.flows_here if self.flows is not None else None,
+            catalogue=self.secrets,
         )
-
-        # The secrets an agent may bind, or None when none were configured.
-        # Read-only and value-free: this holds a catalogue, never a credential.
-        self.secrets = secrets.from_settings(settings.secrets, settings.config_file)
+        # Capture is the origin's second source, and holds a page's events
+        # until the secrets in scope there are in its masker (secret-scope
+        # spec, rulings 8 and 9). With secrets off it holds nothing.
+        if self.secrets is not None:
+            self.capture.heard = self.workspaces.capture_heard
+        # A browser that ended however it ended - quit here, reaped by the
+        # Grid, found gone by a call - takes its origin and the secret forms
+        # held for it with it.
+        browser_ended = self.workspaces.browser_ended
+        self.bus.subscribe(
+            "session.ended",
+            lambda event: browser_ended(event.workspace, event.session_id),
+            name="secret-scope",
+        )
 
         # The token turns on auth for both surfaces; `oidc` adds a JWT beside it
         # on /mcp. Absent, the server is open — correct for a local
@@ -263,6 +281,7 @@ class SeleniumMCP:
         # tasks run only while something is owed.
         collector, monitor, bus = self.collector, self.monitor, self.bus
         tunnels, controls = self.tunnels, self.controls
+        scrubber = self.workspaces.scrubber
 
         @asynccontextmanager
         async def lifespan(_server):
@@ -284,6 +303,8 @@ class SeleniumMCP:
                 tunnels.stop()
                 await monitor.stop()
                 await bus.stop()
+                # Last: nothing is left to ask it for a read.
+                scrubber.close()
 
         self.mcp = FastMCP(
             "Selenium",
@@ -407,6 +428,11 @@ class SeleniumMCP:
         # notice follows the sentence `Explained` has already written.
         self.mcp.add_middleware(control.Notices(self.controls))
         failures.install(self.mcp)
+        # Inside `failures`: a read that cannot be scrubbed answers the fixed
+        # sentence, which `Explained` passes on as it is (spec
+        # 2026-11-14-secret-scope, ruling 16). `show` and `read_resource` read
+        # through it too.
+        scrubbed.install(self.mcp, self.workspaces)
         # The same workspaces the MCP surface uses: one contract, one resolver,
         # and the HTTP surface inherits the reopen-after-reap it never had.
         routes.register(

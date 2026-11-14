@@ -59,7 +59,8 @@ def test_a_secret_defined_whole_in_config(tmp_path):
 
 
 def test_an_unresolved_key_is_listed_with_its_reason_and_refused_with_it():
-    cat = _catalogue(None, {"github": {"keys": {"token": {"env": "GITHUB_TOKEN"}}}}, {})
+    cat = _catalogue(None, {"github": {"allowed_urls": ["https://github.com"],
+                                       "keys": {"token": {"env": "GITHUB_TOKEN"}}}}, {})
     assert cat.entry("github")["keys_unresolved"] == [{"key": "token", "reason": "env GITHUB_TOKEN is not set"}]
     assert cat.unresolved("github", "token") == "env GITHUB_TOKEN is not set"
     with pytest.raises(secrets.Refused, match="GITHUB_TOKEN is not set"):
@@ -67,7 +68,7 @@ def test_an_unresolved_key_is_listed_with_its_reason_and_refused_with_it():
 
 
 def test_an_inline_value_is_marked_and_never_listed():
-    cat = _catalogue(None, {"demo": {"keys": {"password": {"value": "s3cret"}}}})
+    cat = _catalogue(None, {"demo": {"allowed_urls": ["https://d.example"], "keys": {"password": {"value": "s3cret"}}}})
     assert cat.entry("demo")["inline_keys"] == ["password"]
     assert "s3cret" not in str(cat.listing())
     assert cat.value("demo", "password") == "s3cret"
@@ -75,7 +76,7 @@ def test_an_inline_value_is_marked_and_never_listed():
 
 def test_an_env_key_is_read_at_bind_time_not_at_listing():
     environ = {"U": "one"}
-    cat = _catalogue(None, {"d": {"keys": {"u": {"env": "U"}}}}, environ)
+    cat = _catalogue(None, {"d": {"allowed_urls": ["https://x.example"], "keys": {"u": {"env": "U"}}}}, environ)
     cat.listing()
     environ["U"] = "two"
     assert secrets.bind(cat, {"name": "d", "key": "u"}, "https://x.example", tool="write") == "two"
@@ -93,8 +94,18 @@ def test_a_blank_dirs_entry_is_off_not_the_working_directory():
 
 def test_a_declared_empty_leash_is_usable_nowhere():
     """`allowed_urls: []` is a leash declared and immediately exhausted — not
-    the same as never declaring one, which allows any site."""
+    the same as never declaring one, and both are refused."""
     cat = _catalogue(None, {"d": {"allowed_urls": [], "keys": {"k": {"value": "v"}}}})
     assert cat.allows("d", "https://x.example") is False
-    with pytest.raises(secrets.Refused, match="empty or does not parse"):
+    assert cat.entry("d")["refused"].startswith("its allowed sites do not parse")
+    assert "secrets.entries" in cat.entry("d")["refused"]
+    with pytest.raises(secrets.Refused, match="do not parse"):
         secrets.bind(cat, {"name": "d", "key": "k"}, "https://x.example", tool="write")
+
+
+def test_a_config_entry_with_no_leash_is_refused_the_same_way():
+    cat = _catalogue(None, {"d": {"keys": {"k": {"value": "v"}}}})
+    refused = cat.entry("d")["refused"]
+    assert refused.startswith("no allowed sites are declared")
+    assert "secrets.entries" in refused and "_allowed_urls" not in refused
+    assert cat.allows("d", "https://x.example") is False

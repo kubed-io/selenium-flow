@@ -606,6 +606,137 @@ or the leak `caller_key` existed to prevent comes straight back.
   twice. What a write found comes back through `store.change`: `fn` returns the record and
   a note, and only the last run's note is returned — never a dict `fn` fills on the side.
 
+### Secrets in scope
+
+A secret's value never comes back on an agent-facing surface (MCP, REST, a flow)
+from a site the secret is allowed on, typed or not. It is the
+[secret-scope spec](docs/superpowers/specs/2026-11-14-secret-scope-design.md);
+rulings are cited by number. What must not break:
+
+- **Every secret names its sites.** One without `_allowed_urls` (`restricted`
+  false) is refused, not offered: `Catalogue.allows` answers False, a bind says
+  why before the page is read, and the catalogue (`refused`, the admin card, one
+  log line per process) says how to fix it. No wildcard, not even opt-in; a
+  broken leash stays refused (ruling 5).
+- **The marker is `[secret:<name>/<key>]`**, ids sorted and joined by `|` when two
+  secrets share a value, and it reads straight back as `write(secret=...)`. One
+  marker everywhere a catalogued secret is masked: the scrub, flows' `redact`,
+  capture's rows. `•••` stays for what capture masks by header or cookie name. A
+  marker is opaque only to its own ids (ruling 20): a page that wraps a value in
+  a marker of ids not in scope gains nothing.
+- **Armed by scope, not by use** (ruling 1). Nothing remembers what was typed.
+  The forms of every secret allowed on an origin (`redaction.py`: the plain
+  value, also with its line breaks dropped, made LF, or each whitespace run one
+  space as a page's text reads it back, base64 in both alphabets and three alignments,
+  hex, reversal, matched
+  ASCII case-insensitively, longest first, under 4 characters only standing
+  alone) are built when the browser's origin changes, off the loop, and held in
+  process memory for that workspace's browser. `redaction.py`, `workspace/origins.py`
+  and `workspace/scrub.py` import no Selenium and no protocol layer.
+- **One origin-changed event, two sources** (rulings 6-8). `Workspaces` keeps
+  each browser's current origin and compares it on every result's URL: `act`, a
+  bound write even when its URL is withheld, every flow step, `open_session`,
+  the reap-reopen. Capture's navigation events are the second, for any context:
+  `browsingContext.navigationStarted` and `navigationCommitted`, and a
+  navigation's `network.beforeRequestSent` (a redirect included).
+  `workspace/scrub.Scrubber` is the first listener. Both sides compare
+  `urls.scope_origin`, the one origin rule the leash shares.
+- **Choke points.** Every call goes through `Workspaces._said`; the others are
+  the bound write (`perform_write`), `open_session` and the reap-reopen (their
+  failures too), `paste`, the hand-back, `describe`, `captured`, a flow step's
+  `Hooks.in_scope` (result, error, log line, summary, progress, run url), the
+  MCP resource middleware `mcp/scrubbed.py` (every text read but `skill://`,
+  `ui://`, `flow://schema`, `secret://secrets`), and the REST twins of
+  resources through `Workspaces.scrubbed`. A new door goes through one of them.
+- **Unknown means every leashed secret** (rulings 11, 13-16): a result with no
+  URL (an open dialog, an error), an origin not yet activated in this browser,
+  a selected frame (until a result says `in_frame: false`), a resource read.
+  An opaque page (`about:blank`, `data:`, `javascript:`, a file) has the origin
+  `""` and is known-empty, not unknown. `chrome-error://chromewebdata/` is not
+  opaque to `scope_origin`: it is an origin of its own, which costs one targeted
+  read and finds nothing allowed there. The scrub applies the sets of the
+  origins before and after a call, plus the pre-rotation forms and the sets of
+  origins the browser left. `network_body` adds unknown: a body comes from the
+  request's origin, which the browser may never have been on.
+- **A browser holds a workspace's slot.** It takes a free one, or is given one
+  by `opened` (`open_session`) or `carry` (the reap-reopen). Any other browser
+  is stale: scrubbed with everything the workspace holds plus every leashed
+  secret, and it writes nothing. An implicitly taken `Origins` slot is
+  frame-unknown until a framed write, or until `Origins.opened` names its
+  browser: capture can take the slot with a new browser's first page before
+  the open gives it, and that browser is unframed all the same.
+- **Park, don't drop.** An ended browser parks its forms until the browser that
+  replaces it claims them with `carry`; `opened` discards them; the TTL bounds
+  them. Rotation (ruling 10) is a stat-based catalogue revision (inode, mtime,
+  size per key file, which follows Kubernetes' `..data` swap) and every usable
+  secret's `allowed_urls`, recomputed with the 30 s snapshot; env and inline
+  keys are fixed for the process's life. A leash edit is a rotation: a set built
+  before an origin was added to it would otherwise stay current there.
+- **A text is scrubbed whole, then cut.** Where the server cuts text
+  (`network_body`'s body at 100 000 bytes, an `outline` name at 80 characters,
+  which then ends in `…`) the scrub sees the whole text and the cut comes after
+  (`core/actions.CUTS`, applied by `Workspaces._scrubbed` on every branch,
+  secrets off included, by the hand-back to its outline, and by the admin body
+  route), never inside a marker: one that would land in a marker lands before
+  it (`redaction.clip`). Nothing is matched by prefix, since masking the start
+  of a value would answer a guess; a trailing `…` a caller wrote is only text.
+  A new truncation point cuts after the scrub (ruling 27). Capture's rows are the one
+  cut before it: capture masks the secrets allowed on the row's origin, then
+  cuts (`Masker.text`, which also masks the end of what it read whatever it
+  holds), so a secret leashed elsewhere and cut there is not caught by the
+  read's every-leashed scrub.
+- **Fail closed** (ruling 2). Any scrub failure is `faults.ScrubFailed`, a 500
+  with a fixed sentence, never the raw result. `redaction.scrub_error` scrubs an
+  error in place and keeps its type, so its status stands (ruling 23); it raises
+  the value-free `Unscrubbed` when state it cannot reach still holds a value. A
+  value never reaches a log line, a record, a bus event or an exception message:
+  log a failure here by `type(exc).__name__` only. With secrets off, a result is
+  the same object, unscanned.
+- **A URL the scrub changed is withheld from the record** (ruling 21,
+  `binding.safe_url`, §F1.24): History and a reopen never hold it.
+- **Capture holds, never leaks.** It holds a context's events raw until its
+  origin's forms are in the masker, so no event is stored before its origin is
+  known. A child frame whose origin is `""` (about:blank, srcdoc) inherits its
+  parent's or opener's needs (ruling 26); a popup with neither waits for every leashed
+  secret. A failed read is retried as the every-leashed read. Past
+  `PENDING_EVENTS` (200) or `QUEUE_BYTES`, or `PENDING_SECONDS` (10, checked
+  when an event arrives: no timer), the oldest held events are dropped and
+  counted in `dropped`, never stored raw (ruling 22). Learned cookies and tokens
+  keep today's 13 forms (ruling 19). Wired only when secrets are configured.
+- **§F1.23 names three read paths**: origin activation, rotation, and the
+  unknown-origin every-leashed read. `bind` still reads fresh as it types, and
+  its docstring names the active-set read as the second reader and why.
+- **The structural layer is not the scrub.** `extract` (`js/extract.js`),
+  `outline` and `write`'s read-back never return a password input's `value`, on
+  every site, whatever the catalogue holds (ruling 24).
+- **`tests/test_scrub_coverage.py` is the guard.** It puts every spelling of a
+  secret into every answer and fails on any tool, resource or non-admin route
+  that returns one. A new tool or route is covered there or goes on its
+  exemption list with a reason.
+- **What cannot be scrubbed, and says so:** screenshots (including a result's
+  `screenshot.image`), the live view, recordings, binary resource contents, and
+  a file opened from its signed link (`/files/{id}/{name}`: kept files,
+  downloads, screenshots, recordings), which is served as it is, unscrubbed, a
+  kept text file included (rulings 16 and 25; a value in a file name masks the
+  link in the listing) — text is read scrubbed through its `workspace://`
+  resource;
+  `execute_script`, which can transform or send a value away in ways no
+  encoding list anticipates; non-ASCII case variants, since folding is
+  ASCII-only so spans stay aligned (ruling 18); and what the page itself
+  compares, unscrubbed, such as `outline`'s `text=` filter or an XPath
+  `contains()`, which answer a guess as any page script can.
+- **The admin API and UI are not scrubbed** (ruling 17): they are the operator's
+  view across workspaces, and the Site data tab exists to show what is stored.
+  The exception is where they share an agent's read path: the Captured tab's
+  console, network and request views go through `Workspaces.captured`, so they
+  show markers, and its body route and live tail show what capture's masker
+  masked. The admin API is no way around the scrub for an agent: `AdminDoor`
+  (`http/auth.py`) admits only the server's token, or a JWT whose `azp` is
+  `oidc.client_id` holding a role in `oidc.admin_roles`, and an agent's
+  credential must be neither (in the deployed cluster agents reach `/mcp`
+  through the gateway with a read-only client token, which is neither). A
+  change that widens the admin door has to face this sentence.
+
 ### Capture: a kept buffer for agents, a live tail for the admin
 
 - Capture is an open choice like `record`: `open_session(capture=true)`, replayed after a reap,
@@ -618,7 +749,7 @@ or the leak `caller_key` existed to prevent comes straight back.
   capture. Successful static requests and `debug` entries are counted, not kept.
 - Masking happens once, at capture, for buffer and tail alike: the `authorization`,
   `proxy-authorization`, `cookie` and `set-cookie` headers in any case, cookies,
-  `goog:postData`, every bound secret, a URL's userinfo password (in URLs and the `referer` /
+  `goog:postData`, every secret allowed on the page's origin (as its `[secret:name/key]` marker), a URL's userinfo password (in URLs and the `referer` /
   `location` / `content-location` headers), every free-text row field and a fetched body's text;
   query strings only on the newest navigation. The values those headers and the request's
   cookies carried are learned and masked wherever a page echoes them, within per-session
@@ -929,7 +1060,7 @@ every time. `hints` — `FlowStore.flows_here`, handed in by `server.py` so
 failure there is logged and never fails the call. Tests that watch settle's
 write patch `_touch`, which `touch` wraps. Its cache is keyed on each library's
 `revision()`, with no TTL.
-`flows/places.py` and the secret leash never share code:
+`flows/places.py` and the secret leash (every secret names its sites) never share code:
 `test_the_matcher_and_the_leash_share_no_code` says so, because a site matching
 any port is right for finding a flow and wrong for typing a password.
 

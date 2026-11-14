@@ -1,5 +1,6 @@
 """Masking happens once, at capture, for the buffer and the tail (ruling 13)."""
 
+import base64
 import string
 import time
 import tracemalloc
@@ -16,6 +17,7 @@ from kubed.selenium_flow.capture import (
 )
 from kubed.selenium_flow.capture.masking import Masker, strip_query
 from kubed.selenium_flow.capture.merge import console_entry
+from kubed.selenium_flow.redaction import Forms
 
 from .capture_events import log
 
@@ -1251,3 +1253,43 @@ def test_a_quoted_cookie_is_one_entry_and_masked_in_every_spelling(inner):
     for echo in hidden_forms([quoted, inner]):
         shown = m.text(f"echo {echo} end")
         assert not any(form in shown for form in hidden_forms([inner])), echo
+
+
+def test_a_catalogued_secret_shows_its_marker():                        # ruling 3
+    masker = Masker()
+    masker.add(Forms.of("hunter22", ("ldap", "password")))
+    assert masker.text("pw=hunter22") == "pw=[secret:ldap/password]"
+
+
+def test_a_learned_cookie_still_shows_the_mask():
+    masker = Masker()
+    masker.headers([{"name": "cookie", "value": {"type": "string", "value": "sid=s3cr3t-cookie-value"}}])
+    assert masker.text("echo s3cr3t-cookie-value") == f"echo {MASK}"
+
+
+def test_a_cookie_span_overlapping_a_secret_shows_the_marker():
+    masker = Masker()
+    masker.add(Forms.of("hunter22", ("ldap", "password")))
+    masker.headers([{"name": "cookie", "value": {"type": "string", "value": "sid=hunter22-tail-of-cookie"}}])
+    assert masker.text("x hunter22-tail-of-cookie y") == "x [secret:ldap/password] y"
+
+
+def test_learned_credentials_keep_todays_forms():                       # ruling 19
+    masker = Masker()
+    masker.headers([{"name": "authorization", "value": {"type": "string", "value": "Bearer abcdefghijkl"}}])
+    assert masker.text(base64.b64encode(b"abcdefghijkl").decode()).startswith("YWJj")
+
+
+def test_carry_keeps_the_labels():
+    old = Masker()
+    old.add(Forms.of("hunter22", ("ldap", "password")))
+    new = Masker()
+    new.carry(old)
+    assert new.text("hunter22") == "[secret:ldap/password]"
+
+
+def test_a_header_shows_the_marker_and_a_cut_tail_the_mask():
+    masker = Masker()
+    masker.add(Forms.of("hunter22", ("ldap", "password")))
+    [header], _ = masker.headers([{"name": "x-echo", "value": {"type": "string", "value": "a hunter22 b"}}])
+    assert header["value"] == "a [secret:ldap/password] b"

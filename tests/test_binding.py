@@ -13,6 +13,8 @@ from kubed.selenium_flow.flows.document import InvalidFlow, validate
 from kubed.selenium_flow.flows.engine import resolve_step
 from kubed.selenium_flow.flows.template import FlowError
 from kubed.selenium_flow.workspace.calls import Calls
+from kubed.selenium_flow.workspace.origins import Origins
+from kubed.selenium_flow.workspace.scrub import Scrubber
 
 from .test_flowdoc import step_schema_map  # noqa: F401 - a fixture
 
@@ -56,6 +58,8 @@ def at_run(args, schemas):
 def direct(args, schemas):
     class FakeWorkspaces:
         calls = Calls()
+        origins = Origins()
+        scrubber = Scrubber(None, ttl=60)
 
         def resolved(self, name):
             return "browser-1", "chrome"
@@ -85,12 +89,12 @@ async def test_every_entry_point_refuses_the_same_arguments_with_the_rules_words
 def test_a_direct_writes_result_sweeps_keys_with_the_runs_scrub():
     """`after` is what a single bound write shows, and it sweeps a key the way
     a run's report does: one scrub, so the two cannot disagree."""
-    hidden = binding.forms_of({"text": "hunter2"}, {"text"})
+    hidden = binding.forms_of({"text": "hunter2"}, {"text": ("ldap", "password")})
     shown = binding.after(
         {"value": None, "url": "https://x.test/", "seen": {"hunter2": "hunter2"}},
-        {"text"},
+        {"text": ("ldap", "password")},
         hidden,
     )
     assert shown == {
-        "value": None, "url": "https://x.test/", "seen": {"<hidden>": "<hidden>"},
+        "value": None, "url": "https://x.test/", "seen": {"[secret:ldap/password]": "[secret:ldap/password]"},
     }
