@@ -113,6 +113,25 @@ jobs:
         token: ${{ steps.app-token.outputs.token || github.token }}
         persist-credentials: true
 
+    # A merged branch's pin is on that branch's own wiki branch: kubed-io/actions git/commit
+    # pushes a branch's wiki commits there and never to master, which is the public wiki and
+    # this job's alone. So the pin is usually beside master, not ahead of it. Master is
+    # merged in, the pin's side taking a file both changed: the pages are regenerated from
+    # this commit's code next, and the pin carries the branch's specs and plans. A browser
+    # edit to master survives the same way.
+    - name: Bring the Wiki's Master In
+      if: env.PUSH == 'true'
+      working-directory: docs
+      run: |
+        git fetch --quiet --unshallow origin 2>/dev/null || git fetch --quiet origin
+        git fetch --quiet origin master
+        if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+          exit 0
+        fi
+        git -c user.name="github-actions[bot]" \
+          -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+          merge --no-edit -X ours -m "Merge the wiki's master into ${GITHUB_SHA:0:8}'s pin" FETCH_HEAD
+
     - name: Set up Python
       uses: actions/setup-python@v7
       with:
@@ -193,24 +212,36 @@ jobs:
         # way and does not follow the repository's own default.
         git push origin HEAD:master
 
-    # The submodule now points at a commit that exists only on the wiki remote.
-    # Left unrecorded, a fresh clone of this repo checks out the previous wiki
-    # revision, which is a confusing thing to debug months later.
+    # The submodule now points at a commit that exists only on the wiki remote: a
+    # regeneration, or the merge of master above. Left unrecorded, main pins an older wiki
+    # and a fresh clone checks out pages that do not match its code. The path is `docs`.
+    # Until 2026-11-13 this step staged `wiki` (copied from mcp-kb, whose submodule is
+    # there) and so never recorded anything.
+    #
+    # Pushed with the App's token through an explicit remote, as mcp-kb does: the App
+    # is the identity main's ruleset lets through. It lands on what the branch is NOW, so
+    # a merge that came in meanwhile does not make it a non-fast-forward.
     - name: Record the Submodule Pointer
-      if: env.PUSH == 'true' && steps.diff.outputs.changed == 'true'
+      if: env.PUSH == 'true' && (steps.diff.outputs.changed == 'true' || steps.diff.outputs.unpublished == 'true')
+      env:
+        TOKEN: ${{ steps.app-token.outputs.token }}
       run: |
-        if git diff --quiet -- wiki; then
+        pin=$(git -C docs rev-parse HEAD)
+        if [ "$(git rev-parse "HEAD:docs")" = "$pin" ]; then
+          exit 0
+        fi
+        if [ -z "$TOKEN" ]; then
+          echo "::warning::Wiki published, but the docs pointer was not recorded: no App token (GH_CLIENT_ID unset)."
           exit 0
         fi
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git add wiki
-        git commit -m "chore: bump wiki submodule [skip ci]"
-        git push origin "HEAD:${GITHUB_REF_NAME}" || {
-          echo "::warning::Wiki published, but the submodule pointer could not be \
-          recorded — main is probably protected against the Actions identity. \
-          Pass GH_APP_KEY, or bump docs/ by hand."
-        }
+        remote="https://x-access-token:${TOKEN}@${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git"
+        git fetch --quiet origin "$GITHUB_REF_NAME"
+        git checkout --quiet -B "$GITHUB_REF_NAME" FETCH_HEAD
+        git update-index --cacheinfo "160000,${pin},docs"
+        git commit --quiet -m "chore: bump docs submodule [skip ci]"
+        git push "$remote" "HEAD:${GITHUB_REF_NAME}"
 
     # Every open PR into main falls behind each merge, and an agent PR's docs pointer (and often
     # CHANGELOG's [Unreleased]) conflicts with every other's. This brings each one up to date:
