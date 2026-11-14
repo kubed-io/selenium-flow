@@ -1,9 +1,9 @@
 # Site data
 
-A new browser starts empty. `save_site_data` keeps this one's cookies and the
-storage of the sites this workspace has been to (see Limits), and every browser
-opened in the workspace afterwards has them back, including the one that
-replaces a reaped browser and the one after `end_browser()`.
+A new browser starts empty. `save_site_data` keeps the cookies and storage of
+the sites the workspace has been to, and every browser opened in the workspace
+afterwards has them back before `open_session` returns: the one after
+`end_browser()` and the one that replaces a reaped browser too.
 
 ## When to save
 
@@ -11,18 +11,14 @@ After a sign-in you have confirmed, never before: check the page shows you are
 in, then save once.
 
 ```
-write(url="https://app.example.com/login", selector={"css": "#user"}, text="a@example.com")
-write(selector={"css": "#pw"}, secret={"name": "app", "key": "password"})
 interact(action="click", selector={"css": "button[type=submit]"})
-assert(script="return !!document.querySelector('#avatar')")   # am I in?
+assert(script="return !!document.querySelector('#avatar')", message="Not signed in.")
 save_site_data()
 ```
 
 One save covers every site a call ended on, such as the identity provider you
-signed in at and an app you signed in to earlier in the workspace. Each save
-replaces the last, so a save after signing out saves you signed out.
-
-The result names what was kept, never a value:
+signed in at and an app you signed in to earlier. Each save replaces the last,
+so a save after signing out keeps you signed out.
 
 ```json
 {"saved": {"cookies": 14,
@@ -31,76 +27,57 @@ The result names what was kept, never a value:
  "uri": "workspace://site-data"}
 ```
 
-`skipped` names a site whose storage is not in this save, and why. One that could
-not be read keeps what the last save had for it: "a service worker answered: save
-while on this site" means `navigate` there and save again. One "left out: the
-snapshot would pass 1000000 bytes" was dropped, the sites visited longest ago
-first, and is gone.
+`skipped` names a site whose storage is not in this save, and why:
+
+- "a service worker answered: save while on this site": `navigate` there and
+  save again. Until then the site keeps what the last save had.
+- "left out: the snapshot would pass 1000000 bytes": the sites visited longest
+  ago were dropped first, and their storage is gone.
 
 ## What comes back
 
-Everything is in place before `open_session` returns: the cookies, every site's
-localStorage, and the sessionStorage of the page you saved on. `open_session`
-says which sites, and never a value:
+The cookies, every site's localStorage, and the sessionStorage of the page you
+saved on. `open_session` names the sites, never a value:
 
 ```json
 {"site_data": {"restored": ["app.example.com", "sso.example.com"], "skipped": [],
                "uri": "workspace://site-data"}}
 ```
 
-No `site_data` key means nothing was restored or skipped: nothing was saved, or
-only cookies that have since expired. When the Grid reaps your browser, the next
-call reopens it and restores the same way, and the first result after the
-reopen carries this report once, beside `reopened`. If that call fails, its error
-says the browser was replaced instead, and how many sites' data was put back.
+- No `site_data` key: nothing was saved, or only cookies that have since expired.
+- After a reap, the first result carries this report once, beside `reopened`.
+  If that call fails, its error says how many sites' data was put back.
+- `skipped` with "the browser did not keep it": the browser took a cookie and
+  dropped it, and its host is not in `restored`.
+- Restored and still signed out: the site ended its own session. Sign in and
+  save again.
 
-`skipped` names a cookie or a site that did not come back, and why. "the browser
-did not keep it" means the browser took a cookie and dropped it; its host is
-then not in `restored`.
+`document.cookie` shows what the page can see. `workspace://site-data/{site}`
+shows what was saved, httpOnly cookies included, with their values read as
+`•••`.
 
-## Restored but still signed out
-
-The site ended its own session: it expired or was revoked. Sign in again, then
-`save_site_data()` again.
-
-## Start as a new user
+## Starting as a new user
 
 ```
 open_session(restore_site_data=false)
 ```
 
-Opens with nothing and deletes what was saved, so the next open is empty too. The
-result says `site_data: {"forgotten": n}` when something was there. The list of
-pages the workspace has been to is kept.
-
-## Checking what a reopened browser keeps
-
-```
-execute_script(script="localStorage.setItem('seen', '1')")
-save_site_data()
-end_browser()
-open_session()
-execute_script(script="return localStorage.getItem('seen')")   # "1"
-```
-
-`document.cookie` shows what the page can see. `workspace://site-data/app.example.com`
-shows what was saved, including httpOnly cookies the page cannot — their values
-read `•••`, here and in the admin UI.
+It opens with nothing and deletes what was saved, so the next open is empty too,
+and says `site_data: {"forgotten": n}` when something was there. The workspace's
+page history is kept.
 
 ## Limits
 
-- A save reads the sites a call **ended on**, for as long as the workspace keeps its
-  history: a day by default, 100 sites at most, the page you are on always. A site
-  passed through inside one call is not read, and an app last visited more than a
-  day ago loses its saved storage at the next save — its cookies stay.
-- IndexedDB is not saved (Firebase Auth keeps its sign-in there).
-- sessionStorage belongs to one tab, so only the page you save on keeps it.
-- A browser opened with `insecure=true` gets none of it back: it accepts any
-  certificate, so saved cookies could reach whoever sits in the middle. What was
-  saved is kept for the next secure browser.
-- A script cannot set an httpOnly cookie; it comes back through the browser's own
-  channel.
-- It is stored on the workspace and expires with it, never on this server's disk.
-- A token typed through a secret and kept in localStorage shows in
-  `workspace://site-data/{site}`
-  (`skill://selenium-flow/references/SECRETS.md`).
+- A save reads the sites a call ended on, while the workspace keeps its history:
+  a day by default, 100 sites at most, and always the current page. A site passed
+  through inside one call is not read. An app last visited more than a day ago
+  loses its saved storage at the next save, and keeps its cookies.
+- IndexedDB is not saved, so a Firebase Auth sign-in does not come back.
+- sessionStorage belongs to one tab: only the page you save on keeps it.
+- A browser opened with `insecure=true` gets nothing back, since saved cookies
+  could reach whoever sits in the middle. The saved data waits for the next
+  secure browser.
+- Site data is stored on the workspace and expires with it.
+- A token typed from a secret that the page keeps in localStorage or
+  sessionStorage is saved, and shows in `workspace://site-data/{site}`
+  (SECRETS.md).
