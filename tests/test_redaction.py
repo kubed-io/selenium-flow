@@ -120,6 +120,25 @@ def test_a_value_read_with_its_line_breaks_removed_is_still_masked():
     assert scrub("x -----BEGIN KEY-----MIIEabc123-----END KEY----- y", Forms.of(PEM, ID)) == f"x {M} y"
 
 
+@pytest.mark.parametrize(
+    "value,spelt",
+    [
+        ("pa\"ss'w0rd!", '<input value="pa&quot;ss\'w0rd!">'),
+        ("pa\"s<s'w0rd!", '<input value="pa&quot;s&lt;s\'w0rd!">'),
+        ("pa\"s<s'w0rd!", '<input value="pa&quot;s<s\'w0rd!">'),
+        ("pa&s\"<s'w0rd!", '<input value="pa&amp;s&quot;<s\'w0rd!">'),
+        ("pa\"ss'w\u00a0rd!", '<input value="pa&quot;ss\'w&nbsp;rd!">'),
+        ("pa\"s<s'w\u00a0rd!", "<p>pa\"s&lt;s'w&nbsp;rd!</p>"),
+    ],
+    ids=["attribute", "attribute <", "attribute < before 2025", "attribute & before 2025",
+         "attribute nbsp", "text nbsp"],
+)
+def test_a_value_spelt_by_the_browsers_own_serialiser_is_masked(value, spelt):
+    """`extract`'s `html` is `outerHTML`: in an attribute `"` is escaped and `'`
+    never, `<` and `>` only since 2025 (jsdom still leaves them), NBSP is `&nbsp;`."""
+    assert scrub(spelt, Forms.of(value, ID)) == spelt[: spelt.index("pa")] + M + spelt[spelt.rindex("!") + 1 :]
+
+
 def test_an_error_is_scrubbed_in_place_and_keeps_its_type():             # ruling 2
     try:
         try:

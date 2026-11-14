@@ -61,6 +61,9 @@ HTML_QUOTES = (
     ("&quot;", "&#039;", "+"),
     ("&quot;", "&apos;", "+"),
     ("&#34;", "&#39;", "&#43;"),
+    # The browser's own serialiser (`outerHTML`, so `extract`'s `html`) in an
+    # attribute, and PHP's `ENT_COMPAT`: `"` escaped, `'` never.
+    ("&quot;", "'", "+"),
 )
 
 _NAME = r"[^\[\]\s|/]+"
@@ -102,9 +105,12 @@ def escapes(text: str) -> set[str]:
     or `&#39;`. Other servers spell them their own ways: Go's encoding/json
     writes `<` `>` `&` as `\\u003c` and so on, a JSON encoder may write its hex
     in capitals, PHP the apostrophe as `&#039;`, HTML5 as `&apos;`, and Go's
-    html/template `"` as `&#34;` and `+` as `&#43;`. Each of those spellings is
-    a form, or a body or a console line would hand the value to whoever reads
-    it — a fixed few per value, so the sweep's cost does not grow with it.
+    html/template `"` as `&#34;` and `+` as `&#43;`. The browser serialising
+    the page (`extract`'s `html`) writes `"` as `&quot;` in an attribute and
+    `'` never, NBSP as `&nbsp;`, and before 2025 `<` and `>` bare in an
+    attribute. Each of those spellings is a form, or a body or a console line
+    would hand the value to whoever reads it — a fixed few per value, so the
+    sweep's cost does not grow with it.
     """
     forms = {text, quote(text, safe=""), quote_plus(text)}
     for ascii_only in (True, False):
@@ -117,7 +123,11 @@ def escapes(text: str) -> set[str]:
             forms.add(escaped.translate(GO_JSON))
     bare = html.escape(text, quote=False)
     for quot, apos, plus in HTML_QUOTES:
-        forms.add(bare.replace('"', quot).replace("'", apos).replace("+", plus))
+        spelt = bare.replace('"', quot).replace("'", apos).replace("+", plus)
+        forms |= {spelt, spelt.replace("\u00a0", "&nbsp;")}  # the browser's NBSP
+    # A browser's attribute before 2025, and jsdom's: `<` and `>` left bare.
+    attribute = text.replace("&", "&amp;").replace('"', "&quot;")
+    forms.add(attribute.replace("\u00a0", "&nbsp;"))
     return forms
 
 
