@@ -89,10 +89,14 @@ Sign in, `save_site_data()`, and the next browser comes back signed in. Saved
 and still signed out? The site ended its own session:
 `skill://selenium-flow/references/SITE_DATA.md`.
 
-## An invalid or unknown session
+## A result says `reopened`
 
-The Grid reaped the browser. Nothing to do: your workspace survives it, and the
-next call opens a new session and returns to the last URL. Just retry.
+The browser was replaced: the Grid reaped it after it sat idle (`reaped`), or it
+ended while you were working (`lost`). The new one is on the same page with the
+same settings, and saved site data is back, but anything that lived only in the
+old page is gone. Check the page and redo any unsaved step. Calling at least
+every few minutes keeps a browser; how long it is kept after your last call is
+the server's `session.keep_alive`.
 
 `workspace://current` shows `live: false` in the meantime.
 

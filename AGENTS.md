@@ -595,8 +595,7 @@ or the leak `caller_key` existed to prevent comes straight back.
 - An action returns the capture under `CAPTURED`; `Workspaces.settle` stores it and strips
   it, so it is never returned. Every record write after an action goes through `settle`:
   `act`, every flow step and the run's pages, and a bound write (its URL withheld when tainted).
-- A silent reopen's report waits on `Workspace.reopened` until `touch` hands it to the first
-  result from that browser — for a flow, to the run.
+- A reopen's notice — its cause and its site data report — waits on `Workspace.reopened` until `touch` hands it to the first result from that browser (for a flow, to the run), or `Workspaces.failed` puts it on the first call's error as a sentence (`faults.REOPEN_NOTE`). A paste and a run's flush before a save leave it held (`settle(deliver=False)`).
 - The admin tabs keep the two apart: History (the history joined by host with secrets and the
   snapshot's counts) and Site data (the snapshot). Forget and both Clears change the store
   only — never the live browser, never the other tab's data.

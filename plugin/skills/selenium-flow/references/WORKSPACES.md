@@ -116,14 +116,17 @@ capability no option covers*.
 
 ## The Grid can still take the session away
 
-Browsers are reaped after an idle timeout. You do not have to handle it: the
-next call notices the session is gone, opens a new one **with the same
-settings**, and navigates back to the last URL it recorded. It is invisible
-except in the server log.
+The Grid ends a browser that sits idle too long, and a Grid node can go away
+under one. You do not have to handle either: the next call notices, opens a new
+browser **with the same settings**, and navigates back to the last URL it
+recorded. Its result says so once, in `reopened`: `cause` is `reaped` (idle past
+the keep-alive window) or `lost` (ended while you were working), and `message`
+says what did not survive. If that call fails, its error says it instead. Check
+the page before you go on.
 
 A refresh restores what you saved with `save_site_data` too — cookies and every
-site's storage, so you are still signed in — and the first successful result
-after the reopen says so in `site_data`
+site's storage, so you are still signed in — and that result
+says so in `site_data` too
 (`skill://selenium-flow/references/SITE_DATA.md`). What it cannot
 restore is in-page state the URL does not capture — scroll position, an open
 dropdown, an unsubmitted form — and anything you never saved. If a long pause is
