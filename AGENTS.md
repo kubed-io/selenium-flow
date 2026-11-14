@@ -661,7 +661,9 @@ rulings are cited by number. What must not break:
   by `opened` (`open_session`) or `carry` (the reap-reopen). Any other browser
   is stale: scrubbed with everything the workspace holds plus every leashed
   secret, and it writes nothing. An implicitly taken `Origins` slot is
-  frame-unknown until a framed write.
+  frame-unknown until a framed write, or until `Origins.opened` names its
+  browser: capture can take the slot with a new browser's first page before
+  the open gives it, and that browser is unframed all the same.
 - **Park, don't drop.** An ended browser parks its forms until the browser that
   replaces it claims them with `carry`; `opened` discards them; the TTL bounds
   them. Rotation (ruling 10) is a stat-based catalogue revision (inode, mtime,

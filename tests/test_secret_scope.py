@@ -653,6 +653,31 @@ def test_a_selected_frame_is_unknown(make):  # ruling 15
     assert cat.calls["leashed"] == 1
 
 
+def test_a_browser_capture_heard_first_is_unframed_once_opened(make):
+    """Capture attaches before the first page, so its navigation takes the slot
+    implicitly before `open_session` gives it: opened, it is known unframed."""
+    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+    o = Origins()
+    s = make(cat, origins=o)
+    o.arrived("w", "g1", f"{A}/")  # capture's navigationStarted
+    assert o.framed("w", "g1") is True  # taken implicitly: unknown
+    o.opened("w", "g1")
+    assert o.framed("w", "g1") is False and o.current("w", "g1") == A
+    s.opened("w", "g1")
+    s.build("w", "g1", A).result(WAIT)
+    s.forms("w", "g1", [A, A])
+    s.forms("w", "g1", [A, A])
+    assert cat.calls == {"forms_for": [A], "leashed": 0}
+
+
+def test_opened_keeps_a_frame_a_call_said_since():
+    o = Origins()
+    o.arrived("w", "g1", f"{A}/")
+    o.framed("w", "g1", True)  # a racing `frame` call, after the bind
+    o.opened("w", "g1")
+    assert o.framed("w", "g1") is True
+
+
 def test_changed_starts_a_build_and_returns_at_once(make):
     gate = threading.Event()
     cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}}, gate=gate)

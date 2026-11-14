@@ -21,16 +21,18 @@ a missing URL is unknown, and it changes nothing here.
   scrubber's `opened` and `carry`, which give the slot whoever held it; there
   is no carry here, since a reopened browser starts on the top page and its
   first arrival is a change, so the reap's reopen calls `opened` beside
-  `Scrubber.carry`, and the browser it reopened is framed (unknown) after.
+  `Scrubber.carry`, and the browser it reopened starts unframed.
 
 Who frees it: `forget`, which finishes with its browser, and the TTL - a slot
 nobody touches for ``ttl`` seconds (the workspace's) heals on its own, since
 the old browser's id may be lost with the workspace's record. A new holder
 starts with no current origin and no frames heard. Its frame is known to be
-unselected only when `opened` gave it the slot; a browser that took a free slot
-implicitly may be one whose slot was evicted or expired with a frame selected,
-so its frame is *unknown* - `framed` answers True, the safe side (ruling 15) -
-until a `framed(..., False)` or `framed(..., True)` write says which.
+unselected only once `opened` names it, before or after its first arrival
+(capture can hear a new browser's first page before the open gives it the
+slot); a browser that took a free slot implicitly and was never opened may be
+one whose slot was evicted or expired with a frame selected, so its frame is
+*unknown* - `framed` answers True, the safe side (ruling 15) - until a
+`framed(..., False)` or `framed(..., True)` write says which.
 
 Anything else is **stale** - a call still in flight on a browser that was ended
 or replaced while it ran, or a browser not yet given the slot: it is answered
@@ -185,7 +187,11 @@ class Origins:
         """Give the workspace's slot to ``browser``, a browser just opened.
 
         Whoever held it is finished with, as `forget` would make it; the new
-        holder starts afresh. Calling it again for the holder changes nothing.
+        holder starts afresh. When ``browser`` already holds it - capture heard
+        its first page and took the slot before the open gave it - it keeps its
+        origin and frames, and an unknown frame becomes unselected: the browser
+        was just made, so no frame is selected unless a call has said so since,
+        and a call's word stands.
         """
         with self._lock:
             held = self._held.get(workspace)
@@ -194,6 +200,8 @@ class Origins:
                 held = None
             if held is None:
                 held = _Held(browser, framed=False)
+            elif held.framed is None:
+                held.framed = False
             self._held[workspace] = held
             self._streaks.held(workspace)
 
