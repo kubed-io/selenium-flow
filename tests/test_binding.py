@@ -13,6 +13,8 @@ from kubed.selenium_flow.flows.document import InvalidFlow, validate
 from kubed.selenium_flow.flows.engine import resolve_step
 from kubed.selenium_flow.flows.template import FlowError
 from kubed.selenium_flow.workspace.calls import Calls
+from kubed.selenium_flow.workspace.origins import Origins
+from kubed.selenium_flow.workspace.scrub import Scrubber
 
 from .test_flowdoc import step_schema_map  # noqa: F401 - a fixture
 
@@ -56,6 +58,8 @@ def at_run(args, schemas):
 def direct(args, schemas):
     class FakeWorkspaces:
         calls = Calls()
+        origins = Origins()
+        scrubber = Scrubber(None, ttl=60)
 
         def resolved(self, name):
             return "browser-1", "chrome"

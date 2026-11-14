@@ -35,9 +35,17 @@ Who takes it:
   forms with the slot, or, when another browser held it, that holder's sets
   and kept forms as its own kept forms - over-masked, never under.
 
-Who frees it: `ended`, which finishes with its browser and drops its forms, and
-the TTL - an entry nothing touches for ``ttl`` seconds (the workspace's) goes,
-since the old browser's id may be lost with the workspace's record.
+Who frees it: `ended`, which finishes with its browser, and the TTL - an entry
+nothing touches for ``ttl`` seconds (the workspace's) goes, since the old
+browser's id may be lost with the workspace's record.
+
+**What a browser holds is kept until the browser ends, or carried to the
+browser that replaces it.** `ended` parks the forms the browser held (its sets
+and kept forms) for its workspace rather than dropping them, because the Grid's
+reap is often heard (`session.ended`) before the reopen that carries it: a
+later `carry` from that browser claims them, `opened` (a fresh start) discards
+them, and the park goes with the TTL. A parked workspace's forms are part of
+what a stale call and a resource are scrubbed with.
 
 Anything else is *stale*: a call still in flight on a browser that was ended,
 replaced or carried from while it ran, or a browser not yet given the slot. It
@@ -54,7 +62,7 @@ the build, never neither. The entries are process memory (AGENTS.md, "Scaling:
 one replica").
 
 **No loop.** The executor runs the reads something asked for - an origin
-change, a scrub - and nothing else; `close()` shuts it down.
+change, a scrub - and nothing else; `close()` stops its threads.
 
 Plain: no Selenium, no protocol layer (`tests/test_boundaries.py`). The
 catalogue is duck-typed (`forms_for`, `leashed`, `revision`): `workspace/`
@@ -75,6 +83,7 @@ from cachetools import TTLCache
 from .. import faults
 from ..capture import WORKSPACES
 from ..redaction import Forms, scrub, scrub_error, scrub_values, taints
+from ..urls import scope_origin
 from .origins import OriginChanged, Origins, Retired, Streaks
 
 log = logging.getLogger(__name__)
@@ -165,12 +174,22 @@ class Scrubber:
         self._lock = threading.Lock()
         self._entries: TTLCache = TTLCache(maxsize=WORKSPACES, ttl=ttl, timer=clock)
         self._retired = Retired(TTLCache(maxsize=WORKSPACES, ttl=ttl, timer=clock))
+        # workspace -> the entry of a browser that ended, until a carry claims it.
+        self._parked: TTLCache = TTLCache(maxsize=WORKSPACES, ttl=ttl, timer=clock)
+        # (workspace, origin) -> (revision, forms) `carries` read for a page a
+        # browser is about to be given, so its build does not read them again.
+        self._primed: TTLCache = TTLCache(maxsize=WORKSPACES, ttl=ttl, timer=clock)
         self._streaks = Streaks()
         # (workspace, browser, origin, revision) -> the build in flight.
         self._flight: dict[tuple, Future] = {}
         self._leashing: Future | None = None
-        self._pool = ThreadPoolExecutor(
-            max_workers=workers, thread_name_prefix="secret-scope"
+        self._workers = workers
+        self._pool = self._new_pool()
+
+    def _new_pool(self) -> ThreadPoolExecutor:
+        """This scrubber's threads, started as reads are asked for."""
+        return ThreadPoolExecutor(
+            max_workers=self._workers, thread_name_prefix="secret-scope"
         )
 
     # --- building -----------------------------------------------------------
@@ -211,7 +230,9 @@ class Scrubber:
         never wait on this scrubber: a callback that blocks on a scrub holds the
         thread its own read may need.
         """
-        future, key = self._start(workspace, browser, origin)
+        future, key, primed = self._start(workspace, browser, origin)
+        if primed is not None:
+            self._hand_to_capture(workspace, primed)
         if key is not None:
             try:
                 self._pool.submit(self._run, key, future)
@@ -224,30 +245,40 @@ class Scrubber:
             future.add_done_callback(_done_with(done))
         return future
 
-    def _start(self, workspace, browser, origin) -> tuple[Future, tuple | None]:
-        """The future for a build, and its key when it is new and must be submitted."""
+    def _start(
+        self, workspace, browser, origin
+    ) -> tuple[Future, tuple | None, Forms | None]:
+        """The future for a build; its key when it is new and must be submitted;
+        and the forms `carries` already read for it, installed here, which
+        capture is still to be handed."""
         future: Future = Future()
         if self._catalogue is None or origin == "":
             future.set_result(Forms())
-            return future, None
+            return future, None, None
         if not isinstance(origin, str):  # unknown is never built as empty
             future.set_exception(faults.ScrubFailed())
-            return future, None
+            return future, None, None
         with self._lock:
             entry = self._entry(workspace, browser)
             if entry is None:  # stale: reads nothing, installs nothing
                 future.set_exception(faults.ScrubFailed())
-                return future, None
+                return future, None, None
             built = entry.sets.get(origin)
             if built is not None:
                 future.set_result(built)
-                return future, None
+                return future, None, None
+            primed = self._primed.pop((workspace, origin), None)
+            if primed is not None and entry.revision in (None, primed[0]):
+                entry.revision = primed[0]
+                entry.sets[origin] = primed[1]
+                future.set_result(primed[1])
+                return future, None, primed[1]
             pending = self._pending(workspace, browser, origin, entry.revision)
             if pending is not None:
-                return pending, None
+                return pending, None, None
             key = (workspace, browser, origin, entry.revision)
             self._flight[key] = future
-            return future, key
+            return future, key, None
 
     def _run(self, key: tuple, future: Future) -> None:
         """One build, on a worker: read, store, hand to capture, complete."""
@@ -285,14 +316,17 @@ class Scrubber:
         if forms is None:
             _settle(future, failed=True)
             return
-        if self._capture is not None:
-            try:
-                self._capture.secret(workspace, forms)
-            except Exception as exc:  # noqa: BLE001 - capture never fails a build
-                log.warning(
-                    "capture could not take a secret set: %s", type(exc).__name__
-                )
+        self._hand_to_capture(workspace, forms)
         _settle(future, forms)
+
+    def _hand_to_capture(self, workspace: str, forms: Forms) -> None:
+        """Mask ``forms`` in what the workspace captures; never fails a build."""
+        if self._capture is None:
+            return
+        try:
+            self._capture.secret(workspace, forms)
+        except Exception as exc:  # noqa: BLE001 - capture never fails a build
+            log.warning("capture could not take a secret set: %s", type(exc).__name__)
 
     # --- reading ------------------------------------------------------------
 
@@ -321,10 +355,19 @@ class Scrubber:
         self._streaks.held(workspace)
         return entry
 
+    @property
+    def active(self) -> bool:
+        """Whether there are secrets to look for at all (a catalogue)."""
+        return self._catalogue is not None
+
     def _held_by(self, workspace: str) -> Forms:
-        """What the workspace's entry holds, whichever browser's; under the lock."""
-        entry = self._entries.get(workspace)
-        return entry.held() if entry is not None else Forms()
+        """What the workspace holds, whichever browser's, parked included; under
+        the lock."""
+        forms = Forms()
+        for held in (self._entries.get(workspace), self._parked.get(workspace)):
+            if held is not None:
+                forms = forms | held.held()
+        return forms
 
     def _stale(self, workspace: str, deadline: float) -> Forms:
         """What a stale browser's call is scrubbed with: what the workspace holds,
@@ -381,6 +424,8 @@ class Scrubber:
 
     def _forms(self, workspace: str, browser: str, origins: list) -> Forms:
         deadline = time.monotonic() + BUILD_TIMEOUT
+        if not browser:  # no browser: a stale call, which takes no slot
+            return self._stale(workspace, deadline)
         revision = self._bounded(self._catalogue.revision, deadline)
         with self._lock:
             entry = self._entry(workspace, browser)
@@ -478,17 +523,104 @@ class Scrubber:
             lambda: scrub_error(exc, self._forms(workspace, browser, origins))
         )
 
-    def resource(self, workspace: str, text):
-        """A resource's ``text``, scrubbed with what the workspace kept and every
-        leashed secret (ruling 16): a resource read has no before and after."""
-        if self._catalogue is None or not isinstance(text, str) or not text:
-            return text
+    def resource(self, workspace: str, value):
+        """A resource's text, or an answer built of plain values (a dict, a
+        list), scrubbed with what the workspace kept and every leashed secret
+        (ruling 16): a resource read has no before and after. It writes
+        nothing, and takes no browser's slot. With nothing to look for the
+        value comes back as it is, the same object, unscanned.
+        """
+        if self._catalogue is None or value is None or value == "":
+            return value
 
         def scrubbing():
             deadline = time.monotonic() + BUILD_TIMEOUT
-            return scrub(text, self._stale(workspace, deadline))
+            forms = self._stale(workspace, deadline)
+            if not forms:
+                return value
+            if isinstance(value, str):
+                return scrub(value, forms)
+            return scrub_values(value, forms)
 
         return self._guarded(scrubbing)
+
+    def carries(self, workspace: str, url) -> bool:
+        """Whether ``url`` carries the value of a secret allowed on its own
+        origin, or one the workspace holds: asked of a page before a browser
+        not yet given the slot records it (an open, a reopen; ruling 21).
+
+        Reads the secrets allowed on that origin, unless the workspace holds
+        them at the catalogue's revision, and none for an opaque one; every
+        leashed secret when that read fails. What it read is kept for the
+        workspace's next build of that origin, at that revision, which takes it
+        rather than reading again (ruling 6: one read per origin change); it
+        writes nothing else. Raises `faults.ScrubFailed`.
+        """
+        if self._catalogue is None or not isinstance(url, str) or not url:
+            return False
+        origin = scope_origin(url)
+
+        def asking():
+            deadline = time.monotonic() + BUILD_TIMEOUT
+            # The revision first, as a build reads it (`_run`).
+            revision = self._bounded(self._catalogue.revision, deadline)
+            with self._lock:
+                forms = self._held_by(workspace)
+                known = any(
+                    held is not None
+                    and held.revision == revision
+                    and origin in held.sets
+                    for held in (
+                        self._entries.get(workspace), self._parked.get(workspace)
+                    )
+                )
+            if origin and not known:
+                try:
+                    read = self._bounded(
+                        lambda: self._catalogue.forms_for(origin), deadline
+                    )
+                except Exception as exc:  # noqa: BLE001 - every leashed instead
+                    log.warning(
+                        "reading the secrets allowed on an origin failed: %s; "
+                        "reading every leashed secret",
+                        type(exc).__name__,
+                    )
+                    read = self._leashed(deadline)
+                else:  # the build for this page takes it rather than reading
+                    with self._lock:
+                        self._primed[(workspace, origin)] = (revision, read)
+                forms = forms | read
+            return taints(url, forms)
+
+        return self._guarded(asking)
+
+    def every(self, done: Callable[[Forms | None], object] | None = None) -> Future:
+        """Every leashed secret, read on this scrubber's threads: for a page
+        whose origin nobody knows (capture's, ruling 9). Not kept.
+
+        ``done(forms)`` is called with the forms, or with None when the read
+        failed, as `build`'s is; with secrets off, at once, with no forms.
+        """
+        future: Future = Future()
+        if self._catalogue is None:
+            future.set_result(Forms())
+        else:
+            try:
+                self._pool.submit(self._every, future)
+            except RuntimeError:  # closed
+                _settle(future, failed=True)
+        if done is not None:
+            future.add_done_callback(_done_with(done))
+        return future
+
+    def _every(self, future: Future) -> None:
+        try:
+            forms = self._catalogue.leashed()
+        except Exception as exc:  # noqa: BLE001 - logged by type, never its text
+            log.warning("reading every leashed secret failed: %s", type(exc).__name__)
+            _settle(future, failed=True)
+            return
+        _settle(future, forms)
 
     # --- lifetime -----------------------------------------------------------
 
@@ -497,9 +629,10 @@ class Scrubber:
 
         Whoever held it is finished with, as `ended` would make it, and its
         forms go: keeping them is `carry`'s. Calling it again for the holder
-        changes nothing.
+        changes nothing. What an ended browser parked is discarded.
         """
         with self._lock:
+            self._parked.pop(workspace, None)
             entry = self._entries.get(workspace)
             if entry is not None and entry.browser == browser:
                 self._entries[workspace] = entry
@@ -513,18 +646,28 @@ class Scrubber:
         """Give the workspace's slot to ``new``, a reap's reopen of ``old``, keeping
         what the slot held: it is the same workspace on the same pages.
 
-        When ``old`` holds the slot its entry moves to ``new``, sets and kept
-        alike. When another browser holds it, or nobody does, ``new`` takes it
+        When ``old`` holds the slot, or ended and parked what it held, its
+        entry moves to ``new``, sets and kept alike: its sets stay known while
+        the catalogue's revision is the one they were read at, and become kept
+        forms once it moves. When another browser holds it, or nobody does,
+        ``new`` takes it
         as `opened` gives it - whoever held it is finished with - but fails
         safe: everything the holder held (its sets and kept forms) becomes
         ``new``'s kept forms, so nothing masked before is unmasked after. Its
         origins are unknown until built for ``new``. ``old`` is finished with
         either way, and never takes the slot again. Calling it again for the
         holder changes nothing.
+
+        A park the slot did not become is claimed too, as kept forms, in every
+        branch: ``new`` may have taken the free slot implicitly before this
+        runs (capture hears its first page first), and then holds it already.
         """
         with self._lock:
             self._retired.add(workspace, old)
+            parked = self._parked.pop(workspace, None)
             entry = self._entries.get(workspace)
+            if entry is None:  # what an ended browser parked
+                entry, parked = parked, None
             if entry is not None and entry.browser == old:
                 entry.former.add(old)
                 entry.browser = new
@@ -535,26 +678,44 @@ class Scrubber:
                     fresh.kept = entry.held()
                     fresh.former = entry.former | {entry.browser}
                 entry = fresh
+            if parked is not None:  # over-masked, never under
+                entry.kept = entry.kept | parked.held()
             self._entries[workspace] = entry
             self._streaks.held(workspace)
 
     def ended(self, workspace: str, browser: str) -> None:
-        """Drop the workspace's entry when it is ``browser``'s, and its values.
+        """Free the workspace's slot when it is ``browser``'s, parking what it
+        held: kept until the browser ends, or carried to the browser that
+        replaces it. A reap is often heard before its reopen, so a `carry`
+        from ``browser`` claims the park; `opened` and the TTL drop it.
 
-        This is what frees the slot for the next browser, and ``browser`` is
-        finished with: a late call on it is stale and never takes the slot.
+        A park already there (a browser that ended before this one was carried
+        to) is kept in this one's kept forms, not replaced.
+
+        ``browser`` is finished with: a late call on it is stale and never
+        takes the slot.
         """
         with self._lock:
             self._retired.add(workspace, browser)
             entry = self._entries.get(workspace)
             if entry is not None and entry.browser == browser:
                 del self._entries[workspace]
+                earlier = self._parked.get(workspace)
+                if earlier is not None:
+                    entry.kept = entry.kept | earlier.held()
+                self._parked[workspace] = entry
 
     def close(self) -> None:
-        """Stop the threads; a build still owed fails, so nothing waits on it."""
-        self._pool.shutdown(wait=False, cancel_futures=True)
+        """Stop the threads; a build still owed fails, so nothing waits on it.
+
+        Usable after: a read asked for later starts a thread again. The
+        server's lifespan, which closes it, runs again when FastMCP enters it
+        for a later session.
+        """
         with self._lock:
+            pool, self._pool = self._pool, self._new_pool()
             owed = list(self._flight.values())
             self._flight.clear()
+        pool.shutdown(wait=False, cancel_futures=True)
         for future in owed:
             _settle(future, failed=True)

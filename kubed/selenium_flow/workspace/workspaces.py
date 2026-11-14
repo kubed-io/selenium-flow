@@ -55,7 +55,7 @@ import logging
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from .. import faults
 from ..capture import NETWORK_URI
@@ -70,6 +70,7 @@ from ..core.defaults import DEFAULT_BROWSER
 from ..monitor.monitor import ATTACH_FAILED
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
+from ..redaction import Forms
 from ..site_data import snapshot as site_data_module
 from ..urls import (
     allowed_navigation,
@@ -81,7 +82,9 @@ from ..urls import (
 from . import locks
 from . import settings as settings_module
 from .calls import Calls, told
-from .store import MemoryStore, Workspace, WorkspaceStore
+from .origins import OriginChanged, Origins
+from .scrub import Scrubber
+from .store import DEFAULT_TTL_SECONDS, MemoryStore, Workspace, WorkspaceStore
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +109,25 @@ HEADLESS_RECORD_REMEMBERED = (
 
 # `settle`'s default page: the one the result itself reports.
 FROM_RESULT = object()
+
+# What a result carries that is not text a page spelt, set aside from the
+# scrub and put back (`Workspaces._scrubbed`): a captured site data save,
+# which `settle` stores and strips and a restore needs exactly as read; and a
+# screenshot's pixels, which cannot be scrubbed (spec 2026-11-14-secret-scope,
+# ruling 12) and which a match would only corrupt.
+_NOT_TEXT = (site_data_module.CAPTURED,)
+_PIXELS = ("image",)
+
+
+class Said(NamedTuple):
+    """One said call's answer (`Workspaces._said`): its result, scrubbed; the
+    page hint, or None; and whether the result's URL carried a value, so is
+    withheld from the record (ruling 21)."""
+
+    result: dict
+    page: dict | None
+    url_hidden: bool
+
 
 # `remember`'s "leave who opened it alone": a silent reopen after a reap is the
 # same caller's browser coming back, not a new opener.
@@ -354,6 +376,7 @@ class Workspaces:
         channels=None,
         control=None,
         hints: Callable[[str, str], list[dict]] | None = None,
+        catalogue=None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -387,6 +410,47 @@ class Workspaces:
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
         # is hinted. Asked only by `_hinted`, never inside a store write.
         self.hints = hints
+        # Where each workspace's browser is, and the secrets in scope there
+        # (spec 2026-11-14-secret-scope). ``catalogue`` is the secrets
+        # catalogue, duck-typed (`forms_for`, `leashed`, `revision`), or None
+        # with secrets off: then every answer is left as it is, unscanned. The
+        # scrubber is the first to hear an origin change, and reads its
+        # secrets then; both forget a browser after the workspace's TTL (a
+        # store from before `ttl` joined the protocol has the default one).
+        ttl = getattr(self.store, "ttl", DEFAULT_TTL_SECONDS)
+        self.origins = Origins(ttl=ttl)
+        self.scrubber = Scrubber(catalogue, capture, origins=self.origins, ttl=ttl)
+        self.origins.listen(self.scrubber.changed)
+
+    def on_origin_changed(self, fn: Callable[[OriginChanged], object]) -> None:
+        """Call ``fn(event)`` whenever a workspace's browser reaches a new origin
+        (`origins.Origins.listen`): outside any store write, after the scrubber."""
+        self.origins.listen(fn)
+
+    def browser_ended(self, workspace: str, session_id: str) -> None:
+        """Forget ``session_id``'s origin and the secret forms it held: it ended,
+        however it ended (`end_browser`, and `session.ended` from the bus)."""
+        self.origins.forget(workspace, session_id)
+        self.scrubber.ended(workspace, session_id)
+
+    def capture_heard(
+        self,
+        workspace: str,
+        session_id: str,
+        url: str | None,
+        frame: bool,
+        done: Callable[[Forms | None], object],
+    ) -> None:
+        """Capture heard ``session_id`` start a navigation to ``url`` (source 2,
+        ruling 8): note it, and hand ``done`` the forms of the secrets in scope
+        there once they are read, or None when they cannot be. With no URL the
+        origin is unknown, and ``done`` gets every leashed secret (ruling 9).
+        Read off the caller's thread either way, so it is safe on the loop."""
+        origin = self.origins.arrived(workspace, session_id, url, frame=frame)
+        if origin is None:
+            self.scrubber.every(done)
+        else:
+            self.scrubber.build(workspace, session_id, origin, done)
 
     @property
     def kind(self) -> str:
@@ -400,7 +464,14 @@ class Workspaces:
         a browser, so this peeks at the store rather than going through
         ``resolve``. The Grid's session id is not in it — that is the whole
         point of E18 — so what a caller reads back is what it may say.
+
+        Scrubbed as a resource is (spec 2026-11-14-secret-scope, ruling 16),
+        so `workspace://current` and its REST route answer alike.
         """
+        return self.scrubber.resource(caller.name, self._described(caller))
+
+    def _described(self, caller: Caller) -> dict:
+        """`describe`, before the scrub."""
         name = caller.name
         status = {
             "workspace": name,
@@ -522,7 +593,9 @@ class Workspaces:
         capturing = bool(
             record.attached and self._told("capturing", record.session_id)
         )
-        return {**view, "capturing": capturing}
+        # Scrubbed as a resource is (ruling 16); the answer above, for capture
+        # off, is this server's own words and is not.
+        return self.scrubber.resource(name, {**view, "capturing": capturing})
 
     def browser(self, name: str) -> str:
         """The Grid id this workspace is driving, or "" if it holds no live one.
@@ -568,7 +641,19 @@ class Workspaces:
             return record.session_id, (
                 (record.settings or {}).get("browser") or DEFAULT_BROWSER
             )
+        failure = None
+        try:
+            return self._reopen(name, record)
+        except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
+            failure = exc
+        # Outside the `except` (see `_said`): a first page that failed may
+        # quote where it landed. No browser holds the slot yet, so every
+        # leashed secret (spec 2026-11-14-secret-scope, ruling 2).
+        self.scrubber.error(name, "", failure, [None])
+        raise failure
 
+    def _reopen(self, name: str, record: Workspace) -> tuple[str, str]:
+        """`resolved`'s reopen of a browser the Grid reaped, before its scrub."""
         # The Grid reaped it. Reopen where the caller left off, with the same
         # settings, so a refresh does not silently change the browser's shape.
         log.info("the browser is gone from the grid, reopening for workspace %s", name)
@@ -608,10 +693,11 @@ class Workspaces:
         # The settings this browser was opened with: without `record` when
         # recording is off, so nothing reports a video nobody is making.
         timeout = self._timeout_of(opened["session_id"])
+        reopened_at = opened.get("url", record.url or "")
         kept = self.remember(
             name,
             opened["session_id"],
-            opened.get("url", record.url or ""),
+            self._landing(name, reopened_at),
             replay,
             set_by=sources,
             replacing=record.session_id,
@@ -622,6 +708,12 @@ class Workspaces:
             ran=opened.get("ran"),
         )
         if kept == opened["session_id"]:
+            # The same workspace on the same pages: the reaped browser's secret
+            # forms go with it, and the new one starts unframed, then is on
+            # the page it reopened at (spec 2026-11-14-secret-scope).
+            self.scrubber.carry(name, record.session_id, kept)
+            self.origins.opened(name, kept)
+            self.origins.arrived(name, kept, reopened_at or None)
             self._told(
                 "opened", name, kept, replay.get("browser") or DEFAULT_BROWSER,
                 timeout, reopened=True,
@@ -748,9 +840,9 @@ class Workspaces:
         *,
         tool: str,
         surface: str,
-    ) -> tuple[dict, dict | None]:
-        """Run ``call(session_id)`` as one said call: the result, and the page
-        hint (or None).
+    ) -> Said:
+        """Run ``call(session_id)`` as one said call: the result, scrubbed, the
+        page hint (or None), and whether the result's URL was withheld.
 
         The one bracket every host of a call shares, so they cannot drift: the
         call holds the session's turn from before it begins to after it ends
@@ -760,18 +852,71 @@ class Workspaces:
         when its turn comes, never begun (live control spec, rulings 14, 32,
         33) — else begun, run, and ended with or without its error. Reads take
         their turn too, and answer.
+
+        Still inside the turn, its answer goes through the scrubber (spec
+        2026-11-14-secret-scope, "The choke point"): the result's URL and
+        ``in_frame`` are noted first, then the result is scrubbed with the
+        secrets in scope on the origins before and after the call, or an error
+        with those before and every leashed secret. A scrub that fails is
+        `faults.ScrubFailed`, raised instead of the answer.
         """
         with locks.driving(session_id):
+            before = self.origins.current(name, session_id)
             begun = self.calls.begin(name, session_id, browser=kind, tool=tool)
+            failure = None
             try:
                 result = call(session_id)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
                 self.calls.end(
                     begun, tool=tool, surface=surface, browser=kind, error=exc
                 )
-                raise
+                failure = exc
+            if failure is not None:
+                # Outside the `except`: a `ScrubFailed` raised there would carry
+                # the original, value and all, as its context.
+                self.scrubber.error(name, session_id, failure, [before, None])
+                raise failure
             page = self.calls.end(begun, tool=tool, surface=surface, browser=kind)
-        return result, page
+            result, hidden = self._scrubbed(name, session_id, result, before, tool)
+        return Said(result, page, hidden)
+
+    def _arrived(self, name: str, session_id: str, result) -> str | None:
+        """Note where ``result`` says the browser is: its URL's origin, or None
+        when it has no URL (unknown); and a `frame` result's ``in_frame``."""
+        if not isinstance(result, dict):
+            return None
+        framed = result.get("in_frame")
+        if isinstance(framed, bool):
+            self.origins.framed(name, session_id, framed)
+        if "url" not in result:
+            return None
+        return self.origins.arrived(name, session_id, result["url"])
+
+    def _scrubbed(
+        self, name: str, session_id: str, result, before: str | None, tool: str = ""
+    ) -> tuple[object, bool]:
+        """``result`` noted and scrubbed for a call that began on ``before``;
+        and whether its URL carried a value, so must not be recorded.
+
+        What is not text a page spelt is set aside first and put back after:
+        a captured site data save, which `settle` stores and strips and a
+        restore must get back exactly, and a screenshot's pixels, which cannot
+        be scrubbed (ruling 12) and would only be corrupted by a match.
+        """
+        after = self._arrived(name, session_id, result)
+        if not self.scrubber.active:  # secrets off: the very object, untouched
+            return result, False
+        aside = {}
+        if isinstance(result, dict):
+            for key in _NOT_TEXT + (_PIXELS if tool == "screenshot" else ()):
+                if key in result:
+                    aside[key] = result.pop(key)
+        scrubbed, hidden = self.scrubber.result(
+            name, session_id, result, [before, after]
+        )
+        if aside:
+            scrubbed.update(aside)
+        return scrubbed, hidden
 
     def act(
         self,
@@ -815,10 +960,12 @@ class Workspaces:
             if closed is not None:
                 closed(name)
             raise
-        result, page = self._said(
+        result, page, hidden = self._said(
             name, resolved, kind, call, tool=tool, surface=surface
         )
-        self.settle(name, result, browser=resolved, reshapes=reshapes)
+        # A URL the scrub changed carried a value: never recorded (ruling 21).
+        withheld = {"url": None} if hidden else {}
+        self.settle(name, result, browser=resolved, reshapes=reshapes, **withheld)
         if page is not None and isinstance(result, dict):
             result["page"] = page
         return result
@@ -843,14 +990,14 @@ class Workspaces:
         kind = ((record.settings if record else None) or {}).get(
             "browser"
         ) or DEFAULT_BROWSER
-        result, _page = self._said(
+        result = self._said(
             name,
             session_id,
             kind,
             lambda resolved: self.actions.paste(resolved, text),
             tool="paste",
             surface="http",
-        )
+        ).result
         self.settle(name, result, browser=session_id, url=None)
         # A paste slides the TTL but is not the agent's call: the reopen report
         # it was handed is put back for the next result that is.
@@ -897,6 +1044,11 @@ class Workspaces:
                 for at, page in enumerate(pages)
             ]
             summary["dropped"] = int(episode["dropped"])
+        if "visited" in summary:
+            # The pages a person reached are on any origin, the browser's or
+            # not: scrubbed as a resource is (ruling 16), with every leashed
+            # secret.
+            summary["visited"] = self.scrubber.resource(name, summary["visited"])
         session_id = "" if summary["ended"] else self.browser(name)
         if not session_id:
             summary["ended"] = episode is not None
@@ -906,14 +1058,14 @@ class Workspaces:
             "browser"
         ) or DEFAULT_BROWSER
         try:
-            read, _page = self._said(
+            read = self._said(
                 name,
                 session_id,
                 kind,
                 self.actions.outline,
                 tool="await_control",
                 surface=surface,
-            )
+            ).result
         except Exception as exc:  # noqa: BLE001 - the hand-back is said regardless
             # By type: a Grid failure's text quotes the Grid's URL.
             log.info(
@@ -991,9 +1143,11 @@ class Workspaces:
                 here = self._hinted(name, page)
                 if here:
                     result["flows_here"] = here
-        if told:
-            result["site_data"] = told
         try:
+            if told:
+                # Words the browser said (a skipped site's reason): scrubbed as
+                # a resource is, on the result the scrub has already been past.
+                result["site_data"] = self.scrubber.resource(name, told)
             if reshapes:
                 self.reshape(name, result, browser=browser)
             self._save_site_data(name, result, captured, browser)
@@ -1068,6 +1222,33 @@ class Workspaces:
         **wanted,
     ) -> dict:
         """Open a session in this workspace, or pick up the one it was using.
+
+        Its answer is scrubbed (`_open_browser`), and so is its failure, with
+        every leashed secret: a first page that failed may quote where it
+        landed, and no browser holds the slot yet (spec
+        2026-11-14-secret-scope, ruling 2).
+        """
+        name = caller.name
+        failure = None
+        try:
+            return self._open_browser(
+                caller, url, fresh, restore_site_data, **wanted
+            )
+        except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
+            failure = exc
+        # Outside the `except`: see `_said`.
+        self.scrubber.error(name, "", failure, [None])
+        raise failure
+
+    def _open_browser(
+        self,
+        caller: Caller,
+        url: str | None,
+        fresh,
+        restore_site_data,
+        **wanted,
+    ) -> dict:
+        """`open_browser`, before its failure's scrub.
 
         The only place a browser is created, and the only place its settings can
         be chosen, which is why it is never done implicitly. Shared by both
@@ -1165,7 +1346,8 @@ class Workspaces:
         )
         timeout = self._timeout_of(opened["session_id"])
         kept = self.remember(
-            name, opened["session_id"], opened.get("url", ""), settings,
+            name, opened["session_id"], self._landing(name, opened.get("url", "")),
+            settings,
             set_by=resolved.set_by,
             replacing=ended, forget_site_data=forgotten is not None,
             opened_by=caller.principal.opener() if caller.principal else None,
@@ -1178,7 +1360,14 @@ class Workspaces:
             # A concurrent open bound first and this browser was quit: describe
             # the one the workspace holds, not the discarded one (Copilot, #50).
             # Its provisional note stays, so its video is deleted, not filed.
-            return self._held(name)
+            # That open gives its browser the slot itself: this one takes none,
+            # and is scrubbed as a resource is, with every leashed secret.
+            return self.scrubber.resource(name, self._held(name))
+        # This browser holds the workspace now: it starts afresh, unframed, on
+        # the page it opened at (spec 2026-11-14-secret-scope).
+        self.origins.opened(name, kept)
+        self.scrubber.opened(name, kept)
+        landed = self.origins.arrived(name, kept, opened.get("url"))
         if self.capture is not None and not settings.get("capture"):
             # An explicit open without capture is a fresh start for it
             # (programme R9): what an earlier browser captured is not this one's.
@@ -1214,12 +1403,27 @@ class Workspaces:
         told["capture"] = bool(settings.get("capture"))
         if noted:
             told["recording_error"] = noted
+        # What it says is checked for the secrets in scope where it opened.
+        # Its URL was asked about before it was recorded (`_landing`).
+        told, _ = self.scrubber.result(name, kept, told, [landed])
         # The page it opened on, new or remembered, is a page this caller has
         # not been told about in this browser (ruling 19).
         here = self._hinted(name, told.get("url"))
         if here:
             told["flows_here"] = here
         return {"workspace": name, **told}
+
+    def _landing(self, name: str, url: str) -> str:
+        """``url``, the page a new browser landed on, as the record may keep it:
+        "" when it carries the value of a secret in scope there, or one the
+        workspace holds (ruling 21), and when that cannot be checked - fails
+        closed. Asked before the bind, so nothing is written and taken back:
+        the history keeps the entry it had for that origin."""
+        try:
+            carries = self.scrubber.carries(name, url)
+        except faults.ScrubFailed:
+            carries = True
+        return "" if carries else url
 
     def _held(self, name: str) -> dict:
         """What ``open_session`` reports for the browser the record holds."""
@@ -1516,6 +1720,9 @@ class Workspaces:
         self.store.update(
             name, lambda r: r.detached(ended) if r.session_id == target else None
         )
+        # The workspace is finished with it, quit or not: its origin and its
+        # secret forms go now (`session.ended` says the same, later).
+        self.browser_ended(name, target)
         # Only a confirmed quit (a 404 counts: Grid.quit treats it as done) is
         # announced, and only once detached, so a page redrawn on it never
         # draws the old row; after a failure the session may still run, and

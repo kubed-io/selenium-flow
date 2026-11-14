@@ -25,6 +25,8 @@ from kubed.selenium_flow.secrets import (
     origin,
 )
 from kubed.selenium_flow.workspace.calls import Calls
+from kubed.selenium_flow.workspace.origins import Origins
+from kubed.selenium_flow.workspace.scrub import Scrubber
 
 pytestmark = pytest.mark.unit
 
@@ -850,6 +852,25 @@ def test_an_http_caller_can_bind_a_secret_it_never_sees(bound_http):
     assert response.json()["text_from"] == "secret"
 
 
+
+def test_an_http_write_whose_scrub_fails_answers_the_fixed_sentence(bound_http, monkeypatch):
+    """Ruling 2 over HTTP: an ordinary 500, saying the fixed sentence."""
+    from kubed.selenium_flow import faults
+
+    client, _ = bound_http
+
+    def broken(self):
+        raise OSError("cannot stat hunter2")
+
+    monkeypatch.setattr(secrets.Catalogue, "revision", broken)
+    response = client.post(
+        "/browser/write",
+        json={"selector": {"css": "#password"}, "secret": {"name": "nextcloud", "key": "password"}},
+        headers=AUTH,
+    )
+    assert response.status_code == 500
+    assert response.json() == {"error": faults.SCRUB_FAILED}
+
 def test_an_http_bind_on_a_disallowed_page_is_refused(bound_http, monkeypatch):
     client, typed = bound_http
     response = client.post(
@@ -1354,7 +1375,7 @@ def framed(tmp_path):
 
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
-        calls=Calls(),
+        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
     )
 
     def write(frame_origin=None, top=ALLOWED, forged=False):
@@ -1484,7 +1505,7 @@ def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
     driver.element.tag = tag
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
-        calls=Calls(),
+        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
     )
     with pytest.raises(ValueError) as refused:
         secrets.perform_write(
@@ -1520,7 +1541,7 @@ def test_a_bound_write_into_a_field_still_types(targeting, tag):
     driver.element.tag = tag
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
-        calls=Calls(),
+        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
     )
     shown = secrets.perform_write(
         catalogue, actions, held, "desktop",
@@ -1560,6 +1581,80 @@ async def test_a_direct_bound_writes_dead_browser_keeps_its_type_and_status(
     assert errors.status_for(caught.value) == 404
     assert VALUE not in str(caught.value)
     assert "[secret:nextcloud/password]" in str(caught.value)
+
+
+
+async def test_a_failed_bound_write_keeps_its_status(tmp_path, monkeypatch):
+    """Ruling 23, through the scope's scrub too: the error keeps its type, so
+    its status is the one its type has (a `NoSession` is the caller's 400)."""
+    from kubed.selenium_flow import errors, faults
+
+    def write(sid, text, **kw):
+        raise faults.NoSession(f"no session while typing {text!r}")
+
+    server, touched = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    with pytest.raises(faults.NoSession) as caught:
+        tool.fn(
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+        )
+    assert type(caught.value) is faults.NoSession
+    assert errors.status_for(caught.value) == errors.status_for(faults.NoSession("x"))
+    assert VALUE not in faults.message(caught.value)
+    assert "[secret:nextcloud/password]" in faults.message(caught.value)
+    assert touched == []
+    server.workspaces.scrubber.close()
+
+
+
+async def test_an_mcp_write_whose_scrub_fails_answers_the_fixed_sentence(
+    tmp_path, monkeypatch, caplog
+):
+    """Ruling 2 over MCP: a tool error saying the fixed sentence, nothing else."""
+    from fastmcp import Client
+
+    from kubed.selenium_flow import faults
+
+    def write(sid, text, **kw):
+        return {"value": None, "url": "https://nc.example.com/", "title": text}
+
+    server, _ = _direct(tmp_path, monkeypatch, write)
+
+    def broken():
+        raise OSError(f"cannot stat {VALUE}")
+
+    monkeypatch.setattr(server.secrets, "revision", broken)
+    async with Client(server.mcp) as client:
+        result = await client.call_tool(
+            "write",
+            {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
+            raise_on_error=False,
+        )
+    assert result.is_error
+    text = result.content[0].text
+    assert text.endswith(faults.SCRUB_FAILED) and VALUE not in text
+    assert "ScrubFailed" in caplog.text and VALUE not in caplog.text
+
+async def test_a_bound_write_marks_the_value_in_its_result(tmp_path, monkeypatch):
+    """The value comes back as its marker wherever the page echoes it, and the
+    URL it reached is withheld from the record."""
+    def write(sid, text, **kw):
+        return {
+            "value": None,
+            "url": f"https://nc.example.com/?q={quote_plus(text)}",
+            "title": "Home",
+            "html": f"<p>{text}</p>",
+        }
+
+    server, touched = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    result = tool.fn(
+        selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+    )
+    assert result["html"] == "<p>[secret:nextcloud/password]</p>"
+    assert "<hidden>" not in json.dumps(result)
+    assert touched == [(None, "browser-1")]
+    server.workspaces.scrubber.close()
 
 
 # ---- the forms of an origin, and when they rotate -----------------------------

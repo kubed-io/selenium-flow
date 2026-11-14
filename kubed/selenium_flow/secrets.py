@@ -925,11 +925,17 @@ def perform_write(
     a page that echoes it is masked from its first event (ruling 13), and with
     capture on the result carries ``page`` like `Workspaces.act`'s.
     """
-    from . import binding, redaction
+    from . import binding
 
     calls = workspaces.calls
     resolved, kind = workspaces.resolved(name)
+    hidden = Forms()
+    failure = None
     with locks.driving(resolved):
+        # Where the browser was before the call: the scrub checks the secrets
+        # in scope there as well as where it landed (spec
+        # 2026-11-14-secret-scope, ruling 11).
+        before = workspaces.origins.current(name, resolved)
         # Refused here while a person holds the browser: after the turn,
         # before the page is read or the call is begun (live control, ruling 32).
         begun = calls.begin(name, resolved, browser=kind, tool="write")
@@ -944,29 +950,54 @@ def perform_write(
             hidden = binding.forms_of(given, guarded)
             calls.bound(name, hidden)
             rest = {k: v for k, v in given.items() if k not in ("text", "url")}
-            try:
-                result = actions.write(resolved, given["text"], **rest)
-            except Exception as exc:  # scrubbed in place, never swallowed
-                # An action puts its arguments in its error text.
-                redaction.scrub_error(exc, hidden)
-                raise
-        except Exception as exc:
+            result = actions.write(resolved, given["text"], **rest)
+        except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
             calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
-            raise
+            failure = exc
+        if failure is not None:
+            # Scrubbed in place, never swallowed nor rewrapped, so it keeps its
+            # type and its status (ruling 23): an action puts its arguments in
+            # its error text. Outside the `except`, so a scrub that fails is
+            # never chained to the original.
+            _scrub_typed(failure, hidden)
+            workspaces.scrubber.error(name, resolved, failure, [before, None])
+            raise failure
         page = calls.end(begun, tool="write", surface=surface, browser=kind)
-    shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
-    # Only remember a page the value never reached; a later reattach would
-    # navigate to it. Touched either way. Withholding the page must not also
-    # stop the clock: `touch` slides the TTL, and skipping it entirely let a
-    # workspace expire *because* its URL was correctly kept out of the store.
+        # The page it landed on is heard whether or not it is recorded: the
+        # origin is what scopes the secrets, and it never carries a value.
+        after = workspaces.origins.arrived(name, resolved, result.get("url"))
+        shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
+        shown, carried = workspaces.scrubber.result(
+            name, resolved, shown, [before, after]
+        )
+    # Only remember a page no value reached, typed or in scope there (ruling
+    # 21); a later reattach would navigate to it. Touched either way.
+    # Withholding the page must not also stop the clock: `touch` slides the
+    # TTL, and skipping it entirely let a workspace expire *because* its URL
+    # was correctly kept out of the store.
     #
     # The first call after a silent reopen says what came back: `settle` puts
     # that on `shown`.
-    safe = binding.safe_url(result, hidden)
+    safe = None if carried else binding.safe_url(result, hidden)
     workspaces.settle(name, shown, url=safe, browser=resolved)
     if page is not None:
         shown["page"] = page
     return shown
+
+
+def _scrub_typed(exc: BaseException, hidden) -> None:
+    """Scrub ``exc`` of the value just typed, in place; `faults.ScrubFailed`,
+    from nothing, when that cannot be done (`redaction.Unscrubbed`)."""
+    from . import faults, redaction
+
+    failed = False
+    try:
+        redaction.scrub_error(exc, hidden)
+    except redaction.Unscrubbed:
+        failed = True
+    if failed:
+        log.warning("a failed write could not be scrubbed: Unscrubbed")
+        raise faults.ScrubFailed() from None
 
 
 def matching_secrets(secrets: list[dict] | None, host: str) -> list[dict]:
