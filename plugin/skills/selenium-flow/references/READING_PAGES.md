@@ -1,24 +1,18 @@
 # Reading a page cheaply
 
-The cost difference between the three ways to read is enormous, and picking the
-wrong one is the most expensive mistake available with these tools.
-
 | Want | Use | Rough cost |
 |---|---|---|
 | Text, values, "did it load" | `extract` | cheap |
 | Many values at once, computed state | `execute_script` | cheap, one round trip |
 | Layout, styling, a rendered chart | `screenshot` | very expensive |
 
-**Never screenshot to read text.** An image of a paragraph costs orders of
-magnitude more than the paragraph, cannot be quoted or searched, and may be
-wrong if the page had not finished rendering.
+Never screenshot to read text: an image of a paragraph costs orders of magnitude
+more than the paragraph, cannot be quoted, and may show a half-rendered page.
 
 ## Addressing an element: `xpath` or `css`
 
-Every tool that acts on an element takes **either** `xpath` **or** `css` —
-never both, never neither. Passing both is refused rather than resolved, because
-acting on whichever element one of them happened to find would hide a typo in
-the other.
+A `selector` is an object with exactly one of `xpath` or `css`. Both or neither
+is refused.
 
 ```
 interact(action="click", selector={"xpath": "//button[@type='submit']"})
@@ -34,15 +28,9 @@ Which to reach for:
 | Walking **upwards** to a parent or ancestor | `xpath` — `//input[@id='x']/ancestor::form` |
 | Anything positional or structural beyond `:nth-child` | `xpath` |
 
-`css` is usually the shorter of the two and `#id` covers the single most common
-case, so it is a good default. But **text matching and ancestor traversal are
-XPath-only**, and both come up constantly on real pages — a button you can see
-but whose markup you cannot guess is the normal case, and `//button[contains(.,
-'Continue')]` finds it in one line.
-
-There is no fallback: if the selector matches nothing, the wait times out and
-the error tells you what it waited for and what page the browser was actually
-on. See `TROUBLESHOOTING.md`.
+There is no fallback from one to the other: if the selector matches nothing, the
+wait times out and the error says what it waited for and what page the browser
+was on (`skill://selenium-flow/references/TROUBLESHOOTING.md`).
 
 ## extract
 
@@ -54,14 +42,13 @@ extract(selector={"xpath": "//h1"})
 extract(url="https://example.com/settings", selector={"xpath": "//main"})
 ```
 
-`extract` returns the element's whole text **and** HTML, with no cap: `body` on
-a simple page is a few KB, and on an app like Grafana it is over 150,000
-characters, more than you can read in one result. On an unfamiliar page,
-`outline` first to see its structure, then `extract` the one element that holds
-your answer. For a list of items, one `execute_script` that returns just their
-names is smaller than either.
+`extract` returns the element's whole text and HTML, so `body` on a large app can
+be more than you can read in one result. On an unfamiliar page, `outline` first
+to see its structure, then `extract` the one element that holds your answer. For
+a list of items, one `execute_script` that returns just their names is smaller
+than either.
 
-Cheap orientation checks worth knowing:
+Cheap orientation checks:
 
 ```
 extract(selector={"xpath": "//title"})   # where am I, really
@@ -71,15 +58,10 @@ extract(selector={"xpath": "//h1"})      # did the expected page load
 ## execute_script for batches and anything computed
 
 One `execute_script` beats five `extract` calls when you already know what to
-read. Use `return` to send a value back; anything JSON-serialisable comes
-through.
-
-A script is the right tool for reading many rows at once, computed style, page
-state (`location`, storage) and scrolling. It is the wrong one for *finding*
-things: a `querySelectorAll(...).find(e => e.innerText...)` hunt for a button or
-a panel is `outline(text="...")`, which also says whether the thing can be used.
-And it never waits: read after a tool has waited for the page, not instead of
-one.
+read. `return` the value; anything JSON-serialisable comes through. It suits
+many rows at once, computed style, page state (`location`, storage) and
+scrolling. To find a button or a panel use `outline(text="...")`, not a script,
+and note that a script never waits: read after a tool has waited for the page.
 
 ```
 execute_script(script="return [...document.querySelectorAll('.row')].map(r => r.innerText)")
@@ -87,7 +69,7 @@ execute_script(script="return {url: location.href, rows: document.querySelectorA
 execute_script(script="return getComputedStyle(document.querySelector('.cta')).backgroundColor")
 ```
 
-It is also the only reliable way to scroll — see `skill://selenium-flow/references/INTERACTION.md`.
+Scrolling is in `skill://selenium-flow/references/INTERACTION.md`.
 
 ## outline, when you need a selector
 
@@ -106,15 +88,14 @@ outline(selector={"css": "nav"})
 Each entry carries `css` or `xpath`, whichever was checked; hand it on as
 `selector={"css": ...}`.
 
-That second entry is the whole point: the link is real, its selector works, and
-clicking it now would time out — because `ul.menu-content` is hidden. The reasons
-are `hidden`, `covered` (with `blocked_by`), `unpainted` (it paints nothing at
-its centre), `invisible_cover` (an invisible element on top, named in
-`blocked_by`, takes the click; clicking it, or something inside it, may be what
-you want), `zero_size`, `offscreen` and `disabled`.
+In that second entry the link is real and its selector works, but clicking it now
+would time out because `ul.menu-content` is hidden. The reasons are `hidden`,
+`covered` (with `blocked_by`), `unpainted` (it paints nothing at its centre),
+`invisible_cover` (an invisible element on top, named in `blocked_by`, takes the
+click), `zero_size`, `offscreen` and `disabled`.
 
-**`blocked_by` says what is in the way; `revealed_by` says what to act on.** Act
-on `revealed_by`, and use the gesture `open_with` names:
+`blocked_by` says what is in the way; `revealed_by` says what to act on, with
+the gesture `open_with` names:
 
 - `open_with: "click"` — the trigger carries `aria-expanded`, so the page has
   told you it toggles on a click. Hovering it does nothing.
@@ -122,70 +103,64 @@ on `revealed_by`, and use the gesture `open_with` names:
   control that names it without `aria-expanded`.
 
 Neither appears when nothing visible above the element has a checked selector,
-because `body` is a true answer and useless advice, nor when nothing on the page
-says how it opens.
+or when nothing on the page says how it opens.
 
-- **The content comes first.** Elements in the page's navigation, banner,
-  footer and sidebars are listed after everything else, and each entry's
-  `region` says which landmark it sits in. Nothing is left out for being chrome.
-- **`total` above `count` means the list was cut.** Scope it with a `selector`
-  to one region — `outline(selector={"css": "main"})`, or whatever wraps the
-  content — so you get a panel rather than a page.
-- **Filter** with `text` to find one thing by its label: `outline(text="Save")`.
+- The content comes first. Elements in the page's navigation, banner, footer and
+  sidebars are listed after everything else, and each entry's `region` says which
+  landmark it sits in.
+- `total` above `count` means the list was cut. Scope it with a `selector` to one
+  region, such as `outline(selector={"css": "main"})`.
+- `text` keeps the entries whose name contains it, ignoring case:
+  `outline(text="Save")`.
 - `limit` defaults to 50. `interactive=false` lists every element, not only the
   ones you can act on.
 
-**Do not read HTML to find selectors.** `extract` is for *content*; a DOM dump
-through `execute_script` is the long way round and does not tell you whether the
-element can be used.
-
-`outline` is **not** a flow step: it is how you work out what a flow should do,
-and how you repair one when a page has changed underneath it.
+Do not read HTML to find selectors: a DOM dump does not tell you whether the
+element can be used. `outline` is not a flow step; it is how you work out what a
+flow should do and how you repair one.
 
 ## screenshot, when the visual is the point
 
-Three modes, in precedence order: `xpath` for one element, `full_page` for the
-whole scrollable page, otherwise the viewport.
+Three modes, in precedence order: a `selector` for one element, `full_page` for
+the whole scrollable page, otherwise the viewport. `width` and `height` resize the
+window first and leave it that size.
 
 ```
 screenshot(selector={"xpath": "//div[@class='chart']"})     # smallest useful image
 screenshot(full_page=true, width=1280)
 ```
 
-Prefer an element screenshot over a full page — it is smaller and it answers the
-question you actually asked. Set `width`/`height` when layout matters; the
-default window is small and varies between Grid nodes.
+Prefer an element screenshot over a full page: it is smaller and answers the
+question you asked. Set `width`/`height` when layout matters.
 
-Over MCP you get an image block you can see. Over HTTP you get base64 plus real
-pixel dimensions and a `bytes` count — a `bytes` value near zero means a blank
-capture, which almost always means the page had not rendered yet.
+Over MCP you get an image block. Over HTTP you get base64 plus pixel dimensions
+and a `bytes` count; a `bytes` value near zero means a blank capture, usually
+because the page had not rendered yet.
 
-**A screenshot is kept** with the workspace's files by default, on any page, and
-the result carries that file's link. `save=false` opts out; a server with
-nowhere to keep files says `file_error` instead, and you still get the image.
+A screenshot is kept with the workspace's files by default and the result
+carries that file's link. `save=false` skips it, and a server with nowhere to
+keep files says `file_error` and still returns the image.
 
-**Give a person the link, not the picture.** They cannot see a tool result, many
-clients cannot render an image block at all, and describing it is worse than
-both. Paste the `url`, or `![](url)` — it opens in any browser and needs no
-token. A server that has not been told its public address returns it relative;
-hand that over with the address you reached the server on.
+Give a person the link, not the picture: they cannot see a tool result, and many
+clients cannot render an image block. Paste the `url`, or `![](url)`; it opens in
+any browser and needs no token. A server that has not been told its public
+address returns it relative, so hand it over with the address you reached the
+server on.
 
 ```
 screenshot(selector={"xpath": "//div[@class='chart']"})
 → file: {name: "screenshot.png", url: "https://…/screenshots/…?exp=…&sig=…"}
 ```
 
-It outlives the browser, and a second `screenshot.png` is kept as
-`screenshot (1).png` — use the name the result gives. `save=false` skips saving
-for a capture nobody will ever reopen.
+The file outlives the browser, and a second `screenshot.png` is kept as
+`screenshot (1).png`, so use the name the result gives.
 
 ## print, when a person wants the page itself
 
 `print` keeps the page as a file and returns its link, with no image for you to
-look at. `format="pdf"` is the browser's own print — selectable text, the whole
+look at. `format="pdf"` is the browser's own print: selectable text, the whole
 document; `landscape=true` turns it, and `background=true` keeps the colours and
-images a print leaves out. `format="html"` is the page as it stands now, after
-its scripts ran.
+images a print leaves out. `format="html"` is the page as it stands now.
 
 ```
 print(format="pdf", background=true, filename="invoice")
@@ -200,5 +175,5 @@ print(format="pdf", background=true, filename="invoice")
 - Scope to a region when a page repeats a pattern:
   `//table[@id='results']//tr[2]/td[1]`.
 
-If an XPath fails, suspect the page before the expression — see
-`skill://selenium-flow/references/TROUBLESHOOTING.md`.
+If an XPath fails, suspect the page before the expression
+(`skill://selenium-flow/references/TROUBLESHOOTING.md`).
