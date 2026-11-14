@@ -1114,6 +1114,21 @@ def test_a_url_carrying_a_value_is_marked_and_never_recorded(ws):  # Review Focu
     assert "alpha-11" not in json.dumps(ws.actions.opened_urls)
 
 
+def test_a_multi_line_value_in_extracts_text_comes_back_as_its_marker():
+    """`extract`'s ``text`` is WebDriver's element text: each whitespace run of
+    the value, its line breaks too, reads back as one space."""
+    pem = "-----BEGIN KEY-----\nMIIEabc123\n-----END KEY-----"
+    ws = scoped(BindingCatalogue({A: {("a", "key"): pem}}))
+    try:
+        ws.actions.result = {"url": f"{A}/", "title": "t", "html": f"<pre>{pem}</pre>",
+                             "text": "key: " + " ".join(pem.split()) + " done"}
+        got = act(ws)
+        assert got["text"] == "key: [secret:a/key] done"
+        assert got["html"] == "<pre>[secret:a/key]</pre>"
+    finally:
+        ws.scrubber.close()
+
+
 def test_a_dialog_result_is_scrubbed_with_every_leashed_secret(ws):  # Review Focus 5
     ws.actions.result = {"url": None, "title": None, "dialog": "alpha-11"}
     assert act(ws)["dialog"] == "[secret:a/password]"

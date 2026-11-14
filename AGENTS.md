@@ -626,7 +626,9 @@ rulings are cited by number. What must not break:
   a marker of ids not in scope gains nothing.
 - **Armed by scope, not by use** (ruling 1). Nothing remembers what was typed.
   The forms of every secret allowed on an origin (`redaction.py`: the plain
-  value, base64 in both alphabets and three alignments, hex, reversal, matched
+  value, also with its line breaks dropped, made LF, or each whitespace run one
+  space as a page's text reads it back, base64 in both alphabets and three alignments,
+  hex, reversal, matched
   ASCII case-insensitively, longest first, under 4 characters only standing
   alone) are built when the browser's origin changes, off the loop, and held in
   process memory for that workspace's browser. `redaction.py`, `workspace/origins.py`

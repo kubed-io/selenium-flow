@@ -93,6 +93,33 @@ def test_base64_is_matched_exactly():
     assert scrub(core.swapcase(), Forms.of("hunter22", ID)) == core.swapcase()
 
 
+PEM = "-----BEGIN KEY-----\nMIIEabc123\n-----END KEY-----"
+
+
+@pytest.mark.parametrize(
+    "value,read",
+    [
+        (PEM, "-----BEGIN KEY----- MIIEabc123 -----END KEY-----"),
+        ("line one\r\nline two", "line one line two"),
+        ("correct  horse", "correct horse"),
+        ("tab\tand\u00a0nbsp", "tab and nbsp"),
+    ],
+    ids=["newlines", "crlf", "two spaces", "tab and nbsp"],
+)
+def test_a_value_read_with_its_whitespace_runs_as_one_space_is_masked(value, read):
+    """WebDriver's element text and `js/helpers.textOf` read a page that way."""
+    assert scrub(f"<p>{read}</p>", Forms.of(value, ID)) == f"<p>{M}</p>"
+
+
+def test_a_crlf_value_read_back_as_the_html_parser_makes_it_is_masked():
+    """An env or inline value may hold CRLF; a page's HTML and `<pre>` text hold LF."""
+    assert scrub("<pre>a1b2\nc3d4\ne5</pre>", Forms.of("a1b2\r\nc3d4\re5", ID)) == f"<pre>{M}</pre>"
+
+
+def test_a_value_read_with_its_line_breaks_removed_is_still_masked():
+    assert scrub("x -----BEGIN KEY-----MIIEabc123-----END KEY----- y", Forms.of(PEM, ID)) == f"x {M} y"
+
+
 def test_an_error_is_scrubbed_in_place_and_keeps_its_type():             # ruling 2
     try:
         try:

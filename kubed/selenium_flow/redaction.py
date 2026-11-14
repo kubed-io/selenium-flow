@@ -173,6 +173,18 @@ class Forms(Mapping):
         stripped = text.replace("\r", "").replace("\n", "")
         if stripped != text and stripped:
             folded |= escapes(stripped)
+        # The HTML parser reads CR and CRLF as LF: an env or inline value
+        # may hold them, where a file's `read_text` already made them LF.
+        unix = text.replace("\r\n", "\n").replace("\r", "\n")
+        if unix != text:
+            folded |= escapes(unix)
+        # How the server's own page reads spell it: WebDriver's element text
+        # (`extract`'s `text`) and `js/helpers.textOf` (every `outline` name)
+        # make each whitespace run one space, trimmed. `str.split` and JS `\s`
+        # both count NBSP and tabs as whitespace.
+        collapsed = " ".join(text.split())
+        if collapsed != text and collapsed:
+            folded |= escapes(collapsed)
         folded.add(repr(text)[1:-1])
         folded.add(text.encode("utf-8", "surrogatepass").hex())
         folded.add(text[::-1])
