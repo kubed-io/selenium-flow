@@ -943,7 +943,6 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     the credential URL went into the workspace record — from where a reattach
     would have navigated back to it.
     """
-    from kubed.selenium_flow.flows import run as flowrun
     from kubed.selenium_flow.server import SeleniumMCP
 
     from .conftest import NAMED, TOKEN, calling_as
@@ -951,7 +950,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("DATA_DIR", raising=False)
     make_secret(
-        tmp_path, "nextcloud", password=flowrun.HIDDEN,
+        tmp_path, "nextcloud", password="[secret:nextcloud/password]",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
     server = SeleniumMCP(Settings(
@@ -982,11 +981,13 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
     )
+    # The value is the marker itself, which scrub leaves alone (ruling 20), so
+    # only `taints` knows it reached the page.
     # The page the value reached is never remembered, whatever the value is —
     # but the workspace is still touched, because withholding the page must not
     # also stop the clock that keeps the workspace alive.
     assert touched == [(None, "browser-1")], "touched as the browser it resolved"
-    assert result["url"] == f"https://nc.example.com/?q={flowrun.HIDDEN}"
+    assert result["url"] == "https://nc.example.com/?q=[secret:nextcloud/password]"
 
 
 async def test_a_direct_bound_write_still_remembers_an_untouched_page(
@@ -1084,8 +1085,8 @@ async def test_a_direct_bound_write_scrubs_every_spelling_it_comes_back_in(
     )
     shown = json.dumps(result)
     assert VALUE not in shown and quote_plus(VALUE) not in shown, shown
-    assert result["title"] == "Welcome back, <hidden>"
-    assert result["url"] == "https://nc.example.com/?q=<hidden>"
+    assert result["title"] == "Welcome back, [secret:nextcloud/password]"
+    assert result["url"] == "https://nc.example.com/?q=[secret:nextcloud/password]"
     assert touched == [(None, "browser-1")]
 
 
@@ -1102,7 +1103,8 @@ async def test_a_direct_bound_writes_failure_never_quotes_the_value(
             selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
         )
     assert VALUE not in str(caught.value)
-    assert caught.value.__suppress_context__, "the raw error must not ride along"
+    # Scrubbed in place (ruling 23): the same exception, so its type survives.
+    assert "[secret:nextcloud/password]" in str(caught.value)
 
 
 async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
@@ -1534,3 +1536,26 @@ def test_an_unbound_write_into_a_frame_element_still_types(targeting):
     driver.element.tag = "iframe"
     actions.write("b1", "hello", selector={"css": "iframe.editor"})
     assert typed_into(driver) == [("hello",)]
+
+
+async def test_a_direct_bound_writes_dead_browser_keeps_its_type_and_status(
+    tmp_path, monkeypatch
+):
+    """Ruling 23: scrubbed in place, so a dead browser stays a 404 and is not
+    rewrapped as the 400 a ValueError is."""
+    from selenium.common.exceptions import InvalidSessionIdException
+
+    from kubed.selenium_flow import errors
+
+    def write(sid, text, **kw):
+        raise InvalidSessionIdException(f"window gone while typing {text!r}")
+
+    server, _ = _direct(tmp_path, monkeypatch, write)
+    tool = await server.mcp.get_tool("write")
+    with pytest.raises(InvalidSessionIdException) as caught:
+        tool.fn(
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+        )
+    assert errors.status_for(caught.value) == 404
+    assert VALUE not in str(caught.value)
+    assert "[secret:nextcloud/password]" in str(caught.value)

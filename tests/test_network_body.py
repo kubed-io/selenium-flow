@@ -217,7 +217,7 @@ def escaped_echoes(value):
 def tricky_bound(fed):
     from kubed.selenium_flow import binding
 
-    fed.capture.secret("ws", binding.forms_of({"text": TRICKY}, {"text"}))
+    fed.capture.secret("ws", binding.forms_of({"text": TRICKY}, {"text": ("s", "k")}))
     return escaped_echoes(TRICKY)
 
 

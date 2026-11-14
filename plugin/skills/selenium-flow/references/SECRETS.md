@@ -68,7 +68,7 @@ It comes back with `"text_from": "secret"` and no value. In a flow, the same
 }
 ```
 
-The report shows the typing steps as `text=<hidden>`. The `assert` is what proves
+The report shows the typing steps as `text=[secret:nextcloud/password]`. The `assert` is what proves
 you are in — `extract` reads content and never stops a flow. The last step keeps
 the sign-in:
 a reopened browser comes back signed in, and the password is not typed again

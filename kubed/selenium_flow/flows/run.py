@@ -15,8 +15,7 @@ from collections.abc import Callable
 
 from . import engine, report
 
-# Re-exported, the one pair that is: the tests read both through this module.
-from .redact import HIDDEN as HIDDEN
+# Re-exported: the tests read `listed` through this module.
 from .template import listed as listed
 
 # How long a whole run may take when the flow does not say. Checked between

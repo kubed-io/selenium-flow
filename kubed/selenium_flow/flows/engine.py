@@ -39,6 +39,7 @@ from typing import Protocol
 from .. import binding, faults, secrets
 from ..binding import SECRET_ARG
 from ..core import cancel
+from ..redaction import Forms, Id
 from ..workspace import locks
 from .document import ARGS, ASSERTION, declared_timeout
 from .redact import scrub, scrub_values, taints
@@ -113,7 +114,7 @@ class Hooks(Protocol):
 
     def before_save(self, pages: list[str]) -> None: ...
 
-    def bound(self, forms: set[str]) -> None: ...
+    def bound(self, forms: Forms) -> None: ...
 
     def step_done(self, tool: str, error: BaseException | None) -> None: ...
 
@@ -148,7 +149,7 @@ class Callbacks:
         if self._before_save is not None:
             self._before_save(pages)
 
-    def bound(self, forms: set[str]) -> None:
+    def bound(self, forms: Forms) -> None:
         if self._bound is not None:
             self._bound(forms)
 
@@ -211,7 +212,7 @@ class Run:
     budget: int
     deadline: float
     stop: threading.Event | None = None
-    seen: set = field(default_factory=set)
+    seen: Forms = field(default_factory=Forms)
     pages: list[str] = field(default_factory=list)
     was_at: str | None = None
     reports: list[dict] = field(default_factory=list)
@@ -227,7 +228,7 @@ class Run:
         self.status = "failed"
         return False
 
-    def acted(self, outcome: StepOutcome, raw, guarded: set, keep) -> None:
+    def acted(self, outcome: StepOutcome, raw, guarded: dict[str, Id], keep) -> None:
         """Record a step that succeeded: its result, its page, its file."""
         result = clean(raw, guarded, self.seen)
         outcome.ok = True
@@ -265,7 +266,7 @@ class Run:
         if keep:
             outcome.result = result
 
-    def landed(self, outcome: StepOutcome, page, guarded: set) -> None:
+    def landed(self, outcome: StepOutcome, page, guarded: dict[str, Id]) -> None:
         """Record where a failed step actually left the browser.
 
         Where it actually failed, not where the last step succeeded. Swept,
@@ -328,7 +329,7 @@ def resolve_step(
     params: dict,
     catalogue=None,
     page: str | tuple[str, ...] | Callable[[], str | tuple[str, ...]] = "",
-) -> tuple[dict, set]:
+) -> tuple[dict, dict[str, Id]]:
     """A step's keyword arguments, and **which of them** must not be echoed.
 
     Two mechanisms, deliberately unlike each other (§F1.38).
@@ -342,9 +343,9 @@ def resolve_step(
     into `text` — so the credential exists only as one keyword argument, and the
     guard set names that argument for the redaction that follows.
 
-    The guard is a set rather than a flag because the *result* redaction keys
-    off argument names, and a second guarded argument should not require
-    rewriting it.
+    The guard is a mapping (argument to secret id) rather than a flag because
+    the *result* redaction keys off argument names, and a second guarded
+    argument should not require rewriting it.
     """
     args = dict(step.get(ARGS) or {})
     # Substituted first, and the secret lifted out before it — so a parameter
@@ -353,7 +354,7 @@ def resolve_step(
     reference = args.pop(SECRET_ARG, None)
     kwargs = substitute(args, params)
     if reference is None:
-        return kwargs, set()
+        return kwargs, {}
 
     tool = step.get("tool", "")
     label = step.get("id") or tool

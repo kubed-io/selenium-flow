@@ -5,42 +5,19 @@ result, its error, the page it landed on, the run's own URL, or a log line. This
 is the sweep, and it is a security primitive rather than a part of running a
 flow — `secrets.perform_write` uses it for a single bound write as well.
 
-String replacement, which is the opposite direction from templating. Templating
-scans an input for something that might be a reference; this scans an *output*
-for values already known, on the way to a report and a log.
+The forms, the marker and the scanner live in `redaction`; this keeps the
+flow-shaped parts: which result fields carry an argument's value back out.
 """
 
 from __future__ import annotations
 
-import html
-import json
-import re
-from urllib.parse import quote, quote_plus
+from collections.abc import Iterable
 
-HIDDEN = "<hidden>"
-
-# Go's encoding/json escapes these as \u00XX (lowercase), to be safe in HTML.
-GO_JSON = str.maketrans(
-    {
-        "<": "\\u003c",
-        ">": "\\u003e",
-        "&": "\\u0026",
-        "\u2028": "\\u2028",
-        "\u2029": "\\u2029",
-    }
-)
-HEX_ESCAPE = re.compile(r"\\u[0-9a-f]{4}")
-# How an HTML body may spell `"`, `'` and `+` once `&`, `<` and `>` are
-# escaped: Python's html.escape, none, the decimal apostrophe, PHP 8.1's
-# htmlspecialchars, HTML5 / XML, and Go's html/template.
-HTML_QUOTES = (
-    ("&quot;", "&#x27;", "+"),
-    ('"', "'", "+"),
-    ("&quot;", "&#39;", "+"),
-    ("&quot;", "&#039;", "+"),
-    ("&quot;", "&apos;", "+"),
-    ("&#34;", "&#39;", "&#43;"),
-)
+from ..redaction import Forms as Forms
+from ..redaction import escapes
+from ..redaction import scrub as scrub
+from ..redaction import scrub_values as scrub_values
+from ..redaction import taints as taints
 
 # A result field carries an argument's value back out. Most do it by having the
 # same name — `navigate(url=...)` answers with the page state, whose `url` is
@@ -55,7 +32,7 @@ HTML_QUOTES = (
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
 
-def redacted_fields(guarded: set) -> set:
+def redacted_fields(guarded: Iterable[str]) -> set:
     """Result fields that would carry a guarded argument's value back out."""
     fields = set(guarded)
     for argument, field in RESULT_FROM_ARGUMENT.items():
@@ -64,118 +41,18 @@ def redacted_fields(guarded: set) -> set:
     return fields
 
 
-def scrub_values(obj, values):
-    """``obj`` with every guarded value replaced, however deep it sits.
-
-    The named-field map above is precise and cheap, and it is a list somebody
-    has to remember to extend — `script` -> `result` was missing from it, which
-    is how a guarded script came back under a name nobody had mapped. So the
-    map handles the fields we know and this handles the ones we do not: for a
-    guarded step, and only a guarded step, every string in the result is swept.
-
-    Keys too, below the top: a script can return an object keyed by what was
-    typed (Copilot, #52). The top level's keys are the response's own fields,
-    named by this code and never a secret, so they are left as they are. Two
-    keys that scrub to the same one keep one, holding the later key's value.
-
-    Only reached when a step actually bound something, so the cost lands on the
-    rare call rather than on `extract` returning a page of HTML.
-    """
-    if isinstance(obj, dict):
-        return {key: _scrub_deep(value, values) for key, value in obj.items()}
-    return _scrub_deep(obj, values)
-
-
-def _scrub_deep(obj, values):
-    """`scrub_values` for page data, whose keys are swept with its strings."""
-    if isinstance(obj, str):
-        return scrub(obj, values)
-    if isinstance(obj, dict):
-        return {
-            scrub(key, values) if isinstance(key, str) else key: _scrub_deep(
-                value, values
-            )
-            for key, value in obj.items()
-        }
-    if isinstance(obj, list):
-        return [_scrub_deep(value, values) for value in obj]
-    return obj
-
-
 def hidden_forms(values) -> set:
-    """Every spelling a guarded value can come back in.
+    """Every spelling of each value that a page can echo it in: `escapes` over them.
 
-    A submitting write lands the browser on `?q=<what was typed>`, and the
-    browser percent-encodes it on the way — so `a/b` comes back as `a%2Fb` and a
-    literal replacement misses it entirely. Both quoting styles are covered
-    because a form submission uses `+` for spaces and a path does not.
-
-    A page echoes it too, and capture keeps what the page said: a JSON body
-    escapes `"` and `\\`, maybe `/`, and maybe every non-ASCII letter; an HTML
-    one escapes `&`, `<`, `>` and maybe the quotes, the apostrophe as `&#x27;`
-    or `&#39;`. Other servers spell them their own ways: Go's encoding/json
-    writes `<` `>` `&` as `\\u003c` and so on, a JSON encoder may write its hex
-    in capitals, PHP the apostrophe as `&#039;`, HTML5 as `&apos;`, and Go's
-    html/template `"` as `&#34;` and `+` as `&#43;`. Each of those spellings is
-    a form, or a body or a console line would hand the value to whoever reads
-    it — a fixed few per value, so the sweep's cost does not grow with it.
+    Capture's learned credentials (cookies, Authorization tokens) are not
+    catalogued and have no marker to show, so they keep these forms and not the
+    wider set `Forms.of` makes (ruling 19).
     """
     forms = set()
     for value in values:
         if value is None:
             continue
-        # Coerced, not skipped: `Actions.write` does `str(text)`, so a secret
-        # whose stored value is not a string really is typed into the page —
-        # and skipping non-strings here meant it came back unscrubbed.
         text = value if isinstance(value, str) else str(value)
-        if not text:
-            continue
-        forms.add(text)
-        forms.add(quote(text, safe=""))
-        forms.add(quote_plus(text))
-        for ascii_only in (True, False):
-            escaped = json.dumps(text, ensure_ascii=ascii_only)[1:-1]
-            forms.add(escaped)
-            forms.add(escaped.replace("/", "\\/"))
-            if ascii_only:  # the same escapes, their hex in capitals
-                forms.add(HEX_ESCAPE.sub(lambda m: "\\u" + m[0][2:].upper(), escaped))
-            else:  # Go's encoding/json: UTF-8, but < > & as \u00XX
-                forms.add(escaped.translate(GO_JSON))
-        bare = html.escape(text, quote=False)
-        for quot, apos, plus in HTML_QUOTES:
-            forms.add(bare.replace('"', quot).replace("'", apos).replace("+", plus))
+        if text:
+            forms |= escapes(text)
     return forms
-
-
-def scrub(text: str, values) -> str:
-    """``text`` with every guarded value replaced.
-
-    It is needed because an action puts its arguments in its error text:
-    ``upload_file`` naming a kept file that is not there raises ``no file at
-    <uri>``, and a bad URL comes back from Selenium with the URL in it.
-
-    A very short guarded value makes the message noisy, which is the right way
-    round: a mangled error beats a leaked credential, and a two-character secret
-    is a problem with the secret.
-    """
-    # Longest first: a short form inside a longer one would otherwise leave
-    # the longer one's remainder behind.
-    for value in sorted(
-        (v for v in values if isinstance(v, str) and v), key=len, reverse=True
-    ):
-        text = text.replace(value, HIDDEN)
-    return text
-
-
-def taints(text, values) -> bool:
-    """Whether any guarded value is actually present in ``text``.
-
-    Asked directly, rather than inferred by comparing a string with its scrubbed
-    form. Three places had made that comparison and all three were wrong the
-    same way: a value that is exactly ``HIDDEN`` scrubs to itself, so equality
-    holds while the credential is still there. A marker is evidence of nothing —
-    the question is whether the value is in the text, so ask that.
-    """
-    if not isinstance(text, str) or not text:
-        return False
-    return any(isinstance(value, str) and value and value in text for value in values)

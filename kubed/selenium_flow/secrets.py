@@ -819,8 +819,7 @@ def perform_write(
     a page that echoes it is masked from its first event (ruling 13), and with
     capture on the result carries ``page`` like `Workspaces.act`'s.
     """
-    from . import binding
-    from .flows import redact
+    from . import binding, redaction
 
     calls = workspaces.calls
     resolved, kind = workspaces.resolved(name)
@@ -841,9 +840,10 @@ def perform_write(
             rest = {k: v for k, v in given.items() if k not in ("text", "url")}
             try:
                 result = actions.write(resolved, given["text"], **rest)
-            except Exception as exc:  # noqa: BLE001 - rewrapped, never swallowed
+            except Exception as exc:  # scrubbed in place, never swallowed
                 # An action puts its arguments in its error text.
-                raise ValueError(redact.scrub(str(exc), hidden)) from None
+                redaction.scrub_error(exc, hidden)
+                raise
         except Exception as exc:
             calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
             raise

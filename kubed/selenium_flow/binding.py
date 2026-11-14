@@ -30,7 +30,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import secrets
-from .flows.redact import hidden_forms, redacted_fields, scrub_values, taints
+from .flows.redact import redacted_fields
+from .redaction import Forms, Id, scrub_values, taints
 
 # The argument through which a secret reaches the page. Not a table of tools:
 # `write` is the only action with a `secret` parameter, so the tool schemas
@@ -140,8 +141,11 @@ def bind_into(
     page: str | tuple[str, ...] | Callable[[], str | tuple[str, ...]],
     tool: str,
     say: Wording = AT_RUN,
-) -> tuple[dict, set]:
+) -> tuple[dict, dict[str, Id]]:
     """``kwargs`` with their secret typed into `text`, and which of them are guarded.
+
+    Guarded is the argument that carries the value, with the secret's id
+    (`{"text": ("ldap", "password")}`).
 
     ``page`` is where the keystroke lands (`receiving`), or how to ask: a
     callable is read only once the pair has been checked, so a refused call
@@ -151,7 +155,7 @@ def bind_into(
     kwargs = dict(kwargs)
     reference = kwargs.pop(SECRET_ARG, None)
     if reference is None:
-        return kwargs, set()
+        return kwargs, {}
     if hasattr(reference, "model_dump"):
         reference = reference.model_dump(exclude_none=True)
     problems = check_pair({**kwargs, SECRET_ARG: reference}, say)
@@ -164,15 +168,18 @@ def bind_into(
         # The read must not HAPPEN for a bound value, not merely be redacted
         # afterwards.
         kwargs["read_back"] = False
-    return kwargs, {SUPPLIES}
+    return kwargs, {SUPPLIES: (reference["name"], reference["key"])}
 
 
-def forms_of(kwargs: dict, guarded: set) -> set:
-    """Every spelling of every guarded value in ``kwargs``."""
-    return hidden_forms(kwargs.get(name) for name in guarded)
+def forms_of(kwargs: dict, guarded: dict[str, Id]) -> Forms:
+    """Every spelling of every guarded value in ``kwargs``, labelled with its secret."""
+    forms = Forms()
+    for name, ident in guarded.items():
+        forms |= Forms.of(kwargs.get(name), ident)
+    return forms
 
 
-def after(result: dict, guarded: set, hidden: set) -> dict:
+def after(result: dict, guarded: dict[str, Id], hidden: Forms) -> dict:
     """``result`` as it may be shown.
 
     The fields a guarded argument's value comes back under are nulled where
@@ -185,7 +192,7 @@ def after(result: dict, guarded: set, hidden: set) -> dict:
     return scrub_values(shown, hidden) if hidden else shown
 
 
-def safe_url(result: dict, hidden: set) -> str | None:
+def safe_url(result: dict, hidden: Forms) -> str | None:
     """The page ``result`` landed on, unless the value reached it.
 
     A submitting write can land on `?q=<what was typed>`, and the scrubbed form

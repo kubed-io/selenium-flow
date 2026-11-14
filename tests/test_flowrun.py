@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from kubed.selenium_flow import redaction
 from kubed.selenium_flow.flows import redact, template
 from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
@@ -53,6 +54,8 @@ class Vault:
 
 
 SECRET_STEP = {"name": "nextcloud", "key": "password"}
+ID = ("nextcloud", "password")
+M = "[secret:nextcloud/password]"
 
 
 def guarded(steps, value="hunter2", actions=None, **extra):
@@ -340,7 +343,7 @@ def test_a_guarded_value_is_hidden_in_the_summary_too():
     ]
     document = flow(steps)
     report = run(FakeActions(), document, "b", catalogue=Vault())
-    assert report["steps"][0]["summary"].endswith("text=<hidden>")
+    assert report["steps"][0]["summary"].endswith("text=[secret:nextcloud/password]")
 
 
 def test_an_ordinary_parameter_is_not_hidden():
@@ -416,7 +419,7 @@ def test_the_guard_keys_off_the_argument_not_a_flag():
         FakeActions(), document, "b",
         catalogue=Vault("https://example.test/login?token=abc123"),
     )
-    assert "text=<hidden>" in report["steps"][0]["summary"]
+    assert "text=[secret:nextcloud/password]" in report["steps"][0]["summary"]
     assert "abc123" not in report["steps"][0]["summary"]
 
 
@@ -432,7 +435,7 @@ def test_an_unguarded_field_is_still_printed_beside_a_guarded_one():
         "summary"
     ]
     assert "css='#password'" in summary
-    assert "text=<hidden>" in summary
+    assert "text=[secret:nextcloud/password]" in summary
 
 
 @pytest.mark.parametrize("attribute", ["clear_files", "_at", "files", "__init__"])
@@ -572,7 +575,7 @@ def test_a_guarded_value_is_scrubbed_out_of_an_error():
 
     report = run(Leaky(), document, "b", catalogue=Vault())
     assert "hunter2" not in str(report)
-    assert "<hidden>" in report["steps"][0]["error"]
+    assert "[secret:nextcloud/password]" in report["steps"][0]["error"]
     # And the rest of the message survives, so the failure is still diagnosable.
     assert "could not type" in report["steps"][0]["error"]
 
@@ -839,7 +842,7 @@ def test_a_value_a_later_script_returns_as_a_key_is_hidden_too(return_, verbose)
             return {"result": {"hunter2": "hunter2"}, "url": "https://x.test/", "title": "t"}
 
     report = run(Keyed(), flow(steps), "b", verbose=verbose, catalogue=Vault())
-    assert report["steps"][1]["result"]["result"] == {"<hidden>": "<hidden>"}
+    assert report["steps"][1]["result"]["result"] == {"[secret:nextcloud/password]": "[secret:nextcloud/password]"}
     assert "hunter2" not in json.dumps(report)
 
 
@@ -905,10 +908,10 @@ def test_an_ordinary_run_does_not_claim_a_redacted_page():
 
 
 def test_a_secret_that_is_the_marker_is_still_a_redacted_page():
-    """The collision the equality check could not see: `<hidden>` scrubs to
-    itself, so comparing a URL with its scrubbed form said nothing had been
-    redacted while the credential was still in it. The question is whether the
-    value is in the URL, so that is what is asked."""
+    """The collision the equality check could not see: a value that is its own
+    marker scrubs to itself, so comparing a URL with its scrubbed form said
+    nothing had been redacted while the credential was still in it. The
+    question is whether the value is in the URL, so that is what is asked."""
     steps = [
         {"tool": "write", "args": {"selector": {"css": "#q"}, "secret": SECRET_STEP}}
     ]
@@ -918,7 +921,7 @@ def test_a_secret_that_is_the_marker_is_still_a_redacted_page():
         def write(self, session_id, text, **kwargs):
             return {"url": f"https://x.test/?q={text}", "title": "t"}
 
-    report = run(Submitting(), document, "b", catalogue=Vault())
+    report = run(Submitting(), document, "b", catalogue=Vault(M))
     assert report["url_redacted"] is True
 
 
@@ -952,23 +955,25 @@ def test_a_step_that_fails_after_typing_reports_a_redacted_page():
 
 
 def test_taints_asks_whether_the_value_is_there():
-    assert redact.taints("https://x.test/?q=hunter2", {"hunter2"}) is True
-    assert redact.taints("https://x.test/", {"hunter2"}) is False
-    # The marker is not evidence either way.
-    assert redact.taints(f"https://x.test/?q={flowrun.HIDDEN}", {flowrun.HIDDEN}) is True
-    assert redact.taints(None, {"hunter2"}) is False
+    forms = redaction.Forms.of("hunter2", ID)
+    assert redact.taints("https://x.test/?q=hunter2", forms) is True
+    assert redact.taints("https://x.test/", forms) is False
+    assert redact.taints(None, forms) is False
+    # A value that is its own marker is scrubbed once, but still taints.
+    own = redaction.Forms.of(M, ID)
+    assert redact.taints(f"https://x.test/?q={M}", own) is True
 
 
 def test_a_key_is_scrubbed_like_a_value_and_a_collision_keeps_the_later():
-    hidden = redact.hidden_forms(["s3cr3t"])
+    forms = redaction.Forms.of("s3cr3t", ID)
     page = {"a s3cr3t": 1, "s3cr3t": 2, "kept": {"x s3cr3t": [{"s3cr3t": 3}]}}
-    assert redact.scrub_values({"result": page}, hidden) == {
-        "result": {"a <hidden>": 1, "<hidden>": 2, "kept": {"x <hidden>": [{"<hidden>": 3}]}}
+    assert redact.scrub_values({"result": page}, forms) == {
+        "result": {f"a {M}": 1, M: 2, "kept": {f"x {M}": [{M: 3}]}}
     }
     # Two spellings of one value are two keys that scrub to one: the later wins.
-    hidden = redact.hidden_forms(["a/b"])
-    collided = redact.scrub_values({"result": {"a/b": "first", "a%2Fb": "later"}}, hidden)
-    assert collided == {"result": {"<hidden>": "later"}}
+    forms = redaction.Forms.of("a/b", ID)
+    collided = redact.scrub_values({"result": {"a/b": "first", "a%2Fb": "later"}}, forms)
+    assert collided == {"result": {M: "later"}}
 
 
 def test_a_value_echoed_json_or_html_escaped_is_scrubbed_whole():
@@ -977,9 +982,10 @@ def test_a_value_echoed_json_or_html_escaped_is_scrubbed_whole():
     never leaves the escape's remainder behind (PR review I2)."""
     hidden = redact.hidden_forms(['"q<é', "", None])
     assert "" not in hidden and None not in hidden
+    forms = redaction.Forms.of('"q<é', ID)
     # JSON's \" holds the plain "q<é inside it, after its backslash.
     for echo in ('\\"q<\\u00e9', '\\"q<é', "&quot;q&lt;é", '"q&lt;é'):
-        assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!"
+        assert redact.scrub(f"saw {echo}!", forms) == f"saw {M}!"
 
 
 def test_the_other_servers_escapes_of_a_value_are_scrubbed_whole():
@@ -988,6 +994,7 @@ def test_the_other_servers_escapes_of_a_value_are_scrubbed_whole():
     + as &#43;, and a JSON encoder may write its hex in capitals."""
     secret = "<>&'\"é+"
     hidden = redact.hidden_forms([secret])
+    forms = redaction.Forms.of(secret, ID)
     echoes = (
         "\\u003c\\u003e\\u0026'\\\"é+",  # Go encoding/json
         "&lt;&gt;&amp;&#039;&quot;é+",  # PHP 8.1+ htmlspecialchars
@@ -997,13 +1004,13 @@ def test_the_other_servers_escapes_of_a_value_are_scrubbed_whole():
     )
     for echo in echoes:
         assert echo in hidden, echo
-        assert redact.scrub(f"saw {echo}!", hidden) == "saw <hidden>!", echo
+        assert redact.scrub(f"saw {echo}!", forms) == f"saw {M}!", echo
     assert len(hidden) <= 16  # a fixed few forms per value, whatever it holds
 
 
 def test_the_responses_own_fields_are_never_scrubbed():
     """A secret that spells `url` must not rename the field a caller reads."""
-    assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, {"url"}) == {
+    assert redact.scrub_values({"url": "https://x.test/", "title": "t"}, redaction.Forms.of("url", ID)) == {
         "url": "https://x.test/", "title": "t",
     }
 
@@ -1567,7 +1574,7 @@ def test_a_bound_value_is_handed_over_before_the_step_acts():
     )
     assert order == [
         ("acted", "navigate"),
-        ("bound", frozenset({"a b", "a%20b", "a+b"})),
+        ("bound", frozenset(redaction.Forms.of("a b", ID))),
         ("acted", "write"),
     ]
 

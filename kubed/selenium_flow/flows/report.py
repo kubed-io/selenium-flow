@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from ..binding import after
+from ..redaction import Forms, Id, marker
 from .document import ASSERTION
 from .shape import Shape
 
@@ -130,7 +131,7 @@ def refused(document: dict, name: str, why: str, skill_available: bool = True) -
     )
 
 
-def summarise(tool: str, kwargs: dict, guarded: set) -> str:
+def summarise(tool: str, kwargs: dict, guarded: dict[str, Id]) -> str:
     """One short line saying what a step did, built from what is safe to say.
 
     Two filters, not one. The whitelist decides which *fields* could ever be
@@ -143,7 +144,7 @@ def summarise(tool: str, kwargs: dict, guarded: set) -> str:
         if not value:
             continue
         if key in guarded:
-            parts.append(f"{key}=<hidden>")
+            parts.append(f"{key}={marker([guarded[key]])}")
             continue
         # A selector is an object with one key in it, so the line reads
         # `css='button.go'` rather than `selector={'css': 'button.go'}`.
@@ -154,16 +155,16 @@ def summarise(tool: str, kwargs: dict, guarded: set) -> str:
     if "text" in kwargs:
         value = kwargs["text"]
         parts.append(
-            "text=<hidden>"
+            f"text={marker([guarded['text']])}"
             if "text" in guarded
             else f"text={len(value) if isinstance(value, str) else '?'} chars"
         )
     return f"{tool} {' '.join(parts)}".strip()
 
 
-def clean(result, guarded: set, hidden=()) -> dict:
+def clean(result, guarded: dict[str, Id], hidden: Forms | None = None) -> dict:
     """A step's result, without the parts a report must not carry."""
     if not isinstance(result, dict):
         result = {"result": result}
     cleaned = {k: v for k, v in result.items() if k not in HEAVY_FIELDS}
-    return after(cleaned, guarded, hidden)
+    return after(cleaned, guarded, hidden or Forms())
