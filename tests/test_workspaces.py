@@ -1182,7 +1182,8 @@ class FakeResponse:
         (FakeResponse(500, "unknown error"), True, "some other failure"),
     ],
 )
-def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive, why):
+@pytest.mark.parametrize("method", ["is_alive", "ping"])
+def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive, why, method):
     """A wrong "dead" strands a browser; a wrong "alive" just errors next call.
 
     This shipped broken: an open dialog made the URL probe fail, resolve()
@@ -1195,7 +1196,16 @@ def test_only_an_invalid_session_id_counts_as_gone(monkeypatch, response, alive,
         browser_module.requests.Session, "get", lambda *a, **k: response
     )
     grid = browser_module.Grid("http://grid.invalid:4444")
-    assert grid.is_alive("abc") is alive, why
+    assert getattr(grid, method)("abc") is alive, why
+
+
+def test_a_ping_is_sent_once_and_briefly(monkeypatch):  # ruling 21
+    from kubed.selenium_flow.core import browser as browser_module
+    sent = []
+    monkeypatch.setattr(browser_module.requests.Session, "get",
+                        lambda self, url, **kw: sent.append((url, kw.get("timeout"))) or FakeResponse(200))
+    assert browser_module.Grid("http://grid.invalid:4444").ping("abc") is True
+    assert sent == [("http://grid.invalid:4444/session/abc/url", browser_module.SHOWN_TIMEOUT)]
 
 
 def test_an_unreachable_grid_does_not_strand_the_workspace(monkeypatch):

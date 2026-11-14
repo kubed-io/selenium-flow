@@ -161,3 +161,12 @@ def test_frame_ancestors_refuses_what_is_not_an_origin(bad, says):
 
 def test_the_redis_prefix_names_workspaces():
     assert Settings().redis.prefix == "selenium-flow:workspace:"
+
+
+def test_keep_alive_is_fifteen_minutes_capped_at_an_hour_and_zero_is_off():  # rulings 3, 12
+    assert Settings().session.keep_alive == 900
+    assert Settings(session={"keep_alive": 0}).session.keep_alive == 0
+    assert Settings(session={"keep_alive": 3600}).session.keep_alive == 3600
+    for bad in (-1, 3601):
+        with pytest.raises(ValidationError):
+            Settings(session={"keep_alive": bad})

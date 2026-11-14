@@ -351,8 +351,19 @@ class Grid:
         wrong "alive" surfaces as a real error on the next call, while a wrong
         "dead" silently strands a browser.
         """
+        return self._alive(session_id, timeout=GRID_TIMEOUT, retry=True)
+
+    def ping(self, session_id: str) -> bool:
+        """The keep-alive's one command: `is_alive`'s request, sent once and
+        briefly, since nobody waits on it and the next is minutes away. The
+        Grid counts it as activity, which is its point."""
+        return self._alive(session_id, timeout=SHOWN_TIMEOUT, retry=False)
+
+    def _alive(self, session_id: str, *, timeout: float, retry: bool) -> bool:
         try:
-            response = self._send("get", f"/session/{session_id}/url")
+            response = self._send(
+                "get", f"/session/{session_id}/url", timeout=timeout, retry=retry
+            )
         except requests.RequestException:
             return True
         if response.status_code == 200:
