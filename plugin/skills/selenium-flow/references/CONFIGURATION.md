@@ -165,7 +165,7 @@ command and plenty of environments already set it to a shell script, and as a
 *section* name `browser` would swallow it outright.
 
 Whichever browser a workspace opened with is stored with it, so when the Grid
-reaps an idle session and the next call transparently reopens one, it comes back
+reaps an idle session and the next call reopens one (and its result says so in `reopened`), it comes back
 as the same browser rather than the default one. An explicit `open_session()`
 keeps that browser only if you passed it.
 
@@ -195,14 +195,15 @@ only reason it needs a volume at all.
 
 ## Two lifetimes that are easy to confuse
 
-- **The session** (the live browser) is expired by the Grid, on its own idle
-  timeout (`SE_NODE_SESSION_TIMEOUT`, set on the Grid node, not here).
+- **The session** (the live browser) is kept alive by this server for
+  `session.keep_alive` after its last call, then expired by the Grid on its own
+  idle timeout (`SE_NODE_SESSION_TIMEOUT`, set on the Grid node, not here).
 - **The workspace** (what the server remembers about a caller) is expired by
   `WORKSPACE_TTL`, sliding forward on every call.
 
 Neither is a cleanup loop in this server, and there should never be one. If the
 Grid has reaped a browser we remembered, the next call notices and reopens it at
-the last known URL.
+the last known URL, and its result says so in `reopened`.
 
 ## Capacity
 

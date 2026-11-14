@@ -35,7 +35,7 @@ the name is `stdio` and you need do nothing.
 ```
 
 `live` says whether a session is open. `show(workspace://current)` draws it for
-the person. `grid_timeout` is how long a session may sit idle before the Grid ends it; any call starts the clock again.
+the person. `grid_timeout` is how long a session may sit idle before the Grid ends it; any call starts the clock again. The server keeps a browser alive for a while after your last call (15 minutes unless the operator changed it), so a pause of a few minutes costs nothing.
 `capture` says whether the session was opened with `capture=true`, `capturing`
 whether it is recording now (false means paused until the next call), and
 `captured` how many console entries and requests are kept.

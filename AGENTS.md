@@ -653,25 +653,39 @@ or the leak `caller_key` existed to prevent comes straight back.
 
 A stored mapping can name a browser the Grid has already reaped. `resolve` checks
 `Grid.is_alive` and, if it is gone, reopens and navigates back to the record's last known
-`url` — which is why the store holds a record rather than a bare id. Nothing in this
+`url` — which is why the store holds a record rather than a bare id, and the first
+result after it says so, once, in `reopened` (`reaped` or `lost`). Nothing in this
 package runs a cleanup loop: the Grid expires idle browsers via `SE_NODE_SESSION_TIMEOUT`,
-and the store expires mappings via its own TTL. Do not add a scheduler.
+once the keep-alive below lets them go, and the store expires mappings via its own TTL.
+Do not add a scheduler that tidies.
 
 **One bounded wait is allowed:** a task that waits for something this server
 was told to expect, and ends when nothing is owed — the admin broadcast
 (while a page listens), the recordings collector (while a recording is owed),
-the session monitor (while a session is watched) and a Control grant's poll
+the session monitor (while a session is watched, which with the keep-alive on
+is every session this process has opened or been called on, until the Grid lists it gone) and a Control grant's poll
 (while a request waits its turn). A loop that tidies is still not.
 
-**The Grid reaps; we let it.** A held subscription on a busy page would keep
-its browser alive forever (measured: 2.2× the timeout and counting), so a
-watched session carries a deadline: its last call plus its node's
-`sessionTimeout`, read from `/status`. At the deadline the monitor
-unsubscribes, closes the socket and lets the Grid's timer run — never while a
-call on the session is in flight (`Monitor.calling` / `called`, from
-`workspace/calls.py`): the call borrows that connection, and the deadline
-counts from its end. This server
-ends no session on a timer of its own.
+**The Grid reaps, after the keep-alive window.** A session is kept alive for
+`session.keep_alive` seconds (900, at most 3600, 0 off) after its workspace's
+last call. The monitor's one loop sends it one `GET /session/{id}/url`
+(`Grid.ping`) each `ping_interval` of its node's `sessionTimeout`: four-fifths
+of it, at least a minute short of it, never under 60 s, and 240 s when the node
+does not say. It sends none while a call on it is in flight. A person's live
+view or Control moves the window too, though the VNC tunnel already counts with
+the Grid. Past the window nothing is sent and the Grid's timer runs, so an
+abandoned browser still frees its pod. Each browser kept alive holds one Grid
+node pod. The reason: on 2026-11-13 an agent working in another tool for five
+minutes at a time lost its browser four times in twenty minutes, and an edit the
+page had reported saved went with one of them (spec
+2026-11-14-reopen-notice-keep-alive). **Capture does not follow the window.** A
+held subscription on a busy page would keep its browser alive forever (measured:
+2.2× the timeout and counting), so a capture connection still carries a
+deadline: its last call plus its node's `sessionTimeout`, read from `/status`.
+At the deadline the monitor unsubscribes and closes the socket, and the next
+call holds it again. It never does this while a call on the session is in flight
+(`Monitor.calling` / `called`, from `workspace/calls.py`): the call borrows that
+connection, and the deadline counts from its end.
 
 ### The session monitor and the bus
 
@@ -691,6 +705,11 @@ which it still owes something. It says so on a bus: `session.opened`,
   sink hears only what its own reason asked for — its events, `attached`,
   `lost` — so capture is never handed control's, and a workspace that owes
   only control opens no capture buffer.
+- **`keepalive` is a reason with no events and no sink**: owed at every open
+  (`Monitor.opened`) and at every call's start (`Calls.begin`), so a session
+  opened before a restart is kept from its next call. It never opens a BiDi
+  connection. A ping is never a touch, and only the listing says a session is
+  gone.
 - **`/status` is the truth about liveness, the socket is not.** Gone is two
   listings; a socket that drops is one miss.
 - **The registry and the bus are process memory**, like the per-session lock:
@@ -728,11 +747,12 @@ which it still owes something. It says so on a bus: `session.opened`,
   (rclone checks an upload after writing it and uploads one that vanished
   again, a copy no note claims). One cut off (no `mfro`, unchanged 60 s,
   browser gone) is filed as it is.
-- **Nothing that watches sends the Grid a session command.** The monitor
-  learns whether a watched session still runs from one `GET /status` listing
-  per tick (`Grid.listing()`): a WebDriver command such as
-  `GET /session/{id}/url` counts as activity and would stop the Grid ever
-  reaping the browser. A session is gone when two listings with nodes, taken
+- **Liveness is read off the listing; the only session command is the
+  keep-alive's.** The monitor learns whether a watched session still runs from
+  one `GET /status` listing per tick (`Grid.listing()`); a WebDriver command
+  such as `GET /session/{id}/url` counts as activity, so the one it sends, the
+  keep-alive's ping, goes only inside a session's window and never decides that
+  a session is gone. A session is gone when two listings with nodes, taken
   after the watch began, miss it. A listing that fails says nothing; one with
   no nodes says nothing until such listings have run unbroken for the watch's
   idle timeout plus a tick, and is a miss after: every command reaches a node
@@ -1335,11 +1355,13 @@ listing's entry — so a view cannot drift from what the resource serves.
 | | Who owns it | Default here |
 |---|---|---|
 | **How long a session's browser lives idle** | the Grid — `SE_NODE_SESSION_TIMEOUT` on the node, read from `/status` and shown as `grid_timeout` | `300s` idle, in the cluster repo |
+| **How long a browser is kept alive after its last call** | `session.keep_alive` (`SESSION_KEEP_ALIVE`) | `900s`, at most `3600`; `0` is off |
 | **How long a workspace is remembered** | `WORKSPACE_TTL` | `86400s` (a day), slid forward on every call |
 | **Where it is remembered** | `WORKSPACE_STORE` | `memory` (or `redis` to share it) |
 
 The `session` config section is what is left: how a session opens a browser
 (`SESSION_BROWSER`, `SESSION_WIDTH`, `SESSION_HEIGHT`,
-`SESSION_PAGE_LOAD_TIMEOUT`, `SESSION_SCRIPT_TIMEOUT`).
+`SESSION_PAGE_LOAD_TIMEOUT`, `SESSION_SCRIPT_TIMEOUT`), and how long it is kept
+alive (`SESSION_KEEP_ALIVE`).
 
-**Nothing runs a cleanup loop, and nothing should** — the Grid expires idle browsers, the store expires its own keys. If the Grid reaped one we remembered, the next call notices and reopens it at the page it was last on. 🪄
+**Nothing runs a cleanup loop, and nothing should** — the Grid expires idle browsers once the keep-alive lets them go, the store expires its own keys. If the Grid reaped one we remembered, the next call notices, reopens it at the page it was last on, and says so. 🪄

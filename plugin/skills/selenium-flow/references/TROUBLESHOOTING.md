@@ -98,7 +98,7 @@ old page is gone. Check the page and redo any unsaved step. Calling at least
 every few minutes keeps a browser; how long it is kept after your last call is
 the server's `session.keep_alive`.
 
-`workspace://current` shows `live: false` in the meantime.
+Between the reap and your next call, `workspace://current` shows `live: false`.
 
 ## "unexpected alert open", or a null url and title
 

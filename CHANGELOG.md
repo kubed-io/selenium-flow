@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - A call that finds its browser replaced says so once, in `reopened` (`reaped` or `lost`), whether or not site data came back.
+- A workspace's browser is kept alive for `session.keep_alive` (15 minutes) after its last call, so a pause of a few minutes no longer loses it.
 - A flow's `paths` can name a hash route (`/#/auth/*`), and `url=` moves between hash routes.
 - Fixed: `outline` no longer names a toolbar, list or other container by its children's text run together, and says an invisible cover takes the click.
 - Fixed: a call that moves a single-page app to a new route reports that route's title.

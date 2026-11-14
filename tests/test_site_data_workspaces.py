@@ -274,6 +274,20 @@ def test_a_report_is_never_handed_to_a_result_from_another_browser(named_caller)
     assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
 
 
+def test_a_failure_from_another_browser_only_stamps_the_call(named_caller):
+    m = opened_with_save()
+    reaped(m)
+    m.resolve(NAMED)
+    before = m.store.get(NAMED)
+    assert before.reopened
+    error = ValueError("the old browser's call failed")
+    m.failed(NAMED, error, browser="old-id")
+    after = m.store.get(NAMED)
+    assert not getattr(error, "__notes__", [])
+    assert after.reopened == before.reopened
+    assert after.called_at >= before.called_at
+
+
 def test_a_retried_touch_hands_over_only_what_its_last_run_saw(named_caller):
     """The first run met this browser holding the report; by the retry another
     browser is bound, nothing of this one's is committed, and nothing is told."""
@@ -472,11 +486,12 @@ def test_a_result_that_fails_after_the_touch_says_the_notice_on_its_error(named_
     def broken(*args, **kwargs):
         raise ValueError("the cookie jar is over the cap")
 
+    real = m._save_site_data
     monkeypatch.setattr(m, "_save_site_data", broken)
     with pytest.raises(ValueError) as exc:
         m.act(Caller(NAMED), lambda s: {"url": URL})
     assert faults.REOPENED["lost"] in faults.message(exc.value)
-    monkeypatch.undo()
+    monkeypatch.setattr(m, "_save_site_data", real)
     after = m.act(Caller(NAMED), lambda s: {"url": URL})
     assert "reopened" not in after and "site_data" not in after
 
