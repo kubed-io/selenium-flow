@@ -128,6 +128,30 @@ SITE_DATA_HINT = {
 }
 
 
+REOPENED_HINT = {
+    "type": "object",
+    "description": (
+        "Present only on the first result after this workspace's browser was "
+        "replaced by a new one. What lived only in the old page is gone. Said once."
+    ),
+    "properties": {
+        "cause": {
+            "type": "string",
+            "enum": ["reaped", "lost"],
+            "description": (
+                "reaped: it sat idle past the keep-alive window and the Grid "
+                "ended it. lost: it ended while the workspace was in use."
+            ),
+        },
+        "message": {
+            "type": "string",
+            "description": "The same, as a sentence to act on.",
+        },
+    },
+    "required": ["cause", "message"],
+}
+
+
 # Present only with capture on, and only when the call made the page report a
 # failure (`workspace.calls`): left out of `required` like `site_data`.
 PAGE_HINT = {
@@ -215,6 +239,7 @@ def _page(**extra) -> dict:
             **extra,
             **PAGE_STATE,
             "site_data": SITE_DATA_HINT,
+            "reopened": REOPENED_HINT,
             "page": PAGE_HINT,
             "flows_here": FLOWS_HINT,
         },
@@ -425,6 +450,7 @@ AWAIT_RESPONSE = {
             ),
         },
         "site_data": SITE_DATA_HINT,
+        "reopened": REOPENED_HINT,
         "message": {"type": "string", "description": "What happened, in a sentence."},
     },
     "required": ["handed_back", "ended", "control", "message"],

@@ -360,11 +360,28 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
 
 async def test_a_flow_run_declares_the_site_data_it_reports(spec):
     """A reopen's report rides on the run; no step carries one any more."""
+    from kubed.selenium_flow.core.capabilities import REOPENED_HINT
     from kubed.selenium_flow.spec.schemas import SITE_DATA_HINT
 
     run = spec["components"]["schemas"]["FlowRun"]
     assert run["properties"]["site_data"] == SITE_DATA_HINT
+    assert run["properties"]["reopened"] == REOPENED_HINT
     assert "site_data" not in run["properties"]["steps"]["items"]["properties"]
+    assert "reopened" not in run["properties"]["steps"]["items"]["properties"]
+
+
+def test_every_response_that_can_carry_site_data_declares_the_notice():
+    from kubed.selenium_flow.core.capabilities import (
+        CAPABILITIES,
+        REOPENED_HINT,
+        capability,
+    )
+
+    for row in CAPABILITIES:
+        props = (row.response or {}).get("properties", {})
+        if "site_data" in props and row.name != "open_session":
+            assert props.get("reopened") == REOPENED_HINT, row.name
+    assert "reopened" not in capability("open_session").response["properties"]
 
 
 async def test_the_session_status_declares_its_site_data_summary(spec):
