@@ -6,7 +6,7 @@ them does not load a driver.
 
 from __future__ import annotations
 
-DEFAULT_GRID_URL = "http://selenium-grid-selenium-hub.flow.svc.cluster.local:4444"
+DEFAULT_GRID_URL = "http://localhost:4444"
 
 # The browsers this server can open. Both are plain W3C WebDriver, which is the
 # whole reason a second one costs so little: every action already speaks the

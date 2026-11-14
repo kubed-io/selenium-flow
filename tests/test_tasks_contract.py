@@ -86,7 +86,7 @@ def toy() -> tuple[FastMCP, Seen]:
         seen.worker["headers"] = get_http_headers(include_all=True)
         seen.worker["loop"] = asyncio.get_running_loop()
         seen.worker["background"] = ctx.is_background_task
-        return {"handed_back": True, "who": ["kelly"]}
+        return {"handed_back": True, "who": ["alex"]}
 
     @mcp.tool(task=TASK)
     async def held() -> dict:
@@ -166,7 +166,7 @@ async def test_a_legacy_client_runs_the_tool_inline():
         result = await client.call_tool("noted")
     [returned] = seen.returned
     assert isinstance(returned, ToolResult)
-    assert result.structured_content == {"handed_back": True, "who": ["kelly"]}
+    assert result.structured_content == {"handed_back": True, "who": ["alex"]}
     assert seen.worker["background"] is False
     assert seen.worker["request"] is True
 
@@ -202,7 +202,7 @@ async def test_structured_content_survives_tasks_get():
     mcp, _ = toy()
     async with connect(mcp) as client:
         result = await (await call_tool_task(client, "noted")).result()
-    assert result.structured_content == {"handed_back": True, "who": ["kelly"]}
+    assert result.structured_content == {"handed_back": True, "who": ["alex"]}
     assert result.is_error is False
 
 

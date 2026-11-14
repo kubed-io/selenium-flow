@@ -5,13 +5,12 @@ applyTo: '**/*.yaml,**/*.yml'
 # YAML conventions
 
 Formatting rules for every YAML file in this repo (CI workflows, dependabot,
-docker-compose, the zizmor and hadolint configs, …). Cross-cutting review rules are in
+docker-compose, the zizmor and hadolint configs). Cross-cutting review rules are in
 `.github/copilot-instructions.md`.
 
 ## Formatting
 - 2-space indentation, spaces never tabs; consistent throughout the file.
-- **Sequences align with their parent key** (block style, not indented two extra
-  spaces):
+- Sequences align with their parent key, with no two-space indent under it:
   ```yaml
   fruits:
   - apple

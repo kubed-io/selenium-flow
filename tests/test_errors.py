@@ -102,5 +102,5 @@ def test_a_controlled_browser_is_a_409():
     from kubed.selenium_flow.errors import status_for
     from kubed.selenium_flow.faults import Controlled
 
-    assert status_for(Controlled("kelly has control")) == 409
-    assert str(Controlled("kelly has control")) == "kelly has control"
+    assert status_for(Controlled("alex has control")) == 409
+    assert str(Controlled("alex has control")) == "alex has control"

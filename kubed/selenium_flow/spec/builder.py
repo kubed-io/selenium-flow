@@ -424,8 +424,8 @@ async def build_spec(
         # something that has never heard of `servers`.
         "servers": [
             {
-                "url": "http://selenium-flow.flow.svc.cluster.local:8000",
-                "description": "In-cluster Service.",
+                "url": "/",
+                "description": "The server this document was fetched from.",
             },
             {
                 "url": "http://localhost:8000",

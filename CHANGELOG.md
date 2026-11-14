@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **BREAKING:** `grid.url` defaults to `http://localhost:4444`; a deployment whose Grid is elsewhere sets `GRID_URL`.
+- The OpenAPI document's first server is `/`, the server it was fetched from.
 - A secret's value comes back as `[secret:name/key]` in every result and error on the sites it is allowed on, typed or not.
 - **BREAKING:** A secret must declare its allowed sites (`_allowed_urls`); one that does not is listed as refused and cannot be used.
 - `outline` ends a name it cut at 80 characters with `…`.

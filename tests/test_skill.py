@@ -302,4 +302,4 @@ def test_the_control_sentences_the_skill_quotes_whole_are_the_servers(sent):
     workspaces = re.sub(
         r"\s+", " ", (SKILL_DIR / "references/WORKSPACES.md").read_text()
     )
-    assert getattr(control, sent).format(who="kelly", at="14:02") in workspaces
+    assert getattr(control, sent).format(who="alex", at="14:02") in workspaces

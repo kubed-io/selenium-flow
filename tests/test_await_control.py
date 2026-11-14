@@ -124,7 +124,7 @@ def hand_back(tunnel):
     tunnel.on_mode()
 
 
-async def hold(server, who="kelly"):
+async def hold(server, who="alex"):
     return await asyncio.to_thread(held, server.tunnels, "w1", who, "control", GRID)
 
 
@@ -153,7 +153,7 @@ async def test_it_returns_with_the_summary_the_moment_the_person_hands_back(
     summary = result.structured_content
     assert summary["handed_back"] is True and summary["ended"] is False
     control = summary["control"]
-    assert control["who"] == ["kelly"]
+    assert control["who"] == ["alex"]
     assert isinstance(control["held_for"], int) and control["held_for"] >= 0
     assert {"since", "until"} <= set(control)
     assert summary["page"] == {"url": OUTLINE["url"], "title": "Home"}
@@ -163,7 +163,7 @@ async def test_it_returns_with_the_summary_the_moment_the_person_hands_back(
         "count": 1, "total": 1, "elements": OUTLINE["elements"],
     }
     assert re.fullmatch(
-        rf"kelly handed back at {HHMM} UTC after \d+s; .+", summary["message"]
+        rf"alex handed back at {HHMM} UTC after \d+s; .+", summary["message"]
     )
     assert "visited" in summary["message"]
     # Ruling 29: nothing to History, and the page was read, not reopened.
@@ -240,7 +240,7 @@ async def test_an_unsaid_hand_back_is_returned_once(server, named):
         assert server.controls.notice("w1") is None
         second = await client.call_tool("await_control")
     assert first.structured_content["handed_back"] is True
-    assert first.structured_content["control"]["who"] == ["kelly"]
+    assert first.structured_content["control"]["who"] == ["alex"]
     assert second.structured_content["handed_back"] is False
     assert second.structured_content["message"] == NOBODY
 
@@ -257,9 +257,9 @@ async def test_a_browser_that_ended_is_said_not_reopened(server, named, monkeypa
     summary = result.structured_content
     assert summary["handed_back"] is True and summary["ended"] is True
     assert "page" not in summary and "outline" not in summary
-    assert summary["message"] == ENDED.format(who="kelly")
+    assert summary["message"] == ENDED.format(who="alex")
     assert summary["message"] == (
-        "the browser ended while kelly had control: call open_session."
+        "the browser ended while alex had control: call open_session."
     )
     assert server.browser.opened == 0 and server.browser.read == []
 
@@ -366,7 +366,7 @@ async def test_a_waiter_let_go_by_a_stop_says_so_and_reads_nothing(
         server.controls.start()
     summary = result.structured_content
     assert summary["handed_back"] is False and summary["message"] == STOPPING
-    assert summary["control"]["who"] == ["kelly"]
+    assert summary["control"]["who"] == ["alex"]
     assert "page" not in summary and server.browser.read == []
 
 
@@ -387,7 +387,7 @@ async def test_a_page_that_cannot_be_read_is_said_and_the_hand_back_spent(
     assert "app.example/secret" in summary["page_error"]
     assert "page" not in summary and "outline" not in summary
     assert summary["visited"] == VISITED
-    assert summary["message"].startswith("kelly handed back at ")
+    assert summary["message"].startswith("alex handed back at ")
     logged = [
         r.getMessage() for r in caplog.records
         if r.name == "kubed.selenium_flow.workspace.workspaces"
@@ -437,7 +437,7 @@ async def test_the_workspace_reaches_the_worker_from_the_query(server):
         result = await task.result()
     summary = result.structured_content
     assert summary["handed_back"] is True
-    assert summary["control"]["who"] == ["kelly"]
+    assert summary["control"]["who"] == ["alex"]
 
 
 async def test_x_workspace_reaches_the_worker(server):
@@ -496,7 +496,7 @@ async def test_the_carried_header_is_ignored_on_a_request(server):
 async def test_a_submission_naming_no_workspace_is_refused(server):
     """Refused at submission, as the tool would refuse it inline: a worker
     has nothing to say it with, and must never invent a name (§F2.12)."""
-    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "kelly", "control"))
+    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "alex", "control"))
     async with over_http(server, "http://test/mcp") as client:
         with pytest.raises(ToolError, match="did not run as a task"):
             await call_tool_task(client, "await_control")
@@ -514,7 +514,7 @@ async def test_a_worker_with_no_carried_name_is_unnamed_never_stdio(
         return await call_next(context)
 
     monkeypatch.setattr(clients_module.Carry, "on_call_tool", through)
-    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "kelly", "control"))
+    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "alex", "control"))
     hand_back(await hold(server))
     async with over_http(
         server, "http://test/mcp", headers={"Sf-Workspace": "w1"}
@@ -528,11 +528,11 @@ async def test_a_worker_with_no_carried_name_is_unnamed_never_stdio(
 async def test_a_task_over_stdio_is_still_stdio(server):
     """No HTTP request behind the task at all: one process, one client, and
     the stdio name is right."""
-    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "kelly", "control"))
+    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "alex", "control"))
     async with asyncio.timeout(SOON), Client(server.mcp) as client:
         result = await (await call_tool_task(client, "await_control")).result()
     assert result.structured_content["handed_back"] is True
-    assert result.structured_content["control"]["who"] == ["kelly"]
+    assert result.structured_content["control"]["who"] == ["alex"]
 
 
 async def test_every_task_tool_is_carried_and_no_tool_hears_a_client_s_header(server):
@@ -590,7 +590,7 @@ async def test_the_long_poll_answers_the_same_summary(server, monkeypatch):
     assert response.status_code == 200, response.text
     summary = response.json()
     assert summary["handed_back"] is True and summary["ended"] is False
-    assert summary["control"]["who"] == ["kelly"]
+    assert summary["control"]["who"] == ["alex"]
     assert summary["visited"] == VISITED
     assert summary["page"] == {"url": OUTLINE["url"], "title": "Home"}
     assert "control of this browser" not in response.text  # no notice on HTTP
@@ -613,7 +613,7 @@ async def test_the_long_poll_answers_at_the_cap(server, monkeypatch):
         )
     assert response.status_code == 200, response.text
     assert response.json()["handed_back"] is False
-    assert response.json()["message"] == "still in kelly's control; call again."
+    assert response.json()["message"] == "still in alex's control; call again."
 
 
 # ---- what it is not -------------------------------------------------------------

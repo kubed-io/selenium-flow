@@ -1,65 +1,46 @@
 # Secrets
 
 A secret is a named set of keys, such as `nextcloud` with `username` and
-`password`, that an operator put on the server. You can use one but never see
-one: no tool, resource or report returns a value. You name the secret where the
-value would go and the server types it, so the value is never in your
-transcript or your tool calls.
+`password`, that an operator put on the server. You name the secret where the
+value would go and the server types it. No tool, resource or report returns a
+value, so it is never in your transcript.
 
-## The loop
+## Finding one
 
-1. **Find the secret.** Read `secret://secrets`: the names, the keys and the
-   sites each may be used on. `show(secret://secrets)` draws them for the
-   person.
-2. **Find the selectors.** `outline` the login page
-   (`skill://selenium-flow/references/READING_PAGES.md`).
-3. **Build the flow.** The password step names the secret instead of a value.
-4. **Save it.** `save_flow`, once (`skill://selenium-flow/references/FLOWS.md`).
-5. **Run it.** `run_flow`, forever after, with no credential anywhere.
-
-## What the listing tells you
+Read `secret://secrets`:
 
 ```json
 {"name": "nextcloud", "keys": ["password", "username"],
- "description": "Admin login for the homelab Nextcloud",
+ "description": "Admin login for Nextcloud",
  "allowed_urls": ["https://nextcloud.example.com"], "restricted": true,
- "source": "filesystem"}
-```
-
-An entry with no allowed sites is listed with `refused` and cannot be used:
-
-```json
-{"name": "legacy", "keys": ["token"], "restricted": false,
- "refused": "no allowed sites are declared, so it cannot be used: add an `_allowed_urls` file ...",
  "source": "filesystem"}
 ```
 
 | Field | Means |
 |---|---|
-| `keys` | what you may name as `key` — never the values |
-| `allowed_urls` | the only sites it may be typed on, as exact origins |
-| `restricted` false | no sites declared, so `refused` is set and it cannot be used |
-| `refused` | why it cannot be used and how an operator fixes it: tell the person, do not retry |
-| `allowed_urls_rejected` | its site list has a bad line, so it is `refused` until an operator fixes it |
+| `keys` | what you may pass as `key` |
+| `allowed_urls` | the only origins it may be typed on |
+| `refused` | why it cannot be used and how an operator fixes it; tell the person, do not retry |
+| `restricted: false` | no sites declared, so it is `refused` |
+| `allowed_urls_rejected` | its site list has a bad line, so it is `refused` |
 
-If the listing says secrets are not enabled, the server has none, and asking
-again will not change it.
+If the listing says secrets are not enabled, the server has none. Filesystem
+secrets are visible to every workspace on the server, so treat each name as
+shared.
 
-## Binding one
-
-Give `write` a `secret` instead of `text`:
+## Typing one
 
 ```
 write(selector={"css": "#password"}, secret={"name": "nextcloud", "key": "password"})
 ```
 
-It comes back with `"text_from": "secret"` and no value. In a flow, the same
-`secret` goes in the step's `args`:
+The result has `"text_from": "secret"` and no value. In a flow the same `secret`
+goes in the step's `args`:
 
 ```json
 {
   "name": "nextcloud-login",
-  "description": "Log in to Nextcloud as the admin",
+  "description": "Sign in to Nextcloud as the admin",
   "steps": [
     {"tool": "navigate", "args": {"url": "https://nextcloud.example.com/login"}},
     {"tool": "write", "args": {"selector": {"css": "#user"},
@@ -74,65 +55,50 @@ It comes back with `"text_from": "secret"` and no value. In a flow, the same
 }
 ```
 
-The report shows the typing steps as `text=[secret:nextcloud/password]`. That
-marker, `[secret:name/key]`, is also what any later read shows where a secret's
-value was: a secret was here, and `write` with that name and key types it again.
-The `assert` proves you are in, since `extract` never stops a flow. The last step
-keeps the sign-in, so a reopened browser comes back signed in
-(`skill://selenium-flow/references/SITE_DATA.md`).
+The `assert` proves the sign-in worked, and `save_site_data` keeps it
+(SITE_DATA.md). The report shows the typing steps as
+`text=[secret:nextcloud/password]`. Any later read shows that marker,
+`[secret:name/key]`, where a secret's value was, and `write` with that name and
+key types it again.
 
-The rules, each of which is refused rather than guessed at:
+Each of these is refused:
 
-- Only `write` takes a secret.
-- `secret` is exactly `name` and `key`, and `text` is not given as well. In a
-  flow they are written literally, never as a `${parameter}`.
-- Navigate first, in its own step. A `write` binding a secret may not also take
-  a `url`, because the site check reads the page the browser is on when it
-  types.
+- a `secret` on any tool but `write`;
+- a `secret` with anything but `name` and `key`, or beside `text`;
+- a `${parameter}` in place of the name or key in a flow;
+- a `url` on a `write` that binds a secret: navigate first, in its own call or
+  step, because the site check reads the page the browser is on when it types.
 
-## Allowed sites
+## Where it may be typed
 
-Every secret names the sites it may be used on, and a secret with none is
-refused. A secret is typed only when the browser is on one of its `allowed_urls`,
-compared as an exact origin: scheme, host and port. A page on
-`https://nextcloud.example.com.evil.test` is not a match, and neither is plain
-`http://`. A refusal names the page it was on and the sites it would accept, so
-check where the browser is first.
+A secret is typed only when the browser is on one of its `allowed_urls`, compared
+as an exact origin: scheme, host and port. `https://nextcloud.example.com.evil.test`
+does not match, and neither does `http://`. A refusal names the page it was on
+and the origins it accepts, so check where the browser is first.
 
-Inside a frame, both the page and the frame's origin must be allowed, and the
-refusal names the first that is not. A `write` into an element that hosts another
-document (`iframe`, `frame`, `object`, `embed`) is refused.
+Inside a frame, both the page's and the frame's origin must be allowed. A `write`
+into an element that hosts another document (`iframe`, `frame`, `object`,
+`embed`) is refused.
 
-## A parameter or a secret?
+For what varies between runs, such as an email address, use a flow parameter;
+for what nobody may see, such as its password, use a secret. `save_flow` refuses
+a parameter marked `"writeOnly": true`.
 
-A parameter is for what varies between runs; a secret is for what must not be
-seen. An email address is a parameter and its password is a secret.
-`save_flow` refuses a parameter marked `"writeOnly": true`.
+## What the scrub does not cover
 
-## What this does not protect
+Once typed, the value is in the page. The server scrubs it from every report,
+error, URL and resource it returns, but not from the DOM. Do not read back a
+field you have just filled from a secret, and do not screenshot a page that
+shows it. The scrub cannot reach:
 
-Once typed, the value is in the page, and anything that reads the page can read
-it back, `execute_script` most obviously. The server scrubs it from every
-report, error and URL it returns to you, but not from the DOM. Do not read a
-field you have just filled with one, and do not screenshot a page that shows it.
-
-What the scrub cannot reach:
-
-- **Pixels.** A screenshot, the live view and a recording show a value in any
-  field that is not a password field, and a screenshot's image is never scrubbed.
-- **`execute_script`** can transform a value in ways no encoding list
-  anticipates, and can send it away with its own `fetch`.
-- **Non-ASCII case variants** of a value are not matched; the common encodings
-  of it (percent, JSON, HTML, base64, hex, reversed) are.
-- **A file opened from its signed link** (a kept file, a download, a
-  screenshot, a recording) is served as it is, unscrubbed, a text file
-  included. Read a text file through its `workspace://` resource instead,
-  which is scrubbed.
-
-A site that stores what you typed makes it readable in site data: a token typed
-through a secret that the page keeps in localStorage or sessionStorage is saved
-by `save_site_data` and shown in `workspace://site-data/{site}`; httpOnly cookies
-stay masked (`skill://selenium-flow/references/SITE_DATA.md`).
-
-Filesystem secrets are visible to every workspace on the server. The listing is
-not scoped to you, so treat every name you see as shared.
+- pixels: a screenshot, the live view and a recording show the value in any
+  field that is not a password field;
+- `execute_script`, which can transform a value past every encoding the scrub
+  knows and send it away with its own `fetch`;
+- non-ASCII case variants of a value (percent, JSON, HTML, base64, hex and
+  reversed forms are matched);
+- a file opened from its signed link, a text file included. Read a text file
+  through its `workspace://` resource instead, which is scrubbed;
+- what the site stores: a token kept in localStorage or sessionStorage is saved
+  by `save_site_data` and shown in `workspace://site-data/{site}`. httpOnly
+  cookies stay masked.

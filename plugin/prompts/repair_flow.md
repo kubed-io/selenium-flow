@@ -11,44 +11,34 @@ arguments:
   description: What went wrong, in a few words. Leave empty to start from the failure itself.
   default: not described, so start from what the run reports
 ---
-Repair the saved flow **{{ flow }}** with the selenium-flow tools.
+Repair the saved flow {{ flow }} with the selenium-flow tools.
 
 - Failing step: {{ step }}
 - Symptom: {{ symptom }}
 
-A flow breaks for one of two reasons, and they have different fixes: the page
-changed under it, or the flow is being run somewhere it was not written for.
-Find out which before editing anything.
+A flow breaks because the page changed under it, or because it ran somewhere it
+was not written for. Find out which before editing anything.
 
-1. Read `workspace://current`. A flow never opens a browser: if yours was reaped
-   or ended, `open_session()` first; with no arguments it comes back where it
-   was.
-2. Read the flow: `flow://flows/{{ flow }}`. Note what each step addresses
-   and what the flow declares as parameters.
-3. Run it and read the failure: `run_flow(name="{{ flow }}", verbose=true)`. If
-   it declares required parameters (step 2 showed you which), pass them as
-   `params`, asking me for any value you do not have, or the run is refused
-   before it reaches the step you came to look at. The failing step's `error` is
-   the diagnosis: when the element is on the page but cannot be used, it says why
-   (a hidden ancestor, an overlay, no size, off-screen, disabled) and what to
-   do about it.
-4. Get to the page that step acts on. `navigate` there yourself, or run the
-   steps before it by hand.
-5. `outline` that page, scoped with a `selector` to the region in question or
-   `text` to search by label. Each entry carries a selector checked to match one
-   element, and whether it can be used. This is how you find what the step
-   should address now.
-6. Decide which failure you have:
-   - **The page changed.** An element moved, was renamed, or is now behind a
-     menu that opens on hover. Fix the step's selector, or add the `interact`
-     step that opens what hides it.
-   - **The flow was in the wrong place.** It assumed a page it did not navigate
-     to. Give it a first step that navigates, or an `assert` that stops the run
-     with a sentence saying where it must be.
-7. Save it back with `save_flow`, keeping the name. Then `run_flow` again and
-   confirm it passes for the right reason — read what it returns rather than
-   trusting the status.
-8. If the flow should refuse to run in some state (already signed in, say), add
-   an `assert` whose `message` says so.
+1. Read `workspace://current`. If `live` is false, call `open_session()`: a
+   flow never opens a browser.
+2. Read `flow://flows/{{ flow }}` for its steps and parameters.
+3. `run_flow(name="{{ flow }}", verbose=true)`, passing its required
+   parameters as `params`; ask me for any value you do not have. The failing
+   step's `error` is the diagnosis: for an element that is there but cannot be
+   used, it says why and what to do.
+4. Go to the page that step acts on, with `navigate` or by running the steps
+   before it by hand.
+5. `outline` that page, scoped with a `selector` or filtered with `text`, to see
+   what the step should address now.
+6. Fix the cause:
+   - The page changed: an element moved, was renamed or is now behind a menu.
+     Fix the step's selector, or add the `interact` step that opens what hides
+     it.
+   - The flow assumed a page it did not navigate to: give it a first step that
+     navigates, or an `assert` whose `message` says where it must be.
+7. `save_flow` under the same name, then `run_flow` again and read what it
+   returns to confirm it passes for the right reason.
+8. If the flow should refuse to run in some state, such as already signed in,
+   add an `assert` whose `message` says so.
 
 Report what had changed, what you edited, and the run that proves it.
