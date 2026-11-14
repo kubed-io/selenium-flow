@@ -44,6 +44,9 @@ class FakeMonitor:
         self.owed: set[str] = set()  # sessions that owe capture
         self.attached: list = []
 
+    def keep(self, *a, **k):
+        pass
+
     def calling(self, session_id):
         self.touched.append(("calling", session_id))
 

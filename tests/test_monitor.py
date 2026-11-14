@@ -8,7 +8,15 @@ from typing import ClassVar
 import pytest
 
 from kubed.selenium_flow.monitor.events import LocalBus
-from kubed.selenium_flow.monitor.monitor import DEFAULT_TIMEOUT, MISSES, Monitor
+from kubed.selenium_flow.monitor.monitor import (
+    DEFAULT_TIMEOUT,
+    KEEPALIVE,
+    LISTING_TICK,
+    MISSES,
+    Monitor,
+    ping_interval,
+)
+from kubed.selenium_flow.workspace.calls import Calls
 
 pytestmark = pytest.mark.unit
 
@@ -527,3 +535,185 @@ async def test_watch_and_ended_from_worker_threads(parts):
     await asyncio.sleep(0.01)
     assert GID not in monitor.watches and [e.cause for e in heard] == ["ended"]
     await monitor.stop()
+
+
+# ---- the keep-alive (spec 2026-11-14-reopen-notice-keep-alive) -------------
+
+
+class Pings:
+    def __init__(self, answer=True):
+        self.sent, self.answer = [], answer
+
+    def __call__(self, gid):
+        self.sent.append(gid)
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return self.answer
+
+
+@pytest.fixture
+def kept():
+    bus, heard = LocalBus(), []
+    bus.subscribe(("session.opened", "session.ended"), heard.append, name="t")
+    clock, pings = Clock(), Pings()
+    monitor = Monitor(bus, listing=Listing({GID: 300}), ping=pings, keep_alive=900,
+                      clock=clock, tick=LISTING_TICK)
+    monitor.opened("bot", GID, "chrome", 300)
+    return monitor, clock, pings, heard
+
+
+async def at(monitor, clock, seconds):
+    clock.now += seconds
+    await monitor.look()
+
+
+async def test_a_ping_inside_the_window_and_none_after_it(kept):  # rulings 3, 4, 19
+    monitor, clock, pings, _ = kept
+    await at(monitor, clock, 239)
+    assert pings.sent == []
+    await at(monitor, clock, 1)
+    assert pings.sent == [GID]
+    await at(monitor, clock, 240)
+    await at(monitor, clock, 240)
+    assert len(pings.sent) == 3          # 240, 480, 720
+    await at(monitor, clock, 240)
+    assert len(pings.sent) == 3          # 960: past 900
+    assert monitor.watching(GID) == {KEEPALIVE}  # still listed, never pinged
+
+
+@pytest.mark.parametrize("activity", ["call", "presence"])
+async def test_activity_moves_the_window(kept, activity):  # rulings 5, 10
+    monitor, clock, pings, _ = kept
+    clock.now += 800
+    if activity == "call":
+        monitor.calling(GID)
+        monitor.called(GID)
+    else:
+        monitor.touch(GID)
+    await at(monitor, clock, 840)        # 1640 from the open, 840 from the activity
+    assert pings.sent == [GID]
+
+
+async def test_a_ping_is_never_a_touch(kept):  # ruling 20
+    monitor, clock, pings, _ = kept
+    touched = monitor.watches[GID].touched
+    await at(monitor, clock, 240)
+    assert pings.sent == [GID] and monitor.watches[GID].touched == touched
+
+
+async def test_no_ping_while_a_call_is_in_flight(kept):  # Review Focus 4
+    monitor, clock, pings, _ = kept
+    monitor.calling(GID)
+    await at(monitor, clock, 600)        # inside the window, past the interval
+    assert pings.sent == []
+    monitor.called(GID)
+    await at(monitor, clock, 239)
+    assert pings.sent == []
+    await at(monitor, clock, 1)
+    assert pings.sent == [GID]
+
+
+async def test_no_ping_after_the_session_ended(kept):  # ruling 6
+    monitor, clock, pings, _ = kept
+    monitor.ended("bot", GID, "ended")
+    await at(monitor, clock, 240)
+    assert pings.sent == [] and GID not in monitor.watches
+
+
+async def test_a_ping_that_finds_it_gone_stops_the_pings_and_ends_nothing(kept):  # ruling 21
+    monitor, clock, pings, heard = kept
+    pings.answer = False
+    await at(monitor, clock, 240)
+    await at(monitor, clock, 240)
+    assert pings.sent == [GID]
+    assert [e.kind for e in heard] == ["session.opened"]
+
+
+async def test_a_ping_that_fails_is_logged_by_type_and_tried_again(kept, caplog):  # Review Focus 5
+    monitor, clock, pings, heard = kept
+    caplog.set_level(logging.INFO, logger="kubed.selenium_flow.monitor")
+    pings.answer = ConnectionError(f"http://u:pw@hub/session/{GID}/url")
+    await at(monitor, clock, 240)
+    await at(monitor, clock, 240)
+    assert pings.sent == [GID, GID]
+    assert "ConnectionError" in caplog.text and GID not in caplog.text and "pw" not in caplog.text
+    assert [e.kind for e in heard] == ["session.opened"]
+
+
+@pytest.mark.parametrize("timeout, interval", [(300, 240), (600, 480), (120, 60), (60, 60), (None, 240)])
+def test_the_interval_follows_the_nodes_timeout(timeout, interval):  # rulings 11, 25
+    assert ping_interval(timeout) == interval
+
+
+async def test_the_loop_wakes_when_a_ping_is_due(kept):
+    monitor, clock, _, _ = kept
+    clock.now += 230
+    assert monitor._wait() == pytest.approx(10)
+
+
+async def test_nothing_is_kept_without_a_ping_or_a_window():  # ruling 12
+    for kw in ({}, {"ping": Pings(), "keep_alive": 0}):
+        monitor = Monitor(LocalBus(), listing=Listing({GID: 300}), **kw)
+        monitor.opened("bot", GID, "chrome", 300)
+        assert monitor.watches == {}
+
+
+async def test_a_call_on_an_unwatched_session_starts_its_keep_alive():  # Review Focus 3, ruling 18
+    monitor = Monitor(LocalBus(), listing=Listing({GID: 300}), ping=Pings(), keep_alive=900)
+    Calls(monitor=monitor).begin("bot", GID, browser="chrome", tool="extract")
+    assert monitor.watching(GID) == {KEEPALIVE}
+
+
+async def test_the_keep_alive_alone_holds_no_connection():  # Dr K, plan review (11-14)
+    FakeConnection.reset()
+    clock, pings = Clock(), Pings()
+    monitor = Monitor(
+        LocalBus(), listing=Listing({GID: 300}), ping=pings, keep_alive=900,
+        socket_url=lambda gid: f"ws://grid/session/{gid}/se/bidi",
+        events_for={"capture": ("log.entryAdded",)}, connect=FakeConnection,
+        sinks={"capture": FakeSink()}, clock=clock, tick=LISTING_TICK,
+    )
+    monitor.opened("bot", GID, "chrome", 300)
+    await at(monitor, clock, 240)
+    assert pings.sent == [GID]
+    assert FakeConnection.made == [] and monitor.watches[GID].connection is None
+
+
+
+async def test_capture_beside_the_keep_alive_lets_go_at_the_nodes_timeout():  # Dr K, rulings 9, 20
+    FakeConnection.reset()
+    clock, pings, sink = Clock(), Pings(), FakeSink()
+    monitor = Monitor(
+        LocalBus(), listing=Listing({GID: 300}), ping=pings, keep_alive=900,
+        socket_url=lambda gid: f"ws://grid/session/{gid}/se/bidi",
+        events_for={"capture": ("log.entryAdded",)}, connect=FakeConnection,
+        sinks={"capture": sink}, clock=clock, tick=LISTING_TICK,
+    )
+    monitor.opened("bot", GID, "chrome", 300)
+    monitor.watch(GID, "bot", "capture", grid_timeout=300)
+    await at(monitor, clock, 0)
+    [conn] = FakeConnection.made
+    assert monitor.capturing(GID)
+    await at(monitor, clock, 240)        # a ping, which extends no deadline
+    assert pings.sent == [GID] and monitor.capturing(GID)
+    await at(monitor, clock, 61)         # 301: past the last touch + 300
+    assert not monitor.capturing(GID) and conn.closed == 1
+    assert ("detached", "bot", GID) in sink.calls
+    assert monitor.watching(GID) == {"capture", KEEPALIVE}
+    await at(monitor, clock, 179)        # 480: inside the window, the pings go on
+    assert pings.sent == [GID, GID]
+    assert FakeConnection.made == [conn] and monitor.connection(GID) is None
+
+
+@pytest.mark.parametrize(
+    "given",
+    [
+        {"events_for": {KEEPALIVE: ("log.entryAdded",)}},
+        {"collectors_for": {KEEPALIVE: {"dataTypes": ["response"]}}},
+        {"sinks": {KEEPALIVE: FakeSink()}},
+    ],
+    ids=["events", "collector", "sink"],
+)
+def test_the_keep_alive_takes_no_events_collector_or_sink(given):  # ruling 18
+    with pytest.raises(ValueError, match=KEEPALIVE):
+        Monitor(LocalBus(), listing=Listing(), **given)
