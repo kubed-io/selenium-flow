@@ -1,13 +1,13 @@
-# Site data — stay signed in across a reaped browser
+# Site data
 
 A new browser starts empty. `save_site_data` keeps this one's cookies and the
 storage of the sites this workspace has been to (see Limits), and every browser
-opened in the workspace afterwards has them back — the one that replaces a reaped
-browser, or the one after `end_browser()`.
+opened in the workspace afterwards has them back, including the one that
+replaces a reaped browser and the one after `end_browser()`.
 
 ## When to save
 
-After a sign-in you have **confirmed**, never before: check the page shows you are
+After a sign-in you have confirmed, never before: check the page shows you are
 in, then save once.
 
 ```
@@ -18,11 +18,9 @@ assert(script="return !!document.querySelector('#avatar')")   # am I in?
 save_site_data()
 ```
 
-One save covers every site a call ended on — the identity provider you signed in
-at, and an app you signed in to earlier in the workspace. Save again after a
-setting you want kept.
-
-Each save **replaces** the last. A save after signing out saves you signed out.
+One save covers every site a call ended on, such as the identity provider you
+signed in at and an app you signed in to earlier in the workspace. Each save
+replaces the last, so a save after signing out saves you signed out.
 
 The result names what was kept, never a value:
 
@@ -35,10 +33,9 @@ The result names what was kept, never a value:
 
 `skipped` names a site whose storage is not in this save, and why. One that could
 not be read keeps what the last save had for it: "a service worker answered: save
-while on this site" means the site's own worker answered first, so `navigate`
-there and save again, and it is read from the page itself. One "left out: the
-snapshot would pass 1000000 bytes" was read and then dropped, the sites visited
-longest ago first: it is gone, not kept.
+while on this site" means `navigate` there and save again. One "left out: the
+snapshot would pass 1000000 bytes" was dropped, the sites visited longest ago
+first, and is gone.
 
 ## What comes back
 
@@ -51,21 +48,20 @@ says which sites, and never a value:
                "uri": "workspace://site-data"}}
 ```
 
-No `site_data` key means nothing happened: nothing was saved, or only cookies that
-have since expired. When the Grid reaps your browser, the
-next call reopens it and restores the same way; the first result after the
-reopen carries this report, once, beside `reopened`. If that call fails, its
-error says the browser was replaced instead, and how many sites' data was put
-back when any was; the rest of the report is not repeated.
+No `site_data` key means nothing was restored or skipped: nothing was saved, or
+only cookies that have since expired. When the Grid reaps your browser, the next
+call reopens it and restores the same way, and the first result after the
+reopen carries this report once, beside `reopened`. If that call fails, its error
+says the browser was replaced instead, and how many sites' data was put back.
 
 `skipped` names a cookie or a site that did not come back, and why. "the browser
-did not keep it" means the browser took a cookie without an error and dropped it;
-its host is then not in `restored`.
+did not keep it" means the browser took a cookie and dropped it; its host is
+then not in `restored`.
 
 ## Restored but still signed out
 
-The site ended its own session — it expired or was revoked. Sign in again, then
-`save_site_data()` again; nothing else is wrong.
+The site ended its own session: it expired or was revoked. Sign in again, then
+`save_site_data()` again.
 
 ## Start as a new user
 
@@ -73,12 +69,11 @@ The site ended its own session — it expired or was revoked. Sign in again, the
 open_session(restore_site_data=false)
 ```
 
-Opens with nothing **and deletes** what was saved, so the next open is empty too.
-Where the workspace has been is kept.
+Opens with nothing and deletes what was saved, so the next open is empty too. The
+result says `site_data: {"forgotten": n}` when something was there. The list of
+pages the workspace has been to is kept.
 
-## Debugging with execute_script
-
-Set or clear a flag to see what a reopened browser keeps:
+## Checking what a reopened browser keeps
 
 ```
 execute_script(script="localStorage.setItem('seen', '1')")
@@ -105,8 +100,7 @@ read `•••`, here and in the admin UI.
   saved is kept for the next secure browser.
 - A script cannot set an httpOnly cookie; it comes back through the browser's own
   channel.
-- Stored on the workspace and expires with it. Never on this server's disk; with the
-  Redis store it is as durable as Redis.
-- A site that stores what you typed makes it readable in site data — a token typed
-  through a secret and kept in localStorage shows in `workspace://site-data/{site}`.
-  httpOnly cookies stay masked.
+- It is stored on the workspace and expires with it, never on this server's disk.
+- A token typed through a secret and kept in localStorage shows in
+  `workspace://site-data/{site}`
+  (`skill://selenium-flow/references/SECRETS.md`).

@@ -13,8 +13,7 @@ one tab, not sending independent requests, and that shapes everything below:
   browser left on the wrong page also makes your next selector fail for a
   reason that has nothing to do with the selector.
 - **Slots are scarce.** The Grid runs a handful of browsers for everyone. One
-  you leave open holds a slot until it is reaped, so ending it is capacity, not
-  politeness.
+  you leave open holds a slot until the Grid reaps it.
 - **Your workspace outlives the browser.** The workspace is the named box that
   keeps the options you passed, last page, files, flows and saved sign-ins; the
   session is the live browser in it, at most one. A session that goes away
@@ -28,13 +27,12 @@ one tab, not sending independent requests, and that shapes everything below:
 both); over stdio it is `stdio`. No tool takes a session id and no result
 carries one: the same name always finds the same browser.
 
-**Call `open_session` once, first.** Nothing opens a browser behind your back,
-because `open_session` is the one place its browser, window and timeouts are
-chosen. Once is enough for the whole task: calling it again ends the browser
-you hold and starts a new one on the same URL, which waits on the Grid and loses
-whatever you had not saved (a sign-in, a half-filled form). To get somewhere
-else, pass `url=` to your next call. Reopen only to switch browser or change an
-option, or with no arguments after you are told you have no browser.
+**Call `open_session` once, first.** Nothing else opens a browser. Once is
+enough for the whole task: calling it again ends the browser you hold and
+starts a new one, which waits on the Grid and loses whatever you had not saved
+(a sign-in, a half-filled form). To get somewhere else, pass `url=` to your
+next call. Reopen only to switch browser or change an option, or with no
+arguments after you are told you have no browser.
 
 **When a result names `flows_here`, a saved flow fits this page.** Run it with
 `run_flow` when its description is the task you were given and you have every
@@ -59,11 +57,11 @@ holding, and neither touches the browser.
 costs orders of magnitude more, cannot be quoted, and may show a half-rendered
 page. Screenshot only when the *look* is the answer, and give a person its link.
 
-**2. Never navigate and then act: put `url` on the action.** Every tool that
-reads or acts on the page (`extract`, `outline`, `interact`, `write`,
-`screenshot`, `execute_script`, `assert` and the rest; not `frame`, `dialog` or
-`resize`) takes an optional `url` and goes there first only if the browser is
-elsewhere. One call instead of two, and the page you meant is part of the call.
+**2. Never navigate and then act: put `url` on the action.** `extract`,
+`outline`, `interact`, `drag`, `write`, `press_key`, `screenshot`, `print`,
+`execute_script`, `assert` and `save_site_data` take an optional `url` and go
+there first only if the browser is elsewhere. One call instead of two, and the
+page you meant is part of the call.
 
 ```
 extract(url="https://example.com/settings", selector={"css": "h1"})
@@ -78,13 +76,13 @@ fix it.
 **4. One `selector`: `{"css": …}` or `{"xpath": …}`.** `css` is shorter for ids,
 classes and attributes; `xpath` is the only one that matches visible text
 (`//button[contains(., 'Save')]`) or walks up to an ancestor. Both at once is an
-error, so a typo in one cannot hide behind the other.
+error.
 
 **5. Let the tools wait; never sleep.** Every tool that names an element waits
-for it and carries on the moment it appears; `wait_timeout` is only how long it
-may take. For an effect with no element of its own, `assert` a script that
-returns true once it has happened. A `setTimeout` in `execute_script` guesses at
-a duration, fails on a slow day and wastes time on a fast one.
+for it and carries on the moment it appears; `wait_timeout` (30 seconds by
+default) is only how long it may take. For an effect with no element of its
+own, `assert` a script that returns true once it has happened. A `setTimeout`
+in `execute_script` guesses at a duration.
 
 **6. End the browser when you are done, including after a failure.**
 `end_browser()` frees the slot; it ends the session, not your workspace, so it

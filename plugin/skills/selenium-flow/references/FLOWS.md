@@ -1,34 +1,26 @@
-# Flows — save a sequence once, run it in one call
+# Flows
 
 A flow is a list of tool calls saved under a name. `run_flow` replays the whole
-list server-side, in order, in the browser you already have.
-
-The saving is not speed on the wire. It is **you**: a twelve-step form is one
-call and one decision instead of twelve of each, and it replays a sequence
-somebody already got right instead of re-deriving the selectors every time.
-
-## When not to save one
-
-A sequence you will run once is cheaper as the tool calls themselves. Save a
-flow when you, or another agent, will run it again — a login, a multi-page form,
-a check you repeat on Chrome and then on Firefox.
+list server-side, in order, in the browser you already have: a twelve-step form
+is one call, and the selectors are not worked out again each time. Save a flow
+when you or another agent will run the sequence again, such as a login, a
+multi-page form or a check you repeat on Chrome and then on Firefox. A sequence
+you will run once is cheaper as the tool calls themselves.
 
 ## The loop
 
-1. **Discover.** Drive it once by hand. Use `outline` to find each selector —
-   it returns one per element, already checked to match exactly one, and says
-   whether the element can be used. `extract` is for reading *content*
-   (`skill://selenium-flow/references/READING_PAGES.md`).
+1. **Discover.** Drive it once by hand. `outline` gives each selector, already
+   checked to match exactly one element
+   (`skill://selenium-flow/references/READING_PAGES.md`). A saved flow does not
+   look around: `outline` is not a step.
 2. **Build.** Write each call down as a step. Anything that changes between runs
    becomes a parameter.
-3. **Save.** `save_flow`, once. It validates every step against the live tool
-   schemas, so a step that could not run is refused now rather than halfway
-   through a form. Give it `sites` and `paths` too, so the next agent on that
-   page is told it exists.
-4. **Run.** `run_flow` forever after.
+3. **Save.** `save_flow`, once. It checks every step against the live tool
+   schemas and refuses all the mistakes at once, before a browser moves. Give it
+   `sites` and `paths` too, so the next agent on that page is told it exists.
+4. **Run.** `run_flow` from then on.
 
-Read `flow://schema` before writing one. It is derived
-from the tools themselves, so it cannot describe a step that would not run.
+`flow://schema` is the document's shape and every step tool's parameters.
 
 `show(flow://flows/<name>)` draws one flow; `show(flow://flows)` the scroller.
 
@@ -38,8 +30,8 @@ from the tools themselves, so it cannot describe a step that would not run.
 {"tool": "write", "args": {"selector": {"css": "#email"}, "text": "a@example.com"}}
 ```
 
-`args` is **exactly** the arguments you would pass the tool directly. Nothing
-is renamed and nothing is added. A step may also carry:
+`args` is exactly the arguments you would pass the tool directly. A step may
+also carry:
 
 | Key | Does |
 |---|---|
@@ -51,15 +43,15 @@ is renamed and nothing is added. A step may also carry:
 To bound one slow step, set `wait_timeout` in its `args` — the same argument
 the tool takes directly.
 
-**Not steps:** `open_session` and `end_browser`. A flow runs in the browser the
-caller already holds, which is what lets the same flow run on Firefox unedited.
-There is no `session_id` to put in a step: a run happens in the browser your
-workspace already holds.
+**Not steps:** `open_session`, `end_browser`, `await_control`, `outline`,
+`network_body`, `run_flow`, `save_flow` and the resource tools. A flow runs in
+the browser the caller already holds, which is what lets the same flow run on
+Firefox unedited, and a step names no `session_id`.
 
 ## How long a run may take
 
-**A run starts no step after 120 seconds.** A flow that exists to wait — for an
-order to ship, a build to finish — says so at the top, beside `steps`, and
+A run starts no step after 120 seconds. A flow that exists to wait, for an
+order to ship or a build to finish, says so with `timeout` beside `steps`;
 `save_flow` takes it the same way:
 
 ```yaml
@@ -73,18 +65,17 @@ steps:
     note: shipping takes up to fifteen minutes
 ```
 
-`timeout` bounds *starting* a step; the step already running is bounded by its
-own `wait_timeout`. So give the run more than its longest wait.
-
-A run that ran out says `the run passed its 120s budget before this step`. If
-the flow was meant to take that long, give it a `timeout`; if it was not, the
-step before is where it got stuck.
+`timeout` bounds starting a step; a step already running is bounded by its own
+`wait_timeout`, so give the run more than its longest wait. A run that ran out
+says `the run passed its 120s budget before this step`: if the flow was meant to
+take that long, give it a `timeout`; if not, the step before is where it got
+stuck.
 
 ## Parameters: what varies between runs
 
 Declare them as JSON Schema and write `${name}` where the value goes. The
-fields below are `save_flow`'s arguments, and `timeout` is the one this example
-does not need:
+fields below are `save_flow`'s arguments, with `sites`, `paths` and `timeout`
+left out:
 
 ```json
 {
@@ -111,7 +102,7 @@ Then, every time after:
 run_flow(name="sign-up", params={"email": "a@example.com"})
 ```
 
-A parameter is **text**. `${name}` may sit anywhere in any argument of any step,
+A parameter is text. `${name}` may sit anywhere in any argument of any step,
 including in the middle of a longer string:
 
 ```yaml
@@ -120,9 +111,8 @@ including in the middle of a longer string:
     url: ${site}/orders/${id}
 ```
 
-**Text reaches a typed field as that type.** `${name}` is substituted as text and
-the step's own schema then decides what it becomes, so a numeric parameter works
-where a tool wants a number:
+An argument that is exactly one `${name}` takes the value as the field's own
+type, so a numeric parameter works where a tool wants a number:
 
 ```yaml
 - tool: assert
@@ -131,19 +121,16 @@ where a tool wants a number:
     wait_timeout: ${seconds}
 ```
 
-That step receives `wait_timeout` as an integer. The placeholder is accepted when
-the flow is saved, and a value that cannot become what the field wants is refused
-when the run reaches that step.
+The placeholder is accepted when the flow is saved, and a value that cannot
+become what the field wants is refused when the run reaches that step.
 
-Substitution is **single pass**: a value you pass is never re-scanned, so
+Substitution is a single pass: a value you pass is never re-scanned, so
 `params={"note": "${admin}"}` types that text and resolves nothing. Write `$${`
-for a literal `${`.
+for a literal `${`, as a JavaScript template literal in a `script` needs. A
+`${name}` that is not a declared parameter is refused when the flow is saved.
 
-A `${name}` that is not a declared parameter is refused when the flow is
-**saved**, not at step nine with a form half filled.
-
-**A `default` is applied.** Give a parameter one and a run that leaves it out gets
-it, which makes it optional to the caller:
+A parameter's `default` is used when a run leaves it out. A default does not
+satisfy `required`, so keep a parameter with a default out of `required`:
 
 ```json
 {
@@ -159,17 +146,16 @@ it, which makes it optional to the caller:
 `run_flow(name="sign-up", params={"email": "a@example.com"})` then navigates to
 the demo site without being told to.
 
-**A parameter is never secret.** There is no `writeOnly`: everything you pass
-may appear in the report. For a password, do not use a parameter at all — name a
-secret, which is a different mechanism on purpose
-(`skill://selenium-flow/references/SECRETS.md`).
+A parameter is never secret: `save_flow` refuses `writeOnly`, and everything you
+pass may appear in the report. For a password, name a secret instead of using a
+parameter (`skill://selenium-flow/references/SECRETS.md`).
 
 ## Where a flow applies
 
 `sites` and `paths` say where a flow is for. A call that moves the browser to a
 different host, port, path or hash route they match names the flow in its result's
-`flows_here`. `open_session` names the flows for the page it opens on, every
-time. The same flow can serve development and live, so list both:
+`flows_here`, and `open_session` names the flows for the page it opens on. The
+same flow can serve development and live, so list both:
 
 ```yaml
 name: login
@@ -201,25 +187,14 @@ steps: [...]
   `/app/#/settings/**`; `#!/` is the same as `#/`. An entry without `#` matches
   every screen, so `/` covers a whole hash-routed app.
 
-Leave either out to match any; leave both out and the flow is never named in
-`flows_here`; a flow saved without them stays unnamed until someone adds them.
-
-They are for finding a flow, never a boundary: a run is never refused for being
-elsewhere, and a secret's `allowed_urls` is what keeps a password on its site.
-
-## Finding the selectors to put in one
-
-Use `outline` while you are writing or repairing a flow — it lists what is on
-the page with a checked selector for each, and says whether an element can
-actually be used. It is deliberately not a step: a saved flow already knows its
-selectors, and a flow that had to look around first would be a program rather
-than a wizard (`skill://selenium-flow/references/READING_PAGES.md`).
+Leave one out to match any; leave both out and the flow is never named in
+`flows_here`. They are for finding a flow: a run is never refused for being
+elsewhere.
 
 ## Say what must be true
 
 A flow that carries on when the page is not what it expected reports a success it
-has not earned — eight green steps on the page *before* the one it meant to
-reach. `assert` runs JavaScript that must come back **true**:
+has not earned. `assert` runs JavaScript that must come back true:
 
 ```yaml
 - tool: assert
@@ -229,30 +204,27 @@ reach. `assert` runs JavaScript that must come back **true**:
 ```
 
 - **Return a boolean.** `return !!document.querySelector('#total')`, never the
-  element itself — a truthy value that happens to be there is how an assertion
-  passes by accident.
+  element itself. Any other value is refused.
 - **It asks again** until the answer is true or `wait_timeout` passes, so an
   assertion straight after a click does not have to know how long a route change
   takes. `wait_timeout: 0` asks once.
-- **After a click, ask until true. Before acting, ask for an answer that
-  holds.** Those are different jobs and the same tool does both. Asking until
-  true means *eventually* true, which is exactly what you want of a route that
-  is still landing — and exactly wrong for a guard, because a page that is about
-  to redirect satisfies it on the way past. `stable_for` is the guard's half:
-  the answer must still be true that many seconds later, or the clock restarts.
-  Both it and `wait_timeout` are seconds.
+- **`stable_for` guards.** Asking until true is right after a click and wrong
+  for a precondition, because a page that is about to redirect is true on the way
+  past. `stable_for: 1` requires the answer to still be true one second later,
+  or the clock restarts. Both it and `wait_timeout` are seconds, and `stable_for`
+  must be shorter than `wait_timeout`.
 - **`message` is what the reader sees.** In a flow it becomes the failing step's
-  error. Without one the failure names only the page it was false on — so write
-  one; the expression is not repeated back to you.
+  error. Without one the failure names only the page it was false on, and the
+  script is never repeated back.
 - **A false assertion fails the step**, so the run stops there and reports
-  `failed`. `onError: continue` is refused on an assert, at save time and again
-  when a hand-edited flow runs: a run that carries on past a false assertion
-  would report success it did not earn.
-- `${name}` works inside the script. A JavaScript template literal needs `$${`.
+  `failed`. `onError: continue` is refused on an assert, at save time and when a
+  hand-edited flow runs.
+- `${name}` works inside the script.
 
-**A flow is responsible for being where it acts.** Start with `navigate`, or
-start with an `assert` that says where you must already be. And an `assert` can
-say a flow should not run at all:
+A flow is responsible for being where it acts. Start with `navigate`, or start
+with an `assert` that says where you must already be: `save_flow` warns when the
+first step acts on whatever page the browser is on. An `assert` can also say a
+flow should not run at all:
 
 ```yaml
 - tool: assert
@@ -263,17 +235,10 @@ say a flow should not run at all:
 ```
 
 Signed out, the login form is there and stays there, so the flow runs. Signed
-in, the app redirects and the run stops with that sentence instead of grinding
-through a login that cannot work.
+in, the app redirects and the run stops with that sentence.
 
-**`stable_for` is doing real work in that example.** Without it the same guard
-passed while signed out on a real app: navigating to `/`, the authenticated
-shell painted for a moment before the auth guard redirected, and asking until
-true caught that moment. One second of "and it is still true" is the whole fix.
-
-The other shape, for a page that takes a while to decide: **settle, then ask
-once.** Wait for either outcome, then ask the real question with no patience at
-all.
+For a page that takes a while to decide, settle and then ask once: wait for
+either outcome, then ask the real question with `wait_timeout: 0`.
 
 ```yaml
 - tool: assert   # wait for the page to commit to one state or the other
@@ -302,15 +267,14 @@ A login flow ends with `save_site_data`, after a step that proves you are in:
 - tool: save_site_data
 ```
 
-Saved from a flow, it is saved like any other: a run's report never carries it
+A run's report never carries the saved data
 (`skill://selenium-flow/references/SITE_DATA.md`).
 
 ## When a flow fails
 
-**Read `status` before you report success.** A failed run is an ordinary result,
-not a tool error: the call succeeds and its `status` says `failed`. A run that
-fails names the step, what went wrong, and the page it was on. It also carries a
-`hint`:
+Read `status` before you report success. A failed run is an ordinary result,
+not a tool error: the call succeeds and its `status` says `failed`. It names the
+step, what went wrong and the page it was on, and carries a `hint`:
 
 ```json
 {
@@ -324,56 +288,43 @@ fails names the step, what went wrong, and the page it was on. It also carries a
 }
 ```
 
-- **`read`** is a resource to load, exactly as written — and `section` is the
-  heading in it that covers this kind of failure. A server started with
-  `--mcp-skill false` serves no references, and then there is no `read` to give.
-- **`prompt`** is for a person. `repair_flow` walks a page and fixes the flow
+- `read` is a resource to load, exactly as written, and `section` is the heading
+  in it that covers this kind of failure. With the skill switched off there is no
+  `read`.
+- `prompt` is for a person. `repair_flow` walks a page and fixes the flow
   against what is there now; you cannot pick it yourself, but you can tell
   somebody to.
 
 Two failures, two fixes:
 
-**The page changed under the flow.** A selector that found nothing, or found
+**The page changed under the flow.** A selector found nothing, or found
 something that cannot be used. Go to that page, `outline` it, and read what the
-entries say — an element that is there but `hidden`, `covered` or `disabled` is
-not a missing element, it is a step that needs a `hover`, a dismissed banner, or
-a different order. Then `save_flow` the fix and run it again.
+entries say: an element that is `hidden`, `covered` or `disabled` is not a
+missing element, it needs a `hover`, a dismissed banner or a different order.
+Then `save_flow` the fix and run it again.
 
-**The flow was run somewhere it was not written for.** Nothing is wrong with the
-flow except where it started. Give it a first step that navigates, or an
-`assert` that stops the run and says where it must be.
+**The flow was run somewhere it was not written for.** Give it a first step that
+navigates, or an `assert` that stops the run and says where it must be.
 
 ## Whose flows you see
 
-This depends on your workspace name, and it is not guessable from any schema.
-
 | You are | You save into | You can run |
 |---|---|---|
-| **named** (`?workspace=` / `Sf-Workspace`) | your own library | yours, plus the shared library |
-| **stdio** | its own `stdio` library | its own, plus the shared library |
-| **unnamed**, or named `global` | nowhere — you cannot save | the shared library |
+| named (`?workspace=` / `Sf-Workspace`) | your own library | yours, plus the shared library |
+| stdio | its own `stdio` library | its own, plus the shared library |
+| unnamed | nowhere | the shared library |
 
-A name must be usable as a folder name — letters, digits, `.`, `-` and `_`,
-starting with a letter or digit. One that is not still keys your browser, but
-the flow tools refuse it rather than quietly putting your flows somewhere shared.
-
-**`global` is read-only.** Every workspace lists and runs what is in it, and no
-workspace may change it: `save_flow` and `delete_flow` refuse. That is not
-tidiness — the shared library is *live*, so a flow you rewrote or deleted would
-change or vanish underneath another agent part-way through running it.
-
-**So name your workspace before you save anything.** Without a name you have no
-library of your own, and `save_flow` says so rather than writing somewhere you
-would never look again. Over stdio you already have one — a stdio server is one
-process serving one client, so it gets its own library without asking. Only an
-operator moves a flow into `global`, from the admin UI.
-
-Where a name exists in both, yours wins, and `flow://flows` marks each entry
-`shared: true` or `false` so you can tell which one will run.
+`global` is the shared library. Every workspace lists and runs what is in it,
+and `save_flow` and `delete_flow` refuse it, so name your workspace before you
+save anything. Only an operator moves a flow into `global`, from the admin UI.
+A flow name is 1 to 64 letters, digits, `.`, `-` and `_`, starting with a letter
+or digit. Saving a name you read from `global` writes a copy into your own
+library. Where a name exists in both, yours wins, and `flow://flows` marks each
+entry `shared: true` or `false`.
 
 ## Running one
 
-Call `open_session` first — a flow never opens a browser. To run the same flow
+Call `open_session` first: a flow never opens a browser. To run the same flow
 on Firefox, `open_session(browser="firefox")` and run it again, unchanged.
 
 The report has one line per step plus where the browser ended up:
@@ -384,28 +335,21 @@ The report has one line per step plus where the browser ended up:
  "url": "https://demo.example.com/welcome", "title": "Welcome"}
 ```
 
-**A step that produced a file says where it went** — a screenshot, a PDF — and
-carries that file's link in its own line whether or not it is marked
-`return: true`. A capture nobody can find cannot show anyone what it saw, which
-is usually why the flow took it.
+A step that produced a file (a screenshot, a PDF) carries that file's link in
+its line whether or not it is marked `return: true`.
 
-**A long run reports progress while it works**: which step it is on, and how
-long that step has been waiting. A client that shows progress shows it, and the
-reports keep a waiting call from looking idle to one that gives up on silence.
-Cancel the call and the run stops — at the next step, or at the next poll of an
-`assert` that is waiting.
+A long run reports progress while it works, a step at a time. Cancel the call
+and the run stops, at the next step or at the next poll of an `assert` that is
+waiting.
 
-It stops at the first failing step unless that step says `onError: continue`.
-A failed run says which step stopped it, the error, and the page it was on — so
+It stops at the first failing step unless that step says `onError: continue`. A
+failed run says which step stopped it, the error and the page it was on, so
 check that page with `extract` before deciding the selector is wrong.
 
-**A run answers with the steps that said they were the answer.** Mark each one
-`return: true`; any number may, and nothing else carries a result. A flow whose
-point is its final `extract` needs that flag on the extract — without it the
-step is reported as having run and its result is thrown away.
-
-Running somebody else's flow that marks none — one from the shared library, say,
-which you cannot edit — pass `verbose=true` and read every step instead.
+A run returns the result of the steps marked `return: true`, any number of them,
+and nothing else carries one. A flow whose point is its final `extract` needs
+that flag on the extract. For a flow that marks none, such as one from the
+shared library that you cannot edit, pass `verbose=true` and read every step.
 
 `url_redacted: true` means the page it ended on carried a guarded value, so the
 URL shown is scrubbed and is not a real address. Do not navigate back to it.

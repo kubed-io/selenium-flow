@@ -36,9 +36,9 @@ workspace a session.
   numbers or history. Why it is that way goes in the design under `plans/`.
 - A design opens with a `> **History.**` header saying what shipped and which requirement ids hold
   it now. Plans are history: add to the header, leave the body.
-- `docs/saga/` is deprecated: it is history, and nothing new goes there. Designs and plans follow
-  the superpowers layout under `docs/superpowers/`. Code that still cites it as `§F1.n` loses the
-  citation in the refactor round.
+- The project's history is `docs/superpowers/plans/Ledger.md`. The saga it replaced is gone; code
+  that still cites a saga section as `§F1.n` can look it up in the ledger's last table, and loses
+  the citation in the refactor round.
 - The generated wiki pages (one per tool, `Configuration.md`) are written by
   `scripts/generate_wiki.py`. Change the code or the notes and regenerate; never edit the page.
 

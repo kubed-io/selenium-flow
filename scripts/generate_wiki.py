@@ -436,9 +436,6 @@ def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
 
 {parameters(spec, request)}
 
-Every call names its workspace: an `Sf-Workspace` header, or
-`?workspace=<name>`. Sending both is refused. See [Workspaces](Workspaces).
-
 ## Returns
 
 {returns(spec, response)}
@@ -569,8 +566,9 @@ the same URIs with `read_resource`.
 
 {body}
 
-Every call names its workspace — an `Sf-Workspace` header or `?workspace=` on
-the URL. There is no session id anywhere; see [Workspaces](Workspaces).
+A call names its workspace with an `Sf-Workspace` header or `?workspace=` on the
+URL, and an unnamed caller can only read the shared flow library. No call takes
+a session id; see [Workspaces](Workspaces).
 
 ---
 
