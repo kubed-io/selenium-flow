@@ -875,7 +875,8 @@ class Workspaces:
 
         It settles with the URL withheld (ruling 29): the TTL slides, History
         is not written. ``visited`` is shaped as History keeps a URL: the last
-        page whole, credentials cut; earlier ones origin and path.
+        page whole, credentials cut; earlier ones origin, path and hash route
+        (never the route's query).
         """
         summary: dict = {
             "handed_back": episode is not None,
@@ -1372,7 +1373,7 @@ class Workspaces:
         since: str | None = None,
     ) -> tuple[dict | None, str | None]:
         """:meth:`touch`, and the page to hint for: the last of ``urls`` with
-        an origin, when its host, port or path differs from the page before
+        an origin, when its host, port, path or route differs from the page before
         (ruling 18) — the record's, or ``since`` for a run that flushed its
         pages part-way (ruling 20). None when there is nothing to hint for.
 

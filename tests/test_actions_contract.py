@@ -8,6 +8,7 @@ refactor of the recipe every action shares (reconnect, maybe navigate, wait, act
 report) is provable rather than hoped for.
 """
 
+import re
 import tempfile
 from itertools import pairwise
 from pathlib import Path
@@ -15,7 +16,10 @@ from types import SimpleNamespace
 
 import pytest
 import requests
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import (
+    StaleElementReferenceException,
+    UnexpectedAlertPresentException,
+)
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import wait as selenium_wait
 
@@ -23,7 +27,7 @@ from kubed.selenium_flow.core import browser, pointer
 from kubed.selenium_flow.core.browser import NAVIGATION_SETTLE
 from kubed.selenium_flow.errors import status_for
 
-from .fakes import CountingDriver, ScriptedElement
+from .fakes import CountingDriver, ScriptedDriver, ScriptedElement
 
 pytestmark = pytest.mark.unit
 
@@ -124,6 +128,300 @@ def test_settling_survives_the_session_going_away_mid_wait(scripted, clock):
     driver = scripted()
     driver.element.fail_on["is_enabled"] = RuntimeError("session gone")
     assert browser.settled(driver, driver.element) is None
+
+
+# ---- #139: a same-document navigation reports its route's title ------------
+
+LOGIN = "https://app.test/#/auth/login"
+DASHBOARD = "https://app.test/#/dashboard/recent"
+# Another document with the same title as the login screen: only `timeOrigin`
+# tells that move from a route change.
+SIGN_IN = "https://other.test/login"
+# A docs page that moves within itself without changing screen (#142): an anchor,
+# a query mirrored by `replaceState`, a trailing slash. Same title.
+DOCS = "https://app.test/docs"
+SAME_SCREEN = [
+    "https://app.test/docs#section",
+    "https://app.test/docs?q=selenium",
+    "https://app.test/docs/",
+]
+# Moves to another screen without a new document: a path, a hashbang route.
+SCREENS = {
+    "https://app.test/docs/intro": "Intro",
+    "https://app.test/docs#!/guide": "Guide",
+}
+# Penpot keeps the open file in its hash route's query, and titles the page by it.
+FILE_A = "https://app.test/#/workspace?team-id=T&file-id=A"
+FILE_B = "https://app.test/#/workspace?team-id=T&file-id=B"
+ROUTE_TITLES = {
+    LOGIN: "Login", DASHBOARD: "Dashboard", PAGE: "Example", SIGN_IN: "Login",
+    DOCS: "Docs", FILE_A: "File A", FILE_B: "File B",
+    **dict.fromkeys(SAME_SCREEN, "Docs"), **SCREENS,
+}
+
+
+class _RouterElement(ScriptedElement):
+    """A link whose click runs the app's router: `pushState`, no new document."""
+
+    def __init__(self, driver):
+        super().__init__(driver.log)
+        self._driver = driver
+
+    def click(self):
+        super().click()
+        self._driver.route(DASHBOARD)
+
+
+class Router(CountingDriver):
+    """A hash-routed app. A move that keeps the document keeps `timeOrigin`,
+    and the router sets the new route's title only ``late`` title reads after
+    the URL changed (never, when ``late`` is None). A move to another document
+    gets a new `timeOrigin` and its title at once. Any script that reads
+    `timeOrigin` is answered with where the document is; ``broken`` makes every
+    script fail instead."""
+
+    def __init__(self, late=3, broken=False, **settings):
+        super().__init__(url=LOGIN, title="Login", **settings)
+        d = self.__dict__
+        d["origin"], d["late"], d["broken"], d["pending"] = 1000.25, late, broken, None
+        d["element"] = _RouterElement(self)
+
+    def route(self, url):
+        """A same-document navigation: the URL first, the title later."""
+        self.__dict__["_url"] = url
+        self.__dict__["pending"] = [ROUTE_TITLES[url], self.late]
+
+    def get(self, url):
+        self.log.append(("get", url))
+        if url.split("#")[0] == self._url.split("#")[0]:
+            self.route(url)
+        else:
+            d = self.__dict__
+            d["_url"], d["_title"], d["origin"] = url, ROUTE_TITLES[url], 2000.5
+
+    @property
+    def title(self):
+        title = ScriptedDriver.title.fget(self)
+        pending = self.pending
+        if pending and pending[1] is not None:
+            pending[1] -= 1
+            if pending[1] <= 0:
+                self.__dict__["_title"], self.__dict__["pending"] = pending[0], None
+        return title
+
+    def execute_script(self, script, *args):
+        self.log.append(("execute_script", script))
+        if self.broken:
+            raise RuntimeError("the script could not run")
+        if self.dialog is not None:
+            raise UnexpectedAlertPresentException("dialog open")
+        moved = re.search(r"history\.replaceState\(null, '', '([^']*)'\)", script)
+        if moved:
+            self.route(moved[1])
+            return None
+        if "location.hash" in script:
+            self.route(DASHBOARD)
+            return None
+        if "timeOrigin" in script:
+            url = self.__dict__.get("href", self._url)
+            return {"origin": self.origin, "url": url, "title": self._title}
+        return None
+
+    def title_reads(self):
+        return sum(1 for entry in self.log if entry == ("title",))
+
+
+@pytest.fixture
+def router(actions, monkeypatch):
+    def use(**settings):
+        driver = Router(**settings)
+        monkeypatch.setattr(actions.grid, "reconnect", driver.reconnect)
+        return driver
+
+    return use
+
+
+def test_navigate_to_another_route_reports_that_routes_title(actions, router, clock):
+    """Reproduces #139: the URL changes at once and the router sets the title
+    afterwards, so a read straight after `get` names the screen just left."""
+    router()
+    result = actions.navigate("abc", DASHBOARD)
+    assert result == {"url": DASHBOARD, "title": "Dashboard"}
+    assert clock[0] < browser.TITLE_SETTLE
+
+
+def test_a_click_that_pushes_a_route_reports_that_routes_title(
+    actions, router, clock, pointer_lands
+):
+    router()
+    result = actions.interact("abc", "click", selector={"css": "a"})
+    assert (result["url"], result["title"]) == (DASHBOARD, "Dashboard")
+
+
+def test_a_script_that_sets_the_hash_reports_the_new_routes_title(
+    actions, router, clock
+):
+    router()
+    result = actions.execute_script("abc", "location.hash = '#/dashboard/recent'")
+    assert (result["url"], result["title"]) == (DASHBOARD, "Dashboard")
+
+
+def test_an_assertion_names_the_route_it_ended_on(actions, router, clock):
+    """`assert` reads the page itself, through `at.state`, and gets the wait too."""
+    driver = router()
+    original = driver.execute_script
+
+    def script(source, *args):
+        if source.strip().startswith("return true"):
+            driver.route(DASHBOARD)
+            driver.log.append(("execute_script", source))
+            return True
+        return original(source, *args)
+
+    driver.__dict__["execute_script"] = script
+    result = actions.assert_("abc", "return true", wait_timeout=0)
+    assert (result["url"], result["title"]) == (DASHBOARD, "Dashboard")
+
+
+def test_a_full_page_load_does_not_wait_for_the_title(actions, router, clock):
+    """A new document has a new `timeOrigin`: today's answer, with no wait."""
+    driver = router()
+    result = actions.navigate("abc", PAGE)
+    assert result == {"url": PAGE, "title": "Example"}
+    assert clock[0] == 0
+    assert driver.title_reads() == 1
+
+
+def test_a_call_that_leaves_the_url_alone_does_not_wait(actions, router, clock):
+    driver = router()
+    result = actions.extract("abc", selector={"css": "#x"})
+    assert (result["url"], result["title"]) == (LOGIN, "Login")
+    assert clock[0] == 0
+    assert driver.title_reads() == 1
+
+
+def test_a_route_that_keeps_its_title_is_answered_within_the_bound(
+    actions, router, clock
+):
+    """A route may keep its title: expiring is an ordinary answer, not an error."""
+    router(late=None)
+    result = actions.navigate("abc", DASHBOARD)
+    assert result == {"url": DASHBOARD, "title": "Login"}
+    assert browser.TITLE_SETTLE <= clock[0] < browser.TITLE_SETTLE + 0.1
+
+
+def test_a_new_document_with_the_same_title_does_not_wait(actions, router, clock):
+    """The URL moved and the title did not, but `timeOrigin` says a new
+    document loaded: its title is already its own."""
+    driver = router()
+    result = actions.navigate("abc", SIGN_IN)
+    assert result == {"url": SIGN_IN, "title": "Login"}
+    assert clock[0] == 0
+    assert driver.title_reads() == 1
+
+
+def test_a_url_spelt_differently_by_the_page_does_not_wait(actions, router, clock):
+    """WebDriver's URL and `location.href` naming the same place two ways is
+    not a move: the page's own spelling is asked before anything waits."""
+    driver = router()
+    driver.__dict__["href"] = LOGIN
+    driver.__dict__["_url"] = "https://app.test/#/auth/log%69n"
+    actions.extract("abc", selector={"css": "#x"})
+    assert clock[0] == 0
+    assert driver.title_reads() == 1
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        None,  # in a frame
+        "https://app.test/",
+        {"origin": True, "url": LOGIN, "title": "Login"},
+        {"origin": 5, "url": LOGIN},
+        {"origin": "5", "url": LOGIN, "title": "Login"},
+    ],
+)
+def test_a_document_that_cannot_be_told_is_none(scripted, answer):
+    driver = scripted(scripts={"timeOrigin": answer})
+    assert browser.document(driver) is None
+
+
+@pytest.mark.parametrize("origin", [1731520000123, 1731520000123.456])
+def test_a_document_is_told_by_its_time_origin(scripted, origin):
+    answer = {"origin": origin, "url": LOGIN, "title": "Login"}
+    driver = scripted(scripts={"timeOrigin": answer})
+    assert browser.document(driver) == answer
+
+
+def test_a_failing_read_neither_waits_nor_fails_the_call(actions, router, clock):
+    router(broken=True)
+    result = actions.navigate("abc", DASHBOARD)
+    assert result == {"url": DASHBOARD, "title": "Login"}
+    assert clock[0] == 0
+
+
+def test_an_open_dialog_neither_waits_nor_fails_the_call(actions, router, clock):
+    driver = router()
+    driver.__dict__["dialog"] = DIALOG
+    result = actions.navigate("abc", DASHBOARD)
+    assert result["dialog"] == DIALOG
+    assert clock[0] == 0
+
+
+def _at(driver, url):
+    driver.__dict__["_url"], driver.__dict__["_title"] = url, ROUTE_TITLES[url]
+
+
+def _move(to):
+    return f"history.replaceState(null, '', '{to}')"
+
+
+@pytest.mark.parametrize(
+    ("url", "seen"),
+    [
+        ("https://app.test/docs", ("/docs", "")),
+        ("https://app.test/docs/#", ("/docs", "")),
+        ("https://app.test/docs#section", ("/docs", "")),
+        ("https://app.test/docs?q=a#home", ("/docs", "")),
+        ("https://app.test/#/", ("", "")),
+        ("https://app.test/#/items/?id=2", ("", "/items?id=2")),
+        ("https://app.test/#/items/", ("", "/items")),
+        ("https://app.test/#!/guide", ("", "/guide")),  # the `!` is dropped (#137)
+        ("https://app.test/#!/items/?id=2", ("", "/items?id=2")),
+        ("http://[::1", ("http://[::1", "")),  # will not parse: itself
+    ],
+)
+def test_a_screen_is_the_path_and_the_hash_route(url, seen):
+    assert browser.screen(url) == seen
+
+
+@pytest.mark.parametrize("to", SAME_SCREEN)
+def test_a_move_within_the_same_screen_does_not_wait(actions, router, clock, to):
+    """An anchor, a query, a trailing slash: the page did not change screen, so
+    no new title is expected, and waiting for one would cost every such call
+    the whole bound (#142)."""
+    driver = router(late=None)
+    _at(driver, DOCS)
+    result = actions.execute_script("abc", _move(to))
+    assert (result["url"], result["title"]) == (to, "Docs")
+    assert clock[0] == 0
+
+
+def test_a_hash_routes_own_query_is_part_of_its_screen(actions, router):
+    """Penpot opens another file by changing only the route's query; read at
+    once, the title would name the file just left (#134's report)."""
+    driver = router()
+    _at(driver, FILE_A)
+    result = actions.execute_script("abc", _move(FILE_B))
+    assert (result["url"], result["title"]) == (FILE_B, "File B")
+
+
+@pytest.mark.parametrize("to", SCREENS)
+def test_a_move_to_another_path_or_route_waits_for_its_title(actions, router, clock, to):
+    driver = router()
+    _at(driver, DOCS)
+    result = actions.execute_script("abc", _move(to))
+    assert (result["url"], result["title"]) == (to, SCREENS[to])
 
 
 # ---- X3, N1-N3: what navigation and reads return -----------------------------
@@ -320,20 +618,23 @@ AT = {"css": "#x"}
 # Each action's whole sequence on its success path, reattach to page state:
 # what `core/recipe.py` must leave exactly as it was. A navigation is asked for
 # wherever an action takes `url`, so the step that may navigate is on the record.
+# Every road starts with the reattach and one script reading which document the
+# page is (`browser.document`, #139), before anything can move it.
+ARRIVE = ["reconnect", "execute_script"]
 ROADS = {
     "navigate": (
         {}, lambda a: a.navigate("abc", OTHER),
-        ["reconnect", "get", "current_url", "title"],
+        [*ARRIVE, "get", "current_url", "title"],
     ),
     "interact click": (
         {}, lambda a: a.interact("abc", "click", selector=AT, url=OTHER),
-        ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
+        [*ARRIVE, "current_url", "get", "find_elements", "element.is_displayed",
          "element.is_enabled", "execute_script", "element.click", "current_url",
          "title"],
     ),
     "interact hover": (
         {}, lambda a: a.interact("abc", "hover", selector=AT),
-        ["reconnect", "find_elements", "current_url", "title"],
+        [*ARRIVE, "find_elements", "current_url", "title"],
     ),
     "drag": (
         {"scripts": {"innerWidth": [1000, 800]}},
@@ -341,74 +642,74 @@ ROADS = {
         # Task 19: no `execute_script` between the wait and the drop. The
         # window's size comes back with the approach's landing (center.js),
         # so the separate viewport read is gone.
-        ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
+        [*ARRIVE, "current_url", "get", "find_elements", "element.is_displayed",
          "element.is_enabled", "execute", "current_url", "title"],
     ),
     "frame switch": (
         {}, lambda a: a.frame("abc", "switch", selector=AT),
-        ["reconnect", "find_element", "switch_to.frame", "execute_script",
+        [*ARRIVE, "find_element", "switch_to.frame", "execute_script",
          "current_url", "title"],
     ),
     "frame default": (
         {}, lambda a: a.frame("abc", "default"),
-        ["reconnect", "switch_to.default_content", "execute_script", "current_url",
+        [*ARRIVE, "switch_to.default_content", "execute_script", "current_url",
          "title"],
     ),
     "resize": (
         {}, lambda a: a.resize("abc", width=500),
-        ["reconnect", "get_window_size", "set_window_size", "get_window_size",
+        [*ARRIVE, "get_window_size", "set_window_size", "get_window_size",
          "current_url", "title"],
     ),
     "dialog": (
         {"dialog": DIALOG}, lambda a: a.dialog("abc", "accept"),
-        ["reconnect", "switch_to.alert", "alert.text", "alert.accept", "current_url",
+        [*ARRIVE, "switch_to.alert", "alert.text", "alert.accept", "current_url",
          "title"],
     ),
     "upload_file": (
         {}, lambda a: a.upload_file("abc", selector=AT, text="hi", url=OTHER),
-        ["reconnect", "current_url", "get", "set.file_detector", "find_element",
+        [*ARRIVE, "current_url", "get", "set.file_detector", "find_element",
          "element.send_keys", "current_url", "title"],
     ),
     "write": (
         {}, lambda a: a.write("abc", "hi", selector=AT, url=OTHER),
-        ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
+        [*ARRIVE, "current_url", "get", "find_elements", "element.is_displayed",
          "element.is_enabled", "element.clear", "element.send_keys",
          "element.get_attribute", "current_url", "title"],
     ),
     "press_key at an element": (
         {}, lambda a: a.press_key("abc", "Tab", selector=AT, url=OTHER),
-        ["reconnect", "current_url", "get", "find_elements", "element.is_displayed",
+        [*ARRIVE, "current_url", "get", "find_elements", "element.is_displayed",
          "element.is_enabled", "element.send_keys", "current_url", "title"],
     ),
     "press_key wherever focus is": (
         {}, lambda a: a.press_key("abc", "Tab"),
-        ["reconnect", "switch_to.active_element", "element.send_keys", "current_url",
+        [*ARRIVE, "switch_to.active_element", "element.send_keys", "current_url",
          "title"],
     ),
     "outline": (
         {"scripts": {"": {"elements": [], "total": 0}}},
         lambda a: a.outline("abc", selector=AT, url=OTHER),
-        ["reconnect", "current_url", "get", "find_element", "execute_script",
+        [*ARRIVE, "current_url", "get", "find_element", "execute_script",
          "current_url", "title"],
     ),
     "execute_script": (
         {}, lambda a: a.execute_script("abc", "return 1", url=OTHER),
-        ["reconnect", "current_url", "get", "execute_script", "current_url", "title"],
+        [*ARRIVE, "current_url", "get", "execute_script", "current_url", "title"],
     ),
     "assert": (
         {"scripts": {"return true": True}},
         lambda a: a.assert_("abc", "return true", wait_timeout=0, url=OTHER),
-        ["reconnect", "current_url", "get", "execute_script", "current_url", "title"],
+        [*ARRIVE, "current_url", "get", "execute_script", "current_url", "title"],
     ),
     "extract": (
         {}, lambda a: a.extract("abc", selector=AT, url=OTHER),
-        ["reconnect", "current_url", "get", "find_element", "element.get_attribute",
+        [*ARRIVE, "current_url", "get", "find_element", "element.get_attribute",
          "current_url", "title"],
     ),
     "screenshot": (
         {}, lambda a: a.screenshot("abc", selector=AT, width=400, url=OTHER,
                                    save=False),
-        ["reconnect", "current_url", "get", "get_window_size", "set_window_size",
+        [*ARRIVE, "current_url", "get", "get_window_size", "set_window_size",
          "find_element", "current_url", "title"],
     ),
 }
@@ -463,7 +764,7 @@ def test_print_reads_the_page_once_it_is_kept(actions, monkeypatch):
     kept = []
     actions.keep = lambda name, data, folder: kept.append(driver.names()) or {}
     actions.print_("abc", format="html", url=OTHER)
-    assert kept == [["reconnect", "current_url", "get", "page_source"]]
+    assert kept == [[*ARRIVE, "current_url", "get", "page_source"]]
     assert _road(driver.log) == kept[0] + ["current_url", "title"]
 
 
@@ -476,24 +777,24 @@ CENTER = {"at": [10, 10], "scrolled": False, "outside": False, "viewport": [1000
 MOVES = {
     "interact click": (
         lambda a: a.interact("abc", "click", selector=AT),
-        ["reconnect", "find_elements", "element.is_displayed", "element.is_enabled",
+        [*ARRIVE, "find_elements", "element.is_displayed", "element.is_enabled",
          "execute_script", "execute", "execute_script", "execute_script",
          "element.click", "current_url", "title"],
     ),
     "interact hover glide": (
         lambda a: a.interact("abc", "hover", selector=AT, glide=True),
-        ["reconnect", "find_elements", "execute_script", "execute_script", "execute",
+        [*ARRIVE, "find_elements", "execute_script", "execute_script", "execute",
          "execute_script", "current_url", "title"],
     ),
     "drag by an offset": (
         lambda a: a.drag("abc", selector=AT, by_x=5),
-        ["reconnect", "find_elements", "element.is_displayed", "element.is_enabled",
+        [*ARRIVE, "find_elements", "element.is_displayed", "element.is_enabled",
          "execute_script", "execute", "execute_script", "execute", "current_url",
          "title"],
     ),
     "drag to an element": (
         lambda a: a.drag("abc", selector=AT, to={"css": "#y"}),
-        ["reconnect", "find_elements", "element.is_displayed", "element.is_enabled",
+        [*ARRIVE, "find_elements", "element.is_displayed", "element.is_enabled",
          "execute_script", "execute", "execute_script", "find_elements",
          "execute_script", "execute", "current_url", "title"],
     ),

@@ -37,8 +37,14 @@ const cssPath = (el) => {
   return parts.join(' > ');
 };
 
+// Whether the text inside `el` is its own: at each level, at most one child
+// carries any. A child with none, the icon in
+// <button><svg>…</svg><span>Save</span></button>, does not count. Two that do
+// would be read with nothing between them ("SaveCancel"), so the text selector
+// never uses text that is not its own (saga §F2.10), and nor does the name of
+// anything but a control, which ARIA names from its content (#138).
 const ownsItsText = (el) => {
-  const kids = el.children;
+  const kids = [...el.children].filter((kid) => /\S/.test(kid.textContent || ''));
   if (kids.length === 0) return true;
   if (kids.length > 1) return false;
   return ownsItsText(kids[0]);
@@ -62,8 +68,7 @@ const selectorFor = (el) => {
   // a nav <li> produced //li[normalize-space()="HelpDeskHelpDeskAdd Ticket..."],
   // which is unreadable, brittle, and not this element's label at all. So the
   // text selector is offered only where the text really belongs to this
-  // element - no element children, or a single unbroken chain of wrappers,
-  // which is what <button><span>Save</span></button> is (saga §F2.10).
+  // element, as `ownsItsText` decides (saga §F2.10).
   const text = ownsItsText(el) ? textOf(el) : '';
   if (text && text.length <= 60 && !text.includes('"')) {
     const xpath = '//' + tag + '[normalize-space()="' + text + '"]';

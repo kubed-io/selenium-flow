@@ -167,7 +167,7 @@ secret, which is a different mechanism on purpose
 ## Where a flow applies
 
 `sites` and `paths` say where a flow is for. A call that moves the browser to a
-different host, port or path they match names the flow in its result's
+different host, port, path or hash route they match names the flow in its result's
 `flows_here`. `open_session` names the flows for the page it opens on, every
 time. The same flow can serve development and live, so list both:
 
@@ -183,12 +183,23 @@ paths:
 steps: [...]
 ```
 
+```yaml
+name: penpot-login
+description: Sign in to Penpot with an email and password
+sites: [penpot.example]
+paths: ["/#/auth/*"]
+steps: [...]
+```
+
 - A site is a host with an optional port: `example.com`, `*.example.com`,
   `localhost:8080`. With a port it matches only that port; without one, any. The
   scheme is ignored. `*.example.com` matches subdomains, never `example.com`
   itself: list both to cover both.
 - A path is exact, with `*` for one segment and `**` for any depth:
-  `/login`, `/apps/*/settings`. The query and fragment are ignored.
+  `/login`, `/apps/*/settings`. The query is ignored, and so is any fragment that
+  is not a route. For an app that routes after `#`, add the route: `/#/auth/*`,
+  `/app/#/settings/**`; `#!/` is the same as `#/`. An entry without `#` matches
+  every screen, so `/` covers a whole hash-routed app.
 
 Leave either out to match any; leave both out and the flow is never named in
 `flows_here`; a flow saved without them stays unnamed until someone adds them.

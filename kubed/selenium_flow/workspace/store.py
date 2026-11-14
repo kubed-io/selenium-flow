@@ -246,9 +246,10 @@ class Workspace:
         """The same record without the history entries older than ``ttl``,
         except the top one: it is where a reopen goes back to.
 
-        Only the top entry keeps its whole URL. Below it a URL keeps its origin
-        and path: a query string or fragment carries OAuth codes and reset
-        tokens, and nothing but a reopen needs them (Copilot, #51).
+        Only the top entry keeps its whole URL. Below it a URL keeps its origin,
+        path and hash route (never the route's query): a query string or
+        fragment carries OAuth codes and reset tokens, and nothing but a reopen
+        needs them (Copilot, #51).
         """
         history = self.history
         kept = history[:1] + [

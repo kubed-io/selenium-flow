@@ -238,6 +238,73 @@ def test_every_outline_selector_matches_exactly_the_element_it_describes():
     assert [f[0] for f in found] == ["button|a|Same", "button||Same", "a||One"]
 
 
+# An element with no label of its own used to be named by its whole subtree's
+# textContent, so a toolbar read "SaveCancel" and a container read as
+# everything in it (#138). A control is still named from its content,
+# descendants included, as ARIA names a link or a button; anything else is
+# named only from text it owns, as for the text selector (saga §F2.10).
+def names(page, interactive=True, text=""):
+    answer = outline(page, text=text, interactive=interactive)
+    return [(e["role"], e["name"]) for e in answer["elements"]]
+
+
+def test_a_toolbar_is_not_named_by_its_buttons_run_together():
+    page = (
+        '<main><div role="toolbar"><button>Save</button><button>Cancel</button>'
+        "</div></main>"
+    )
+    assert names(page, interactive=False) == [
+        ("main", ""), ("toolbar", ""), ("button", "Save"), ("button", "Cancel")]
+
+
+def test_a_grid_row_and_a_tree_item_are_containers_not_controls():
+    page = (
+        '<main><div role="row"><div role="gridcell">John</div>'
+        '<div role="gridcell">42</div></div>'
+        '<div role="treeitem"><span>Docs</span><div role="group">'
+        '<div role="treeitem">A</div><div role="treeitem">B</div></div></div></main>'
+    )
+    named = names(page, interactive=False)
+    assert ("row", "") in named and ("gridcell", "John") in named
+    assert ("treeitem", "") in named and ("treeitem", "A") in named
+
+
+def test_a_container_is_not_named_by_everything_inside_it():
+    page = '<main><section><p>One</p><p>Two</p></section></main>'
+    assert ("section", "") in names(page, interactive=False)
+
+
+def test_a_link_and_a_button_are_named_from_the_spans_inside_them():
+    # QA on #140: ARIA names a control from its content, descendants included,
+    # with the spacing the DOM has between them.
+    page = (
+        '<main><a href="#x"><span>Open</span> <span>file</span></a>'
+        "<button><span>Open</span> <span>file</span></button></main>"
+    )
+    assert names(page) == [("link", "Open file"), ("button", "Open file")]
+    assert names(page, text="open file") == [("link", "Open file"), ("button", "Open file")]
+
+
+def test_an_explicit_role_is_named_from_its_content_too():
+    page = (
+        '<main><div role="Button" tabindex="0"><span>Open</span> <span>file</span></div>'
+        '<div role="tab button" tabindex="0"><span>Last</span> <span>run</span></div></main>'
+    )
+    assert names(page) == [("Button", "Open file"), ("tab button", "Last run")]
+
+
+ICON = '<main><button><svg><path d="M0 0h1"/></svg><span>Save</span></button></main>'
+
+
+def test_an_icon_beside_a_label_does_not_cost_a_control_its_name():
+    assert names(ICON, text="save") == [("button", "Save")]
+
+
+def test_the_name_and_the_text_selector_agree_on_whose_text_it_is():
+    entry = outline(ICON)["elements"][0]
+    assert entry["xpath"] == '//button[normalize-space()="Save"]'
+
+
 def test_the_site_data_fill_writes_the_given_keys_and_nothing_else():
     """`fill` is composed in Python, so the runner takes its source from the
     environment. The store already holds `keep`; it must survive, and the
