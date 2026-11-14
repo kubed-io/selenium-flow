@@ -837,12 +837,16 @@ class Workspaces:
             if closed is not None:
                 closed(name)
             raise
-        result, page = self._said(
-            name, resolved, kind, call, tool=tool, surface=surface
-        )
-        self.settle(name, result, browser=resolved, reshapes=reshapes)
-        if page is not None and isinstance(result, dict):
-            result["page"] = page
+        try:
+            result, page = self._said(
+                name, resolved, kind, call, tool=tool, surface=surface
+            )
+            self.settle(name, result, browser=resolved, reshapes=reshapes)
+            if page is not None and isinstance(result, dict):
+                result["page"] = page
+        except Exception as exc:
+            self.failed(name, exc, browser=resolved)
+            raise
         return result
 
     def paste(self, name: str, text: str) -> dict:
@@ -1036,6 +1040,35 @@ class Workspaces:
             if told:
                 self._hold_again(name, told, browser)
             raise
+
+    def failed(self, name: str, exc: BaseException, *, browser: str) -> None:
+        """Say the reopen's notice on ``exc``, once, and stamp the call's end.
+
+        The hosts call it in an `except` and re-raise the original, so it never
+        raises: a store failure is logged by type and the caller's own error is
+        the one to see. A record holding another browser is only stamped.
+        """
+
+        def took(r: Workspace | None) -> tuple[Workspace | None, dict | None]:
+            if r is None:
+                return None, None
+            if r.session_id != browser:
+                return replace(r, called_at=time.time()), None
+            notice = r.notice
+            held = replace(r, called_at=time.time())
+            return (held.delivered() if notice else held), notice
+
+        try:
+            notice = self.store.change(name, took)[1]
+            if notice:
+                restored = len((notice.get("report") or {}).get("restored") or [])
+                exc.add_note(faults.reopen_note(notice["cause"], restored))
+        except Exception as problem:  # noqa: BLE001 - never masks the caller's error
+            log.warning(
+                "the reopen notice for %s was not said: %s",
+                name,
+                type(problem).__name__,
+            )
 
     def _hold_again(self, name: str, notice: dict, browser: str | None) -> None:
         """Put a reopen's notice back when the result carrying it failed."""

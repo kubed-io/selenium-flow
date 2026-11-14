@@ -270,17 +270,21 @@ def message(exc: BaseException) -> str:
     here rather than in each of the three handlers, for the reason this module
     exists: one place decides what a failure says.
 
-    A failed call that made the page report errors carries one more sentence,
-    as a note beginning `PAGE_NOTE` (`workspace.calls`); it follows the line
-    after a space. No other note is ever said.
+    A failed call can carry two more sentences as notes: one beginning
+    `REOPEN_NOTE` (the browser was replaced before it, `Workspaces.failed`) and
+    one beginning `PAGE_NOTE` (what the page reported, `workspace.calls`). They
+    follow the line after a space, the reopen's first. No other note is ever
+    said.
     """
     text = _said(exc)
-    page = [
+    notes = [
         note
         for note in getattr(exc, "__notes__", None) or ()
-        if isinstance(note, str) and note.startswith(PAGE_NOTE)
+        if isinstance(note, str)
     ]
-    return " ".join([text, *page])
+    reopened = [note for note in notes if note.startswith(REOPEN_NOTE)]
+    page = [note for note in notes if note.startswith(PAGE_NOTE)]
+    return " ".join([text, *reopened, *page])
 
 
 def _said(exc: BaseException) -> str:

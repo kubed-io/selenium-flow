@@ -221,16 +221,47 @@ def test_a_save_step_leaves_the_notice_for_the_run(named_caller, tmp_path):  # r
     assert report["reopened"]["cause"] == "lost" and report["site_data"] == REPORT
 
 
-def test_a_report_waits_for_a_call_that_finishes(named_caller):
+def test_a_failed_first_call_carries_the_notice_once(named_caller):  # Review Focus 1
     m = opened_with_save()
     reaped(m)
 
     def fails(_):
         raise RuntimeError("the page broke")
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError) as exc:
         m.act(Caller(NAMED), fails)
-    assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
+    assert faults.message(exc.value) == (
+        "the page broke " + faults.REOPENED["lost"] + " Saved site data was put back for 1 site(s).")
+    after = m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert "reopened" not in after and "site_data" not in after
+
+
+def test_a_failed_first_call_with_nothing_saved_says_only_the_notice(named_caller):
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    reaped(m)
+    with pytest.raises(RuntimeError) as exc:
+        m.act(Caller(NAMED), lambda s: (_ for _ in ()).throw(RuntimeError("x")))
+    assert faults.message(exc.value) == "x " + faults.REOPENED["lost"]
+
+
+def test_a_failed_call_stamps_called_at(named_caller):  # ruling 15
+    m = manager(SiteActions())
+    m.open_browser(Caller(NAMED))
+    m.store.update(NAMED, lambda r: replace(r, called_at=1.0))
+    with pytest.raises(RuntimeError):
+        m.act(Caller(NAMED), lambda s: (_ for _ in ()).throw(RuntimeError("x")))
+    assert m.store.get(NAMED).called_at > 1.0
+
+
+def test_a_run_that_fails_to_start_after_a_reap_says_so(named_caller, tmp_path):
+    from kubed.selenium_flow.flows import api as flowapi
+
+    store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.example.com/"}}])
+    reaped(m)
+    with pytest.raises(ValueError) as exc:  # `read_one`: no flow called 'no-such-flow'
+        flowapi.run_for(store, m.actions, m, NAMED, "no-such-flow")
+    assert faults.REOPENED["lost"] in faults.message(exc.value)
 
 
 def test_a_report_is_never_handed_to_a_result_from_another_browser(named_caller):
@@ -432,22 +463,22 @@ def test_a_result_from_the_browser_held_still_moves_the_page(named_caller):
     assert record.settings["width"] == 640
 
 
-def test_a_report_survives_a_result_that_fails_after_it_was_handed_over(named_caller, monkeypatch):
-    # The touch hands the report to the result; a save that then fails turns
-    # that result into an error, and the report must wait for the next one.
+def test_a_result_that_fails_after_the_touch_says_the_notice_on_its_error(named_caller, monkeypatch):
+    # The touch hands the notice to the result; a save that then fails turns
+    # that result into an error, and the error says it.
     m = opened_with_save()
     reaped(m)
-    real = m._save_site_data
 
     def broken(*args, **kwargs):
         raise ValueError("the cookie jar is over the cap")
 
     monkeypatch.setattr(m, "_save_site_data", broken)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as exc:
         m.act(Caller(NAMED), lambda s: {"url": URL})
-    monkeypatch.setattr(m, "_save_site_data", real)
-    assert m.act(Caller(NAMED), lambda s: {"url": URL})["site_data"] == REPORT
-    assert "site_data" not in m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert faults.REOPENED["lost"] in faults.message(exc.value)
+    monkeypatch.undo()
+    after = m.act(Caller(NAMED), lambda s: {"url": URL})
+    assert "reopened" not in after and "site_data" not in after
 
 
 @pytest.mark.parametrize("corrupt", [

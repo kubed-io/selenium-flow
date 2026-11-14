@@ -1288,6 +1288,7 @@ def framed(tmp_path):
 
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        failed=lambda *a, **k: None,
         calls=Calls(),
     )
 
@@ -1418,6 +1419,7 @@ def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
     driver.element.tag = tag
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        failed=lambda *a, **k: None,
         calls=Calls(),
     )
     with pytest.raises(ValueError) as refused:
@@ -1454,6 +1456,7 @@ def test_a_bound_write_into_a_field_still_types(targeting, tag):
     driver.element.tag = tag
     held = SimpleNamespace(
         resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        failed=lambda *a, **k: None,
         calls=Calls(),
     )
     shown = secrets.perform_write(
