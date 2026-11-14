@@ -226,7 +226,8 @@ class Forms(Mapping):
 class Scanner:
     """Finds a `Forms` in text: one `find` loop per form."""
 
-    def __init__(self, forms: Forms) -> None:
+    def __init__(self, forms: Forms, short: int = SHORT) -> None:
+        self._short = short
         exact: dict[str, frozenset] = {}
         folded: dict[str, frozenset] = {}
         for form, (ids, fold) in forms.items():
@@ -255,14 +256,13 @@ class Scanner:
             return []
         return self._outside_markers(text, found) if sheltered else found
 
-    @staticmethod
     def _find(
-        haystack: str, needles, found: list[Span], original: str | None = None
+        self, haystack: str, needles, found: list[Span], original: str | None = None
     ) -> None:
         edges = original if original is not None else haystack
         for needle, ids in needles:
             width, at = len(needle), haystack.find(needle)
-            alone = width < SHORT
+            alone = width < self._short
             while at != -1:
                 end = at + width
                 if not alone or (

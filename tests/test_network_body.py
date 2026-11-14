@@ -224,7 +224,7 @@ def tricky_bound(fed):
 def test_a_secret_echoed_json_or_html_escaped_in_a_body_is_masked(actions, fed, tricky_bound):
     fed.channel.bodies["r1"] = body_of("|".join(tricky_bound))
     got = actions.network_body("s1", "1.1")
-    assert got["text"] == "|".join([MASK] * len(tricky_bound))
+    assert got["text"] == "|".join(["[secret:s/k]"] * len(tricky_bound))
 
 
 async def test_a_secret_echoed_escaped_in_the_console_and_its_tail_is_masked(fed, tricky_bound):
@@ -235,9 +235,9 @@ async def test_a_secret_echoed_escaped_in_the_console_and_its_tail_is_masked(fed
         fed.capture.ingest("ws", "s1", *log(f"saw {echo}"))
     rows = [await tail.next() for _ in tricky_bound]
     tail.close()
-    assert [row["text"] for row in rows] == [f"saw {MASK}"] * len(tricky_bound)
+    assert [row["text"] for row in rows] == ["saw [secret:s/k]"] * len(tricky_bound)
     kept = [entry["text"] for entry in fed.capture.console("ws")["entries"]]
-    assert kept == [f"saw {MASK}"] * len(tricky_bound)
+    assert kept == ["saw [secret:s/k]"] * len(tricky_bound)
 
 
 # ---- fetched on a connection of its own (PR review I3) -------------------------

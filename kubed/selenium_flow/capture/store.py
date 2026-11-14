@@ -42,6 +42,7 @@ from typing import Literal, NamedTuple
 
 from cachetools import TTLCache
 
+from ..redaction import Forms
 from . import (
     CONSOLE_LIMIT,
     DEFAULT_TTL,
@@ -327,10 +328,11 @@ class Capture:
             ]:
                 del self._sessions[sid]
 
-    def secret(self, workspace: str, forms: Iterable[str]) -> None:
+    def secret(self, workspace: str, forms: Forms | Iterable[str]) -> None:
         """Mask ``forms`` in everything this workspace's session captures from
         now on, and in every session that replaces it."""
-        forms = list(forms)
+        if not isinstance(forms, Forms):
+            forms = list(forms)
         with self._lock:
             for held in self._sessions.values():
                 if held.workspace == workspace:

@@ -271,6 +271,17 @@ async def test_a_tail_gets_every_row_masked_and_reports_its_drops(capture):
     tail.close()
 
 
+async def test_a_catalogued_secret_reaches_a_row_as_its_marker(capture):
+    from kubed.selenium_flow.redaction import Forms
+
+    attach(capture)
+    capture.secret("ws", Forms.of("hunter22", ("ldap", "password")))
+    tail = capture.tail("ws", "console")
+    feed(capture, log("pw hunter22"))
+    assert (await tail.next())["text"] == "pw [secret:ldap/password]"
+    tail.close()
+
+
 def test_discard_forgets_the_workspace(capture):
     attach(capture)
     feed(capture, nav_started("https://a.test/"), log("a"))

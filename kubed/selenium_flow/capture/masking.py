@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterable
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from ..flows.redact import hidden_forms
+from ..redaction import Forms, Label, Scanner, render
 from . import (
     AUTH_FORMS,
     AUTH_MAX,
@@ -402,8 +403,8 @@ class Masker:
     ``SKIPS_HELD`` remembered, by hash); none is ever logged.
     """
 
-    def __init__(self, secrets: Iterable[str] = ()):
-        self._bound: set[str] = set()
+    def __init__(self, secrets: Forms | Iterable[str] = ()):
+        self._bound = Forms()
         self._auth = _Tier(AUTH_FORMS)
         self._cookies = _Ranked(COOKIE_FORMS)
         self.skipped = 0
@@ -413,18 +414,28 @@ class Masker:
         # tier could hold: the header names no domain, and a pair the BiDi
         # cookies named is that domain's, not the request host's.
         self._named: dict[str, str] = {}
-        # Every form masked, longest first, and their negated lengths: one
-        # tuple, replaced whole, because a body is masked on a worker thread
-        # while the loop learns and evicts. Read apart, an eviction between
-        # the two reads could shift the forms under an index into them.
-        # The third: whether no form holds a NUL, so a row's header texts can
-        # be scanned joined on one.
-        self._state: tuple[tuple[str, ...], tuple[int, ...], bool] = ((), (), True)
+        # Every form masked, longest first; the scanners that find them; whether
+        # no form holds a NUL, so a row's header texts can be scanned joined on
+        # one; and the longest form's length. One tuple, replaced whole, because
+        # a body is masked on a worker thread while the loop learns and evicts:
+        # read apart, an eviction between two reads could disagree.
+        self._state: tuple[tuple[str, ...], tuple[Scanner, ...], bool, int] = (
+            (),
+            (),
+            True,
+            0,
+        )
         self.add(secrets)
 
-    def add(self, forms: Iterable[str]) -> None:
-        """Mask ``forms`` from now on: a secret's raw value and its encodings."""
-        self._bound |= {f for f in forms if isinstance(f, str) and f}
+    def add(self, forms: Forms | Iterable[str]) -> None:
+        """Mask ``forms`` from now on: a secret's raw value and its encodings.
+
+        A `Forms` is the catalogue's, each form labelled: shown as its marker.
+        Plain strings are unlabelled and exact: shown as ``MASK``.
+        """
+        if not isinstance(forms, Forms):
+            forms = _unlabelled(f for f in forms if isinstance(f, str) and f)
+        self._bound |= forms
         self._sort()
 
     def carry(self, other: Masker) -> None:
@@ -549,15 +560,29 @@ class Masker:
         )
 
     def _sort(self) -> None:
-        known = self._bound.union(
+        learned = frozenset().union(
             *self._auth.values.values(), *self._cookies.values.values()
         )
+        known = self._bound | _unlabelled(learned)
         # Longest first, so a secret containing another is masked whole.
         secrets = tuple(sorted(known, key=len, reverse=True))
+        # Unlabelled forms count wherever they are, however short: only a
+        # catalogued one stands alone below `SHORT` (ruling 4).
+        labelled = Forms({f: known[f] for f in secrets if known[f].ids})
+        plain = Forms({f: known[f] for f in secrets if not known[f].ids})
+        scanners = tuple(
+            scanner
+            for scanner in (
+                labelled.scanner if labelled else None,
+                Scanner(plain, short=0) if plain else None,
+            )
+            if scanner is not None
+        )
         self._state = (
             secrets,
-            tuple(-len(f) for f in secrets),  # ascending
+            scanners,
             not any(NUL in f for f in secrets),
+            len(secrets[0]) if secrets else 0,
         )
 
     def text(
@@ -569,7 +594,8 @@ class Masker:
         Occurrences are found in the original text and overlapping or touching
         ones become one mask: replacing one secret after another (or matching
         a regex alternation) lets the first take characters the second needs,
-        and leaves the rest of the second behind.
+        and leaves the rest of the second behind. A catalogued secret shows its
+        marker, anything else ``MASK``.
 
         Only the first ``cap`` plus the longest secret's characters are read,
         so the work and the memory are bounded by what a row keeps, not by
@@ -582,10 +608,9 @@ class Masker:
         ``also`` is one more span of ``value`` to mask, merged with the
         secrets' (a URL's password, so a secret holding it is masked whole).
         """
-        secrets, lengths, _ = self._state  # once: see `__init__`
-        longest = len(secrets[0]) if secrets else 0
+        _, scanners, _, longest = self._state  # once: see `__init__`
         read = value[: cap + longest]
-        spans = _scan(read, secrets, lengths, len(read))
+        spans = _scan(read, scanners)
         return _shown(read, len(value), cap, spans, longest, also)
 
     def url(self, value: str, *, keep_query: bool) -> str:
@@ -630,7 +655,7 @@ class Masker:
         if learned:
             self._sort()
         state = self._state  # once, after the learning: see `__init__`
-        longest = len(state[0][0]) if state[0] else 0
+        longest = state[3]
         heard = given[:HEADER_LIMIT]
         kept: list[dict] = []
         spent, at = 0, 0
@@ -666,15 +691,17 @@ def _forms(spellings: list[str]) -> frozenset[str]:
     return frozenset(hidden_forms(spellings))
 
 
-def _scan(read: str, secrets, lengths, fit: int) -> list[tuple[int, int]]:
-    """Every occurrence in ``read`` of every secret no longer than ``fit``:
-    one ``find`` pass per such secret, which is what masking costs."""
-    spans = []
-    for secret in secrets[bisect.bisect_left(lengths, -fit) :]:
-        at = read.find(secret)
-        while at != -1:
-            spans.append((at, at + len(secret)))
-            at = read.find(secret, at + 1)
+def _unlabelled(forms) -> Forms:
+    """Plain strings as forms with no secret to name: exact, shown as ``MASK``."""
+    label = Label(frozenset(), False)
+    return Forms(dict.fromkeys(forms, label))
+
+
+def _scan(read: str, scanners) -> list:
+    """Every occurrence in ``read`` of every form: `(start, end, ids)`."""
+    spans: list = []
+    for scanner in scanners:
+        spans += scanner.spans(read)
     return spans
 
 
@@ -684,21 +711,12 @@ def _shown(
     """``read`` (the first characters of a text ``whole`` long) with ``spans``
     masked, as `Masker.text` describes, cut to ``cap``."""
     if len(read) < whole and longest > 1:
-        spans.append((len(read) - (longest - 1), len(read)))
+        spans.append((len(read) - (longest - 1), len(read), frozenset()))
     if also is not None and also[0] < len(read):
-        spans.append((also[0], min(also[1], len(read))))
+        spans.append((also[0], min(also[1], len(read)), frozenset()))
     if not spans:
         return read[:cap]
-    spans.sort()
-    out, kept_to, start, end = [], 0, *spans[0]
-    for s, e in spans[1:]:
-        if s <= end:
-            end = max(end, e)
-            continue
-        out += [read[kept_to:start], MASK]
-        kept_to, start, end = end, s, e
-    out += [read[kept_to:start], MASK, read[end:]]
-    return "".join(out)[:cap]
+    return render(read, spans, MASK)[:cap]
 
 
 def _masked(batch: list, state, longest: int) -> list[tuple[str, str]]:
@@ -707,7 +725,7 @@ def _masked(batch: list, state, longest: int) -> list[tuple[str, str]]:
     every text of the batch found in **one** scan, joined on NUL. Neither a
     header text nor a learned form holds one, so no match crosses a join; a
     bound form or a text that does is scanned on its own."""
-    secrets, lengths, nul_free = state
+    _, scanners, nul_free, _ = state
     texts = []  # (read, whole length, cap, password span)
     for name, value, also in batch:
         read = name[: HEADER_NAME_CAP + longest]
@@ -722,12 +740,11 @@ def _masked(batch: list, state, longest: int) -> list[tuple[str, str]]:
         for read in reads:
             starts.append(offset)
             offset += len(read) + 1
-        fit = max(map(len, reads), default=0)
-        for s, e in _scan(NUL.join(reads), secrets, lengths, fit):
+        for s, e, ids in _scan(NUL.join(reads), scanners):
             i = bisect.bisect_right(starts, s) - 1
-            found[i].append((s - starts[i], e - starts[i]))
+            found[i].append((s - starts[i], e - starts[i], ids))
     else:
-        found = [_scan(r, secrets, lengths, len(r)) for r in reads]
+        found = [_scan(r, scanners) for r in reads]
     shown = iter(
         _shown(read, whole, cap, spans, longest, also)
         for (read, whole, cap, also), spans in zip(texts, found, strict=True)
