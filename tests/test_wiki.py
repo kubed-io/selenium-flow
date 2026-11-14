@@ -79,9 +79,12 @@ def test_no_page_is_shadowed_by_a_file_in_a_subdirectory():
     notes live in docs/notes/ and are suffixed `.notes.md` for exactly that
     reason; this keeps a bare `<tool>.md` from coming back.
     """
-    top = {p.stem for p in WIKI.glob("*.md")}
+    # GitHub resolves a page name without regard to case.
+    top = {p.stem.lower() for p in WIKI.glob("*.md")}
     nested = {
-        p: p.stem for p in WIKI.rglob("*.md") if p.parent != WIKI and ".git" not in p.parts
+        p: p.stem.lower()
+        for p in WIKI.rglob("*.md")
+        if p.parent != WIKI and ".git" not in p.parts
     }
     clashes = [str(p.relative_to(WIKI)) for p, stem in nested.items() if stem in top]
     assert not clashes, (
