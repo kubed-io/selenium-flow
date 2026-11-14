@@ -676,6 +676,7 @@ STATUS_TABLE = (
         (ValueError("not a thing"), 400),
         (RuntimeError("ours"), 500),
         (KeyError("also ours"), 500),
+        (faults.ScrubFailed(), 500),  # spec 2026-11-14-secret-scope: fails closed
     ]
 )
 

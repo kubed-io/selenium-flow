@@ -345,16 +345,36 @@ def scrub_values(obj, forms: Forms):
 
 
 def _deep(obj, forms: Forms):
+    """``obj`` scrubbed all the way down: a tuple, a set and a frozenset keep
+    their type, a named tuple included, so nothing walks past a container a
+    result happens to hold."""
     if isinstance(obj, str):
         return scrub(obj, forms)
     if isinstance(obj, dict):
         return {
-            scrub(key, forms) if isinstance(key, str) else key: _deep(value, forms)
+            _deep(key, forms) if isinstance(key, (str, tuple, frozenset)) else key:
+            _deep(value, forms)
             for key, value in obj.items()
         }
     if isinstance(obj, list):
         return [_deep(value, forms) for value in obj]
+    if isinstance(obj, tuple):
+        items = [_deep(value, forms) for value in obj]
+        if hasattr(obj, "_make"):  # a named tuple takes its fields positionally
+            return obj._make(items)
+        return _rebuilt(obj, items, tuple)
+    if isinstance(obj, (set, frozenset)):
+        base = frozenset if isinstance(obj, frozenset) else set
+        return _rebuilt(obj, [_deep(value, forms) for value in obj], base)
     return obj
+
+
+def _rebuilt(obj, items: list, base: type):
+    """``items`` in ``obj``'s own type, or in ``base`` when that will not take them."""
+    try:
+        return type(obj)(items)
+    except Exception:  # noqa: BLE001 - a subclass with its own constructor
+        return base(items)
 
 
 def taints(text, forms: Forms) -> bool:

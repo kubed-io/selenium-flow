@@ -60,7 +60,7 @@ from urllib.parse import urlsplit
 from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
 from .names import InvalidName, valid_name
 from .redaction import Forms
-from .urls import host_of
+from .urls import host_of, scope_origin, scope_origin_of
 from .workspace import locks
 
 log = logging.getLogger(__name__)
@@ -84,40 +84,17 @@ def origin(url: str) -> str:
 
     Origins, never substrings. ``https://nextcloud.example.com.evil.com``
     contains ``nextcloud.example.com``, and a substring check is exactly how
-    that gets through (§F1.27).
+    that gets through (§F1.27). The rule is `urls.scope_origin`, the one the
+    scrub keys the secrets in scope on, so the two cannot drift apart; a URL
+    that will not parse has no origin, and is allowed nowhere.
     """
-    parts = urlsplit((url or "").strip())
-    if not parts.scheme or not parts.netloc:
-        return ""
-    return _origin(parts)
+    return scope_origin(url)
 
 
 def _origin(parts) -> str:
-    """Scheme, host and port from an already-split URL.
-
-    Built from `hostname` and `port`, never `netloc`: netloc includes
-    **userinfo**, so `https://user:pass@example.com/` would have put a password
-    into the audit log and into every refusal message — and would have compared
-    unequal to the same site without credentials, which is a leash that fails in
-    a confusing direction even though it fails closed.
-    """
-    host = (parts.hostname or "").lower()
-    if not host:
-        return ""
-    try:
-        # `.port` PARSES, and raises for anything out of range — so one
-        # `https://host:99999` line in a permission file would have taken down
-        # catalogue construction instead of being recorded as a rejected line.
-        #
-        # `is not None`, not truthiness: port 0 is an explicit port, and
-        # dropping it would make `https://host:0` compare equal to the same
-        # host on its default port. This is the exact-origin boundary, so an
-        # edge that collapses two origins into one is the kind that matters.
-        declared = parts.port
-    except ValueError:
-        return ""
-    port = f":{declared}" if declared is not None else ""
-    return f"{parts.scheme.lower()}://{host}{port}"
+    """Scheme, host and port from an already-split URL: `urls.scope_origin_of`,
+    which says why it is built from `hostname` and `port` and never `netloc`."""
+    return scope_origin_of(parts)
 
 
 def _shown(line: str) -> str:

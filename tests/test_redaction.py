@@ -150,3 +150,29 @@ def test_scrub_values_sweeps_keys_below_the_top_only():
     assert scrub_values({"s3cr3t": page}, forms) == {
         "s3cr3t": {f"a {M}": 1, "kept": {f"x {M}": [{M: 3}]}}
     }
+
+
+def test_scrub_values_reaches_into_tuples_and_sets_keeping_their_type():
+    from typing import NamedTuple
+
+    class Pair(NamedTuple):
+        left: str
+        right: object
+
+    forms = Forms.of("s3cr3t", ID)
+    shown = scrub_values(
+        {
+            "t": ("a s3cr3t", ["s3cr3t"]),
+            "s": {"s3cr3t", "b"},
+            "f": frozenset({"s3cr3t"}),
+            "n": Pair("s3cr3t", ("s3cr3t",)),
+            "k": {("s3cr3t", 1): "v"},
+        },
+        forms,
+    )
+    assert shown["t"] == (f"a {M}", [M]) and type(shown["t"]) is tuple
+    assert shown["s"] == {M, "b"} and type(shown["s"]) is set
+    assert shown["f"] == frozenset({M}) and type(shown["f"]) is frozenset
+    assert shown["n"] == Pair(M, (M,)) and type(shown["n"]) is Pair
+    assert shown["k"] == {(M, 1): "v"}
+    assert scrub_values(("s3cr3t",), forms) == (M,)
