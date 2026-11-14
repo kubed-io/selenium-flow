@@ -142,9 +142,13 @@ SENTENCES = {
         "through to {detail} behind it. Click a painted part of it (its text "
         "or icon), or the element that carries the interaction."
     ),
+    # Not "it may be the real target": a transparent layer on top really does
+    # take the click (Penpot's comment layer, reproduced for #138), and what to
+    # do is click it, or something inside it, on purpose.
     "invisible_cover": (
         "It exists, but an invisible element, {detail}, is on top of it at "
-        "its centre. It may be the real target{selector}."
+        "its centre and takes the click there. Clicking that, or something "
+        "inside it, may be what you want{selector}."
     ),
     "zero_size": (
         "It exists but has no size, so there is nothing to click. It may still "
@@ -166,7 +170,7 @@ SHORT = {
     "covered": "{detail} is on top of it",
     "overlay": "{detail}, an overlay, is on top of it",
     "unpainted": "it paints nothing at its centre",
-    "invisible_cover": "an invisible {detail} is on top of it",
+    "invisible_cover": "an invisible {detail} on top of it takes the pointer there",
     "zero_size": "it has no size",
     "offscreen": "it is outside the viewport",
     "disabled": "it is disabled",

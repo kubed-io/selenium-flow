@@ -100,8 +100,14 @@ interact(url="https://example.com/settings", action="click", selector={"css": "#
 That is one call instead of navigate-then-click. Use it whenever you know the
 address; clicking a path through a site is for destinations you cannot address.
 
-URLs compare with the fragment and any trailing slash ignored, so `/x`, `/x/`
-and `/x#top` are one page. Query strings count as different.
+`url=` compares host, port, path, hash route, query and credentials: `/x`,
+`/x/` and `/x#top` are one page, `/#/` and `/` are one page, `/#/a` and `/#/b`
+are two, and so are `/x?p=1` and `/x`. A route's own query counts too
+(`#/w?file-id=1`), and `url=https://app/` from `#/dashboard` opens the root
+page.
+
+Moving between hash routes does not reload the page, so wait on something
+only the new screen has (a selector the old screen lacks), not on the load.
 
 Only `http`, `https` and `about:blank` can be opened, here and in `navigate`
 and `open_session`. `file:`, `chrome:`, `view-source:`, `javascript:` and

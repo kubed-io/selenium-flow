@@ -791,3 +791,8 @@ async def test_save_flow_describes_both_places_for_the_model(flow_server):
     properties = tool.parameters["properties"]
     assert properties["sites"]["description"] == places.SITES_DESCRIPTION
     assert properties["paths"]["description"] == places.PATHS_DESCRIPTION
+
+
+async def test_save_flow_says_a_placeless_flow_is_never_named(flow_server):  # ruling 5
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
+    assert "a flow with neither is never named" in tool.description
