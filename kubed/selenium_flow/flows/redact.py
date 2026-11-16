@@ -1,12 +1,8 @@
 """Keeping a value nobody may see out of everything a run says.
 
-A secret is typed into the page and must come back out nowhere: not in a step's
-result, its error, the page it landed on, the run's own URL, or a log line. This
-is the sweep, and it is a security primitive rather than a part of running a
-flow — `secrets.perform_write` uses it for a single bound write as well.
-
-The forms, the marker and the scanner live in `redaction`; this keeps the
-flow-shaped parts: which result fields carry an argument's value back out.
+The forms, the marker and the scanner are `redaction`'s; this adds which result
+fields carry an argument's value back out. `secrets.perform_write` uses it for a
+single bound write as well.
 """
 
 from __future__ import annotations
@@ -19,16 +15,9 @@ from ..redaction import scrub as scrub
 from ..redaction import scrub_values as scrub_values
 from ..redaction import taints as taints
 
-# A result field carries an argument's value back out. Most do it by having the
-# same name — `navigate(url=...)` answers with the page state, whose `url` is
-# the one it was given — and one does it under a different name: `write` reads
-# the field back and returns it as `value`, deliberately, so a caller can
-# confirm the text landed.
-#
-# Both routes have to be closed. Redacting only `value` left a magic-link token
-# bound to `url` coming straight back in the result, in the run's top-level
-# `url`, and — worst of the three — in `Workspaces.touch`, which persists it to
-# Redis as the page a later reopen should return to.
+# A result field carries an argument's value back out under the same name
+# (`navigate(url=...)` answers with `url`) or under these: `write` returns
+# what the field holds as `value`.
 RESULT_FROM_ARGUMENT = {"text": "value", "script": "result"}
 
 
@@ -44,9 +33,8 @@ def redacted_fields(guarded: Iterable[str]) -> set:
 def hidden_forms(values) -> set:
     """Every spelling of each value that a page can echo it in: `escapes` over them.
 
-    Capture's learned credentials (cookies, Authorization tokens) are not
-    catalogued and have no marker to show, so they keep these forms and not the
-    wider set `Forms.of` makes (ruling 19).
+    For capture's learned credentials (cookies, Authorization tokens), which
+    have no catalogue entry and no marker: these forms, not `Forms.of`'s.
     """
     forms = set()
     for value in values:

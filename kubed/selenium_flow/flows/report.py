@@ -1,15 +1,8 @@
 """What a run says about itself: a line per step, a cleaned result, a hint.
 
-The report is as much of the feature as the running is, and it is built from
-what is safe to say rather than from everything with the unsafe parts removed.
 A step's summary takes only the fields `SAFE_IN_SUMMARY` names; its result loses
 the heavy fields and every guarded value; a failed run says where to read about
-the failure.
-
-**Where to read is handed in.** A hint names a reference page by its URI, and
-which URIs exist is the MCP layer's business (`core.guidance.pointer`) rather
-than this module's: `flows.api` hands the function in through `refer_with`, so
-a run imports nothing that knows how the skill is served.
+the failure. `flows.api` hands in how a hint names a page (`refer_with`).
 """
 
 from __future__ import annotations
@@ -21,36 +14,27 @@ from ..redaction import Forms, Id, marker
 from .document import ASSERTION
 from .shape import Shape
 
-# Where to read about a failure, and which prompt repairs it. The reference is
-# for the agent, which reads resources when it decides to; the prompt is for a
-# person, because an agent cannot invoke one - it can only say which to pick
-# (§F2.6).
+# The prompt a person picks to repair a failed flow; an agent cannot invoke one.
 REPAIR_PROMPT = "repair_flow"
 
 # How a run that ran out of budget reports it; `hint_for` reads it back.
 OUT_OF_TIME = "budget before this step"
 
-# Parameter values that may appear in a step's summary. Everything else is
-# omitted rather than redacted, which is the structural version of not leaking:
-# the summary is built from what is safe, so a value can never reach it by
-# being missed. A selector and a URL are how you tell which step ran; `text` is
-# the one an agent most wants to see and the one most likely to be a password.
+# The arguments a step's summary may show. Everything else is omitted, not
+# redacted; `text` shows only its length, or a secret's marker.
 SAFE_IN_SUMMARY = ("url", "selector", "to", "action", "key", "filename", "index")
 
-# Dropped from every step result in a report. A full-page screenshot is over a
-# megabyte of base64, and a run that returned three of them would cost more than
-# the twelve tool calls it replaced. Use screenshot(save=True) and read the file
-# list instead — the run report says when one was kept.
+# Dropped from every step result: a full-page screenshot is over a megabyte of
+# base64. The step's line names a kept file instead.
 HEAVY_FIELDS = ("image",)
 
-# A reference page's file name -> the URI it is read at. None until `flows.api`
-# hands one in; a hint without it names its prompt and no page, which is what
-# it says when the skill is not served at all.
+# A reference page's file name -> the URI it is read at. Without one, a hint
+# names its prompt and no page.
 _pointer: Callable[[str], str] | None = None
 
 
 def refer_with(pointer: Callable[[str], str] | None) -> None:
-    """Say how a hint names a reference page. See the module docstring."""
+    """Say how a hint names a reference page."""
     global _pointer
     _pointer = pointer
 
@@ -58,20 +42,14 @@ def refer_with(pointer: Callable[[str], str] | None) -> None:
 def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
     """Where to look, decided by what failed rather than guessed."""
     error = str(step.get("error") or "")
-    # Before the assertion case: a run that ran out of time before an `assert`
-    # did not fail that assertion, and pointing at how to write one would send
-    # the reader to fix something that never ran (Copilot, #38).
+    # Before the assertion case: running out of time before an `assert` did
+    # not fail it.
     if OUT_OF_TIME in error:
-        # Not a broken page: the flow took longer than it was allowed. Either
-        # it means to wait and should say so, or the step before stalled.
         page, section = "FLOWS.md", "how-long-a-run-may-take"
     elif step.get("tool") == ASSERTION:
-        # The assertion did its job. What to do next is in the message its
-        # author wrote; the reference explains why the run stopped there.
         page, section = "FLOWS.md", "say-what-must-be-true"
     elif "matched" in error:
-        # A locator that found nothing, or found something that cannot be used:
-        # the page has moved under the flow.
+        # A locator found nothing, or nothing usable.
         page, section = "FLOWS.md", "when-a-flow-fails"
     else:
         page, section = "TROUBLESHOOTING.md", ""
@@ -80,13 +58,8 @@ def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
         "prompt": REPAIR_PROMPT,
         "arguments": {"flow": flow, "step": str(step.get("n") or "")},
     }
-    # `read` is a resource URI and nothing else: everything after
-    # `skill://selenium-flow/` is the file path, so an anchor glued on the end
-    # names a file that does not exist. The section travels beside it.
-    #
-    # And it is only there when the skill is actually being served: with
-    # `--mcp-skill false` nothing registers those resources, and a URI
-    # that cannot be read is worse than no URI at all.
+    # `read` is a resource URI, so the section goes beside it, never as an
+    # anchor on it. Only when the skill is served.
     if skill_available and _pointer is not None:
         hint["read"] = _pointer(page)
         if section:
@@ -95,11 +68,7 @@ def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
 
 
 def with_hint(report: dict, skill_available: bool = True) -> dict:
-    """Attach the hint to a failed report, wherever it was built.
-
-    One place, because a run can fail three ways — a refused document, a stale
-    format, or a step — and two of them used to return before the hint existed.
-    """
+    """Attach the hint to a failed report, wherever it was built."""
     steps = report.get("steps") or []
     if report.get("status") == "failed" and steps:
         report["hint"] = hint_for(steps[-1], report.get("flow", ""), skill_available)
@@ -109,15 +78,8 @@ def with_hint(report: dict, skill_available: bool = True) -> dict:
 def refused(document: dict, name: str, why: str, skill_available: bool = True) -> dict:
     """A run that was stopped before step one, reported as a run.
 
-    Preflighted rather than caught mid-loop: a bad document found at step nine
-    would otherwise have run the first eight and then reported `steps_run: 0`,
-    which both half-runs a flow the message says was refused and misstates what
-    happened.
-
-    The document is the one being refused, so its steps are counted by `Shape`:
-    `steps: 1` is a reason to refuse, not a TypeError on the way to saying so.
-    And the reason is reported even when there are no steps to count, or the
-    refusal would say nothing at all.
+    Its steps are counted by `Shape`, since the document may be malformed, and
+    the reason is a step line even when there are no steps.
     """
     return with_hint(
         {
@@ -134,9 +96,8 @@ def refused(document: dict, name: str, why: str, skill_available: bool = True) -
 def summarise(tool: str, kwargs: dict, guarded: dict[str, Id]) -> str:
     """One short line saying what a step did, built from what is safe to say.
 
-    Two filters, not one. The whitelist decides which *fields* could ever be
-    printed; `guarded` then hides the ones whose value came from somewhere it
-    must not come back from, whatever field they landed in.
+    `SAFE_IN_SUMMARY` decides which fields may be shown, and `guarded` hides a
+    secret's value whatever field it is in.
     """
     parts = []
     for key in SAFE_IN_SUMMARY:
@@ -146,8 +107,7 @@ def summarise(tool: str, kwargs: dict, guarded: dict[str, Id]) -> str:
         if key in guarded:
             parts.append(f"{key}={marker([guarded[key]])}")
             continue
-        # A selector is an object with one key in it, so the line reads
-        # `css='button.go'` rather than `selector={'css': 'button.go'}`.
+        # A selector reads `css='button.go'`.
         if isinstance(value, dict):
             parts += [f"{k}={v!r}" for k, v in value.items() if v]
             continue

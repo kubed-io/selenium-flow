@@ -236,7 +236,7 @@ def _type_fits(value, accepted: set[str]) -> bool:
     for name in accepted:
         expected = _JSON_TYPES.get(name)
         if expected is None:
-            return True  # a type we do not model — do not invent a failure
+            return True  # a type not modelled here is not a failure
         if name == "integer" and isinstance(value, bool):
             continue
         if isinstance(value, expected):
