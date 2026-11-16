@@ -20,7 +20,6 @@ import logging
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
 
 from .. import binding, faults, secrets
 from ..binding import SECRET_ARG
@@ -62,8 +61,18 @@ class Toolbox:
     library_arg: Mapping[str, str]
 
 
-class Hooks(Protocol):
-    """What a run tells the code around it, step by step.
+def _ignored(*_args) -> None:
+    return None
+
+
+def _nothing_in_scope(_result) -> Forms:
+    # Secrets off, or a run nobody wired.
+    return Forms()
+
+
+@dataclass(frozen=True)
+class Hooks:
+    """What a run tells the code around it, step by step. Each is optional.
 
     ``before_step(entry, total)`` as each step is about to act; ``entry`` has
     its number, tool, id and scrubbed summary. It must not change anything.
@@ -89,64 +98,17 @@ class Hooks(Protocol):
     fails closed: the step fails with `faults.SCRUB_FAILED` and the run stops.
     """
 
-    def before_step(self, entry: dict, total: int) -> None: ...
+    before_step: Callable[[dict, int], None] = _ignored
+    after_step: Callable[[str, object], None] = _ignored
+    before_save: Callable[[list[str]], None] = _ignored
+    bound: Callable[[Forms], None] = _ignored
+    step_done: Callable[[str, BaseException | None], None] = _ignored
+    in_scope: Callable[[dict | None], Forms] = _nothing_in_scope
 
-    def after_step(self, tool: str, result) -> None: ...
-
-    def before_save(self, pages: list[str]) -> None: ...
-
-    def bound(self, forms: Forms) -> None: ...
-
-    def step_done(self, tool: str, error: BaseException | None) -> None: ...
-
-    def in_scope(self, result: dict | None) -> Forms: ...
-
-
-class Callbacks:
-    """`Hooks` from plain functions, any of which may be absent."""
-
-    def __init__(
-        self,
-        before_step=None,
-        after_step=None,
-        before_save=None,
-        *,
-        bound=None,
-        step_done=None,
-        in_scope=None,
-    ):
-        self._before_step = before_step
-        self._after_step = after_step
-        self._before_save = before_save
-        self._bound = bound
-        self._step_done = step_done
-        self._in_scope = in_scope
-
-    def before_step(self, entry: dict, total: int) -> None:
-        if self._before_step is not None:
-            self._before_step(entry, total)
-
-    def after_step(self, tool: str, result) -> None:
-        if self._after_step is not None:
-            self._after_step(tool, result)
-
-    def before_save(self, pages: list[str]) -> None:
-        if self._before_save is not None:
-            self._before_save(pages)
-
-    def bound(self, forms: Forms) -> None:
-        if self._bound is not None:
-            self._bound(forms)
-
-    def step_done(self, tool: str, error: BaseException | None) -> None:
-        if self._step_done is not None:
-            self._step_done(tool, error)
-
-    def in_scope(self, result: dict | None) -> Forms:
-        """No hook is nothing in scope: secrets off, or a run nobody wired."""
-        if self._in_scope is None:
-            return Forms()
-        return self._in_scope(result)
+    @classmethod
+    def of(cls, **hooks) -> Hooks:
+        """Hooks by name, where None means absent."""
+        return cls(**{name: hook for name, hook in hooks.items() if hook is not None})
 
 
 _UNSET = object()
@@ -472,7 +434,7 @@ def execute(
             catalogue=catalogue,
             library=library,
             toolbox=toolbox,
-            hooks=hooks or Callbacks(),
+            hooks=hooks or Hooks(),
             clock=clock,
         )
         for number, step in enumerate(shape.steps, start=1):

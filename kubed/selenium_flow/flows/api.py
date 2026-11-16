@@ -296,43 +296,21 @@ class Schemas:
 
 
 def run_one(
-    store,
-    actions,
-    workspace: str,
-    name: str,
-    params: dict | None = None,
-    verbose: bool = False,
-    session_id: str = "",
-    after_step=None,
-    secrets_catalogue=None,
-    skill_available: bool = True,
-    before_step=None,
-    stop=None,
-    before_save=None,
-    bound=None,
-    step_done=None,
-    in_scope=None,
+    store, actions, workspace: str, name: str, secrets_catalogue=None, **run_args
 ) -> dict:
-    """Run one flow against an already-resolved browser."""
+    """Run one flow against an already-resolved browser.
+
+    ``run_args`` are `flows.run.run`'s keyword arguments, ``session_id`` among them.
+    """
     document = read_one(store, workspace, name)
     report = flowrun.run(
         actions,
         document,
-        session_id,
-        params=params,
-        verbose=verbose,
-        after_step=after_step,
-        before_step=before_step,
-        stop=stop,
-        before_save=before_save,
-        bound=bound,
-        step_done=step_done,
-        in_scope=in_scope,
         catalogue=secrets_catalogue,
-        skill_available=skill_available,
         # The caller's library, not `document["workspace"]`: a flow read from
         # `global` still uploads a file this caller kept.
         library=workspace,
+        **run_args,
     )
     return {"workspace": document["workspace"], **report}
 

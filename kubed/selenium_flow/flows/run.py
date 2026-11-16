@@ -39,21 +39,15 @@ def run(
     params: dict | None = None,
     verbose: bool = False,
     timeout: int | None = None,
-    after_step=None,
     catalogue=None,
     skill_available: bool = True,
     library: str = "",
-    before_step=None,
     stop=None,
-    before_save=None,
-    bound=None,
-    step_done=None,
-    in_scope=None,
+    **hooks,
 ) -> dict:
     """Run every step of ``document`` against the caller's browser ``session_id``.
 
-    ``after_step``, ``before_step``, ``before_save``, ``bound``, ``step_done``
-    and ``in_scope`` are the `engine.Hooks`, each optional; ``stop`` is a
+    ``hooks`` are the `engine.Hooks` by name, each optional; ``stop`` is a
     `threading.Event` that ends the run at the next step or the next poll of a
     waiting one.
 
@@ -72,10 +66,7 @@ def run(
         # Read through this module, so a test's clock and budget reach the loop.
         clock=time.monotonic,
         default_timeout=RUN_TIMEOUT,
-        hooks=engine.Callbacks(
-            before_step, after_step, before_save, bound=bound, step_done=step_done,
-            in_scope=in_scope,
-        ),
+        hooks=engine.Hooks.of(**hooks),
         params=params,
         verbose=verbose,
         timeout=timeout,
