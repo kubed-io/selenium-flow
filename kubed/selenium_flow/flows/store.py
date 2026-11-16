@@ -145,6 +145,15 @@ def _open_regular(path: Path) -> int:
 open_regular = _open_regular
 
 
+def _unlink(path: Path) -> bool:
+    """Remove ``path``. False if it was not there."""
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def _no_link(exc: OSError) -> bool:
     """Whether a failed ``os.link`` means links are unavailable, not a real fault."""
     return isinstance(exc, PermissionError) or exc.errno in _NO_LINK
@@ -422,11 +431,7 @@ class FlowStore(WorkspaceLayout):
 
     def delete(self, workspace: str, name: str) -> bool:
         """Remove one flow. False if it was not there."""
-        try:
-            self._path(workspace, name).unlink()
-        except FileNotFoundError:
-            return False
-        return True
+        return _unlink(self._path(workspace, name))
 
     # -- the document as text, for the editor --------------------------------
 
@@ -622,11 +627,7 @@ class FileStore(WorkspaceLayout):
         _replace(path, json.dumps(note))
 
     def delete_note(self, workspace: str, grid_id: str) -> bool:
-        try:
-            self._note_path(workspace, grid_id).unlink()
-        except FileNotFoundError:
-            return False
-        return True
+        return _unlink(self._note_path(workspace, grid_id))
 
     def notes(self, on_error=None) -> list[tuple[str, str, dict]]:
         """Every owed recording, as ``(workspace, grid_id, note)``. A note that is
@@ -749,11 +750,7 @@ class FileStore(WorkspaceLayout):
 
     def delete_file(self, workspace: str, name: str, folder: str = FILES_DIR) -> bool:
         """Remove one file. False if it was not there."""
-        try:
-            self._file_path(workspace, name, folder).unlink()
-        except FileNotFoundError:
-            return False
-        return True
+        return _unlink(self._file_path(workspace, name, folder))
 
     def clear_folder(self, workspace: str, folder: str) -> int:
         """Delete every file in one folder, returning how many went.
