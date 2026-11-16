@@ -1,51 +1,41 @@
 """Which browser a caller means, and the name that says so.
 
-**Every workspace is named, and the caller supplies the name.** There is one
-contract, on both surfaces: say who you are, and the server hands you the
-browser that belongs to that name. Nothing here invents a name, and the Grid's
-own session id is never part of the contract — it is an implementation detail
-of how a browser is reached, held in the record beside the name.
+Every workspace is named, and the caller supplies the name: nothing here invents
+one. The Grid's session id is never part of the contract; it is held in the
+record beside the name.
 
-A name arrives one of two ways, and they are the two things any client can set:
+A name arrives one of two ways:
 
-1. **``Sf-Workspace``**, a header — what an admin pins inside a credential when
-   one credential should mean one workspace. Behind agentgateway, the gateway
-   sets ``Sf-Workspace``, from ``?workspace=``, the caller's ``Sf-Workspace``,
-   its ``X-Workspace`` or the token's user, and drops the query string. A
-   caller's other old ``X-`` headers cross and are refused.
-2. **``?workspace=<name>``**, on the URL. The ergonomic path: one shared bearer
-   credential, each caller naming itself in its own URL.
+1. ``Sf-Workspace``, a header: what an admin pins inside a credential when one
+   credential should mean one workspace. Behind agentgateway, the gateway sets
+   it from ``?workspace=``, the caller's ``Sf-Workspace``, its ``X-Workspace``
+   or the token's user, and drops the query string.
+2. ``?workspace=<name>``, on the URL: one shared bearer credential, each caller
+   naming itself in its own URL.
 
-``X-Workspace`` is accepted as an alias of ``Sf-Workspace``, for a client such as a
+``X-Workspace`` is an alias of ``Sf-Workspace``, for a client such as a
 Claude.ai connector that can only send allowlisted header names, and
-``Sf-Workspace`` wins when both are sent (spec 2026-11-12-x-workspace-alias).
-The other old ``X-`` headers are refused with the new spelling rather than
-ignored (spec 2026-10-29-sf-headers, ruling 2).
+``Sf-Workspace`` wins when both are sent. The other old ``X-`` headers are
+refused with the new spelling.
 
-**Both at once is refused**, rather than one quietly winning. A request
-carrying two names has two ideas about who is calling, and picking one hides
-that from whoever wired it up — and so is one name given twice with two values,
-``?workspace=a&workspace=b``, for the same reason. Neither is refused too, with a
-message saying how to name yourself.
+Both at once is refused, and so is one name given twice with two values
+(``?workspace=a&workspace=b``): such a request has two ideas about who is
+calling. Neither is refused too, with a message saying how to name yourself.
 
-The request is read **once, at the edge** — a tool, a route — into a
-:class:`Caller`, and that is what everything below takes. Nothing here reads
-the request itself.
+The request is read once, at the edge (a tool, a route), into a :class:`Caller`,
+and that is what everything below takes.
 
-On **stdio** there is no request to read, and one process serves exactly one
-client, so the name is the transport's own: :data:`STDIO_NAME`. That is not a
-generated name — it is a constant, decided by how the server was started.
+On stdio there is no request, and one process serves one client, so the name is
+the constant :data:`STDIO_NAME`.
 
-What is deliberately *not* used is ``Context.session_id``. When it cannot find a
-real session it falls back to ``str(uuid4())``, so it never fails — it just
-returns a brand new key on every call, which silently leaks one browser per tool
-call. Reading the header ourselves means a missing name is visible as one.
+``Context.session_id`` is not used: when it cannot find a real session it
+returns a new ``str(uuid4())`` on every call, which would leak one browser per
+tool call.
 
-**The name is validated where it arrives**, by the same rule that validates a
-flow library's directory, because a workspace name *is* that directory. So
-everything downstream — the browser record, the flow library, the kept files —
-can take the name as given, and there is no third answer for a name that is
-usable as one and not the other (§F2.12).
+The name is validated where it arrives, by the rule that validates a flow
+library's directory, because a workspace name is that directory. Everything
+downstream (the browser record, the flow library, the kept files) takes the name
+as given.
 """
 
 from __future__ import annotations
@@ -95,9 +85,8 @@ RECORDING_OFF = (
 
 CAPTURE_OFF = "Capture is not set up on this server."
 
-# A headless browser draws nothing for the recorder to film (spec
-# 2026-10-28-headless, ruling 4). The second says where headless came from
-# when this call did not pass it, so the caller knows what to clear.
+# A headless browser draws nothing for the recorder to film. The second is for
+# headless remembered from an earlier open, so the caller knows what to clear.
 HEADLESS_RECORD = (
     "a headless browser draws nothing to film: "
     "record=true cannot be asked with headless=true"
@@ -113,9 +102,8 @@ FROM_RESULT = object()
 
 # What a result carries that is not text a page spelt, set aside from the
 # scrub and put back (`Workspaces._scrubbed`): a captured site data save,
-# which `settle` stores and strips and a restore needs exactly as read; and a
-# screenshot's pixels, which cannot be scrubbed (spec 2026-11-14-secret-scope,
-# ruling 12) and which a match would only corrupt.
+# which a restore needs exactly as read, and a screenshot's pixels, which a
+# match would only corrupt.
 _NOT_TEXT = (site_data_module.CAPTURED,)
 _PIXELS = ("image",)
 
@@ -123,7 +111,7 @@ _PIXELS = ("image",)
 class Said(NamedTuple):
     """One said call's answer (`Workspaces._said`): its result, scrubbed; the
     page hint, or None; and whether the result's URL carried a value, so is
-    withheld from the record (ruling 21)."""
+    withheld from the record."""
 
     result: dict
     page: dict | None
@@ -138,22 +126,16 @@ REPLACED_BEFORE_SAVE = (
     "another session took over this workspace before the save landed: nothing was saved"
 )
 
-# A client names its workspace with either of these. The query parameter is the
-# one most clients can set, since an MCP server is usually configured by URL.
 NAME_PARAM = "workspace"
 WORKSPACE_HEADER = "sf-workspace"
-# The one alias (spec 2026-11-12-x-workspace-alias, ruling 5): Claude.ai's
-# connectors can send only allowlisted header names, and `x-workspace` is one
-# where `sf-workspace` is not. Read only when `Sf-Workspace` gives nothing, so
-# the canonical name wins.
+# Claude.ai's connectors can send only allowlisted header names, and
+# `x-workspace` is one where `sf-workspace` is not. Read only when
+# `Sf-Workspace` gives nothing.
 WORKSPACE_ALIAS = "x-workspace"
 
-# The old X- names (spec 2026-10-29-sf-headers, ruling 2): refused, not
-# ignored, so a client wired the old way hears it on its first call rather than
-# as "name your workspace".
-# Keyed by the spelling a person reads; a request's headers are looked up by
-# the lowercase. The refusal follows this order. `X-Workspace` is not among
-# them: it is `Sf-Workspace`'s alias.
+# Refused, so a client wired the old way hears it on its first call rather
+# than as "name your workspace". Keyed by the spelling a person reads; a
+# request's headers are looked up lowercased. The refusal follows this order.
 OLD_HEADERS = {
     "X-Browser": "Sf-Browser",
     "X-Version": "Sf-Version",
@@ -164,8 +146,7 @@ OLD_HEADERS = {
 }
 RENAMED = "`{old}` is now `{new}`: rename the header"
 
-# The name a stdio caller has. One process, one client, so a constant is
-# exactly right and there is nothing to tell apart.
+# The name a stdio caller has: one process serves one client.
 STDIO_NAME = "stdio"
 
 UNNAMED = (
@@ -199,19 +180,15 @@ CLIENT_HEADERS = {
 class Caller:
     """Who is calling, read once at the edge of a request and handed in.
 
-    Everything below the edge takes one of these rather than reading the
-    request itself, so the rule for naming a workspace lives in exactly one
-    place (:meth:`from_request`) and the manager can be driven by any host.
-
     A request that names no workspace, or names it badly, still makes a caller:
     reading the shared flow library and listing tools need no name, so the
     refusal waits until something asks for :attr:`name` (or, for a name that
     is malformed or given twice, :attr:`library`).
 
-    ``named_by`` exists for the log line and the status resource: when workspaces
-    misbehave, the first question is always which mechanism supplied the name.
-    ``client`` is the calling client's ``clientInfo`` name, or "". ``flags``
-    is what the client declared about itself (``resources``), as it said it.
+    ``named_by`` says which mechanism supplied the name, for the log line and
+    the status resource. ``client`` is the calling client's ``clientInfo``
+    name, or "". ``flags`` is what the client declared about itself
+    (``resources``), as it said it.
     """
 
     named: str = ""
@@ -225,7 +202,7 @@ class Caller:
         default=({}, {}), repr=False
     )
     # Who the verified credential says this is (principal.py), or None on an
-    # open server. Carried, not consulted: nothing decides anything from it yet.
+    # open server. Carried, not consulted: nothing decides anything from it.
     principal: Principal | None = None
 
     @classmethod
@@ -285,14 +262,12 @@ class Caller:
 
     @property
     def library(self) -> str:
-        """The flow library this caller is about.
+        """The flow library this caller is about: its own, or the shared one
+        when it named no workspace.
 
-        Its own, or the **shared** one when it named no workspace. That is the
-        one place a missing name is not an error, and it is not an exception
-        to E18 so much as the other half of it: `global` is read-only to
-        everyone (§F1.2), so an unnamed caller can list and read the shared
-        flows and can write nowhere at all. Anything that touches a browser
-        still has to say who it is (§F2.13).
+        `global` is read-only to everyone, so an unnamed caller can list and
+        read the shared flows and write nowhere. Anything that touches a
+        browser still needs a name.
         """
         if self.refusal is not None:
             raise type(self.refusal)(*self.refusal.args)
@@ -336,8 +311,8 @@ def _names(values) -> list[str]:
 
 
 def _last(values: Mapping[str, list[str]], wanted) -> dict[str, str]:
-    """The last value of each name in ``wanted``: a client setting, read as it
-    always has been, where a repeat is the later one."""
+    """The last value of each name in ``wanted``: a repeated client setting is
+    the later one."""
     return {k: v[-1] for k, v in values.items() if k in wanted and v}
 
 
@@ -359,10 +334,9 @@ def values_of(request) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
 class Workspaces:
     """Resolves a named workspace to the browser it holds, through a ``WorkspaceStore``.
 
-    The store maps **name -> record**, and the record carries the Grid session
-    id, the page, and the settings a reopen has to replay. The name is the key
-    in every sense: it is the store key, the flow library's directory, and the
-    only identifier a caller ever sees.
+    The store maps name -> record, and the record carries the Grid session id,
+    the page, and the settings a reopen has to replay. The name is the store
+    key, the flow library's directory, and the only identifier a caller sees.
     """
 
     def __init__(
@@ -382,12 +356,10 @@ class Workspaces:
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
-        # Whether this server serves the skill. The status points at a reference
-        # for the caller to read, and a skill:// URI nobody can read teaches an
-        # agent the manual is broken (Copilot, #36).
+        # Whether this server serves the skill the status points at: a skill://
+        # URI nobody can read teaches an agent the manual is broken.
         self.skill_available = skill_available
-        # The operator's floor for a new session, from the config's session
-        # section. See `workspace/settings.py` for where this sits in the cascade.
+        # The operator's floor for a new session (`workspace/settings.py`).
         self.defaults = dict(defaults or {})
         # Who files a recorded browser's video (`recordings.Collector`), or None
         # when recording is off. Told on open; it owns no browser.
@@ -404,9 +376,8 @@ class Workspaces:
         # (`live.control.Controls`, duck-typed: ``refusal(session_id, tool)``),
         # or None, which refuses nothing: a unit test's manager.
         self.control = control
-        # What every call says as it finishes, and what it leaves on its
-        # result (`workspace.calls`); it refuses a call a person's control
-        # forbids before saying anything.
+        # Says every call (`workspace.calls`), and refuses one a person's
+        # control forbids.
         self.calls = Calls(monitor=monitor, capture=capture, control=control)
         # Which saved flows say they apply to a page, by workspace and URL
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
@@ -416,13 +387,12 @@ class Workspaces:
         # 0 keeps nothing. With the node's own timeout it is the window a reopen
         # is judged against: idle past it is a reap, inside it a lost browser.
         self.keep_alive = keep_alive
-        # Where each workspace's browser is, and the secrets in scope there
-        # (spec 2026-11-14-secret-scope). ``catalogue`` is the secrets
-        # catalogue, duck-typed (`forms_for`, `leashed`, `revision`), or None
-        # with secrets off: then every answer is left as it is, unscanned. The
-        # scrubber is the first to hear an origin change, and reads its
-        # secrets then; both forget a browser after the workspace's TTL (a
-        # store from before `ttl` joined the protocol has the default one).
+        # Where each workspace's browser is, and the secrets in scope there.
+        # ``catalogue`` is the secrets catalogue, duck-typed (`forms_for`,
+        # `leashed`, `revision`), or None with secrets off: then every answer is
+        # left unscanned. The scrubber is the first to hear an origin change.
+        # Both forget a browser after the workspace's TTL (the default for a
+        # store without `ttl`).
         ttl = getattr(self.store, "ttl", DEFAULT_TTL_SECONDS)
         self.origins = Origins(ttl=ttl)
         self.scrubber = Scrubber(catalogue, capture, origins=self.origins, ttl=ttl)
@@ -447,11 +417,11 @@ class Workspaces:
         frame: bool,
         done: Callable[[Forms | None], object],
     ) -> None:
-        """Capture heard ``session_id`` start a navigation to ``url`` (source 2,
-        ruling 8): note it, and hand ``done`` the forms of the secrets in scope
-        there once they are read, or None when they cannot be. With no URL the
-        origin is unknown, and ``done`` gets every leashed secret (ruling 9).
-        Read off the caller's thread either way, so it is safe on the loop."""
+        """Capture heard ``session_id`` start a navigation to ``url``: note it,
+        and hand ``done`` the forms of the secrets in scope there once they are
+        read, or None when they cannot be. With no URL the origin is unknown,
+        and ``done`` gets every leashed secret. Read off the caller's thread
+        either way, so it is safe on the loop."""
         origin = self.origins.arrived(workspace, session_id, url, frame=frame)
         if origin is None:
             self.scrubber.every(done)
@@ -466,13 +436,9 @@ class Workspaces:
     def describe(self, caller: Caller) -> dict:
         """What this workspace is, and whether it currently holds a browser.
 
-        Deliberately side-effect free: reading a status resource must never open
-        a browser, so this peeks at the store rather than going through
-        ``resolve``. The Grid's session id is not in it — that is the whole
-        point of E18 — so what a caller reads back is what it may say.
-
-        Scrubbed as a resource is (spec 2026-11-14-secret-scope, ruling 16),
-        so `workspace://current` and its REST route answer alike.
+        Never opens a browser: it peeks at the store rather than going through
+        ``resolve``. The Grid's session id is not in it. Scrubbed as a resource
+        is, so `workspace://current` and its REST route answer alike.
         """
         return self.scrubber.resource(caller.name, self._described(caller))
 
@@ -504,21 +470,16 @@ class Workspaces:
 
         status["url"] = record.url or None
         # From the record, like `url`: a page that moved by itself since the
-        # last call is not reflected (ruling 25).
+        # last call is not reflected.
         here = self._hinted(name, record.url)
         if here:
             status["flows_here"] = here
         status["settings"] = dict(record.settings or {})
-        # Reported at the top level as well as inside settings, because "which
-        # browser am I driving" is the question this resource exists to answer
-        # and a caller should not have to know it is stored as a setting. A
-        # record written before browsers were selectable has none, and that
-        # workspace really is using the default one.
+        # At the top level too: "which browser am I driving" is what this
+        # resource answers. A record without one is on the default browser.
         status["browser"] = status["settings"].get("browser") or DEFAULT_BROWSER
-        # Same reasoning for the window: "how big is the page I am looking at"
-        # is a question an agent has to answer before it can judge whether
-        # something is off-screen or a layout has collapsed, and it should not
-        # have to dig it out of settings or take a screenshot to find out.
+        # The window too: an agent needs it to judge whether something is
+        # off-screen, without a screenshot.
         status["window"] = record.window
         # The idle timeout the Grid gave the last session: kept when it has
         # ended, like the window, because it is what the next one will get.
@@ -529,10 +490,8 @@ class Workspaces:
         saved = site_data_module.summary(record.site_data)
         if saved is not None:
             status["site_data"] = saved
-        # A record with no browser is an ordinary state, not a broken one: the
-        # Grid reaped it or an admin ended it, and the context it left behind is
-        # what the next open_session reads (it carries over only the caller's own
-        # settings).
+        # A record with no browser is an ordinary state: the Grid reaped it or
+        # an admin ended it.
         status["live"] = (
             self.actions.grid.is_alive(record.session_id) if record.attached else False
         )
@@ -547,8 +506,7 @@ class Workspaces:
                 "console": 0, "network": 0, "errors": 0, "failed_requests": 0,
             }
         if status["live"]:
-            # Only worth a round trip when there is a live browser to ask, and
-            # one reconnect answers both questions.
+            # One reconnect answers both.
             try:
                 driver = self.actions.grid.reconnect(record.session_id)
                 status["in_frame"] = in_frame(driver)
@@ -564,7 +522,7 @@ class Workspaces:
         """What this workspace's browsers logged and fetched, as one view.
 
         A workspace that does not capture answers with how to turn it on, which
-        is an answer and not an error (spec §7). One that does, and has seen
+        is an answer and not an error. One that does, and has seen
         nothing yet, answers with an empty view. ``capturing`` says whether the
         connection is held right now: false while it is being re-held, so a quiet
         buffer is not mistaken for a quiet page.
@@ -599,19 +557,17 @@ class Workspaces:
         capturing = bool(
             record.attached and self._told("capturing", record.session_id)
         )
-        # Scrubbed as a resource is (ruling 16); the answer above, for capture
-        # off, is this server's own words and is not.
+        # Scrubbed as a resource is; the answer for capture off is this
+        # server's own words and is not.
         return self.scrubber.resource(name, {**view, "capturing": capturing})
 
     def browser(self, name: str) -> str:
         """The Grid id this workspace is driving, or "" if it holds no live one.
 
-        For the callers that need the browser but must never *open* one — the
-        file listing, which exists to keep answering after a browser is gone.
-        A reaped browser keeps its id in the record until something refreshes
-        it, so liveness is asked rather than assumed: trusting the id would dial
-        the Grid for a browser that is gone and fail the listing in precisely
-        the state kept files exist to survive.
+        For callers that need the browser but must never open one, such as the
+        file listing, which keeps answering after a browser is gone. A reaped
+        browser keeps its id in the record until something refreshes it, so
+        liveness is asked of the Grid.
         """
         record = self.store.get(name)
         if record is None or not record.attached:
@@ -622,9 +578,8 @@ class Workspaces:
     def resolve(self, name: str) -> str:
         """The Grid session id ``name`` is driving, reopening a reaped browser.
 
-        Nothing here opens a *first* browser. ``open_session`` is the one place
-        that happens, and hiding it behind a first use hid the only place a
-        session's settings could be chosen.
+        Never opens a first browser: ``open_session`` is the one place that
+        happens, since it is where a session's settings are chosen.
         """
         return self.resolved(name)[0]
 
@@ -633,9 +588,8 @@ class Workspaces:
         read off the same record: what a call says it ran on."""
         record = self.store.get(name)
         if record is None or not record.attached:
-            # Detached reads the same as absent on purpose. A caller is told it
-            # has no browser and calls open_session, which is the one path that
-            # opens one — and which takes what the caller passed, and the page.
+            # Detached reads as absent: the caller is sent to open_session, the
+            # one path that opens a browser.
             raise faults.NoSession(
                 f"no session is open in workspace {name!r} yet: call open_session "
                 "first. It takes the window size and timeouts this session "
@@ -654,14 +608,13 @@ class Workspaces:
             failure = exc
         # Outside the `except` (see `_said`): a first page that failed may
         # quote where it landed. No browser holds the slot yet, so every
-        # leashed secret (spec 2026-11-14-secret-scope, ruling 2).
+        # leashed secret.
         self.scrubber.error(name, "", failure, [None])
         raise failure
 
     def _reopen(self, name: str, record: Workspace) -> tuple[str, str]:
-        """`resolved`'s reopen of a browser the Grid reaped, before its scrub."""
-        # The Grid reaped it. Reopen where the caller left off, with the same
-        # settings, so a refresh does not silently change the browser's shape.
+        """`resolved`'s reopen of a browser the Grid reaped, before its scrub:
+        where the caller left off, with the same settings."""
         cause = self._cause(record, time.time())
         log.info(
             "the browser is gone from the grid (%s), reopening for workspace %s",
@@ -677,14 +630,11 @@ class Workspaces:
             # Nobody would hear it (capture was turned off since).
             replay.pop("capture", None)
         # A remembered key an upgrade made owned is refused, saying how to
-        # clear it: dropping it quietly would change the browser's shape
-        # (spec 2026-10-26-session-capabilities, ruling 26).
+        # clear it: dropping it quietly would change the browser's shape.
         session_caps.check(replay.get("capabilities"), remembered=True)
-        # The whole stored set is replayed, whoever set each value, and each
-        # keeps its source: a config value stays the config's, so the next
-        # explicit open reads the config afresh, and a refused version is
-        # blamed on whoever set it (spec 2026-10-27-session-touch-ups,
-        # rulings 1, 4 and 11).
+        # The whole stored set is replayed, and each value keeps its source: a
+        # config value stays the config's, so the next explicit open reads the
+        # config afresh, and a refused version is blamed on whoever set it.
         sources = {
             k: record.set_by.get(k, settings_module.CALLER) for k in replay
         }
@@ -697,11 +647,9 @@ class Workspaces:
             **({"site_data": saved} if saved else {}),
             **replay,
         )
-        # Nobody asked for this reopen, so the first result after it says so:
-        # the record holds the notice until `touch` hands it over.
-        # A reopen alongside this one may bind first; then act on its browser.
-        # The settings this browser was opened with: without `record` when
-        # recording is off, so nothing reports a video nobody is making.
+        # Nobody asked for this reopen, so the record holds a notice until
+        # `touch` hands it to the first result. A reopen alongside this one may
+        # bind first; then this acts on its browser.
         timeout = self._timeout_of(opened["session_id"])
         reopened_at = opened.get("url", record.url or "")
         kept = self.remember(
@@ -719,8 +667,8 @@ class Workspaces:
         )
         if kept == opened["session_id"]:
             # The same workspace on the same pages: the reaped browser's secret
-            # forms go with it, and the new one starts unframed, then is on
-            # the page it reopened at (spec 2026-11-14-secret-scope).
+            # forms carry over, and the new one starts unframed on the page it
+            # reopened at.
             self.scrubber.carry(name, record.session_id, kept)
             self.origins.opened(name, kept)
             self.origins.arrived(name, kept, reopened_at or None)
@@ -761,10 +709,10 @@ class Workspaces:
         """The arguments a recorded open adds: the video's name, and a note
         for the collector the moment the browser exists, marked ``discard``.
 
-        Provisional: the caller notes it again without the mark once the
-        workspace holds the browser. Until then its video is no workspace's, and
-        it stays that way when the open fails after the Grid made the browser
-        or a concurrent open binds first and this one is quit (Copilot, #59)."""
+        The caller notes it again without the mark once the workspace holds the
+        browser. Until then its video is no workspace's, and stays so when the
+        open fails after the Grid made the browser, or a concurrent open binds
+        first and this one is quit."""
 
         def created(grid_id: str) -> None:
             try:
@@ -784,7 +732,7 @@ class Workspaces:
 
     def _timeout_of(self, session_id: str) -> int | None:
         """The idle timeout the Grid gives this session, or None when it will
-        not say. Never fails the open that asks (session monitor spec, §6)."""
+        not say. Never fails the open that asks."""
         try:
             return self.actions.grid.session_timeout(session_id)
         except Exception as exc:  # noqa: BLE001 - a fact to show, not to need
@@ -798,13 +746,12 @@ class Workspaces:
         """``actions.open_session``, attaching capture first when ``settings``
         ask for it.
 
-        A failed attach is the open's failure, as a 503; so is a monitor that
-        was never started, never a 500. Whatever fails once the browser exists
-        — the attach, or the first page timing out after it — the open quits
-        the browser, and the capture hold is released, a hold that completed
-        just as the attach gave up included: no watch is left on a browser
-        nobody was handed. The session is announced ended only once its quit
-        is done (``on_quit``); after a quit that failed it may still run."""
+        A failed attach, or a monitor that was never started, fails the open as
+        a 503. Whatever fails once the browser exists (the attach, or the first
+        page timing out after it), the open quits the browser and releases the
+        capture hold, including one that completed just as the attach gave up.
+        The session is announced ended only once its quit is done
+        (``on_quit``); after a quit that failed it may still run."""
         if not settings.get("capture"):
             return self.actions.open_session(**kwargs)
         browser = settings.get("browser") or DEFAULT_BROWSER
@@ -834,9 +781,7 @@ class Workspaces:
             raise
 
     def _told(self, what: str, *args, **kwargs):
-        """Tell the monitor ``what``, when there is one. **Never fails the
-        caller**: a monitor that raises is logged by its type (the arguments
-        name a Grid id) and the call carries on."""
+        """Tell the monitor ``what``, when there is one; never fails (`told`)."""
         return told(self.monitor, what, *args, **kwargs)
 
     def _ended(self, name: str, session_id: str, cause: str) -> None:
@@ -867,21 +812,18 @@ class Workspaces:
         """Run ``call(session_id)`` as one said call: the result, scrubbed, the
         page hint (or None), and whether the result's URL was withheld.
 
-        The one bracket every host of a call shares, so they cannot drift: the
-        call holds the session's turn from before it begins to after it ends
-        (the lock is reentrant; `Recipe.run` inside takes it again for free),
-        so its window is its own. With its turn, it is refused if a person
-        holds the browser — so a call that queued before they asked is refused
-        when its turn comes, never begun (live control spec, rulings 14, 32,
-        33) — else begun, run, and ended with or without its error. Reads take
-        their turn too, and answer.
+        The bracket every host of a call shares. The call holds the session's
+        turn from before it begins to after it ends (the lock is reentrant, so
+        `Recipe.run` inside takes it again for free). With its turn, it is
+        refused if a person holds the browser, so a call that queued before
+        they asked is refused when its turn comes, never begun. Reads take
+        their turn too.
 
-        Still inside the turn, its answer goes through the scrubber (spec
-        2026-11-14-secret-scope, "The choke point"): the result's URL and
-        ``in_frame`` are noted first, then the result is scrubbed with the
-        secrets in scope on the origins before and after the call, or an error
-        with those before and every leashed secret. A scrub that fails is
-        `faults.ScrubFailed`, raised instead of the answer.
+        Still inside the turn, the answer goes through the scrubber: the
+        result's URL and ``in_frame`` are noted first, then the result is
+        scrubbed with the secrets in scope on the origins before and after the
+        call, or an error with those before and every leashed secret. A scrub
+        that fails raises `faults.ScrubFailed` instead of the answer.
         """
         with locks.driving(session_id):
             before = self.origins.current(name, session_id)
@@ -917,10 +859,10 @@ class Workspaces:
 
     def scrubbed(self, name: str, call: Callable[[], object]):
         """``call()``'s answer, or its failure, checked for secrets as a resource
-        read is (spec 2026-11-14-secret-scope, ruling 16): for what is not a
-        call on the browser but may still carry a page's words - a site-data
-        snapshot, a file listing, a flow saved, a file kept. Every leashed
-        secret, and what the workspace holds; ``name`` may be "" (none named).
+        read is: for what is not a call on the browser but may still carry a
+        page's words (a site-data snapshot, a file listing, a flow saved, a file
+        kept). Every leashed secret, and what the workspace holds; ``name`` may
+        be "" (none named).
 
         Blocking. A failure is scrubbed in place and re-raised with its own
         type; one that cannot be scrubbed is `faults.ScrubFailed`.
@@ -940,10 +882,10 @@ class Workspaces:
         self, name: str, session_id: str, result, before: str | None
     ) -> Forms:
         """What a flow step on ``session_id`` that began on ``before`` is
-        scrubbed with (spec 2026-11-14-secret-scope, "Flows"): ``result`` is
-        noted as a call's is - its URL, its ``in_frame`` - then the secrets in
-        scope on the origins before and after it are read. ``result`` is None
-        for a step that raised, whose page is unknown: every leashed secret.
+        scrubbed with: ``result`` is noted as a call's is (its URL, its
+        ``in_frame``), then the secrets in scope on the origins before and after
+        it are read. ``result`` is None for a step that raised, whose page is
+        unknown: every leashed secret.
 
         Blocking, for the run's worker thread. Raises `faults.ScrubFailed`.
         """
@@ -956,14 +898,10 @@ class Workspaces:
         """``result`` noted and scrubbed for a call that began on ``before``;
         and whether its URL carried a value, so must not be recorded.
 
-        What is not text a page spelt is set aside first and put back after:
-        a captured site data save, which `settle` stores and strips and a
-        restore must get back exactly, and a screenshot's pixels, which cannot
-        be scrubbed (ruling 12) and would only be corrupted by a match.
-
-        Then the tool's cut (`actions.CUTS`), on every branch, secrets off
-        too: a text is scrubbed whole and cut after, so a value the cut would
-        go through is masked first and nothing is matched by prefix.
+        What is not text a page spelt (`_NOT_TEXT`, a screenshot's pixels) is
+        set aside first and put back after. Then the tool's cut
+        (`actions.CUTS`), secrets off too: a text is scrubbed whole and cut
+        after, so a value the cut would split is masked first.
         """
         cut = CUTS.get(tool, lambda as_it_is: as_it_is)
         after = self._arrived(name, session_id, result)
@@ -996,24 +934,20 @@ class Workspaces:
     ) -> dict:
         """Resolve this workspace's browser, act on it, remember where it ended up.
 
-        The three steps every action shares, on **both** surfaces. It lives here
-        rather than in each of them because the two used to carry their own copy
-        of it and could therefore disagree: the HTTP surface never touched a
-        record, so it never slid a TTL and never reopened a reaped browser, and
-        that difference was invisible until a workspace expired mid-workflow.
+        The three steps every action shares, on both surfaces, so the surfaces
+        cannot disagree about sliding a TTL or reopening a reaped browser.
 
         ``reshapes`` is for the one action that changes a setting the record
-        *stores* rather than just the page it is on. See :meth:`reshape`.
+        stores rather than just the page it is on. See :meth:`reshape`.
 
         The call takes the session's turn on the browser (`workspace.locks`)
         from its start to its end, and is refused there while a person holds
-        the browser (`faults.Controlled`). Resolving and settling do not need
-        the turn: every record write is a compare-and-set.
+        the browser (`faults.Controlled`). Resolving and settling need no turn:
+        every record write is a compare-and-set.
 
         Every call is said (`workspace.calls`): ``tool`` on ``surface``. With
-        capture on, what the page reported while it held its turn is this
-        call's alone, and comes back as ``page`` — or, when it raised, as a
-        sentence on its error (plan rulings 7, 8).
+        capture on, what the page reported during its turn comes back as
+        ``page``, or, when it raised, as a sentence on its error.
 
         ``closed`` is asked first when no session is open, with the workspace's
         name: a call whose answer went with the browser raises its own refusal
@@ -1030,7 +964,7 @@ class Workspaces:
             result, page, hidden = self._said(
                 name, resolved, kind, call, tool=tool, surface=surface
             )
-            # A URL the scrub changed carried a value: never recorded (ruling 21).
+            # A URL the scrub changed carried a value: never recorded.
             withheld = {"url": None} if hidden else {}
             self.settle(name, result, browser=resolved, reshapes=reshapes, **withheld)
             if page is not None and isinstance(result, dict):
@@ -1044,13 +978,13 @@ class Workspaces:
 
     def paste(self, name: str, text: str) -> dict:
         """Type ``text`` at the element a person focused in this workspace's
-        browser (spec 2026-10-27, ruling 34): ``{"typed": n}``.
+        browser: ``{"typed": n}``.
 
         Never reopens a browser: with none open it is a 404. It takes the
         session's turn, so a call in flight finishes first, and it is never
         refused for control: the person in control is the one pasting, and
         only the admin's paste route, after its own `controlling` check, calls
-        this (live control spec, ruling 3).
+        this.
 
         The page is not recorded: a pasted newline can submit a form and land
         on a URL carrying the text, which is never kept.
@@ -1080,18 +1014,18 @@ class Workspaces:
     ) -> dict:
         """`await_control`'s summary of a hand-back, or of nobody in control
         (``episode`` None): everything but its sentence, which
-        `live.control.await_control` says (live control spec, "The summary").
+        `live.control.await_control` says.
 
         ``episode`` is plain values (`live.control.handed`): who and for how
         long, whether the browser ended under it, and the pages the person
-        reached as heard. The page and its outline are read live, as one
-        said call that answers under control, on the browser this workspace
-        holds now, **never reopening one**: with none live, a hand-back says
-        ``ended`` and carries no page. A page that cannot be read is said in
-        ``page_error``, never raised: the hand-back is said by this answer.
+        reached as heard. The page and its outline are read live, as one said
+        call that answers under control, on the browser this workspace holds
+        now, never reopening one: with none live, a hand-back says ``ended``
+        and carries no page. A page that cannot be read is said in
+        ``page_error``, never raised.
 
-        It settles with the URL withheld (ruling 29): the TTL slides, History
-        is not written. ``visited`` is shaped as History keeps a URL: the last
+        It settles with the URL withheld: the TTL slides, History is not
+        written. ``visited`` is shaped as History keeps a URL: the last
         page whole, credentials cut; earlier ones origin, path and hash route
         (never the route's query).
         """
@@ -1115,9 +1049,8 @@ class Workspaces:
             ]
             summary["dropped"] = int(episode["dropped"])
         if "visited" in summary:
-            # The pages a person reached are on any origin, the browser's or
-            # not: scrubbed as a resource is (ruling 16), with every leashed
-            # secret.
+            # The pages a person reached may be on any origin: scrubbed as a
+            # resource is, with every leashed secret.
             summary["visited"] = self.scrubber.resource(name, summary["visited"])
         session_id = "" if summary["ended"] else self.browser(name)
         if not session_id:
@@ -1178,21 +1111,21 @@ class Workspaces:
     ) -> None:
         """What a finished action means for the record, in place on ``result``.
 
-        **Every record write after an action comes through here**: a single
-        call (`act`), a flow step and the run's pages (`flows/api.run_for`),
-        and a bound write (`secrets.perform_write`). So the capture is stripped
-        and stored, the page recorded and a reopen's notice handed over in one
-        place, and a new consumer cannot forget to forward the notice.
+        Every record write after an action comes through here: a single call
+        (`act`), a flow step and the run's pages (`flows/api.run_for`), and a
+        bound write (`secrets.perform_write`). So the capture is stripped and
+        stored, the page recorded and a reopen's notice handed over in one
+        place.
 
         ``url`` is the page to record: the result's own by default, ``None``
-        to withhold it (§F1.24) — the TTL still slides — or the pages a run
-        reached, in order. ``touch=False`` is for a flow step: the runner
-        records its pages before a save step and at the end rather than after
-        every step, and so carries a reopen's notice on the run, not on a step.
+        to withhold it (the TTL still slides), or the pages a run reached, in
+        order. ``touch=False`` is for a flow step: the runner records its pages
+        before a save step and at the end, and so carries a reopen's notice on
+        the run, not on a step.
 
         ``deliver=False`` writes the record and leaves a held notice held: a
         paste is not the agent's call, and a run's flush before a save step
-        leaves it for the run's own result (ruling 23).
+        leaves it for the run's own result.
 
         ``browser`` is the one that produced ``result``: once the record names
         another, its page is not recorded and its save is not kept.
@@ -1200,16 +1133,15 @@ class Workspaces:
         A result that left the browser on a new page names the flows saved to
         apply there, as ``flows_here``. Whether the page is new is decided by
         the touch, inside the store's ``fn`` against the record as it is then;
-        the flows are asked for outside it, because reading them is slow work.
-        So a withheld page never hints, nor does a step (``touch=False``) or a
-        run's flush before a save (``hint=False``), and ``since`` is the page a
-        run began on, which a flush has moved the record from (rulings 6, 20,
-        24).
+        the flows are asked for outside it, because reading them is slow. So a
+        withheld page never hints, nor does a step (``touch=False``) or a run's
+        flush before a save (``hint=False``); ``since`` is the page a run began
+        on, which a flush has moved the record from.
         """
         if not isinstance(result, dict):
             return
         # Popped before the store is asked anything, so a store that fails
-        # cannot leave the capture — every value — in what the caller gets.
+        # cannot leave the capture, every value, in what the caller gets.
         captured = result.pop(site_data_module.CAPTURED, None)
         told = None
         if touch:
@@ -1239,7 +1171,7 @@ class Workspaces:
             self._save_site_data(name, result, captured, browser)
         except Exception:
             # The caller gets the error, not this result: the reopen's notice
-            # goes back on the record for the next one (Copilot, #51).
+            # goes back on the record for the next one.
             if told:
                 self._hold_again(name, told, browser)
             raise
@@ -1302,9 +1234,9 @@ class Workspaces:
 
         def save(r: Workspace) -> tuple[Workspace | None, dict]:
             if producer is not None and r.session_id != producer:
-                # Another browser holds the workspace now — perhaps one opened
-                # with restore_site_data=false. What this one captured is not
-                # its to keep (Copilot, #50).
+                # Another browser holds the workspace now, perhaps one opened
+                # with restore_site_data=false: what this one captured is not
+                # its to keep.
                 return None, {
                     "cookies": 0, "sites": [],
                     "skipped": [{"reason": REPLACED_BEFORE_SAVE}],
@@ -1340,8 +1272,7 @@ class Workspaces:
 
         Its answer is scrubbed (`_open_browser`), and so is its failure, with
         every leashed secret: a first page that failed may quote where it
-        landed, and no browser holds the slot yet (spec
-        2026-11-14-secret-scope, ruling 2).
+        landed, and no browser holds the slot yet.
         """
         name = caller.name
         failure = None
@@ -1365,9 +1296,8 @@ class Workspaces:
     ) -> dict:
         """`open_browser`, before its failure's scrub.
 
-        The only place a browser is created, and the only place its settings can
-        be chosen, which is why it is never done implicitly. Shared by both
-        surfaces for the same reason :meth:`act` is.
+        The only place a browser is created and its settings chosen. Shared by
+        both surfaces for the same reason :meth:`act` is.
 
         It opens with the cascade in `workspace.settings`: the config and the
         client's defaults as they are now, then what this workspace's caller
@@ -1375,33 +1305,24 @@ class Workspaces:
         over, each stored with its source.
 
         It takes no turn on the browser (`workspace.locks`): it makes one rather
-        than driving it, and the one it replaces goes through `end_browser`.
-        So it is checked directly for a person's control of that one, before
-        anything else: replacing it would take it from under them.
+        than driving it, and the one it replaces goes through `end_browser`. So
+        a person's control of that one is checked directly, before anything
+        else.
         """
         name = caller.name
         self._refuse(caller, "open_session")
-        # What this workspace's caller passed before. It sits between the
-        # client's defaults and the explicit arguments: a caller that names
-        # nothing means "carry on where I was", which is a stronger signal than
-        # a default and a weaker one than an argument it just typed. Only the
-        # caller's own values carry over; the config and the client's headers
-        # are read afresh, so a changed one reaches the next open (spec
-        # 2026-10-27-session-touch-ups, ruling 1).
         previous = self.context(name)
         sources = previous.get("set_by") or {}
-        # Resolved BEFORE the browser being held is ended, because this
-        # validates as well as merges: an explicit browser is checked strictly,
-        # and doing it afterwards meant a typo in `browser=` quit a perfectly
-        # good browser and then failed. A rejected argument must cost nothing.
+        # Resolved before the held browser is ended, because this validates as
+        # well as merges: a typo in `browser=` must not cost a good browser.
         inherited_settings = {
             k: v
             for k, v in (previous.get("settings") or {}).items()
             if k not in ("record", "capture")
             and sources.get(k) == settings_module.CALLER
         }
-        # `sourced` drops a version when a later layer names another browser
-        # (ruling 20 of the capabilities spec), this call's included.
+        # `sourced` drops a version when a later layer names another browser,
+        # this call's included.
         resolved = settings_module.sourced(
             wanted,
             defaults=self.defaults,
@@ -1421,8 +1342,7 @@ class Workspaces:
             raise ValueError(CAPTURE_OFF)
         # An owned key or a vendor block a merge cannot add to: a 400 before
         # the held browser is ended, like a bad `browser=`. One this call did
-        # not pass is the workspace's, and the refusal says how to clear it
-        # (ruling 3).
+        # not pass is the workspace's, and the refusal says how to clear it.
         session_caps.check(
             settings.get("capabilities"),
             remembered=wanted.get("capabilities") in (None, ""),
@@ -1431,23 +1351,21 @@ class Workspaces:
         # where the browser already was, so it is not the caller's to check.
         if url:
             allowed_navigation(url)
-        # A workspace holds one browser. Opening a second without ending the first
-        # leaves it on the Grid referenced by nothing, holding a slot until the
-        # idle timeout — which switching browser did.
+        # A workspace holds one browser: a second opened without ending the
+        # first would hold a Grid slot, referenced by nothing, until the idle
+        # timeout.
         ended = self.end_browser(caller)
         # `fresh` drops only the remembered page. The settings still come
-        # through the cascade above, because coming back as Chrome when the
-        # workspace was using Firefox is a silent change of shape, not a fresh
-        # start - and an explicit `url` is a start the caller named, which
-        # `fresh` has no business overriding.
+        # through the cascade (coming back as Chrome when the workspace was
+        # using Firefox is no fresh start), and an explicit `url` stands.
         inherited = None if as_bool(fresh) else (previous.get("url") or None)
         record = self.store.get(name)
         saved = self._restorable(record) if record else {}
         forgotten = None
         if saved and not as_bool(restore_site_data, True):
-            # Declining a restore is also how saved data is thrown away — but
+            # Declining a restore is also how saved data is thrown away, but
             # only once the clean browser is open, so a failed open cannot
-            # erase a sign-in the caller never got a new browser for.
+            # erase a sign-in.
             forgotten = (site_data_module.summary(saved) or {"sites": 0})["sites"]
             saved = {}
         opened = self._opened(
@@ -1473,19 +1391,18 @@ class Workspaces:
         )
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
-            # the one the workspace holds, not the discarded one (Copilot, #50).
-            # Its provisional note stays, so its video is deleted, not filed.
-            # That open gives its browser the slot itself: this one takes none,
-            # and is scrubbed as a resource is, with every leashed secret.
+            # the one the workspace holds. This one's provisional note stays, so
+            # its video is deleted, not filed. That open gives its browser the
+            # slot itself; this answer is scrubbed as a resource is.
             return self.scrubber.resource(name, self._held(name))
         # This browser holds the workspace now: it starts afresh, unframed, on
-        # the page it opened at (spec 2026-11-14-secret-scope).
+        # the page it opened at.
         self.origins.opened(name, kept)
         self.scrubber.opened(name, kept)
         landed = self.origins.arrived(name, kept, opened.get("url"))
         if self.capture is not None and not settings.get("capture"):
-            # An explicit open without capture is a fresh start for it
-            # (programme R9): what an earlier browser captured is not this one's.
+            # An explicit open without capture is a fresh start for it: what an
+            # earlier browser captured is not this one's.
             self.capture.discard(name)
         self._told(
             "opened", name, kept, settings.get("browser") or DEFAULT_BROWSER, timeout
@@ -1500,19 +1417,18 @@ class Workspaces:
                 )
             except (OSError, ValueError) as exc:
                 # ValueError: `InvalidName` from a link on the note's path. The
-                # browser is open either way, so it is never the caller's 400.
-                # The browser is open and recording on the Grid; only the filing
-                # failed. Said in the result, as `file_error` is for a screenshot,
-                # and never with the path (names a layout nobody asked about).
+                # browser is open and recording either way; only the filing
+                # failed, so it is said in the result, never as a 400 and never
+                # with the path.
                 log.warning(
                     "recording for %s cannot be filed: %s", name, faults.message(exc)
                 )
                 noted = f"this recording cannot be filed: {type(exc).__name__}"
         if forgotten is not None:
             opened["site_data"] = {"forgotten": forgotten}
-        # The Grid's id is dropped here rather than never fetched: it is how the
-        # browser is reached, and it is not part of what a caller is told. So
-        # are what was sent and what ran, which are the admin's.
+        # The Grid's id is how the browser is reached and not part of what a
+        # caller is told; nor are what was sent and what ran, which are the
+        # admin's.
         told = {k: v for k, v in opened.items() if k not in OPEN_PRIVATE}
         told["recording"] = bool(settings.get("record"))
         told["capture"] = bool(settings.get("capture"))
@@ -1521,8 +1437,8 @@ class Workspaces:
         # What it says is checked for the secrets in scope where it opened.
         # Its URL was asked about before it was recorded (`_landing`).
         told, _ = self.scrubber.result(name, kept, told, [landed])
-        # The page it opened on, new or remembered, is a page this caller has
-        # not been told about in this browser (ruling 19).
+        # The page it opened on, new or remembered, is new to this caller in
+        # this browser.
         here = self._hinted(name, told.get("url"), scrubbed=True)
         if here:
             told["flows_here"] = here
@@ -1531,9 +1447,9 @@ class Workspaces:
     def _landing(self, name: str, url: str) -> str:
         """``url``, the page a new browser landed on, as the record may keep it:
         "" when it carries the value of a secret in scope there, or one the
-        workspace holds (ruling 21), and when that cannot be checked - fails
-        closed. Asked before the bind, so nothing is written and taken back:
-        the history keeps the entry it had for that origin."""
+        workspace holds, and when that cannot be checked. Asked before the
+        bind, so nothing is written and taken back: the history keeps the entry
+        it had for that origin."""
         try:
             carries = self.scrubber.carries(name, url)
         except faults.ScrubFailed:
@@ -1580,19 +1496,17 @@ class Workspaces:
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
-        The settings are stored because a reopen has to use the *same* browser,
-        not a default one — swapping Firefox for Chrome, or a 1400x900 window
-        for the node default, midway through a task would be a silent change of
-        shape. A reopen replays them all; ``open_session`` with no arguments
-        inherits only the caller's, and reads the config and the client's
-        defaults afresh (spec 2026-10-27-session-touch-ups, ruling 1).
+        The settings are stored because a reopen has to use the same browser:
+        swapping Firefox for Chrome, or a 1400x900 window for the node default,
+        midway through a task would be a silent change of shape. A reopen
+        replays them all; ``open_session`` with no arguments inherits only the
+        caller's.
 
         ``replacing`` is the browser this open ended or found dead. A record
         naming any other one was bound by an open that ran alongside this one,
-        and the first to bind wins: that browser may already be in its
-        caller's hands, so quitting it would fail a call (Copilot, #50). This
-        one is quit instead — or it would hold a Grid slot referenced by
-        nothing — and its caller is handed the browser that was kept.
+        and the first to bind wins: that browser may already be in its caller's
+        hands. This one is quit instead, or it would hold a Grid slot referenced
+        by nothing, and its caller is handed the browser that was kept.
 
         ``forget_site_data`` is a declined restore: the saved data is erased in
         the same write that binds, so an open that loses erases nothing from
@@ -1602,9 +1516,8 @@ class Workspaces:
         them for this browser until `touch` hands them to the first result. Any
         other bind drops whatever an earlier reopen still held.
 
-        ``set_by`` says who set each of the settings, by key; a setting it
-        does not name is the caller's, which is what handing them in directly
-        means.
+        ``set_by`` says who set each setting, by key; one it does not name is
+        the caller's.
         """
         ttl = self.store.ttl
 
@@ -1614,7 +1527,7 @@ class Workspaces:
                 # Bound first by another open: that browser is the one kept.
                 return None, current
             # Replaced, not rebuilt: a field the record gains later survives a
-            # bind. History (where the workspace has been) survives a new browser.
+            # bind, and so does History.
             fresh = replace(
                 r if r is not None else Workspace(),
                 session_id=session_id,
@@ -1625,7 +1538,6 @@ class Workspaces:
                     for k in (settings or {})
                 },
                 site_data={} if forget_site_data or r is None else dict(r.site_data),
-                # Reset explicitly: any other bind drops an earlier reopen's notice.
                 reopened={"browser": session_id, **reopened} if reopened else {},
                 **({} if opened_by is KEEP else {"opened_by": opened_by}),
                 grid_timeout=grid_timeout,
@@ -1662,22 +1574,17 @@ class Workspaces:
     ) -> dict | None:
         """Record where the browser landed, and slide the record's TTL.
 
-        Called after an action so a later reopen goes back to the right page —
-        the top of the history — and so a workspace in active use does not
-        expire out of the store underneath the caller. Reached through
-        :meth:`settle`; a flow run passes every page it reached, in order.
+        Called after an action (through :meth:`settle`) so a later reopen goes
+        back to the right page, the top of the history, and so a workspace in
+        use does not expire under the caller. A flow run passes every page it
+        reached, in order.
 
-        **No URL still slides the TTL**, and records nothing. The two halves
-        are separate facts: "the browser is somewhere I should not write down"
-        is not "this workspace is idle". A bound write lands on `?q=<the
-        password>` and its URL is deliberately withheld (§F1.24); withholding
-        it used to stop the clock, so a flow that logs in every few minutes —
-        the one thing secrets exist for — expired out of the store while it
-        was being used.
+        No URL still slides the TTL, and records nothing: a bound write lands
+        on `?q=<the password>` and its URL is withheld, and a flow that logs in
+        every few minutes must not expire while it is used.
 
         ``browser`` is the one that produced the result. Once the record names
-        another, this page is not that browser's: the TTL still slides, the
-        history is left alone (Copilot, #50).
+        another, the TTL still slides and the history is left alone.
 
         Returns a silent reopen's notice, ``{"cause", "report"}``, the first
         time this browser is touched after it, and never again.
@@ -1693,9 +1600,9 @@ class Workspaces:
         deliver: bool = True,
     ) -> tuple[dict | None, str | None]:
         """:meth:`touch`, and the page to hint for: the last of ``urls`` with
-        an origin, when its host, port, path or route differs from the page before
-        (ruling 18) — the record's, or ``since`` for a run that flushed its
-        pages part-way (ruling 20). None when there is nothing to hint for.
+        an origin, when its host, port, path or route differs from the page
+        before (the record's, or ``since`` for a run that flushed its pages
+        part-way). None when there is nothing to hint for.
 
         Decided inside the store's ``fn``, against the record as it is at write
         time, with `page_key` only, which is pure and never raises: the hint
@@ -1722,14 +1629,13 @@ class Workspaces:
         return noted if noted is not None else (None, None)
 
     def _hinted(self, name: str, url: str | None, scrubbed: bool = False) -> list[dict]:
-        """The flows saved to apply to ``url``, or [] — the one caller of
-        ``hints``. A hint is never a reason to fail a call (ruling 24), so
-        anything it raises is logged by type and answers [].
+        """The flows saved to apply to ``url``, or []: the one caller of
+        ``hints``. A hint never fails a call: anything it raises is logged by
+        type and answers [].
 
         ``scrubbed`` for a hint put on an answer after its scrub: a flow's
-        description is a caller's words, and is checked as `flow://flows`
-        checks it, as a resource read is (spec 2026-11-14-secret-scope,
-        ruling 16). A scrub that fails drops the hint, never the call.
+        description is a caller's words, checked as a resource read is. A scrub
+        that fails drops the hint, never the call.
         """
         if self.hints is None or not url:
             return []
@@ -1746,10 +1652,9 @@ class Workspaces:
     def reshape(self, name: str, result: dict, browser: str | None = None) -> None:
         """Record the window size an action just gave the browser.
 
-        Only ``resize`` reaches this, because it is the only action that changes
-        something the record *stores* rather than just the page. The stored
-        settings are what a reopen replays, so a resize that stopped at the
-        browser would be silently undone the next time the Grid reaps it.
+        Only ``resize`` reaches this. The stored settings are what a reopen
+        replays, so a resize that stopped at the browser would be undone the
+        next time the Grid reaps it.
         """
         size = {k: result[k] for k in ("width", "height") if result.get(k)}
         if size:
@@ -1781,7 +1686,7 @@ class Workspaces:
 
         As the next write would keep them: a save reads this before its own
         touch prunes, so an origin that aged out since the last call would
-        otherwise still be read and saved (Copilot, #51).
+        otherwise still be read and saved.
         """
         record = self.store.get(name)
         if record is None:
@@ -1791,28 +1696,22 @@ class Workspaces:
     def end_browser(self, caller: Caller, *, admin: bool = False) -> str | None:
         """End the browser a workspace holds, keeping the workspace itself.
 
-        **The one place a browser is ended.** The caller ending its own, the
-        admin End button, and ``open_session`` replacing one all come through
-        here, so what happens to the workspace cannot differ between them: the
-        browser is quit on the Grid and the record is detached, keeping the
-        browser choice and the last page for whatever opens next.
+        The one place a browser is ended: the caller ending its own, the admin
+        End button, and ``open_session`` replacing one. The browser is quit on
+        the Grid and the record detached, keeping the browser choice and the
+        last page for whatever opens next. A workspace is never removed; it
+        expires on ``WORKSPACE_TTL``, slid forward on every use.
 
-        A workspace is never removed here, or anywhere. It expires on
-        ``WORKSPACE_TTL``, slid forward on every use — and it simply reappears on
-        the next call, because the name comes from the caller's own URL or
-        header rather than from anything stored.
+        It never waits its turn (`workspace.locks`): a call driving the browser
+        is told it is ending (a long `assert` raises its cancellation at its
+        next poll) and the browser is quit without waiting for it, since this
+        is the call that exists to interrupt one.
 
-        **It never waits its turn** (`workspace.locks`): a call driving the
-        browser is told it is ending - a long `assert` raises its cancellation
-        at its next poll - and the browser is quit without waiting for it.
-        Queued behind a 900 s `assert`, the call that exists to interrupt one
-        could not.
-
-        **It is refused while a person holds the browser** (live control spec,
-        ruling 11), checked directly since it takes no turn — except the
-        admin's End, which still works: ending the session releases control.
-        ``admin`` says the call is that End, and is passed by its route alone
-        (`http/admin/workspaces.py`); it is also who the record says ended it.
+        It is refused while a person holds the browser, checked directly since
+        it takes no turn, except for the admin's End: ending the session
+        releases control. ``admin`` says the call is that End, and is passed by
+        its route alone (`http/admin/workspaces.py`); it is also who the record
+        says ended it.
 
         Returns the browser that was ended, or None if there was none.
         """
@@ -1829,17 +1728,16 @@ class Workspaces:
             self.actions.end_browser(target)
             quit_ok = True
         except Exception as exc:  # noqa: BLE001 - it is going either way
-            # Already gone, or the Grid is unreachable. Detach regardless: a
-            # record naming a browser that cannot be ended is worse than one
-            # naming nothing, because the next call would try to use it.
-            # By type: an HTTPError quotes the Grid URL, Grid id and all.
+            # Already gone, or the Grid is unreachable. Detach regardless, or
+            # the next call would try to use it. By type: an HTTPError quotes
+            # the Grid URL, Grid id and all.
             log.info(
                 "could not end the browser for workspace %s: %s",
                 name,
                 type(exc).__name__,
             )
         # Ending took a Grid round trip: detach the record as it is now, and
-        # only if it still names this browser — one opened meanwhile stays.
+        # only if it still names this browser: one opened meanwhile stays.
         ended = {
             "at": time.time(),
             "by": "admin" if admin else "caller",
