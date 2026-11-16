@@ -119,6 +119,23 @@ def entered(server, monkeypatch) -> asyncio.Event:
     return event
 
 
+def cancelled(server, monkeypatch) -> asyncio.Event:
+    """Set once a wait for the hand-back is cancelled. A task's status says
+    ``cancelled`` a moment before the worker cancels the coroutine running it."""
+    event = asyncio.Event()
+    wait = server.controls.wait
+
+    async def waiting(workspace, timeout):
+        try:
+            return await wait(workspace, timeout)
+        except asyncio.CancelledError:
+            event.set()
+            raise
+
+    monkeypatch.setattr(server.controls, "wait", waiting)
+    return event
+
+
 def answered_at_once(server, monkeypatch) -> list[str]:
     """The kind of each wait for the hand-back, failing any wait that suspends.
 
@@ -312,6 +329,7 @@ async def test_a_tasks_client_gets_a_task_and_the_summary_at_the_hand_back(
 
 async def test_a_cancelled_wait_leaves_the_episode_holding(server, named, monkeypatch):
     tunnel = await hold(server)
+    stopped = cancelled(server, monkeypatch)
     began = entered(server, monkeypatch)
     async with asyncio.timeout(SOON), Client(server.mcp) as client:
         task = await call_tool_task(client, "await_control")
@@ -322,6 +340,7 @@ async def test_a_cancelled_wait_leaves_the_episode_holding(server, named, monkey
                 break
             await asyncio.sleep(0.02)
         assert (await task.status()).status == "cancelled"
+        await stopped.wait()
         assert server.controls.notice("w1")["state"] == "held"
         hand_back(tunnel)
         # Nobody heard it: the hand-back is still to be said.
