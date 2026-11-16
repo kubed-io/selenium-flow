@@ -351,11 +351,6 @@ def _undeclared_shape(parameters, misplaced: dict[str, dict]) -> list[str]:
     ]
 
 
-def _check_secret(where: str, reference) -> list[str]:
-    """``args.secret``: which secret, and which key inside it."""
-    return [f"{where}: {problem}" for problem in reference_problems(reference)]
-
-
 def _is_whole_reference(value) -> bool:
     """Whether ``value`` is one reference and nothing else.
 
@@ -613,7 +608,7 @@ def _check_step(
     bound = set()
     if binding.binds(args):
         bound = {binding.SUPPLIES}
-        problems += _check_secret(where, secret)
+        problems += [f"{where}: {problem}" for problem in reference_problems(secret)]
         # `binding`'s rule, in two halves so the problems keep their order: the
         # url here, the text with the other arguments (`_check_params`).
         if binding.navigates(args):
