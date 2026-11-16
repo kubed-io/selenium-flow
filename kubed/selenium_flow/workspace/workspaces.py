@@ -279,6 +279,11 @@ class Caller:
         return settings_module.from_client(*self.said)
 
 
+def _kind(settings: Mapping | None) -> str:
+    """The kind of browser ``settings`` open (``chrome``, ``firefox``)."""
+    return (settings or {}).get("browser") or DEFAULT_BROWSER
+
+
 def _measured(opened: dict) -> str | None:
     """The window an open measured its browser at, as ``WxH``, or None."""
     width, height = opened.get("width"), opened.get("height")
@@ -477,7 +482,7 @@ class Workspaces:
         status["settings"] = dict(record.settings or {})
         # At the top level too: "which browser am I driving" is what this
         # resource answers. A record without one is on the default browser.
-        status["browser"] = status["settings"].get("browser") or DEFAULT_BROWSER
+        status["browser"] = _kind(status["settings"])
         # The window too: an agent needs it to judge whether something is
         # off-screen, without a screenshot.
         status["window"] = record.window
@@ -598,9 +603,7 @@ class Workspaces:
 
         if self.actions.grid.is_alive(record.session_id):
             log.debug("browser recalled for workspace %s", name)
-            return record.session_id, (
-                (record.settings or {}).get("browser") or DEFAULT_BROWSER
-            )
+            return record.session_id, _kind(record.settings)
         failure = None
         try:
             return self._reopen(name, record)
@@ -672,25 +675,18 @@ class Workspaces:
             self.scrubber.carry(name, record.session_id, kept)
             self.origins.opened(name, kept)
             self.origins.arrived(name, kept, reopened_at or None)
-            self._told(
-                "opened", name, kept, replay.get("browser") or DEFAULT_BROWSER,
-                timeout, reopened=True,
-            )
+            self._told("opened", name, kept, _kind(replay), timeout, reopened=True)
         # A browser this workspace does not hold keeps its provisional note.
         if replay.get("record") and kept == opened["session_id"]:
             try:
-                self.recordings.expect(
-                    name,
-                    opened["session_id"],
-                    replay.get("browser") or DEFAULT_BROWSER,
-                )
+                self.recordings.expect(name, opened["session_id"], _kind(replay))
             except (OSError, ValueError) as exc:
                 # The browser is open and remembered; failing the caller's
                 # action over the filing would help nobody.
                 log.warning(
                     "recording for %s cannot be filed: %s", name, faults.message(exc)
                 )
-        return kept, replay.get("browser") or DEFAULT_BROWSER
+        return kept, _kind(replay)
 
     def _cause(self, record: Workspace, now: float) -> str:
         """Why a browser is gone: ``reaped`` when the workspace sat idle for the
@@ -716,10 +712,7 @@ class Workspaces:
 
         def created(grid_id: str) -> None:
             try:
-                self.recordings.expect(
-                    name, grid_id, settings.get("browser") or DEFAULT_BROWSER,
-                    discard=True,
-                )
+                self.recordings.expect(name, grid_id, _kind(settings), discard=True)
             except (OSError, ValueError) as exc:
                 # The type alone: the note's path names the Grid id. Never the
                 # open's failure: the browser is made, and the open goes on.
@@ -754,7 +747,7 @@ class Workspaces:
         (``on_quit``); after a quit that failed it may still run."""
         if not settings.get("capture"):
             return self.actions.open_session(**kwargs)
-        browser = settings.get("browser") or DEFAULT_BROWSER
+        browser = _kind(settings)
         tried: list[str] = []
 
         def ready(session_id: str) -> None:
@@ -993,9 +986,7 @@ class Workspaces:
         if not session_id:
             raise faults.NotFound("this workspace has no browser open")
         record = self.store.get(name)
-        kind = ((record.settings if record else None) or {}).get(
-            "browser"
-        ) or DEFAULT_BROWSER
+        kind = _kind(record.settings if record else None)
         result = self._said(
             name,
             session_id,
@@ -1057,9 +1048,7 @@ class Workspaces:
             summary["ended"] = episode is not None
             return summary
         record = self.store.get(name)
-        kind = ((record.settings if record else None) or {}).get(
-            "browser"
-        ) or DEFAULT_BROWSER
+        kind = _kind(record.settings if record else None)
         try:
             read = self._said(
                 name,
@@ -1404,17 +1393,11 @@ class Workspaces:
             # An explicit open without capture is a fresh start for it: what an
             # earlier browser captured is not this one's.
             self.capture.discard(name)
-        self._told(
-            "opened", name, kept, settings.get("browser") or DEFAULT_BROWSER, timeout
-        )
+        self._told("opened", name, kept, _kind(settings), timeout)
         noted = None
         if settings.get("record"):
             try:
-                self.recordings.expect(
-                    name,
-                    opened["session_id"],
-                    settings.get("browser") or DEFAULT_BROWSER,
-                )
+                self.recordings.expect(name, opened["session_id"], _kind(settings))
             except (OSError, ValueError) as exc:
                 # ValueError: `InvalidName` from a link on the note's path. The
                 # browser is open and recording either way; only the filing
