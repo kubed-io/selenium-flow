@@ -133,6 +133,11 @@ class StepOutcome:
     file: object = None
     result: object = _UNSET
 
+    @property
+    def label(self):
+        """How the log names the step: its id, else its tool."""
+        return self.id or self.tool
+
     def entry(self) -> dict:
         line = {"n": self.n, "tool": self.tool}
         for key in ("id", "note", "summary", "ok", "error", "url", "file"):
@@ -471,19 +476,16 @@ def _take(run: Run, call: _Call, number: int, step: dict) -> bool:
     try:
         with locks.driving(call.session_id):
             entered = True
-            return _drive(run, call, number, step, outcome, method)
+            return _drive(run, call, step, outcome, method)
     except cancel.Cancelled:
         if entered:
             raise
         return run.stops(outcome, "the run was cancelled before this step")
 
 
-def _drive(
-    run: Run, call: _Call, number: int, step: dict, outcome: StepOutcome, method
-) -> bool:
+def _drive(run: Run, call: _Call, step: dict, outcome: StepOutcome, method) -> bool:
     """A step's page read, action and report, on the browser alone (`_take`)."""
     tool = step.get("tool")
-    label = step.get("id") or tool
     toolbox = call.toolbox
     try:
         # The page is read only for a step that binds a secret: it costs a
@@ -533,7 +535,7 @@ def _drive(
     try:
         scope = call.hooks.in_scope(None if failure is not None else raw)
     except Exception as exc:  # noqa: BLE001 - fails closed, whatever it was
-        return _unchecked(run, number, label, outcome, exc)
+        return _unchecked(run, outcome, exc)
     forms = run.seen | scope
     if failure is None:
         try:
@@ -543,13 +545,12 @@ def _drive(
         else:
             run.reports.append(outcome.entry())
             return True
-    return _failed(run, call, number, step, outcome, guarded, forms, failure)
+    return _failed(run, call, step, outcome, guarded, forms, failure)
 
 
 def _failed(
     run: Run,
     call: _Call,
-    number: int,
     step: dict,
     outcome: StepOutcome,
     guarded: dict[str, Id],
@@ -558,7 +559,6 @@ def _failed(
 ) -> bool:
     """Record a step that raised ``exc``, scrubbed with ``forms``. True to go on."""
     tool = step.get("tool")
-    label = step.get("id") or tool
     outcome.ok = False
     outcome.summary = scrub(outcome.summary, forms)
     # An action puts its arguments in its error text. One line, as a single
@@ -566,7 +566,11 @@ def _failed(
     outcome.error = scrub(faults.message(exc), forms)
     run.landed(outcome, page_state(call.actions, call.session_id), guarded, forms)
     log.info(
-        "flow %s step %s (%s) failed: %s", run.name, number, label, outcome.error
+        "flow %s step %s (%s) failed: %s",
+        run.name,
+        outcome.n,
+        outcome.label,
+        outcome.error,
     )
     run.reports.append(outcome.entry())
     # Never continued past: an assertion, a cancelled run, or a step refused
@@ -581,9 +585,7 @@ def _failed(
     return False
 
 
-def _unchecked(
-    run: Run, number: int, label, outcome: StepOutcome, exc: Exception
-) -> bool:
+def _unchecked(run: Run, outcome: StepOutcome, exc: Exception) -> bool:
     """End the run at a step whose answer could not be checked for secrets.
 
     The step says only the fixed sentence, none of its result, error, page or
@@ -592,7 +594,7 @@ def _unchecked(
     """
     log.warning(
         "flow %s step %s (%s) could not be checked for secrets: %s",
-        run.name, number, label, type(exc).__name__,
+        run.name, outcome.n, outcome.label, type(exc).__name__,
     )
     outcome.ok = False
     outcome.summary = None
