@@ -1,13 +1,8 @@
-"""Talking to Selenium Grid.
+"""Talking to Selenium Grid: connecting, reattaching to a running session,
+waiting for elements, and reading where the browser is.
 
-Everything that knows about WebDriver lives here: connecting, reattaching to a
-session someone else opened, waiting for elements, and the small coercions that
-keep a caller's loose JSON from crashing a handler.
-
-The browser is stateful, this process is not. A browser lives on the Grid and
-the caller's workspace name leads back to it, which is what lets this server
-scale to zero, restart mid-workflow, or run behind more than one replica without
-losing a browser.
+The browser lives on the Grid and this process holds no state about it, so the
+server can scale to zero, restart, or run as several replicas without losing one.
 """
 
 from __future__ import annotations
@@ -70,17 +65,14 @@ WAIT_POLL = 0.2
 def _socket_options() -> list[tuple[int, int, int]]:
     """urllib3's defaults, plus what makes a pooled connection notice a dead hub.
 
-    The Grid sits behind a Service: a connection kept from the last call is
-    tied to one hub pod, and when that pod dies with its node nothing closes
-    the socket. A request sent on it is retransmitted until the kernel gives up,
-    about 924 s (tcp_retries2), where a fresh connection gave up in about
-    127 s. Keepalive probes after 30 s idle, 10 s apart, three missed, and
-    unacknowledged data abandoned after 60 s, bound that. A long command - a
-    300 s page load, an assert - is not cut short: the hub's kernel answers
-    the probes while the browser works.
+    A pooled connection is tied to one hub pod behind the Service, and when that
+    pod dies nothing closes the socket: a request on it is retransmitted for
+    about 924 s (tcp_retries2). Keepalive probes after 30 s idle, 10 s apart,
+    three missed, and unacknowledged data abandoned after 60 s, bound that. A
+    300 s page load is not cut short: the hub's kernel answers the probes.
 
-    Each option only where the platform has it, so a macOS or Windows install
-    still imports.
+    Each option only where the platform has it, so macOS and Windows still
+    import this.
     """
     options = list(HTTPConnection.default_socket_options)
     options.append((socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1))
@@ -105,25 +97,18 @@ class _GridAdapter(HTTPAdapter):
         kwargs["socket_options"] = SOCKET_OPTIONS
         super().init_poolmanager(*args, **kwargs)
 
-# How long to give a keystroke-triggered navigation to commit before concluding
-# there was not one. See `settled`. Short on purpose: every Enter that navigates
-# nowhere waits this out, so it trades a small delay on those for a correct
-# answer on the ones that do navigate.
+# How long a keystroke-triggered navigation has to commit (`settled`). Every
+# Enter that navigates nowhere waits this out.
 NAVIGATION_SETTLE = 2.0
 
-# How long to give a single-page app's router to set the title of a route a
-# call moved it to, before reporting the title as it is. See `landed`. Short on
-# purpose: a route may keep its title, and that route waits this out.
+# How long a single-page app's router has to set a new route's title
+# (`landed`). A route that keeps its title waits this out.
 TITLE_SETTLE = 1.0
 
 
 class ReattachDriver(RemoteWebDriver):
-    """A driver that binds to an existing session instead of creating one.
-
-    ``start_session`` is what normally negotiates capabilities and opens a
-    browser. Skipping it is the whole trick: the object talks to a session that
-    is already running on the Grid.
-    """
+    """A driver bound to a running session: ``start_session``, which would open
+    a browser, does nothing."""
 
     def start_session(self, capabilities):
         self._web_element_identifier = None
@@ -137,31 +122,24 @@ def _seconds(ms) -> int | None:
 
 
 def is_partial(name: str) -> bool:
-    """Whether a download-directory entry is a scratch copy, not a finished file.
+    """Whether a download-directory entry is an unfinished download.
 
-    Each browser has its own shape and all of them are renamed away once the
-    download completes: Chrome writes ``<name>.crdownload`` and a hidden
-    ``.com.google.Chrome.XXXXXX``, Firefox writes ``<name>.part``. Listing one
-    would offer the caller a half-written file that is about to be called
-    something else.
+    Chrome writes ``<name>.crdownload`` and a hidden ``.com.google.Chrome.XXXXXX``,
+    Firefox writes ``<name>.part``, and each is renamed once the download is done.
     """
     return name.endswith((".crdownload", ".part")) or name.startswith(".")
 
 
 def png_size(b64: str) -> tuple[int, int]:
-    """Width and height straight from the PNG IHDR header — no image library."""
+    """Width and height from the PNG IHDR header."""
     raw = base64.b64decode(b64[:64])
     return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
 
 
 def _dropped(exc: requests.ConnectionError) -> bool:
-    """Whether a request died on a connection the Grid had already let go.
-
-    A pooled connection outlives a Grid restart, and the first request sent on
-    it is answered with a reset rather than a response: urllib3's "Connection
-    aborted". A refused or unresolvable Grid is a different failure and raises
-    as it always did; asking again would only ask the same dead address twice.
-    """
+    """Whether a request died on a pooled connection the Grid had let go
+    (urllib3's "Connection aborted"), as after a Grid restart. A refused or
+    unresolvable Grid is a different failure."""
     return bool(exc.args) and isinstance(exc.args[0], ProtocolError)
 
 
@@ -178,8 +156,8 @@ def _listed(status: dict) -> tuple[int, dict[str, int | None]]:
     return len(nodes), running
 
 
-# What `reconnect` builds its inert driver with, on every call: built once.
-# Never mutated: `_Sent.to_capabilities` hands out a copy.
+# What `reconnect` builds its inert driver with. Never mutated:
+# `_Sent.to_capabilities` hands out a copy.
 _INERT = build(None)
 
 
@@ -207,10 +185,8 @@ class _FirefoxSent(_Sent, webdriver.FirefoxOptions):
 class Grid:
     """A Selenium Grid endpoint, and the operations this server needs from it.
 
-    It holds two connection pools, one per client library, so the calls each
-    action makes reuse connections instead of opening one apiece: ``http`` for
-    the Grid's own endpoints, and the WebDriver connection every reattached
-    driver shares (see `reconnect`).
+    It holds two connection pools: ``http`` for the Grid's own endpoints, and
+    the WebDriver connection every reattached driver shares (see `reconnect`).
     """
 
     def __init__(self, url: str = DEFAULT_GRID_URL):
@@ -219,8 +195,7 @@ class Grid:
         adapter = _GridAdapter(pool_maxsize=GRID_CONNECTIONS)
         self.http.mount("http://", adapter)
         self.http.mount("https://", adapter)
-        # Each call used to be its own session and kept no cookies; a pool
-        # must not start pinning the Grid's calls to whatever an ingress set.
+        # No cookies: an ingress's would pin the Grid's calls.
         self.http.cookies.set_policy(DefaultCookiePolicy(allowed_domains=()))
         self._webdriver = None
 
@@ -233,13 +208,9 @@ class Grid:
         retry: bool = True,
         **kwargs,
     ) -> requests.Response:
-        """One request to the Grid, sent again once if the pool's connection
-        turns out to be one the Grid dropped (`_dropped`) - unless ``retry`` is
-        off, for a read nobody waits on.
-
-        Once: the retry runs on a fresh connection, so a second failure is the
-        Grid's real answer and raises exactly as a single request would.
-        """
+        """One request to the Grid, sent again once (on a fresh connection) if
+        the pool's connection was one the Grid dropped (`_dropped`), unless
+        ``retry`` is off."""
         send = getattr(self.http, method)
         url = f"{self.url}{path}"
         try:
@@ -252,17 +223,13 @@ class Grid:
     def _options(self, built: Built | None = None):
         """The Options object an open sends: exactly ``built.send``.
 
-        What is sent is decided in `core.session_caps`, never here (spec
-        2026-10-26-session-capabilities, ruling 23). Selenium's Options
-        objects add keys of their own — ``pageLoadStrategy``, and on Firefox
-        ``acceptInsecureCerts: true`` and ``moz:debuggerAddress`` — and
-        rebuild a vendor block from their own fields, so the one sent here
-        answers ``to_capabilities()`` with the built set and nothing else.
-        The class still follows the browser, because Selenium picks the
-        connection it opens from it.
+        Selenium's Options add keys of their own (``pageLoadStrategy``, and on
+        Firefox ``acceptInsecureCerts: true`` and ``moz:debuggerAddress``) and
+        rebuild a vendor block from their fields, so this one answers
+        ``to_capabilities()`` with the built set alone. The class still follows
+        the browser, because Selenium picks the connection from it.
 
-        None is what `reconnect` passes: the default browser's set, cheap and
-        valid, and never sent (``ReattachDriver`` skips ``start_session``).
+        None, from `reconnect`, is the default browser's set, never sent.
         """
         built = _INERT if built is None else built
         kind = _FirefoxSent if built.browser == FIREFOX else _ChromeSent
@@ -275,18 +242,13 @@ class Grid:
     def reconnect(self, session_id: str) -> RemoteWebDriver:
         """Bind to a session that is already running on the Grid.
 
-        The options are inert here and deliberately not parameterised by
-        browser: ``ReattachDriver`` skips ``start_session``, which is the only
-        thing that would ever send them. Reattaching to a Firefox session with
-        Chrome's options works for exactly that reason, and asking the caller
-        to know the browser to reconnect would be a lie about what is needed.
+        The options are never sent (``ReattachDriver`` skips ``start_session``),
+        so any browser's will do.
 
-        A reattached driver lives for one call, its connection does not: every
-        driver this Grid hands out shares one ``RemoteConnection``, so a call
-        reuses the keep-alive connections the last one opened rather than
-        building a new pool and a new TCP connection. The first driver builds
-        it through Selenium's own constructor, which picks the connection class
-        it always did; urllib3 reopens a pooled connection the Grid closed.
+        A reattached driver lives for one call; every driver shares one
+        ``RemoteConnection``, built by the first through Selenium's own
+        constructor, so a call reuses the keep-alive connections the last one
+        opened.
         """
         if self._webdriver is None:
             driver = ReattachDriver(
@@ -313,9 +275,8 @@ class Grid:
     def bidi_url(self, session_id: str) -> str:
         """The browser's BiDi socket, as the Grid proxies it.
 
-        Derived from ``url``, never read from the browser's ``webSocketUrl``
-        capability: the Grid fills that in with its own in-cluster name
-        (measured: ``ws://hub:4444/...``).
+        Derived from ``url``: the ``webSocketUrl`` capability carries the Grid's
+        in-cluster name (``ws://hub:4444/...``).
         """
         parts = urlsplit(self.url)
         scheme = "wss" if parts.scheme == "https" else "ws"
@@ -323,42 +284,27 @@ class Grid:
         return f"{root}/session/{session_id}/se/bidi"
 
     def vnc_url(self, session_id: str) -> str:
-        """The browser's VNC stream, as the hub proxies it (live view spec,
-        ruling 10).
+        """The browser's VNC stream, as the hub proxies it.
 
-        Derived from ``url`` like `bidi_url`, never read from the session's
-        ``se:vnc`` capability, which names the hub's in-cluster Service. This
-        server reaches the hub directly, so an ingress that refuses
-        ``/session/*/se/vnc`` from outside does not stand in its way.
+        Derived from ``url`` like `bidi_url`: the ``se:vnc`` capability names
+        the hub's in-cluster Service.
         """
         return self.bidi_url(session_id).removesuffix("/se/bidi") + "/se/vnc"
 
     def is_alive(self, session_id: str) -> bool:
         """Whether a session still exists on the Grid.
 
-        The Grid reaps idle sessions, so a stored id can name a browser that is
-        already gone, and the caller's next call should transparently reopen.
-
-        The subtlety is what counts as gone. Asking for the session's URL is the
-        cheapest probe, but it fails for *two* different reasons: the session
-        does not exist (404, ``invalid session id``), or it exists and is
-        blocked by an open dialog (500, ``unexpected alert open``). Treating
-        both as dead abandons a perfectly good browser — with its dialog still
-        open — and leaks the Grid slot it holds.
-
-        So only an explicit "this id is not a session" means gone. Anything
-        else, including a Grid we cannot reach right now, is assumed alive: a
-        wrong "alive" surfaces as a real error on the next call, while a wrong
-        "dead" silently strands a browser.
+        Only ``invalid session id`` means gone. Asking for the URL also fails
+        while a dialog is open (``unexpected alert open``), and an unreachable
+        Grid says nothing: both count as alive, because a wrong "alive" surfaces
+        as an error on the next call while a wrong "dead" strands a browser.
         """
         return self._alive(session_id, timeout=GRID_TIMEOUT, quiet=True)
 
     def ping(self, session_id: str) -> bool:
-        """The keep-alive's one command: `is_alive`'s request, sent briefly.
-        The Grid counts it as activity, which is its point. A request that
-        died on a dropped pooled connection is sent again on a fresh one, since
-        it never reached the Grid; any other failure is raised for the monitor
-        to log, and counts as nothing."""
+        """The keep-alive's one command: `is_alive`'s request, sent briefly,
+        which the Grid counts as activity. A failure is raised for the monitor
+        to log."""
         return self._alive(session_id, timeout=SHOWN_TIMEOUT, quiet=False)
 
     def _alive(self, session_id: str, *, timeout: float, quiet: bool) -> bool:
@@ -383,16 +329,9 @@ class Grid:
     def quit(self, session_id: str) -> None:
         """End a session, freeing its Grid slot.
 
-        Done over plain HTTP rather than ``driver.quit()`` so that a session
-        whose driver cannot be reattached can still be cleaned up.
-
-        A 404 is success. The Grid has no such session, which is the state this
-        was asked to produce — ending is the one operation where "it was already
-        done" and "I did it" are the same answer. It matters because the moment
-        a caller is most likely to end a browser that is already gone is a
-        cleanup after a failure, which is exactly when a second error helps
-        least. Anything else still raises: a Grid that cannot be reached has not
-        told us the browser is gone, and reporting success would be a guess.
+        Plain HTTP, so a session whose driver cannot be reattached still ends.
+        A 404 is success: the session is gone, which is what was asked, often
+        in a cleanup after a failure. Anything else raises.
         """
         response = self._send("delete", f"/session/{session_id}")
         if response.status_code == 404:
@@ -400,13 +339,7 @@ class Grid:
         response.raise_for_status()
 
     def sessions(self) -> list[dict]:
-        """Every browser the Grid is currently running.
-
-        Read from the Grid rather than from this server's own records, because
-        the Grid is the one that actually has them: sessions opened over the
-        HTTP surface, by another replica, or by something that is not this
-        server at all still belong on the list.
-        """
+        """Every browser the Grid is running, whoever opened it."""
         found = []
         for node in self.status()["value"].get("nodes", []):
             for slot in node.get("slots", []):
@@ -448,14 +381,8 @@ class Grid:
     def files(self, session_id: str) -> list[dict]:
         """What this session has finished downloading, newest first.
 
-        The Grid owns this store, which is the point: it is created with the
-        session, lives on the node beside the browser, and is deleted when the
-        session ends. A store of our own would duplicate all three and get the
-        lifecycle subtly wrong.
-
-        Downloads in flight are omitted. Chrome writes them under a scratch name
-        and renames on completion, so listing them would offer the caller a file
-        that is half-written and about to be called something else.
+        The Grid's store lives on the node and ends with the session. Downloads
+        in flight are omitted (`is_partial`).
         """
         response = self._send("get", f"/session/{session_id}/se/files")
         response.raise_for_status()
@@ -467,11 +394,8 @@ class Grid:
         return sorted(files, key=lambda f: f.get("creationTime", 0), reverse=True)
 
     def read_file(self, session_id: str, name: str) -> bytes:
-        """One downloaded file's bytes.
-
-        The Grid always answers with a zip, even for a single file, so the
-        archive is unwrapped here — callers want the file, not the envelope.
-        """
+        """One downloaded file's bytes, unwrapped from the zip the Grid always
+        answers with."""
         response = self._send(
             "post", f"/session/{session_id}/se/files", json={"name": name}
         )
@@ -484,11 +408,7 @@ class Grid:
     def clear_files(self, session_id: str) -> None:
         """Drop everything the session has downloaded, keeping the browser.
 
-        A 404 is success, same reasoning as `quit`: the browser or its file
-        store is already gone — a raced reap — so "already cleared" and "just
-        cleared" are the same answer. Anything else raises, so a Grid refusal
-        surfaces as a Grid refusal instead of the silent 200 an unchecked
-        response used to report.
+        A 404 is success, as in `quit`. Anything else raises.
         """
         response = self._send("delete", f"/session/{session_id}/se/files")
         if response.status_code == 404:
@@ -510,20 +430,16 @@ class Grid:
         return response.json()["data"]["grid"]["sessionCount"]
 
 
-# Selenium raises TimeoutException with an EMPTY message, which surfaces to a
-# caller as the useless string "Message:". Every wait here re-raises with what
-# was actually being waited for, because "no element matched //x" is the whole
-# diagnosis and the bare timeout is none of it.
+# Selenium's TimeoutException has an empty message ("Message:"), so every wait
+# re-raises with what it was waiting for.
 def _waited(driver, condition, timeout: int, description: str, target=None):
     try:
         return WebDriverWait(driver, timeout, poll_frequency=WAIT_POLL).until(
             condition
         )
     except TimeoutException as exc:
-        # When the element is there and simply cannot be used, the page knows
-        # why and a bare timeout does not. Only the clickability waits pass a
-        # target: a presence wait failed because nothing matched at all, so
-        # there is nothing to ask about (saga §F2.8).
+        # Only the clickability waits pass a target: the element exists, and
+        # the page can say why it cannot be used.
         why = probe.explain(driver, target) if target else ""
         raise TimeoutException(
             f"{description} within {timeout}s. The browser is at "
@@ -532,47 +448,27 @@ def _waited(driver, condition, timeout: int, description: str, target=None):
         ) from exc
 
 
-# How a caller may address an element. XPath is the original and stays the
-# default in every example; CSS is here because it is shorter for the common
-# cases and because `#id` and `.class` make separate strategies for those
-# redundant.
-#
-# Selenium offers six more, and they are left out for two different reasons.
-# ID, NAME, TAG_NAME and CLASS_NAME are each a CSS selector spelled longhand.
-# LINK_TEXT and PARTIAL_LINK_TEXT are NOT — CSS cannot match text content at
-# all — but XPath can, with `//a[contains(., 'Next')]`, so between these two
-# every one of the six is already reachable. Two strategies a model has to
-# choose between is a schema; eight is a quiz.
+# Selenium's other strategies are reachable through these two: ID, NAME,
+# TAG_NAME and CLASS_NAME are CSS selectors spelled longhand, and the link-text
+# ones are XPath's `//a[contains(., 'Next')]`.
 SELECTORS = {"xpath": By.XPATH, "css": By.CSS_SELECTOR}
 
 
 def locator(selector) -> tuple[str, str]:
     """Exactly one selector, as the (strategy, value) pair Selenium wants.
 
-    ``selector`` is ``{"xpath": ...}`` or ``{"css": ...}`` — one object rather
-    than two flat arguments, because they are one choice and every tool that
-    took one took the other (§F2.14). A model with the same two fields is
-    accepted too, which is what the MCP surface passes.
-
-    Mutually exclusive keys rather than a ``by=`` enum beside a ``value=``: the
-    key names itself, so a caller writes ``{"css": "button.go"}`` without having
-    to be told what the strategies are, and ``xpath`` keeps meaning exactly what
-    it has always meant.
-
-    Both, or neither, is refused rather than resolved. Guessing which one was
-    meant is how a typo in one of them becomes a click on the element the other
-    one found, which is the most expensive kind of wrong this server can be.
-    **Never a fallback from one to the other**, for that reason: a flow that
-    silently used its second choice reports `ok` while it drifts (§F2.14).
+    ``selector`` is ``{"xpath": ...}`` or ``{"css": ...}``, or a model with the
+    same two fields (what the MCP surface passes). Both, or neither, is refused,
+    never resolved: a typo in one would become a click on the element the other
+    found.
     """
     if selector is None:
         selector = {}
     elif hasattr(selector, "model_dump"):
         selector = selector.model_dump(exclude_none=True)
     elif isinstance(selector, str):
-        # A multipart form field can only carry a string, and some clients
-        # stringify object arguments. Parsed here rather than only at the tool
-        # boundary, because an upload over HTTP arrives as a form.
+        # A multipart form field (an upload over HTTP) can only carry a string,
+        # and some clients stringify object arguments.
         try:
             selector = json.loads(selector)
         except ValueError:
@@ -623,13 +519,10 @@ class Found(NamedTuple):
 class _FirstUsable:
     """The condition behind `wait_for_clickable` and `wait_for_shown`.
 
-    Every match is looked at in order, up to `probe.CANDIDATES`: ``is_displayed``
-    is a round trip per element, and a broad selector must not make a poll take
-    seconds inside the session's lock. The first displayed (and, when
-    ``clickable``, enabled) one wins. A match the page replaced between the find
-    and the question is skipped, not raised: the next good match is what the
-    caller wants. Nothing usable keeps a clickable wait going; a shown wait falls
-    back to the first match.
+    The first displayed (and, when ``clickable``, enabled) match wins, looking
+    at most `probe.CANDIDATES`: ``is_displayed`` is a round trip per element,
+    inside the session's lock. A stale match is skipped. Nothing usable keeps a
+    clickable wait going; a shown wait falls back to the first match.
     """
 
     def __init__(self, target, clickable: bool):
@@ -664,7 +557,7 @@ def wait_for_element(driver, target, timeout: int = 30):
 
 
 def wait_for_clickable(driver, target, timeout: int = 30) -> Found:
-    """Wait for a match that exists *and* is interactable: the first such one."""
+    """Wait for a match that exists and is interactable: the first such one."""
     _, value = target
     return _waited(
         driver,
@@ -689,36 +582,23 @@ def wait_for_shown(driver, target, timeout: int = 30) -> Found:
 def settled(driver, anchor, timeout: float = NAVIGATION_SETTLE) -> None:
     """Wait for a navigation a keystroke may just have started.
 
-    ``element.click()`` and ``driver.get()`` are both *specified* to wait for a
-    navigation they cause, which is why every action built on those reports the
-    page it landed on. Sending keys carries no such promise: the command returns
-    while the browser is still on the old page, so reading state straight
-    afterwards describes the page that was submitted FROM — and can tear,
-    pairing the old URL with the new document's not-yet-set title.
+    ``element.click()`` and ``driver.get()`` wait for a navigation they cause;
+    sending keys returns while the browser is still on the old page, so state
+    read at once can pair the old URL with the new document's empty title.
 
-    Measured against a real Grid before this existed: ``write(submit=True)``
-    reported the pre-submit page on 6 of 6 Firefox runs and 2 of 6 Chrome runs,
-    while ``interact`` and ``navigate`` were right every time.
-
-    The signal is ``anchor`` going stale, which happens when a new document
-    commits. It is deliberately best-effort and deliberately short: a form
-    handled in JavaScript never navigates and never goes stale, so *expiring is
-    an ordinary outcome here*, not an error, and it is the cost paid by the
-    keypresses that were never going anywhere.
+    The signal is ``anchor`` going stale when a new document commits. A form
+    handled in JavaScript never navigates, so expiring is an ordinary outcome,
+    never an error.
     """
     try:
         WebDriverWait(driver, timeout, poll_frequency=0.05).until(
             EC.staleness_of(anchor)
         )
     except TimeoutException:
-        # Nothing navigated. The caller is on the page it was already on, which
-        # is a true answer and the common one.
-        return
+        return  # nothing navigated
     except Exception:  # noqa: BLE001 - a dialog, or a session that just went
         return
-    # Staleness only says the old document is gone. The new one may still be
-    # parsing, and its title is empty until it is not — the other half of the
-    # torn read.
+    # The new document may still be parsing, with an empty title.
     try:
         WebDriverWait(driver, timeout, poll_frequency=0.05).until(
             lambda d: d.execute_script("return document.readyState") != "loading"
@@ -727,9 +607,8 @@ def settled(driver, anchor, timeout: float = NAVIGATION_SETTLE) -> None:
         return
 
 
-# Whether the selected browsing context is a frame. `window` and `top` are both
-# unforgeable; `window.self` is not - a page can run `self = top` and a check
-# reading it says "not in a frame" from inside one.
+# Whether the selected browsing context is a frame. `window` and `top` are
+# unforgeable; `window.self` is not (a page can run `self = top`).
 IN_FRAME = "return window !== window.top"
 
 # The selected browsing context's origin: the frame's when the session is in
@@ -739,13 +618,8 @@ ORIGIN_HERE = "return document.location.origin"
 
 
 def in_frame(driver) -> bool:
-    """Whether the session is currently switched into an iframe.
-
-    There is no WebDriver command for "which frame am I in", so this asks the
-    page: a document whose window is not the top window is a frame. Worth
-    reporting, because a forgotten frame switch makes every later locator fail
-    for a reason that looks nothing like the cause.
-    """
+    """Whether the session is switched into a frame. WebDriver has no command
+    for it, so the page is asked."""
     try:
         return bool(driver.execute_script(IN_FRAME))
     except Exception:  # noqa: BLE001 - a dialog or a dead session must not raise here
@@ -753,13 +627,8 @@ def in_frame(driver) -> bool:
 
 
 def frame_origin(driver) -> str:
-    """The origin of the document a keystroke would reach.
-
-    A script runs in the selected browsing context, so ``document.location
-    .origin`` is the frame's own when the session is in one and the top page's
-    when it is not. ``page_state`` cannot say this, because WebDriver's url is
-    always the top page's. Read every time, never only "when in a frame": the
-    frame check is the page's to answer, and a hostile frame can forge it.
+    """The origin of the document a keystroke would reach: the selected
+    browsing context's, where WebDriver's url is always the top page's.
 
     ``location.origin`` is computed from the context's URL, so a ``data:``,
     ``about:blank`` or ``srcdoc`` frame answers ``"null"`` whatever origin its
@@ -775,13 +644,10 @@ def frame_origin(driver) -> str:
 
 
 def page_state(driver) -> dict:
-    """Where the browser ended up, tolerating an open dialog.
+    """Where the browser ended up, or the dialog that is open.
 
-    Every action reports the resulting url and title, and reading either is
-    refused while a dialog is open. Letting that raise would make an action fail
-    when it had in fact succeeded — the click landed, it just opened a prompt.
-    So an open dialog is reported as page state, which is what it is, and tells
-    the caller exactly what to do next.
+    A dialog refuses reading the url and title; raising would fail an action
+    that succeeded (the click landed and opened a prompt).
     """
     try:
         return {"url": driver.current_url, "title": driver.title}
@@ -811,8 +677,8 @@ DOCUMENT = (
 def document(driver) -> dict | None:
     """Which document the top page is, before a call moves it, for `landed`.
 
-    None when it cannot be told - in a frame, with a dialog open, a script that
-    fails or an answer of the wrong shape - and None means no wait.
+    None (no wait) when it cannot be told: in a frame, with a dialog open, a
+    script that fails or an answer of the wrong shape.
     """
     try:
         found = driver.execute_script(DOCUMENT)
@@ -832,16 +698,13 @@ def screen(url: str) -> tuple[str, str]:
     """``url``'s path and hash route: what a same-document move must change for
     a new title to be expected.
 
-    A route is a fragment that starts with ``/`` or ``!/`` (#134's ruling), with
-    its own query: Penpot names the open file there (``#/workspace?file-id=``),
-    and titles the page by it, as #137's ruling 11 compares it for ``url=``. Any
-    other fragment (an anchor), the URL's query and a trailing ``/`` leave the
-    screen as it was, so a move that changes only them is not waited for: a
-    search box mirroring its text into ``?q=`` would pay the whole bound on
-    every keystroke. The cost is an app that routes by that query, or by a
-    fragment without the ``/`` (``#home``): its new title is not waited for; and
-    a hash-routed search box (``#/search?q=``) pays the wait.
-    The route is `urls.route_of`'s, the one definition (``#!/a`` is ``/a``).
+    The route is `urls.route_of`'s (``#!/a`` is ``/a``), with its own query:
+    Penpot names the open file there (``#/workspace?file-id=``) and titles the
+    page by it. Any other fragment, the URL's query and a trailing ``/`` leave
+    the screen as it was, so a search box mirroring its text into ``?q=`` does
+    not pay the wait on every keystroke. The cost: an app that routes by that
+    query, or by ``#home``, is not waited for, and a hash-routed search box
+    (``#/search?q=``) pays the wait.
     """
     try:
         path = urlsplit(url).path.rstrip("/")
@@ -855,17 +718,14 @@ def landed(driver, before: dict | None, timeout: float = TITLE_SETTLE) -> dict:
     """`page_state`, once a route the call moved to has had its title set.
 
     A same-document navigation (a fragment, `pushState`) is over as soon as the
-    URL changes, and ``driver.get`` and ``element.click`` wait for nothing
-    more; a single-page app sets ``document.title`` afterwards, from its router.
-    Read at once, the title is the screen just left (#139). So when the
-    `screen` moved and ``before``'s document is still the page's, the title is waited
-    for until it is not ``before``'s, for at most ``timeout``.
+    URL changes, and a single-page app sets ``document.title`` afterwards from
+    its router. So when the `screen` moved and ``before``'s document is still
+    the page's, the title is waited for until it is not ``before``'s, for at
+    most ``timeout``.
 
-    Nothing else waits: a new document (a full load reports as it always has),
-    a URL still on the same `screen` (an anchor, a query), a title already
-    changed, a dialog, or ``before`` None.
-    Expiring is an ordinary answer, since a route may keep its title, and any
-    failure here means no wait, never a failed call (as `settled`).
+    Nothing else waits: a new document, a URL on the same `screen`, a title
+    already changed, a dialog, or ``before`` None. Expiring is an ordinary
+    answer, and any failure means no wait, never a failed call.
     """
     state = page_state(driver)
     if (
@@ -891,12 +751,7 @@ def landed(driver, before: dict | None, timeout: float = TITLE_SETTLE) -> dict:
 
 
 def wait_for_alert(driver, timeout: int = 30):
-    """Wait for a JS dialog and return it.
-
-    An open alert blocks every other WebDriver command with
-    ``UnexpectedAlertPresentException``, so this is the only way out of a page
-    that has raised one.
-    """
+    """Wait for a JS dialog and return it."""
     return _waited(
         driver,
         EC.alert_is_present(),
@@ -906,12 +761,9 @@ def wait_for_alert(driver, timeout: int = 30):
 
 
 def accept_local_files(driver) -> None:
-    """Let ``send_keys`` on a file input upload a file from *this* process.
-
-    The browser runs on a Grid node in another container, so a path from here
-    means nothing there. The local file detector makes Selenium ship the bytes
-    to the node first and hand the input the remote path it landed at.
-    """
+    """Let ``send_keys`` on a file input upload a file from this process: the
+    local file detector ships the bytes to the node and hands the input the
+    path they landed at."""
     driver.file_detector = LocalFileDetector()
 
 
@@ -919,12 +771,10 @@ def accept_local_files(driver) -> None:
 def go(driver, url: str) -> None:
     """``driver.get(url)``, with a host that does not resolve said as the caller's.
 
-    Every page a caller names is loaded through here. The browser reports an
-    unresolvable host in its own words, which `errors` would call ours (a 500)
-    and which quote the URL on Firefox; `Unresolved` names the host and nothing
-    else, and the browser's exception is dropped so no traceback carries it.
-    A certificate the browser does not trust is `Untrusted`, the same way.
-    Any other failure is raised as it was.
+    Every page a caller names is loaded through here. The browser's own words
+    would be a 500 and quote the URL on Firefox; `Unresolved` names the host
+    alone, and the browser's exception is dropped so no traceback carries it.
+    An untrusted certificate is `Untrusted`, the same way.
     """
     try:
         driver.get(url)
@@ -951,10 +801,6 @@ def ensure_url(
 ) -> bool:
     """Navigate to ``url`` unless the browser is already there.
 
-    This is deliberately not an assertion. A caller naming a page means "act on
-    this page", and failing because the browser happens to be elsewhere makes
-    every workflow carry its own navigation step.
-
     A page is host, port, path, hash route, userinfo and both queries (the
     real one and the route's own); a fragment that is not a route is ignored.
 
@@ -969,11 +815,8 @@ def ensure_url(
 
 
 def full_page_size(driver) -> tuple[int, int]:
-    """Full scrollable document size.
-
-    ``body`` and ``documentElement`` disagree depending on the page's CSS, so
-    take the larger of the two.
-    """
+    """Full scrollable document size: the larger of ``body``'s and
+    ``documentElement``'s, which disagree depending on the page's CSS."""
     return driver.execute_script(
         "return ["
         "Math.max(document.body.scrollWidth, document.documentElement.scrollWidth),"
