@@ -213,6 +213,14 @@ FRAME_ACTIONS = ("switch", "parent", "default")
 OPEN_PRIVATE = ("session_id", "sent", "ran")
 
 
+def _resize(driver, width, height) -> None:
+    """Set the window to ``width`` by ``height``, keeping a side not given."""
+    current = driver.get_window_size()
+    driver.set_window_size(
+        as_int(width, current["width"]), as_int(height, current["height"])
+    )
+
+
 def _ran(driver) -> dict:
     """What the Grid says it started: version, node and live view, each None
     when the returned capabilities do not say."""
@@ -446,10 +454,7 @@ class Actions:
             on_created(session_id)
 
         if width or height:
-            current = driver.get_window_size()
-            driver.set_window_size(
-                as_int(width, current["width"]), as_int(height, current["height"])
-            )
+            _resize(driver, width, height)
 
         # Unbounded by default, which lets one hanging page hold a Grid slot for
         # the whole idle timeout. Set here so it survives every later reconnect.
@@ -871,10 +876,7 @@ class Actions:
 
         def size(at):
             driver = at.driver
-            current = driver.get_window_size()
-            driver.set_window_size(
-                as_int(width, current["width"]), as_int(height, current["height"])
-            )
+            _resize(driver, width, height)
             now = driver.get_window_size()
             return {"width": now["width"], "height": now["height"]}
 
@@ -1260,10 +1262,7 @@ class Actions:
             if width or height or as_bool(full_page, False):
                 self._refuse(session_id, "resize")
             if width or height:
-                current = driver.get_window_size()
-                driver.set_window_size(
-                    as_int(width, current["width"]), as_int(height, current["height"])
-                )
+                _resize(driver, width, height)
 
             if at.target is not None:
                 # Its own wait, after the resize, so the element is found in
