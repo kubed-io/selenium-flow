@@ -1,43 +1,38 @@
 """One browser-driving call at a time per session, and how `end_browser` cuts in.
 
-Two calls on one session used to overlap: FastMCP runs sync tools in its thread
-pool and the HTTP routes run in Starlette's, so two of our action sequences
-could interleave on one browser - a click landing between another call's wait
-and its act, a navigation between a secret's origin check and its keystrokes.
-The record was always safe (every write is a compare-and-set); the browser is
-not. So a call that drives the browser holds its session's `Hold` while it does,
-and a second one **waits** for it: no refusal, and no timeout of its own, since
-the call holding it is bounded by its own.
+FastMCP runs sync tools in its thread pool and the HTTP routes run in
+Starlette's, so two action sequences could interleave on one browser: a click
+landing between another call's wait and its act, a navigation between a
+secret's origin check and its keystrokes. The record is safe (every write is a
+compare-and-set); the browser is not. So a call that drives the browser holds
+its session's `Hold` while it does, and a second one waits for it, with no
+refusal and no timeout of its own, since the call holding it is bounded by its
+own.
 
-**Keyed by the session's browser**, its Grid id - which is what `Recipe.run`
-is handed. A workspace holds one session at a time, so that is one hold per
-workspace at any moment; and a browser that was ended takes its hold with it, cancel
-flag set, rather than leaving a flag behind that a later browser would have to
-clear.
+Keyed by the session's browser, its Grid id, which is what `Recipe.run` is
+handed. A workspace holds one session at a time, so that is one hold per
+workspace at any moment, and a browser that was ended takes its hold with it,
+cancel flag set, leaving no flag a later browser would have to clear.
 
-**`end_browser` takes no hold.** It is the call that exists to stop the others,
-so it never queues behind them: it sets the hold's ``ending`` flag, which the
-holder is watching through `core.cancel`, and a running `assert` raises its
-existing cancellation at its next poll and lets go. `open_session` takes none
-either - it makes a browser rather than driving one - and nothing that only
-reads the record (`workspace://current`) does. A call, a read of the page
-included, takes its turn at its host (live control spec, ruling 33): that is
-where a person's control is checked, so a call queued before they asked is
-refused when its turn comes.
+`end_browser` takes no hold. It is the call that exists to stop the others, so
+it never queues behind them: it sets the hold's ``ending`` flag, which the
+holder watches through `core.cancel`, and a running `assert` raises its
+cancellation at its next poll and lets go. `open_session` takes none either (it
+makes a browser rather than driving one), and nothing that only reads the
+record (`workspace://current`) does. A call, a read of the page included, takes
+its turn at its host: that is where a person's control is checked, so a call
+queued before they asked is refused when its turn comes.
 
-**Reentrant**, because the units nest: a call (`Workspaces.act`), a flow step
-and a bound write each hold it around the whole call, and the action's own
-`Recipe.run` takes it again in the same thread. **Fair**: first come, first
-served (`Turns`), so a flow, which lets go between steps, cannot barge back
-ahead of a call that queued during one.
+Reentrant, because the units nest: a call (`Workspaces.act`), a flow step and a
+bound write each hold it around the whole call, and the action's own
+`Recipe.run` takes it again in the same thread. Fair: first come, first served
+(`Turns`), so a flow, which lets go between steps, cannot barge back ahead of a
+call that queued during one.
 
-**Weak**: a hold lives only while a call holds or waits for it, or a flow run
-is under way on its browser, so a browser nobody is driving costs nothing and
-there is nothing to clean up.
+Weak: a hold lives only while a call holds or waits for it, or a flow run is
+under way on its browser, so a browser nobody is driving costs nothing.
 
-**Process-local**, Redis store or not. This server runs as one replica (AGENTS.md
-"Scaling: one replica"); a second would need a lock in the store, and its MCP
-sessions would be the first thing to break anyway.
+Process-local, Redis store or not: the server runs as one replica.
 """
 
 from __future__ import annotations
@@ -55,7 +50,7 @@ class Turns:
 
     `threading.RLock` hands off to nobody: a flow releasing between two steps
     re-acquires microseconds later, and a call queued during step one could
-    wait the whole run (measured: up to step 39 of 40). Here each acquire takes
+    wait the whole run. Here each acquire takes
     a ticket and waits for its number, so a call queued during a step runs
     before the next one. The thread that holds it may take it again freely.
     """
@@ -107,9 +102,8 @@ class Turns:
         The ticket is abandoned as it is taken, so the queue skips it: nothing
         waits for the mark, and a call that asks after it runs as soon as the
         calls before it are done. Whoever marked learns that moment from
-        `passed`, by asking rather than by holding a thread here (spec
-        2026-10-27-live-control, ruling 25). Any thread may mark, the owner
-        included; a mark never makes its thread the owner.
+        `passed`, by asking rather than by holding a thread here. Any thread
+        may mark, the owner included; a mark never makes its thread the owner.
         """
         with self._changed:
             ticket = self._next
@@ -153,11 +147,11 @@ _registry = threading.Lock()
 def hold(browser: str) -> Hold:
     """The hold for ``browser``: the one any other call on it is using, or new.
 
-    **An ended hold nobody holds or waits for is replaced.** The registry is
-    weak, but a reference can outlive its use — an exception's traceback keeps
-    the frame of the `driving` it was raised in, and a flow run keeps its
-    browser's hold for the run — so an ended hold can linger until the
-    collector runs, and every call on its browser would be told it ended.
+    An ended hold nobody holds or waits for is replaced. The registry is weak,
+    but a reference can outlive its use (an exception's traceback keeps the
+    frame of the `driving` it was raised in, and a flow run keeps its browser's
+    hold for the run), so an ended hold can linger until the collector runs,
+    and every call on its browser would be told it ended.
     Whoever still has it keeps it: a call queued before the end still waits on
     it and is told `Ended` at its turn (it is not idle, so not replaced), a
     flow still watches its ``ending``, and a mark on it has passed already
@@ -185,7 +179,7 @@ def driving(browser: str):
         except cancel.Cancelled:
             raise
         except Exception:
-            # Ended under a call that was not polling - an element wait, say:
+            # Ended under a call that was not polling (an element wait, say):
             # the Grid's failure ("Failed to execute request (POST http://<the
             # node>/...)") is what ending looks like from inside, so it is
             # answered as the ending, a 404 like any dead browser.

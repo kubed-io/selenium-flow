@@ -4,30 +4,26 @@ These can be set when a browser opens: which browser it is and which version,
 its window size, the two timeouts WebDriver lets you change after creation,
 whether it accepts an insecure site, whether it runs headless, whether it is
 recorded or captured, and the raw capabilities nothing else covers. Most can
-come from four places, and the useful part is the order:
+come from four places, in this order:
 
     server default (config: session.*)  <  client default (param/header)  <
     what this workspace's caller passed before  <  explicit
 
 Only what a caller passed is remembered; the two defaults are read fresh at
 each open, so a changed config reaches every workspace at its next open. The
-server default is the operator's floor. The client default is set once in a
-client's connection config, so an agent never has to think about it. What the
-caller passed before comes next: a caller that names nothing after its browser
-was reaped or ended means "carry on where I was", which is a stronger signal
-than any default and a weaker one than an argument it just typed. The explicit
-argument overrides all of them. :func:`sourced` also says which layer each value
-came from.
+client default is set once in a client's connection config. What the caller
+passed before means "carry on where I was" after its browser was reaped or
+ended: stronger than any default, weaker than an argument it just typed.
+:func:`sourced` also says which layer each value came from.
 
-Only settings that are actually *set* are returned, so "unset" stays
-distinguishable from "set to the same value as the default" — the browser's own
-default window size is not something this module should invent a number for.
+Only settings that are set are returned, so "unset" stays distinguishable from
+"set to the default": the browser's own default window size is not a number to
+invent.
 
-What comes out of here is also what gets *stored* against a caller's workspace, so
-a refresh after the Grid reaps a browser reopens the same one. That is why
-``browser`` belongs in this cascade rather than beside it: a session that came
-back as Chrome because the refresh path did not know it was Firefox would be the
-same class of silent shape change the stored settings exist to prevent.
+What comes out of here is also what is stored against a caller's workspace, so
+a reopen after a reap gets the same browser. That is why ``browser`` is in this
+cascade: coming back as Chrome after a refresh would be the silent change of
+shape the stored settings exist to prevent.
 """
 
 from __future__ import annotations
@@ -68,9 +64,8 @@ def _as_int(value) -> int | None:
 def _as_flag(value) -> bool | None:
     """True or False when said, None when not.
 
-    False is kept, not dropped: an explicit `insecure=false` has to beat a
-    remembered true, or a workspace that once accepted a bad certificate could
-    never stop (Copilot, #40).
+    False is kept: an explicit `insecure=false` has to beat a remembered true,
+    or a workspace that once accepted a bad certificate could never stop.
     """
     return None if value in (None, "") else as_bool(value, False)
 
@@ -91,9 +86,8 @@ def _as_version(value) -> str | None:
     """A browser version, stripped, or None when blank.
 
     Any casing of `latest` is kept as `latest`: it is a value, so an explicit
-    one beats a remembered version (spec 2026-10-26-session-capabilities,
-    ruling 19). Lenient in one way only: a client's version is any string,
-    since what the Grid serves is the Grid's to say.
+    one beats a remembered version. Lenient in one way only: a client's
+    version is any string, since what the Grid serves is the Grid's to say.
     """
     if value is None:
         return None
@@ -110,7 +104,7 @@ def _as_capabilities(value) -> dict | None:
     """The caller's raw capabilities, as a fresh dict, or None when not given.
 
     `{}` is kept: it clears a remembered object, the way `insecure=false`
-    beats a remembered true (ruling 13). A JSON string is read, for a caller
+    beats a remembered true. A JSON string is read, for a caller
     that could only send text; anything that is not an object is refused,
     since sending it would be guessing.
     """
@@ -129,28 +123,26 @@ def _as_capabilities(value) -> dict | None:
 # name -> (query parameter, header, coercion)
 SETTINGS = {
     "browser": ("browser", "sf-browser", _as_client_browser),
-    # `browser`'s twin (ruling 10): a client may pin a version as it pins a
-    # browser. `latest` clears a remembered one.
+    # `browser`'s twin: a client may pin a version as it pins a browser.
+    # `latest` clears a remembered one.
     "version": ("version", "sf-version", _as_version),
     "width": ("width", "sf-window-width", _as_int),
     "height": ("height", "sf-window-height", _as_int),
     "page_load_timeout": ("page_load_timeout", "sf-page-load-timeout", _as_int),
     "script_timeout": ("script_timeout", "sf-script-timeout", _as_int),
-    # Explicit only (§F3.8): no parameter, no header, no default.
+    # The rest are explicit only: no parameter, no header, no default.
     "insecure": (None, None, _as_flag),
-    # Explicit only, like insecure: no parameter, no header, no default, and not
-    # in FROM_CONFIG. Remembered until `headless=false` is passed.
+    # Remembered until `headless=false` is passed.
     "headless": (None, None, _as_flag),
-    # Explicit only, like insecure: no parameter, no header, no default. Stored
-    # so a reap replays it, but `open_browser` never inherits it (recordings
-    # spec, ruling 3): video is costly, and ending the browser ends it.
+    # Stored so a reap replays it, but `open_browser` never inherits it: video
+    # is costly, and ending the browser ends it.
     "record": (None, None, _as_flag),
-    # Explicit only, like record: stored so a reap replays it, never inherited
-    # by an explicit open (capture spec, ruling 3): ask again for the next one.
+    # Like record: stored so a reap replays it, never inherited by an explicit
+    # open.
     "capture": (None, None, _as_flag),
-    # Explicit only: no parameter and no header (ruling 10). Remembered whole,
-    # and `{}` clears it (ruling 13). The config's `session.capabilities` is
-    # not its floor but a source of its own, merged under it at every open.
+    # Remembered whole, and `{}` clears it. The config's
+    # `session.capabilities` is a source of its own, merged under it at every
+    # open.
     "capabilities": (None, None, _as_capabilities),
 }
 
@@ -243,20 +235,17 @@ def sourced(
 
     The layers are walked in order, and a layer that names a different browser
     than the one in effect drops the version in effect: a version belongs to its
-    browser (ruling 2). A version passed alone pins the browser in effect as the
-    caller's own, so a later change of the configured browser does not move it
-    (ruling 12).
+    browser. A version passed alone pins the browser in effect as the caller's
+    own, so a later change of the configured browser does not move it.
     """
     chosen: dict = {}
     for name, value in (explicit or {}).items():
         if name not in SETTINGS or value is None:
             continue
         if name == "browser":
-            # Strict, unlike every other setting and unlike the two default
-            # sources. A default is a preference and dropping a bad one costs
-            # nothing; an explicit argument is this caller naming a browser for
-            # this session, and quietly running it on a different one is not a
-            # fallback, it is the wrong answer.
+            # Strict, unlike every other setting: dropping a bad default costs
+            # nothing, but running a browser other than the one the caller
+            # named is the wrong answer.
             chosen[name] = normalize_browser(value)
             continue
         coerced = SETTINGS[name][2](value)
