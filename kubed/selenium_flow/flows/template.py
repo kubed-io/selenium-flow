@@ -18,10 +18,9 @@ import re
 from .shape import Shape
 
 # One token: an escaped sigil, or a reference with its name in group 1. No
-# expressions, defaults or dotted paths.
+# expressions, defaults or dotted paths. The escape is a doubled sigil because
+# YAML already eats backslashes.
 PARAM_REFERENCE = re.compile(r"\$\$\{|\$\{([^{}]*)\}")
-# A doubled sigil, because YAML already eats backslashes.
-ESCAPED = "$${"
 
 
 def listed(keys) -> str:
