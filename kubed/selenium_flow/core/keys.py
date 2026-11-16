@@ -1,9 +1,5 @@
-"""The key vocabulary: what a caller may name, and what that sends.
-
-Rules over Selenium's `Keys` table and nothing else: no driver, no session. A key
-is a name, one character or a combination, and this is the one place that says
-which.
-"""
+"""The key vocabulary: what a caller may name, and what that sends. A key is a
+name, one character or a combination."""
 
 from __future__ import annotations
 
@@ -11,19 +7,17 @@ import re
 
 from selenium.webdriver.common.keys import Keys
 
-# Named keys a caller can press. Selenium's Keys members are unicode private-use
-# characters, so a caller cannot reasonably type them into JSON by hand.
+# Named keys a caller can press: Selenium's Keys members are unicode
+# private-use characters.
 KEYS = {
     name.lower(): getattr(Keys, name)
     for name in dir(Keys)
     if name.isupper() and not name.startswith("_")
 }
 
-# Selenium spells 60 keys with 73 names: LEFT and ARROW_LEFT, BACK_SPACE and
-# BACKSPACE, four for Meta. Every spelling still works, since KEYS keeps them
-# all; this is the one name per key that is *offered*, so a listing is a list of
-# keys rather than a quiz of synonyms. Where there is a choice, the name matching
-# the browser's own KeyboardEvent.key wins.
+# Selenium spells 60 keys with 73 names (LEFT and ARROW_LEFT, four for Meta).
+# Every spelling works; one name per key is offered, the one matching the
+# browser's KeyboardEvent.key where there is a choice.
 _PREFERRED = frozenset({
     "alt", "arrow_down", "arrow_left", "arrow_right", "arrow_up", "backspace",
     "control", "meta", "right_alt", "shift",
@@ -60,10 +54,9 @@ _COMBINATION = re.compile(r"\+(?=.)")
 def resolve_key(key) -> str:
     """What to send for ``key``: a name, one character, or a combination.
 
-    A string rather than an enum, deliberately, because the set is open — any
-    character is a key. Names are matched in either spelling (§F2.1). A
-    combination is sent as one sequence, and WebDriver holds each modifier for
-    the keys after it and releases them all at the end.
+    Names are matched in any spelling. A combination is sent as one sequence:
+    WebDriver holds each modifier for the keys after it and releases them all
+    at the end.
     """
     text = "" if key is None else str(key)
     if len(text) > 1:
@@ -85,7 +78,6 @@ def _one_key(part: str, whole: str) -> str:
     return value
 
 
-# The keys that can submit a form, and so are the only ones worth waiting on a
-# navigation for. Selenium spells RETURN and ENTER as different characters, so
-# both are here; every other key navigates nowhere by itself.
+# The keys that can submit a form, so the only ones worth waiting on a
+# navigation for. Selenium spells RETURN and ENTER as different characters.
 SUBMIT_KEYS = frozenset({Keys.RETURN, Keys.ENTER})

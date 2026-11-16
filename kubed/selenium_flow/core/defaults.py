@@ -8,10 +8,8 @@ from __future__ import annotations
 
 DEFAULT_GRID_URL = "http://localhost:4444"
 
-# The browsers this server can open. Both are plain W3C WebDriver, which is the
-# whole reason a second one costs so little: every action already speaks the
-# standard protocol, so only session creation differs. Edge would be a third
-# entry plus a stereotype on the Grid, not a new code path.
+# The browsers this server can open. Every action speaks plain W3C WebDriver,
+# so only session creation differs.
 CHROME = "chrome"
 FIREFOX = "firefox"
 BROWSERS = (CHROME, FIREFOX)
@@ -21,10 +19,8 @@ DEFAULT_BROWSER = CHROME
 def normalize_browser(value=None) -> str:
     """A supported browser name, or the default when nothing was asked for.
 
-    Unlike the numeric settings, an unrecognised value is fatal rather than
-    ignored. Falling back would hand the caller a *different browser* than the
-    one it named and let it keep going — and the whole reason to name one is
-    that the choice matters.
+    An unrecognised name raises: falling back would hand the caller a browser
+    it did not name.
     """
     if value is None or not str(value).strip():
         return DEFAULT_BROWSER

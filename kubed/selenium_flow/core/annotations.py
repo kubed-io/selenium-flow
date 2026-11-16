@@ -1,18 +1,11 @@
-"""MCP tool annotations, built in one place.
+"""MCP tool annotations.
 
-A client reads these to decide how to present a tool and whether to ask the user
-before running it — ChatGPT skips the confirmation prompt for a read-only tool,
-and Claude uses them to judge how freely a tool can be called. They are advisory
-hints, never a security boundary, so the only thing that matters is that they are
-HONEST about what the tool does.
+A client reads these to decide whether to ask the user before running a tool.
+MCP's defaults are ``readOnlyHint: false`` and ``destructiveHint: true``, so an
+unannotated tool is presented as destructive.
 
-Leaving them off is not neutral. MCP's defaults are ``readOnlyHint: false`` and
-``destructiveHint: true``, so an unannotated tool is presented as the most
-dangerous thing on the server — which is how the resource mirrors here once
-came to be advertised as destructive when every one of them only reads.
-
-This module has no intra-package imports on purpose: every surface that
-registers a tool needs it, so it must not be able to close an import cycle.
+No intra-package imports: every surface that registers a tool needs this module,
+so it must not be able to close an import cycle.
 """
 
 from __future__ import annotations
@@ -28,21 +21,15 @@ def hints(
 ) -> dict:
     """Annotations for one tool.
 
-    ``destructive`` is the one worth arguing about, and the rule this repo
-    follows is: True wherever the tool hands the page an instruction the page is
-    free to interpret — a click, a keypress, an answered confirm dialog,
-    arbitrary JavaScript. None of those are destructive in themselves, and any
-    of them can place an order or delete a record, and this server cannot tell
-    which. Claiming otherwise to save a confirmation prompt would be trading the
-    user's safety for our convenience.
+    ``destructive`` is True wherever the tool hands the page an instruction it
+    is free to interpret (a click, a keypress, an answered confirm, arbitrary
+    JavaScript): any of them can place an order or delete a record.
 
-    ``open_world`` is True for anything that reaches the browser or the Grid,
-    and False only for a tool answered entirely from inside this package — the
-    embedded skill being the one case.
+    ``open_world`` is False only for a tool answered entirely from inside this
+    package, such as the embedded skill.
 
-    Keys are snake_case, not the camelCase from the MCP spec. Both are accepted
-    and both serialise to camelCase on the wire, but MCP SDK v2 renamed the
-    Python fields and now warns on the camelCase ones.
+    Keys are snake_case: both spellings serialise to camelCase on the wire, but
+    MCP SDK v2 warns on the camelCase fields.
     """
     return {
         "title": title,
@@ -53,8 +40,6 @@ def hints(
     }
 
 
-# The three mirror tools are all pure reads of state this server already holds,
-# so they share one shape and are spelled once here rather than three times.
 def reads(title: str, *, open_world: bool = True) -> dict:
     """A tool that only reads. Safe to call repeatedly, changes nothing."""
     return hints(title, read_only=True, idempotent=True, open_world=open_world)

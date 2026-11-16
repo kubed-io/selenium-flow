@@ -1,41 +1,38 @@
-"""Every browser action, once: the one table both surfaces are generated from.
+"""Every browser action, once: the table both surfaces are generated from.
 
-A capability is one thing a caller can do to its browser, and it is reachable
-two ways — an MCP tool and an HTTP endpoint — with the same arguments and the
-same answer (AGENTS.md). Everything the two surfaces, the OpenAPI document, the
-flow runner and the wiki need to know about one is a column of its row here:
+A capability is reachable as an MCP tool and as an HTTP endpoint, with the same
+arguments and the same answer. Each column of its row:
 
 * ``name`` is the tool, the flow step's ``tool`` and the spec's operationId;
-* ``method`` is the ``Actions`` method that does it — the name, except where
-  the name is a Python keyword (``assert``) or a builtin (``print``);
-* ``route`` is its path under ``/browser``, **declared**, never derived from the
-  name (§F2.13): ``press_key`` is ``/browser/press-key``. ``""`` is the browser
-  resource itself, which ``open_session`` and ``end_browser`` are methods on;
-* ``http_method`` is declared beside it, for the same reason;
-* ``annotations`` are the MCP hints a client reads before calling it, built by
-  ``core/annotations.py`` and held honest by ``tests/test_surfaces.py``;
-* ``response`` is what it answers, as JSON Schema. The actions return plain
-  dicts, so there is nothing to introspect: this is the hand-written half of the
-  published document, and a row cannot be written without it;
+* ``method`` is the ``Actions`` method that does it: the name, except where the
+  name is a Python keyword (``assert``) or a builtin (``print``);
+* ``route`` is its path under ``/browser``, declared, never derived from the
+  name: ``press_key`` is ``/browser/press-key``. ``""`` is the browser resource
+  itself, which ``open_session`` and ``end_browser`` are methods on;
+* ``http_method`` is declared beside it;
+* ``annotations`` are the MCP hints a client reads before calling it;
+* ``response`` is what it answers, as JSON Schema: the actions return plain
+  dicts, so there is nothing to introspect;
 * ``in_path`` puts the action's choice in the path (``/browser/interact/click``);
-* ``reshapes`` marks the action that changes what the workspace record stores
-  rather than only the page, so every surface asks ``Workspaces.reshape``;
+* ``reshapes`` marks the action that changes what the workspace record stores,
+  so every surface asks ``Workspaces.reshape``;
 * ``library_arg`` names an argument that carries the caller's own library: a
-  flow run injects it, and no request may set it.
-* ``under_control`` says whether it answers or is refused (a 409) while a
-  person holds the browser in the live view (spec 2026-10-27-live-control);
+  flow run injects it, and no request may set it;
+* ``visibility`` lists the tool's MCP Apps audiences (``model``, ``app``);
+* ``closed`` names the ``Actions`` method asked, with the workspace's name and
+  the call's arguments, when no session is open (`Workspaces.act`);
+* ``under_control`` is ``answers`` for what changes nothing on the page while a
+  person holds the browser in the live view, ``refused`` (a 409 naming
+  `await_control`) for the rest;
 * ``waits`` marks the call that waits, served by a body of its own on both
-  surfaces rather than through the recipe; its ``method`` names no
-  ``Actions`` method, and it is never a flow step.
+  surfaces, so no lock or refusal stands in front of it; its ``method`` names
+  no ``Actions`` method, and it is never a flow step.
 
-What is *not* here is the prompt. A tool's parameters and docstring are its
-schema and its description, and they stay literal Python in ``mcp/tools.py``
-where FastMCP reads them — that file declares a signature per row and the body
-comes from this table.
+A tool's parameters and docstring stay literal Python in ``mcp/tools.py``, where
+FastMCP reads them as its schema and description.
 
-No protocol import, on purpose: the flow engine reads this table, and it sits
-below the protocol layers (``tests/test_boundaries.py``), and the annotations
-it carries are built by ``core.annotations`` beside it, which imports nothing.
+No protocol import: the flow engine reads this table, below the protocol layers
+(``tests/test_boundaries.py``).
 """
 
 from __future__ import annotations
@@ -59,25 +56,16 @@ class Capability:
     in_path: bool = False
     reshapes: bool = False
     library_arg: str | None = None
-    # MCP Apps audiences for the tool (`model`, `app`); () is the default.
     visibility: tuple[str, ...] = ()
-    # The ``Actions`` method asked, with the workspace's name and the call's
-    # arguments, when no session is open (`Workspaces.act`'s ``closed``).
     closed: str | None = None
-    # While a person holds the browser in the live view (spec
-    # 2026-10-27-live-control, ruling 11): ``answers`` for what changes nothing
-    # on the page, ``refused`` - a 409 naming `await_control` - for the rest.
     under_control: Literal["answers", "refused"] = "refused"
-    # Served by a body of its own on both surfaces rather than through the
-    # recipe: a call that waits, which no lock or refusal may stand in front of.
     waits: bool = False
 
 
 # ---- what each one answers -------------------------------------------------
 
 
-# Fields every action echoes back, so a caller always knows where the browser
-# ended up without a second call.
+# Fields every action echoes back.
 PAGE_STATE = {
     "url": {"type": "string", "description": "Current URL after the action."},
     "title": {"type": "string", "description": "Page title after the action."},
@@ -182,7 +170,7 @@ PAGE_HINT = {
 
 
 # Present only when a call left the browser on a new page and saved flows say
-# they apply there (spec 2026-11-12-flow-sites-paths, rulings 7, 15 and 17).
+# they apply there.
 FLOWS_HINT_GUIDANCE = (
     "Run one with run_flow when its description is the task you were given and "
     "you have its required parameters; read its uri first when you are not sure. "
@@ -365,8 +353,8 @@ OUTLINE_ELEMENTS = {
 }
 
 
-# What `await_control` answers: the hand-back's summary (live control spec,
-# "The summary"), the cap's "call again", or nobody in control.
+# What `await_control` answers: the hand-back's summary, the cap's "call
+# again", or nobody in control.
 AWAIT_RESPONSE = {
     "type": "object",
     "properties": {
@@ -459,15 +447,12 @@ AWAIT_RESPONSE = {
 
 # ---- the table ------------------------------------------------------------
 
-# Every one is a POST except ending the browser, reads included. A body is
-# then the same object as a tool's arguments and a flow step's `args` — one
-# shape in three places — and a GET that waits thirty seconds for an
-# element surprises caches and proxies besides (§F2.13, Dr K).
+# Every one is a POST except ending the browser, reads included: a body is the
+# same object as a tool's arguments and a flow step's `args`, and a GET that
+# waits thirty seconds for an element surprises caches and proxies.
 CAPABILITIES: tuple[Capability, ...] = (
-    # The browser resource's own two: POST and DELETE on /browser itself,
-    # because which browser is a question about who is asking (§F2.13). Both
-    # are served by `Workspaces`, which is where a browser is made and
-    # ended, rather than through `Workspaces.act`.
+    # POST and DELETE on /browser itself: which browser is a question about who
+    # is asking. Both are served by `Workspaces`, not `Workspaces.act`.
     Capability(
         name="open_session",
         method="open_session",
@@ -503,7 +488,7 @@ CAPABILITIES: tuple[Capability, ...] = (
                 },
                 **PAGE_STATE,
                 "site_data": SITE_DATA_HINT,
-                "flows_here": {  # every open hints, not only a move (ruling 19)
+                "flows_here": {  # every open hints, not only a move
                     **FLOWS_HINT,
                     "description": (
                         "Present only when saved flows say they apply to the "
@@ -546,9 +531,8 @@ CAPABILITIES: tuple[Capability, ...] = (
         annotations=hints("Navigate to URL", idempotent=True),
         response=_page(),
     ),
-    # The one action whose choice is a path segment rather than a body
-    # field: /browser/interact/click reads as the thing it does, and the
-    # enum is already closed (§F2.1). The action layer still validates it.
+    # The choice is a path segment: /browser/interact/click. The action layer
+    # still validates it.
     Capability(
         name="interact",
         method="interact",
@@ -693,8 +677,6 @@ CAPABILITIES: tuple[Capability, ...] = (
             result={"description": "Whatever the script returned. Any JSON type."}
         ),
     ),
-    # `assert` is a keyword and `print` a builtin, so these two are the
-    # rows whose name cannot also be their method's.
     Capability(
         name="assert",
         method="assert_",
@@ -803,9 +785,8 @@ CAPABILITIES: tuple[Capability, ...] = (
             },
         ),
     ),
-    # `workspace` names the caller, not the action: a flow run injects it so a
-    # step reads from the library the *run* belongs to, and only works as a
-    # guard because no request body can set it too (Copilot, #31, #41).
+    # A flow run injects `workspace` so a step reads its own run's library; no
+    # request body can set it.
     Capability(
         name="upload_file",
         method="upload_file",
@@ -890,9 +871,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         visibility=("model", "app"),
         closed="network_body_closed",
     ),
-    # The call that waits for a person to hand the browser back (live control
-    # spec, rulings 4, 15-17 and 30): a long poll over HTTP, a task or a capped
-    # blocking call over MCP, each with a body of its own.
+    # A long poll over HTTP, a task or a capped blocking call over MCP.
     Capability(
         name="await_control",
         method="await_control",
@@ -937,8 +916,6 @@ def method_for(name: str) -> str:
 
 
 # ---- views -----------------------------------------------------------------
-#
-# Read off the table, never written beside it.
 
 # The commands under /browser, by path: everything but the resource's own two.
 ENDPOINTS = {row.route: row.name for row in CAPABILITIES if row.route}

@@ -13,19 +13,15 @@ from ..faults import AssertionFailed
 from . import cancel
 from .coerce import as_int, seconds
 
-# How often the page is asked again. Short enough to catch a route change
-# in the frame after it lands, long enough not to spin the Grid on a wait that
-# is going to take seconds.
+# How often the page is asked again.
 ASSERT_POLL = 0.2
 
 
 def _shape(value) -> str:
     """What came back, without saying what was in it.
 
-    The refusal is returned to the caller and logged, and an assertion can
-    return anything the page holds — `document.cookie`, an innerHTML, a token
-    in a data attribute. The author needs to know their expression answered
-    with a string rather than a comparison; nobody needs the string.
+    The refusal is returned and logged, and an assertion can return anything
+    the page holds, `document.cookie` included.
     """
     if value is None:
         return "null"
@@ -43,22 +39,11 @@ def _shape(value) -> str:
 def window(wait_timeout, stable_for, default_timeout: int) -> tuple[int, float]:
     """The wait and the hold, read from what the caller sent and checked
     against each other, before anything touches the browser."""
-    # Resolved before the browser is touched, like every other argument
-    # mistake here: `_at` reconnects and may NAVIGATE, so validating after
-    # it means an impossible request moves the caller's browser and then
-    # answers 400. A rejected argument must cost nothing (Copilot, #31).
     timeout = max(as_int(wait_timeout, default_timeout), 0)
     hold = seconds(stable_for, 0.0, "stable_for")
-    # `>=`, not `>`. Verifying a hold needs at least one poll AFTER the
-    # answer first came back true, and the deadline stops that poll at
-    # `wait_timeout` - so a hold exactly equal to the timeout can never be
-    # confirmed and every such assertion failed with "did not hold",
-    # whatever the page did (Copilot, #31).
+    # `>=`: confirming a hold needs a poll after the answer first came back
+    # true, and the deadline stops polls at `wait_timeout`.
     if hold and hold >= timeout:
-        # Refused rather than silently impossible, and the message names the
-        # unit: `stable_for` and `wait_timeout` are both seconds, and a
-        # caller who read one of them as milliseconds finds out here rather
-        # than from an assertion that can never pass.
         raise ValueError(
             f"stable_for ({hold}s) leaves no room inside wait_timeout "
             f"({timeout}s): the answer has to be asked again AFTER it has "
@@ -98,6 +83,8 @@ class Assertion:
         first = True
         while True:
             answer = self._look()
+            # Truthiness is how an assertion passes by accident: a query that
+            # answers an element is right until it answers `0` or `[]`.
             if not isinstance(answer, bool):
                 raise ValueError(
                     f"assert must return true or false; this returned "
@@ -105,12 +92,9 @@ class Assertion:
                     "thing itself - return !!document.querySelector('#x')"
                 )
             now = self.clock.monotonic()
-            # The script itself can run past the deadline - a blocking
-            # expression, a page that stops responding - and an answer that
-            # arrived after the caller stopped waiting is not an answer to
-            # `wait_timeout` (Copilot, #31). The FIRST evaluation is exempt,
-            # because `wait_timeout=0` promises exactly one look and any script
-            # takes longer than nothing.
+            # An answer that arrived after the deadline is not an answer to
+            # `wait_timeout`. The first is exempt: `wait_timeout=0` promises
+            # one look.
             if answer and not first and now > deadline:
                 answer = False
             first = False
@@ -121,51 +105,33 @@ class Assertion:
                 if now - true_since >= hold:
                     return self.state()
             else:
-                # The clock restarts, it does not pause. A transient that
-                # flickers true, false, true has not held true for anything.
-                true_since = None
-            # Bounded by what is left, and re-checked before the next
-            # evaluation: a fixed pause here could carry the call past
-            # `wait_timeout` and then report an answer that arrived after the
-            # caller had stopped waiting for it.
+                true_since = None  # the clock restarts, it does not pause
+            # Bounded by what is left, and re-checked before the next look.
             remaining = deadline - self.clock.monotonic()
             if remaining <= 0:
                 break
             self.clock.sleep(min(ASSERT_POLL, remaining))
-            # The one wait here long enough to outlive its caller: a flow that
-            # waits fifteen minutes for an order to ship. Looked at every poll,
-            # so a cancelled run lets go of the browser within one.
+            # A flow can wait minutes here; a cancelled run lets go of the
+            # browser within one poll.
             cancel.check()
             if self.clock.monotonic() > deadline:
-                # A sleep can wake late. Without this, the answer that arrived
-                # after the caller stopped waiting would still be accepted, so
-                # a slow page could pass an assertion it had already failed.
-                # The first evaluation is above the loop's exits, so
-                # wait_timeout=0 still asks exactly once.
-                break
+                break  # a sleep can wake late
 
-        # The ending wins over the author's sentence: `message` describes a
-        # page condition, and a browser ended during the last look has no page.
+        # A browser ended during the last look has no page for `message` to
+        # describe.
         cancel.check()
         state = self.state()
         if hold and ever_true:
-            # A different failure and worth saying so: the page DID answer true,
-            # it just would not stay that way. Told apart from "never true",
-            # because the fixes are opposite - one is a wrong assertion, the
-            # other is a page still settling.
+            # Told apart from "never true": a page still settling, not a wrong
+            # assertion.
             raise AssertionFailed(
                 message
                 or f"the assertion became true on {state.get('url')!r} but did "
                 f"not hold for {hold}s. Give the step a message to say what "
                 "should have been true"
             )
-        # The script is not echoed. It is the author's text rather than the
-        # page's, but it can carry a literal a run report must not: a token
-        # compared inline, a serialised request body. This package already keeps
-        # `script` out of run summaries (`SAFE_IN_SUMMARY`) for that reason, and
-        # a failure message is read in more places than a summary is - the HTTP
-        # error, the flow report, the log. So: where it was false, and a nudge
-        # to write the sentence that would have said what should have been true.
+        # The script is not echoed: it can carry a token compared inline, and
+        # is kept out of run summaries (`SAFE_IN_SUMMARY`) for that reason.
         raise AssertionFailed(
             message
             or f"assertion failed after {timeout}s on {state.get('url')!r}. "

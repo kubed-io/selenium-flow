@@ -8,11 +8,7 @@ from __future__ import annotations
 
 
 def as_bool(value, default: bool = False) -> bool:
-    """Coerce a JSON or form value to bool.
-
-    Callers that send everything as strings would otherwise make ``"false"``
-    true, because every non-empty string is truthy in Python.
-    """
+    """Coerce a JSON or form value to bool, so ``"false"`` is false."""
     if value is None:
         return default
     if isinstance(value, bool):
@@ -21,11 +17,8 @@ def as_bool(value, default: bool = False) -> bool:
 
 
 def as_int(value, default: int) -> int:
-    """Coerce to int, falling back on anything unusable.
-
-    An omitted optional parameter often arrives as an empty string, and
-    ``int("")`` raises.
-    """
+    """Coerce to int, falling back on anything unusable (an omitted optional
+    often arrives as "")."""
     try:
         return int(str(value).strip())
     except (TypeError, ValueError):
@@ -35,15 +28,8 @@ def as_int(value, default: int) -> int:
 def seconds(value, default: float, name: str = "value") -> float:
     """A duration in seconds, from JSON that may have sent it as a string.
 
-    `as_int` cannot serve here: half a second is a sensible stability window and
-    `int("0.5")` raises. Wider type, and deliberately **less** forgiving.
-
-    "Coerce, don't trust" is the rule everywhere else because a fallback there
-    is harmless - a `wait_timeout` that cannot be read becomes the default wait,
-    and the call still waits. This one is different in kind: the fallback is
-    zero, and zero means *the stability check does not happen*. A typo would
-    quietly take away the guard the argument exists to add, and the assertion
-    would then pass on the transient it was written to reject (Copilot, #31).
+    Unlike `as_int`, a float, and an unreadable value raises: the fallback is
+    zero, and a zero `stable_for` would silently drop the guard it adds.
     """
     if value is None or value == "":
         return default
