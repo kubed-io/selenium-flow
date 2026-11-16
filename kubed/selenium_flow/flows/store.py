@@ -122,7 +122,7 @@ def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
             os.close(fd)
 
 
-def _open_regular(path: Path) -> int:
+def open_regular(path: Path) -> int:
     """An fd on ``path`` that is a regular file and not reached through a link.
 
     EINVAL for anything else (a link, a FIFO, a directory): never opened for
@@ -140,9 +140,6 @@ def _open_regular(path: Path) -> int:
         os.close(fd)
         raise OSError(errno.EINVAL, "not a regular file")
     return fd
-
-
-open_regular = _open_regular
 
 
 def _unlink(path: Path) -> bool:
@@ -486,7 +483,7 @@ class FileStore(WorkspaceLayout):
         source = Path(source)
         # Open the source once and only ever file that inode: a link swapped
         # in after a check would otherwise be copied or linked as itself.
-        held = _open_regular(source)
+        held = open_regular(source)
         held_stat = os.fstat(held)
         staged: Path | None = None  # a complete copy, when links are impossible
         try:
