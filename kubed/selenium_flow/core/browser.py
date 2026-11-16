@@ -97,6 +97,7 @@ class _GridAdapter(HTTPAdapter):
         kwargs["socket_options"] = SOCKET_OPTIONS
         super().init_poolmanager(*args, **kwargs)
 
+
 # How long a keystroke-triggered navigation has to commit (`settled`). Every
 # Enter that navigates nowhere waits this out.
 NAVIGATION_SETTLE = 2.0
@@ -434,9 +435,7 @@ class Grid:
 # re-raises with what it was waiting for.
 def _waited(driver, condition, timeout: int, description: str, target=None):
     try:
-        return WebDriverWait(driver, timeout, poll_frequency=WAIT_POLL).until(
-            condition
-        )
+        return WebDriverWait(driver, timeout, poll_frequency=WAIT_POLL).until(condition)
     except TimeoutException as exc:
         # Only the clickability waits pass a target: the element exists, and
         # the page can say why it cannot be used.
@@ -473,13 +472,12 @@ def locator(selector) -> tuple[str, str]:
             selector = json.loads(selector)
         except ValueError:
             raise ValueError(
-                "selector must be an object: {\"css\": \"button.go\"} or "
-                "{\"xpath\": \"//button\"}"
+                'selector must be an object: {"css": "button.go"} or '
+                '{"xpath": "//button"}'
             ) from None
     if not isinstance(selector, dict):
         raise ValueError(
-            "selector must be an object: {\"css\": \"button.go\"} or "
-            "{\"xpath\": \"//button\"}"
+            'selector must be an object: {"css": "button.go"} or {"xpath": "//button"}'
         )
     unknown = set(selector) - set(SELECTORS)
     if unknown:
@@ -490,8 +488,8 @@ def locator(selector) -> tuple[str, str]:
     if not given:
         raise ValueError(
             "no element given: pass a selector, e.g. "
-            "selector={\"xpath\": \"//button[@type='submit']\"} or "
-            "selector={\"css\": \"button[type=submit]\"}"
+            'selector={"xpath": "//button[@type=\'submit\']"} or '
+            'selector={"css": "button[type=submit]"}'
         )
     if len(given) > 1:
         raise ValueError(
@@ -765,7 +763,6 @@ def accept_local_files(driver) -> None:
     local file detector ships the bytes to the node and hands the input the
     path they landed at."""
     driver.file_detector = LocalFileDetector()
-
 
 
 def go(driver, url: str) -> None:

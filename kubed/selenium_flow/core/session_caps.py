@@ -206,8 +206,7 @@ def check(
         moz = block == VENDOR[FIREFOX] and isinstance(env, Mapping)
         if moz and "MOZ_HEADLESS" in env:
             flags.append(
-                f"{block}.env.MOZ_HEADLESS cannot be sent in {where}: "
-                + HEADLESS_OWNED
+                f"{block}.env.MOZ_HEADLESS cannot be sent in {where}: " + HEADLESS_OWNED
             )
     if flags:
         suffix = REMEMBERED if remembered else ""
@@ -383,7 +382,8 @@ def asked(built: Built) -> str:
     those are where credentials live, and they cannot explain a miss.
     """
     head = " ".join(
-        str(built.send[key]) for key in ("browserName", "browserVersion")
+        str(built.send[key])
+        for key in ("browserName", "browserVersion")
         if key in built.send
     )
     parts = [head]

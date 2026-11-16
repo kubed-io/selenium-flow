@@ -36,9 +36,7 @@ def seconds(value, default: float, name: str = "value") -> float:
     try:
         seconds = float(value)
     except (TypeError, ValueError):
-        raise ValueError(
-            f"{name} must be a number of seconds; got {value!r}"
-        ) from None
+        raise ValueError(f"{name} must be a number of seconds; got {value!r}") from None
     if seconds != seconds or seconds in (float("inf"), float("-inf")):
         raise ValueError(f"{name} must be a finite number of seconds")
     if seconds < 0:

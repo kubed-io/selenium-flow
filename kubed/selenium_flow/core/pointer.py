@@ -126,9 +126,7 @@ def matching(store):
         return MemoryPointers(ttl=ttl)
     from ..workspace.store import POINTER_NAMESPACE
 
-    return RedisPointers(
-        store.client, prefix=store.prefix + POINTER_NAMESPACE, ttl=ttl
-    )
+    return RedisPointers(store.client, prefix=store.prefix + POINTER_NAMESPACE, ttl=ttl)
 
 
 # The in-view center point, WebDriver's definition of where an element-origin
@@ -205,9 +203,7 @@ def _nudge_point(driver, element, start) -> tuple[bool, tuple[int, int] | None]:
         log.debug("could not work out a nudge point", exc_info=True)
         return False, None
     away = answer.get("away")
-    return bool(answer.get("inside")), (
-        (int(away[0]), int(away[1])) if away else None
-    )
+    return bool(answer.get("inside")), ((int(away[0]), int(away[1])) if away else None)
 
 
 def move(driver, element, start=None, glide=False) -> dict:

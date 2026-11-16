@@ -18,10 +18,20 @@ KEYS = {
 # Selenium spells 60 keys with 73 names (LEFT and ARROW_LEFT, four for Meta).
 # Every spelling works; one name per key is offered, the one matching the
 # browser's KeyboardEvent.key where there is a choice.
-_PREFERRED = frozenset({
-    "alt", "arrow_down", "arrow_left", "arrow_right", "arrow_up", "backspace",
-    "control", "meta", "right_alt", "shift",
-})
+_PREFERRED = frozenset(
+    {
+        "alt",
+        "arrow_down",
+        "arrow_left",
+        "arrow_right",
+        "arrow_up",
+        "backspace",
+        "control",
+        "meta",
+        "right_alt",
+        "shift",
+    }
+)
 
 
 def _offered_names() -> tuple[str, ...]:

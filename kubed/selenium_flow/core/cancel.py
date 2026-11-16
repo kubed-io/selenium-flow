@@ -32,8 +32,8 @@ class Ended(Cancelled):
     SAYS = "the browser was ended while this call was waiting"
 
 
-_FLAGS: ContextVar[tuple[tuple[threading.Event, type[Cancelled]], ...]] = (
-    ContextVar("cancel_flags", default=())
+_FLAGS: ContextVar[tuple[tuple[threading.Event, type[Cancelled]], ...]] = ContextVar(
+    "cancel_flags", default=()
 )
 
 

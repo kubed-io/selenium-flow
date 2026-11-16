@@ -77,8 +77,7 @@ PAGE_STATE = {
 SITE_DATA_HINT = {
     "type": "object",
     "description": (
-        "Present only when site data was restored, skipped or forgotten in "
-        "this call."
+        "Present only when site data was restored, skipped or forgotten in this call."
     ),
     "properties": {
         "restored": {
@@ -188,8 +187,7 @@ FLOW_HINT = {  # one entry
         "uri": {
             "type": "string",
             "description": (
-                "flow://flows/{name}: read it for the steps and the parameter "
-                "schema."
+                "flow://flows/{name}: read it for the steps and the parameter schema."
             ),
         },
         "description": {"type": "string"},
@@ -618,7 +616,7 @@ CAPABILITIES: tuple[Capability, ...] = (
                         "the drag stopped at its edge."
                     ),
                 },
-            }
+            },
         ),
     ),
     Capability(

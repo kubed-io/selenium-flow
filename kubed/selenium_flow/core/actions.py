@@ -208,7 +208,6 @@ DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
 FRAME_ACTIONS = ("switch", "parent", "default")
 
 
-
 # What `open_session`'s result carries for the workspace and never for a
 # caller: the Grid's id, what was sent, and what the Grid says ran.
 OPEN_PRIVATE = ("session_id", "sent", "ran")
@@ -225,6 +224,7 @@ def _ran(driver) -> dict:
         "node": node if isinstance(node, str) and node else None,
         "live_view": live if isinstance(live, bool) else None,
     }
+
 
 class Actions:
     """The browser operations, bound to one Grid."""
@@ -467,7 +467,8 @@ class Actions:
                 # It accepts any certificate, so anyone in the middle would get
                 # every saved cookie.
                 report = {
-                    "restored": [], "skipped": [{"reason": INSECURE_SKIP}],
+                    "restored": [],
+                    "skipped": [{"reason": INSECURE_SKIP}],
                     "uri": site_data_snapshot.LIST_URI,
                 }
             else:
@@ -480,7 +481,8 @@ class Actions:
                     # Restore is best effort: a channel that will not open is
                     # a report, never a failed open.
                     report = {
-                        "restored": [], "skipped": [{"reason": failure_text(e)}],
+                        "restored": [],
+                        "skipped": [{"reason": failure_text(e)}],
                         "uri": site_data_snapshot.LIST_URI,
                     }
 
@@ -750,8 +752,7 @@ class Actions:
         if to is not None:
             if by_x is not None or by_y is not None:
                 raise ValueError(
-                    "give the destination as `to` OR as a by_x/by_y "
-                    "offset, never both"
+                    "give the destination as `to` OR as a by_x/by_y offset, never both"
                 )
             to_target = browser.locator(to)
         elif by_x is not None or by_y is not None:
@@ -841,9 +842,7 @@ class Actions:
                 f"{', '.join(sorted(FRAME_ACTIONS))}"
             )
         if resolved == "switch" and not selector and index is None:
-            raise ValueError(
-                "switch needs a selector or an index to say which frame"
-            )
+            raise ValueError("switch needs a selector or an index to say which frame")
 
         # Only a switch by selector waits for its frame.
         by_selector = resolved == "switch" and bool(selector)
@@ -895,7 +894,6 @@ class Actions:
         # Checked before connecting: a 400 about the argument, not a Grid fault.
         if resolved == "send_text" and text is None:
             raise ValueError("text is required for the send_text action")
-
 
         def answer(at):
             # Not the recipe's wait: that one is for elements, at their timeout.
@@ -965,8 +963,7 @@ class Actions:
             )
         if len(sources) > 1:
             raise ValueError(
-                f"pass only one of text, content or file; "
-                f"got {', '.join(sources)}"
+                f"pass only one of text, content or file; got {', '.join(sources)}"
             )
 
         # Resolved before connecting: unusable input is a 400 about the input.
@@ -984,9 +981,7 @@ class Actions:
                     "off, so there is nowhere for keep_file to have kept one. "
                     "Pass text or content instead"
                 )
-            name, raw = self.read_file(
-                str(file), str(workspace) if workspace else None
-            )
+            name, raw = self.read_file(str(file), str(workspace) if workspace else None)
             # The file's own name is the default: its extension is the type.
             name = safe_name(filename or name, mime_type)
 
@@ -1460,6 +1455,7 @@ class Actions:
     def _reattached(self, wait=None) -> Recipe:
         """The road for an action that takes no ``url``: a bare reattach, which
         does not refuse an empty ``session_id`` as `_at` does."""
+
         def reattach(session_id, _url, look=None):
             driver = self.grid.reconnect(session_id)
             if look:

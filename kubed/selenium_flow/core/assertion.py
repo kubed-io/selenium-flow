@@ -56,8 +56,9 @@ def window(wait_timeout, stable_for, default_timeout: int) -> tuple[int, float]:
 class Assertion:
     """One assertion: a poll until the page answers true, and stays true."""
 
-    def __init__(self, evaluate, state, timeout: int, hold: float, message=None,
-                 clock=time):
+    def __init__(
+        self, evaluate, state, timeout: int, hold: float, message=None, clock=time
+    ):
         self.evaluate = evaluate
         self.state = state
         self.timeout = timeout
