@@ -11,47 +11,33 @@ from __future__ import annotations
 
 import re
 
-# The workspace an unnamed caller shares — with the one exception of stdio, which
-# gets STDIO_WORKSPACE below because it cannot name itself and would otherwise
-# have nowhere writable. A caller keyed on an
-# MCP transport id gets a new key on every reconnect, so a directory per key
-# would bury the disk in folders whose flows nobody could ever reach again.
-# Routing all of them here instead makes the unnamed case one stable, shared,
-# useful place rather than infinite orphans (§F1.2).
-#
-# It is a legal workspace name like any other: ?workspace=global lands in the same
-# directory, which is consistent rather than a special case.
+# The workspace an unnamed caller shares (stdio has STDIO_WORKSPACE). A caller
+# keyed on an MCP transport id would get a new key on every reconnect, and a
+# directory per key would fill the disk with folders nobody could reach again.
 GLOBAL_WORKSPACE = "global"
 
-# The library a stdio caller owns. Stdio is one process serving one client, so
-# a constant is exactly right — the same reasoning that makes `stdio` a usable
-# caller key makes it a usable directory name.
-#
-# It has to be its own library rather than `global`, and that is not a
-# preference: a stdio client has no URL and no headers, so it cannot name
-# itself. Resolving it to the read-only shared library would leave it with no
-# writable library at all and no way to obtain one, which is a refusal whose
-# remedy cannot be performed (§F1.2).
+# The library a stdio caller owns. A stdio client has no URL and no headers, so
+# it cannot name itself; given the read-only shared library it would have
+# nowhere to write and no way to get somewhere.
 STDIO_WORKSPACE = "stdio"
 
-# The data directory is a root with two homes in it (recordings spec, ruling 6):
-# every workspace's own folder under `workspaces/`, and the inbox the Grid's
+# The data directory is a root with two homes in it: every workspace's own
+# folder under `workspaces/`, and the inbox the Grid's
 # recordings arrive in. Neither can collide with a workspace's name, because a
 # workspace is one level further down.
 WORKSPACES_DIR = "workspaces"
 INBOX_DIR = "recordings"
 
-# Where a workspace's own files land. `files` IS the Files section — a print, and
-# anything kept; `screenshots` and `recordings` hold what the server made until
-# it is kept or cleared (§F4.1; recordings spec, ruling 7). Downloads are not a
-# folder here: they are the Grid's.
+# Where a workspace's own files land. `files` is the Files section (a print, and
+# anything kept); `screenshots` and `recordings` hold what the server made until
+# it is kept or cleared. Downloads are not a folder here: they are the Grid's.
 FILES_DIR = "files"
 SCREENSHOTS_DIR = "screenshots"
 RECORDINGS_DIR = "recordings"
 FOLDERS = (FILES_DIR, SCREENSHOTS_DIR, RECORDINGS_DIR)
 
 # The names a file in Files can never take, since workspace://files/<name> would
-# then mean a folder, or meant one (`downloads`; §F4.6). One arriving under one
+# then mean a folder, or meant one (`downloads`). One arriving under one
 # lands as `name (1)`.
 RESERVED_IN_FILES = frozenset({SCREENSHOTS_DIR, "downloads", RECORDINGS_DIR})
 
@@ -65,18 +51,13 @@ GRID_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{7,63}$")
 # expression.
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
-# A FILE name plays by different rules, and the difference is about who chose
-# it. A workspace or flow name is picked by a caller, so refusing an untidy one
-# costs them a retry. A file name is *handed to us* — by the site that served
-# the download, or by Chrome deduplicating it into `report (1).pdf` — so the
-# same rule would make perfectly ordinary files unkeepable, and `Q3 summary.csv`
-# is not a mistake anyone can fix.
-#
-# So this asks only what a path segment must satisfy: no separator, no NUL or
-# control character, and short enough for a filesystem. `.` and `..` and any
-# leading dot are refused below, since a dotfile is never something the Grid
-# hands us — `is_partial` already skips Chrome's scratch names — and allowing
-# one would let a listing write `.bashrc` into the workspace directory.
+# A file name is handed to us, by the site that served the download or by
+# Chrome deduplicating it into `report (1).pdf`, so `Q3 summary.csv` must be
+# keepable. This asks only what a path segment must satisfy: no separator, no
+# NUL or control character, and short enough for a filesystem. A leading dot
+# (`.` and `..` included) is refused below: the Grid never hands us a dotfile
+# (`is_partial` skips Chrome's scratch names), and one would let a listing
+# write `.bashrc` into the workspace directory.
 FILE_NAME = re.compile(r"^[^/\\\x00-\x1f]{1,255}$")
 
 
@@ -111,19 +92,13 @@ def candidates(name: str):
 def valid_name(name, kind: str = "name") -> str:
     """``name`` if it can be a path segment, else raise.
 
-    **A bad name is rejected, never slugged into a good one.** Slugging saves
-    the caller a round trip and costs them the flow: it is written somewhere
-    they will not look for it again, and nothing ever says so. A 400 they fix in
-    one try is strictly better than a file they cannot find.
+    A bad name is rejected, never slugged into a good one: a slugged flow is
+    written somewhere its caller will not look for it, and nothing says so.
 
-    Surrounding whitespace is the one thing trimmed, and it is worth being
-    precise about why that is not the same act. Slugging *rewrites a name that
-    was refused* into a different, accepted one. Trimming is the ordinary
-    boundary coercion this package does everywhere — see ``as_bool`` and
-    ``as_int`` — because these values arrive from URL query parameters and JSON
-    written by hand, where a trailing space is a typo rather than an intent.
-    ``" bot "`` and ``"bot"`` therefore name the same library, deliberately, and
-    ``"   "`` is still refused because it names nothing at all.
+    Surrounding whitespace is trimmed, the boundary coercion values from URL
+    query parameters and hand-written JSON get everywhere (``as_bool``,
+    ``as_int``): ``" bot "`` and ``"bot"`` name the same library, and
+    ``"   "`` is still refused.
     """
     text = "" if name is None else str(name).strip()
     if not NAME.match(text):
@@ -135,14 +110,11 @@ def valid_name(name, kind: str = "name") -> str:
     return text
 
 
-# Workspace names a caller may not claim. `stdio` is here because the stdio
-# transport owns that library and cannot name itself anything else: a caller
-# that claimed the name would be reading, overwriting and deleting another
-# client's flows and kept files — the one guarantee naming a workspace buys.
-#
-# Neither can be claimed by a caller naming itself. `stdio` is the transport's
-# own library; `global` is the shared one every workspace reads and none may
-# write (§F1.2), so a caller that could claim it would own everyone's flows.
+# Workspace names a caller may not claim. `stdio` is the stdio transport's own
+# library: a caller that claimed it would read, overwrite and delete another
+# client's flows and kept files. `global` is the shared one every workspace
+# reads and none may write, so a caller that claimed it would own everyone's
+# flows.
 RESERVED_WORKSPACES = frozenset({STDIO_WORKSPACE, GLOBAL_WORKSPACE})
 
 
@@ -150,9 +122,8 @@ def valid_workspace_name(name) -> str:
     """A workspace name a caller is allowed to choose, else raise.
 
     Everything :func:`valid_name` requires, plus the reserved set. Kept apart
-    from ``valid_name`` because that one also validates *flow* names, and a flow
-    called ``stdio`` or ``global`` is perfectly reasonable — it is only the
-    library name that is spoken for.
+    because ``valid_name`` also validates flow names, and a flow may be called
+    ``stdio`` or ``global``.
     """
     workspace = valid_name(name, "workspace name")
     if workspace in RESERVED_WORKSPACES:
@@ -167,21 +138,16 @@ def valid_workspace_name(name) -> str:
 def valid_file_name(name) -> str:
     """``name`` if it can be a file inside a workspace directory, else raise.
 
-    Deliberately permissive where :func:`valid_name` is strict — see
-    :data:`FILE_NAME` for why — and strict about exactly one thing: the result
-    must be a single, ordinary path segment. Traversal is refused here, and
-    refused again by ``_resolved``, because this value reaches the store from a
-    URL path parameter as well as from the Grid's own listing.
+    Permissive where :func:`valid_name` is strict (see :data:`FILE_NAME`), and
+    strict about one thing: the result must be a single, ordinary path segment.
+    Traversal is refused here, and again by ``_resolved``, because this value
+    reaches the store from a URL path parameter as well as from the Grid's own
+    listing.
 
-    **Not trimmed, unlike :func:`valid_name`**, and the difference is the same
-    one that motivates this function at all. Trimming a workspace name is ordinary
-    boundary coercion because a caller typed it and a trailing space is a typo.
-    Nobody typed a file name: it is whatever the site's ``Content-Disposition``
-    or Chrome called the thing. So ``" report.pdf "`` is a *different file* from
-    ``"report.pdf"``, and silently trimming it made ``keep_one`` ask the Grid for
-    a name it does not have — the copy then could not round-trip through read or
-    delete either. A name that is nothing but whitespace names nothing and is
-    still refused.
+    Not trimmed: nobody typed a file name, so ``" report.pdf "`` is a different
+    file from ``"report.pdf"``, and trimming it would have ``keep_one`` ask the
+    Grid for a name it does not have. A name that is nothing but whitespace is
+    refused.
     """
     text = "" if name is None else str(name)
     if not text.strip():
@@ -197,22 +163,16 @@ def valid_file_name(name) -> str:
 def library_of(key: str) -> str | None:
     """The directory a stored workspace key owns, or None if it cannot have one.
 
-    **Only the admin surface needs this.** Everywhere else a workspace name is
-    validated where it arrives (§F2.12), so by the time anything asks, the name
-    is already a directory name — which is why the two *other* resolvers that
-    used to live here are gone.
-
-    The admin cannot make that assumption, because it reads the store's keys
-    rather than a live caller's name. Those include keys written by an older
-    version, where a key was `named:desktop` or an MCP transport id, and they
-    outlive an upgrade by a whole ``WORKSPACE_TTL``. It lists **every** workspace
-    there is, so one unusable row must not take the listing down: it gets None,
-    meaning "this workspace has nowhere to keep anything", and is shown as having
-    no library rather than being shown the shared one as though it were its own.
+    Only the admin surface needs this: everywhere else a workspace name is
+    validated where it arrives. The admin reads the store's keys, which include
+    keys written by an older version (`named:desktop`, an MCP transport id) for
+    up to a ``WORKSPACE_TTL``. It lists every workspace, so an unusable key gets
+    None ("nowhere to keep anything") instead of taking the listing down or
+    being shown the shared library as its own.
 
     ``valid_name`` rather than ``valid_workspace_name``: the reserved names are
-    reserved against being *claimed* by a caller, and the two workspaces that
-    legitimately own them are exactly the ones this function is asked about.
+    reserved against being claimed by a caller, and the two workspaces that own
+    them are the ones this is asked about.
     """
     try:
         return valid_name(key, "workspace name")
@@ -220,10 +180,9 @@ def library_of(key: str) -> str | None:
         return None
 
 
-# URIs that moved, tried in order; the first match answers (spec
-# 2026-10-29-session-uris, ruling 11). A None is served: nothing to refuse.
-# The last row is the rename's (spec 2026-10-09-workspaces-rename, ruling 5):
-# a saved flow may still name a `session://` URI.
+# URIs that moved, tried in order; the first match answers. A None is served:
+# nothing to refuse. The last row is for a saved flow that still names a
+# `session://` URI.
 MOVED: tuple[tuple[str, str | None], ...] = (
     ("workspace://files/downloads", "session://downloads"),
     ("session://files/downloads", "session://downloads"),
