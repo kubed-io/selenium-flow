@@ -185,7 +185,7 @@ jobs:
         [ "$found" -eq "$LEGS" ] || { echo "::error::$LEGS legs, $found reports"; exit 1; }
 
     - name: Publish Test Results
-      uses: EnricoMi/publish-unit-test-result-action@v2.25.0
+      uses: EnricoMi/publish-unit-test-result-action@v2.26.0
       with:
         check_name: Unit test results
         files: results/**/*.xml
