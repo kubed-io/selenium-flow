@@ -119,6 +119,45 @@ def entered(server, monkeypatch) -> asyncio.Event:
     return event
 
 
+def cancelled(server, monkeypatch) -> asyncio.Event:
+    """Set once a wait for the hand-back is cancelled. A task's status says
+    ``cancelled`` a moment before the worker cancels the coroutine running it."""
+    event = asyncio.Event()
+    wait = server.controls.wait
+
+    async def waiting(workspace, timeout):
+        try:
+            return await wait(workspace, timeout)
+        except asyncio.CancelledError:
+            event.set()
+            raise
+
+    monkeypatch.setattr(server.controls, "wait", waiting)
+    return event
+
+
+def answered_at_once(server, monkeypatch) -> list[str]:
+    """The kind of each wait for the hand-back, failing any wait that suspends.
+
+    A wait that finishes on its first step never gave the loop away, so it
+    answered at once however slow the runner is."""
+    kinds = []
+    wait = server.controls.wait
+
+    async def at_once(workspace, timeout):
+        step = wait(workspace, timeout)
+        try:
+            step.send(None)
+        except StopIteration as done:
+            kinds.append(done.value.kind)
+            return done.value
+        step.close()
+        raise AssertionError("the wait for the hand-back suspended")
+
+    monkeypatch.setattr(server.controls, "wait", at_once)
+    return kinds
+
+
 def hand_back(tunnel):
     tunnel.mode = "watch"
     tunnel.on_mode()
@@ -211,9 +250,11 @@ async def test_the_notice_never_rewrites_its_answer(server, named, monkeypatch):
     assert "has control of this browser" not in result.content[0].text
 
 
-async def test_nobody_in_control_answers_at_once(server, named):
-    async with asyncio.timeout(1), legacy(server) as client:
+async def test_nobody_in_control_answers_at_once(server, named, monkeypatch):
+    waits = answered_at_once(server, monkeypatch)
+    async with asyncio.timeout(SOON), legacy(server) as client:
         result = await client.call_tool("await_control")
+    assert waits == ["nobody"]
     summary = result.structured_content
     assert summary["handed_back"] is False and summary["control"] is None
     assert summary["page"] == {"url": OUTLINE["url"], "title": "Home"}
@@ -225,7 +266,7 @@ async def test_nobody_in_control_answers_at_once(server, named):
 async def test_a_held_notice_is_said_by_await_control(server, named):
     server.store.update(
         "w1", lambda r: replace(r, reopened={"browser": GRID, "cause": "reaped", "report": None}))
-    async with asyncio.timeout(1), legacy(server) as client:
+    async with asyncio.timeout(SOON), legacy(server) as client:
         result = await client.call_tool("await_control")
     assert result.structured_content["reopened"] == {
         "cause": "reaped", "message": faults.REOPENED["reaped"]}
@@ -288,6 +329,7 @@ async def test_a_tasks_client_gets_a_task_and_the_summary_at_the_hand_back(
 
 async def test_a_cancelled_wait_leaves_the_episode_holding(server, named, monkeypatch):
     tunnel = await hold(server)
+    stopped = cancelled(server, monkeypatch)
     began = entered(server, monkeypatch)
     async with asyncio.timeout(SOON), Client(server.mcp) as client:
         task = await call_tool_task(client, "await_control")
@@ -298,6 +340,7 @@ async def test_a_cancelled_wait_leaves_the_episode_holding(server, named, monkey
                 break
             await asyncio.sleep(0.02)
         assert (await task.status()).status == "cancelled"
+        await stopped.wait()
         assert server.controls.notice("w1")["state"] == "held"
         hand_back(tunnel)
         # Nobody heard it: the hand-back is still to be said.

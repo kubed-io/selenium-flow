@@ -127,10 +127,10 @@ class _Tier:
 _TRACKER = re.compile(
     r"_ga(_.*)?|_gat(_.*)?|_gac_.*|_gid|_fbp|_fbc|_gcl_.*|__utm[a-z](_.*)?"
     r"|_hj(?-i:id|[A-Z].*)|AMP_TOKEN|ajs_.*|_pk_.*|mp_.+_mixpanel|_uet[sv]id",
-    re.I,
+    re.IGNORECASE,
 )
 _SESSION = re.compile(
-    r"sess|sid|token|auth|jwt|csrf|xsrf|access|refresh|id_token", re.I
+    r"sess|sid|token|auth|jwt|csrf|xsrf|access|refresh|id_token", re.IGNORECASE
 )
 
 

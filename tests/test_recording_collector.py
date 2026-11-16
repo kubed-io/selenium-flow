@@ -305,8 +305,9 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
     )
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c2.start()
+    # The task ends a sweep after the filing empties `owed`: wait for the end.
     for _ in range(50):
-        if not c2.owed:
+        if not c2.running:
             break
         await asyncio.sleep(0.05)
     assert c2.owed == {} and c2.running is False
@@ -752,22 +753,22 @@ async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path
     (inbox / f"good_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     (inbox / f"bad_{other}.mp4").write_bytes(BODY + mp4.trailer())
     _eio_on(store.root / "bad", monkeypatch)
-    c = collector(store, inbox, Clock(), tick=0.1)
+    # Called once a filing has moved the file, marked its note and deleted it.
+    # The file lands first, so its presence alone says nothing about the note.
+    filed = asyncio.Event()
+    c = collector(store, inbox, Clock(), tick=0.1, on_filed=filed.set)
     with caplog.at_level(logging.WARNING):
         await c.start()
-        for _ in range(50):
-            if store.files("good", RECORDINGS_DIR):
-                break
-            await asyncio.sleep(0.05)
+        async with asyncio.timeout(5):
+            await filed.wait()
     assert len(store.files("good", RECORDINGS_DIR)) == 1
     assert c._unread and other not in c.owed and len(store.notes(on_error=lambda *a: None)) == 0
     assert caplog.text.count("cannot be read") == 1 and "bad" in caplog.text
     assert GID not in caplog.text and other not in caplog.text
+    filed.clear()
     monkeypatch.undo()
-    for _ in range(50):
-        if not c.running:
-            break
-        await asyncio.sleep(0.05)
+    async with asyncio.timeout(5):
+        await filed.wait()
     assert c.owed == {} and len(store.files("bad", RECORDINGS_DIR)) == 1
     await c.stop()
 

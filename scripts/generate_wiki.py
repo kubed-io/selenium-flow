@@ -471,18 +471,17 @@ def _default_of(leaf: config.Leaf) -> str:
 
 def configuration() -> str:
     """Every setting, from the schema: the page a person reads to configure it."""
-    sections = []
     by_section: dict[str, list] = {name: [] for name in config.SECTION_ORDER}
     for leaf in config.leaves():
         what = leaf.description + (" **Sensitive.**" if leaf.sensitive else "")
         row = [f"`{leaf.path}`", f"`{leaf.env}`", f"`{leaf.flag}`", _default_of(leaf)]
         by_section[leaf.section].append([*row, what])
     head = ["Config", "Env", "Flag", "Default", "What"]
-    for name in config.SECTION_ORDER:
-        sections.append(
-            f"## {name}\n\n{config.SECTION_DESCRIPTIONS[name]}\n\n"
-            + table(by_section[name], head)
-        )
+    sections = [
+        f"## {name}\n\n{config.SECTION_DESCRIPTIONS[name]}\n\n"
+        + table(by_section[name], head)
+        for name in config.SECTION_ORDER
+    ]
     notes = NOTES / f"Configuration{NOTES_SUFFIX}"
     tail = f"\n\n---\n\n{notes.read_text().strip()}\n" if notes.is_file() else "\n"
     intro = (
