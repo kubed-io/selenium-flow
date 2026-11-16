@@ -604,16 +604,9 @@ class Workspaces:
         if self.actions.grid.is_alive(record.session_id):
             log.debug("browser recalled for workspace %s", name)
             return record.session_id, _kind(record.settings)
-        failure = None
-        try:
-            return self._reopen(name, record)
-        except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
-            failure = exc
-        # Outside the `except` (see `_said`): a first page that failed may
-        # quote where it landed. No browser holds the slot yet, so every
-        # leashed secret.
-        self.scrubber.error(name, "", failure, [None])
-        raise failure
+        # A first page that failed may quote where it landed, and no browser
+        # holds the slot yet.
+        return self._scrubbing(name, lambda: self._reopen(name, record))
 
     def _reopen(self, name: str, record: Workspace) -> tuple[str, str]:
         """`resolved`'s reopen of a browser the Grid reaped, before its scrub:
@@ -860,16 +853,19 @@ class Workspaces:
         Blocking. A failure is scrubbed in place and re-raised with its own
         type; one that cannot be scrubbed is `faults.ScrubFailed`.
         """
+        return self.scrubber.resource(name, self._scrubbing(name, call))
+
+    def _scrubbing(self, name: str, call: Callable[[], object]):
+        """``call()``, or its failure scrubbed with every leashed secret and
+        what the workspace holds, re-raised with its own type."""
         failure = None
         try:
-            result = call()
+            return call()
         except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
             failure = exc
-        if failure is not None:
-            # Outside the `except`: see `_said`.
-            self.scrubber.error(name, "", failure, [None])
-            raise failure
-        return self.scrubber.resource(name, result)
+        # Outside the `except`: see `_said`.
+        self.scrubber.error(name, "", failure, [None])
+        raise failure
 
     def in_scope(
         self, name: str, session_id: str, result, before: str | None
@@ -1263,17 +1259,10 @@ class Workspaces:
         every leashed secret: a first page that failed may quote where it
         landed, and no browser holds the slot yet.
         """
-        name = caller.name
-        failure = None
-        try:
-            return self._open_browser(
-                caller, url, fresh, restore_site_data, **wanted
-            )
-        except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
-            failure = exc
-        # Outside the `except`: see `_said`.
-        self.scrubber.error(name, "", failure, [None])
-        raise failure
+        return self._scrubbing(
+            caller.name,
+            lambda: self._open_browser(caller, url, fresh, restore_site_data, **wanted),
+        )
 
     def _open_browser(
         self,
