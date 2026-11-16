@@ -386,7 +386,7 @@ class Workspaces:
         self.calls = Calls(monitor=monitor, capture=capture, control=control)
         # Which saved flows say they apply to a page, by workspace and URL
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
-        # is hinted. Asked only by `_hinted`, never inside a store write.
+        # is hinted. Asked only by `_hint`, never inside a store write.
         self.hints = hints
         # Seconds a browser is kept alive past its last call (`session.keep_alive`);
         # 0 keeps nothing. With the node's own timeout it is the window a reopen
@@ -476,9 +476,7 @@ class Workspaces:
         status["url"] = record.url or None
         # From the record, like `url`: a page that moved by itself since the
         # last call is not reflected.
-        here = self._hinted(name, record.url)
-        if here:
-            status["flows_here"] = here
+        self._hint(status, name, record.url)
         status["settings"] = dict(record.settings or {})
         # At the top level too: "which browser am I driving" is what this
         # resource answers. A record without one is on the default browser.
@@ -1137,9 +1135,7 @@ class Workspaces:
                 name, *pages, browser=browser, since=since, deliver=deliver
             )
             if hint and page:
-                here = self._hinted(name, page, scrubbed=True)
-                if here:
-                    result["flows_here"] = here
+                self._hint(result, name, page, scrubbed=True)
         if told:
             # This server's own words, from a fixed table: nothing to scrub.
             result["reopened"] = {
@@ -1411,9 +1407,7 @@ class Workspaces:
         told, _ = self.scrubber.result(name, kept, told, [landed])
         # The page it opened on, new or remembered, is new to this caller in
         # this browser.
-        here = self._hinted(name, told.get("url"), scrubbed=True)
-        if here:
-            told["flows_here"] = here
+        self._hint(told, name, told.get("url"), scrubbed=True)
         return {"workspace": name, **told}
 
     def _landing(self, name: str, url: str) -> str:
@@ -1445,9 +1439,7 @@ class Workspaces:
         for key in ("width", "height"):
             if key in settings:
                 held[key] = settings[key]
-        here = self._hinted(name, record.url if record else None)
-        if here:
-            held["flows_here"] = here
+        self._hint(held, name, record.url if record else None)
         return held
 
     def remember(
@@ -1600,26 +1592,32 @@ class Workspaces:
         noted = self.store.change(name, at)[1]
         return noted if noted is not None else (None, None)
 
-    def _hinted(self, name: str, url: str | None, scrubbed: bool = False) -> list[dict]:
-        """The flows saved to apply to ``url``, or []: the one caller of
-        ``hints``. A hint never fails a call: anything it raises is logged by
-        type and answers [].
+    def _hint(
+        self, answer: dict, name: str, url: str | None, scrubbed: bool = False
+    ) -> None:
+        """Put the flows saved to apply to ``url`` on ``answer`` as
+        ``flows_here``, when there are any: the one caller of ``hints``. A hint
+        never fails a call: anything it raises is logged by type and adds
+        nothing.
 
         ``scrubbed`` for a hint put on an answer after its scrub: a flow's
         description is a caller's words, checked as a resource read is. A scrub
         that fails drops the hint, never the call.
         """
         if self.hints is None or not url:
-            return []
+            return
         try:
             here = list(self.hints(name, url) or [])
-            return self.scrubber.resource(name, here) if scrubbed and here else here
+            if scrubbed and here:
+                here = self.scrubber.resource(name, here)
         except Exception as exc:  # noqa: BLE001 - a hint never fails a call
             log.warning(
                 "flows for workspace %s could not be hinted: %s",
                 name, type(exc).__name__,
             )
-            return []
+            return
+        if here:
+            answer["flows_here"] = here
 
     def reshape(self, name: str, result: dict, browser: str | None = None) -> None:
         """Record the window size an action just gave the browser.
