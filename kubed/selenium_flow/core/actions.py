@@ -1,11 +1,8 @@
-"""What the server can actually do, as plain functions.
+"""The browser actions, as plain functions.
 
-This is the single source of truth for behaviour. ``tools.py`` exposes these to
-MCP clients and ``routes.py`` exposes the same functions over HTTP, so the two
-surfaces cannot drift: adding a capability here adds it to both.
-
-Every function takes a ``session_id`` and returns a JSON-safe dict. Nothing is
-cached between calls — the browser state lives on the Grid, not in this process.
+``tools.py`` exposes them over MCP and ``routes.py`` over HTTP, so adding a
+capability here adds it to both. Every action takes a ``session_id`` and returns
+a JSON-safe dict; the browser state lives on the Grid, not in this process.
 """
 
 from __future__ import annotations
@@ -65,14 +62,12 @@ BODY_CAP = 100_000
 # `outline`: a name is cut at this many characters, and ends in `…` when it was.
 NAME_CAP = 80
 CUT_MARK = "\u2026"
-# The largest text body asked of the browser, by the size its row says. Chrome
-# answers `network.getData` whole, in one frame, whatever the collector's
-# limit, and decoded: a compressed body can pass the connection's own limit
-# under it, so a body is fetched on a connection of its own (PR review I3),
-# and this is only the cheap refusal before asking.
+# The largest text body asked of the browser, by the size its row says: a cheap
+# refusal before asking. Chrome answers `network.getData` whole and decoded, so
+# a compressed body can still pass the connection's limit; see `network_body`.
 BODY_FETCH_LIMIT = 8_000_000
-# What a body's MIME type must be for its text to be worth asking for; anything
-# else is answered from the row, never fetched. An unknown type is asked.
+# A body of any other MIME type is answered from its row, never fetched. An
+# unknown type is asked.
 TEXT_TYPES = ("text/",)
 TEXT_SUBTYPES = (
     "json",
@@ -88,7 +83,7 @@ BODY_GONE = (
     "the browser no longer holds this body: it keeps them while it lives, "
     "and drops the oldest past about 200 MB"
 )
-# A body asked for once the workspace's session has ended (spec §7, ruling 11).
+# A body asked for once the workspace's session has ended.
 BODY_CLOSED = (
     "no session is open in this workspace; a body lives only as long as its browser"
 )
@@ -104,18 +99,17 @@ BODY_ANSWERS = {
 
 
 def run_script(driver, script: str):
-    """``driver.execute_script``, saying so when the script ran out of time.
+    """``driver.execute_script``, raising `ScriptTimedOut` when the script ran
+    out of time.
 
-    Keyed on the command and not on the browser's words, which differ: Chrome
-    says `script timeout` and Firefox `Timed out after N ms`. A selector wait
-    that times out is raised elsewhere and stays what it was.
+    Keyed on the command, because the browsers word it differently: Chrome says
+    `script timeout` and Firefox `Timed out after N ms`.
     """
     try:
         return driver.execute_script(script)
     except TimeoutException:
         try:
-            # One more command, and only on this path; the timeout in force is
-            # worth saying, but never worth hiding the failure for.
+            # One more command, so it must never hide the timeout.
             seconds = driver.timeouts.script
         except Exception:  # noqa: BLE001 - any failure here only costs the number
             seconds = None
@@ -160,9 +154,8 @@ def cut_names(result):
     return result
 
 
-# Where the server cuts a text, by tool: after the scrub, never before it, so a
-# value the cut would go through is masked whole first and nothing is matched
-# by prefix (spec 2026-11-14-secret-scope). `Workspaces._scrubbed` applies it.
+# Where the server cuts a text, by tool. `Workspaces._scrubbed` applies it after
+# the scrub, so a value the cut would go through is masked whole first.
 CUTS = {"network_body": cut_body, "outline": cut_names}
 
 
@@ -174,12 +167,10 @@ INSECURE_SKIP = "an insecure browser gets no saved site data"
 
 # Elements that can host a nested document. Keys sent to one may land in that
 # document, whose origin the leash never read: it checks the selected context.
-# Fail closed: WebDriver can switch into only iframe and frame, so a secret meant
-# for the rest has no checkable road in at all.
+# WebDriver can switch into only iframe and frame, so the rest are refused too.
 FRAME_ELEMENTS = ("iframe", "frame", "object", "embed", "fencedframe", "portal")
-# A viewer's paste (spec 2026-10-27, ruling 34). The text is typed with
-# WebDriver at the element the person focused, because VNC keystrokes cannot
-# carry non-ASCII text.
+# A viewer's paste is typed with WebDriver at the element the person focused,
+# because VNC keystrokes cannot carry non-ASCII text.
 PASTE_CAP = 10_000
 PASTE_DEPTH = 10  # frames followed to the focused element
 IN_A_FRAME = (
@@ -195,34 +186,25 @@ CANNOT_TYPE = "this browser cannot type some of these characters (emoji, for one
 BMP_REFUSAL = "only supports characters in the BMP"
 FOCUSED = js.read("focused.js")
 
-# An element's HTML with no password input's value in it (spec 2026-11-14, ruling 24).
+# An element's HTML with no password input's value in it.
 EXTRACT_JS = js.read("extract.js")
 FRAME_REFUSAL = (
     "a secret cannot be typed into an element that hosts another document; "
     "switch into the frame first"
 )
 
-# Mouse gestures ``interact`` understands. hover and scroll_to are here rather
-# than in their own tools because they take the same arguments as a click.
 MOUSE_ACTIONS = ("click", "double_click", "right_click", "hover", "scroll_to")
 
-# The ones that put the pointer somewhere. `scroll_to` moves the PAGE, not the
-# pointer, so it is excluded and `glide` is meaningless for it. Every one of
-# these now moves first and acts second, which is what makes Dr K's rule true:
-# after a click the pointer is on what was clicked, the way a person's would be
-# (saga §F2.3).
+# The gestures that move the pointer onto the element first. `scroll_to` moves
+# the page, so `glide` means nothing for it.
 POINTER_ACTIONS = ("click", "double_click", "right_click", "hover")
 
-# What `print` can make of a page. `pdf` is the browser's own print; `html` is
-# the document as it stands now, after its scripts ran. MHTML — the page with
-# its images in one file — is Chrome-only, and every tool here behaves the same
-# on both browsers, so it waits for someone who needs it.
+# No MHTML: it is Chrome-only, and every tool behaves the same on both browsers.
 PRINT_FORMATS = ("pdf", "html")
 
-# What can be done with a native dialog. "read" deliberately leaves it open.
+# "read" leaves the dialog open.
 DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
 
-# Where a frame switch can go. "parent" matters for nested frames.
 FRAME_ACTIONS = ("switch", "parent", "default")
 
 
@@ -249,46 +231,38 @@ class Actions:
 
     def __init__(self, grid: Grid, keep=None, pointers=None, read_file=None):
         self.grid = grid
-        # How bytes this server made — a screenshot, a print — are kept with the
-        # caller's workspace: `keep(name, data, folder)` writes them and returns
-        # the file as every listing describes it, link included. A function
-        # rather than the store and the token, because which workspace owns the
-        # file is a question about the caller, and this layer should hand out a
-        # link without holding the key that signs one (§F2.9). Absent, nothing
-        # can be kept, and a save says so.
+        # `keep`, `read_file` and `visited` are functions because which
+        # workspace is calling is not this layer's to see.
+        # `keep(name, data, folder)` keeps bytes this server made (a screenshot,
+        # a print) with the caller's workspace and returns the file as every
+        # listing describes it, link included. Absent, a save says it could not.
         self.keep = keep
         # Where the pointer is in each browser, keyed by the Grid's session id.
-        # Injected so a deployment can share it between replicas, and defaulted
-        # so this class is still usable on its own.
+        # Injected so replicas can share it.
         self.pointers = pointers if pointers is not None else pointer.MemoryPointers()
-        # Reads a file by its uri, for `upload_file(file=...)`. A function for
-        # the same reason as `describe_file`: which workspace owns a file
-        # is a question about the *caller*, and this layer deliberately cannot
-        # see one. Absent, naming a file is refused with a reason.
+        # `read_file(uri, workspace)` reads a file for `upload_file(file=...)`.
+        # Absent, naming a file is refused.
         self.read_file = read_file
-        # Where the caller's workspace has been, newest first, so one save reads
-        # every site's localStorage and not only the page's. A function for
-        # the reason `keep` is one: which workspace is calling is not this
-        # layer's to see. Absent, a save reads only the page it is on.
+        # `visited()` lists the origins the caller's workspace has been to,
+        # newest first, so one save reads every site's localStorage. Absent, a
+        # save reads only the page it is on.
         self.visited = None
-        # How a BiDi channel to a session's browser is opened (`bidi.Channels`),
-        # wired by the server: site data's save and restore speak through it.
+        # The rest are wired by the server.
+        # Opens a BiDi channel to a session's browser (`bidi.Channels`).
         self.channels = None
         # `(session_id, context) -> block`: inside it, capture ignores that
-        # browsing context. Wired by the server once capture exists, so a
-        # save's spare tab never reaches a caller's console or network log.
+        # browsing context, so a save's spare tab never reaches a caller's log.
         self.hide = None
         # The operator's `session.capabilities`, sent under the caller's at
-        # every open (spec 2026-10-26-session-capabilities): its own source,
-        # never a layer of the cascade. Wired by the server.
+        # every open: its own source, never a layer of the cascade.
         self.config_capabilities: dict = {}
-        # The kept console and network (`capture.Capture`), wired by the server:
-        # the capture resources read it. None when capture is not set up.
+        # The kept console and network (`capture.Capture`); None when capture is
+        # not set up.
         self.capture = None
-        # `refusal(session_id, tool) -> Controlled | None`, wired by the server
-        # (`live.control.Controls`): a read whose url would navigate, or a
-        # screenshot that would resize, is refused while a person holds the
-        # browser. Duck-typed because core imports no live/. None: never refused.
+        # `refusal(session_id, tool) -> Controlled | None` (`live.control.Controls`):
+        # a read whose url would navigate, or a screenshot that would resize, is
+        # refused while a person holds the browser. Duck-typed because core
+        # imports no live/. None: never refused.
         self.control = None
 
     def _refuse(self, session_id: str, tool: str) -> None:
@@ -299,11 +273,9 @@ class Actions:
     def _kept(self, name: str, data: bytes, folder=FILES_DIR) -> dict:
         """Keep bytes this server made with the caller's workspace.
 
-        Straight to the workspace's files, never through the browser. They used to
-        be handed back to the page as a download so they would land in the
-        Grid's store beside the site's own downloads, and every refusal Chrome
-        has for a download became a lost screenshot: plain-http pages, pages
-        with no origin, a second download from `about:blank` (§F3.8).
+        Straight to the workspace's files, never through the browser as a
+        download, which Chrome refuses on plain-http pages, pages with no
+        origin, and a second download from `about:blank`.
         """
         if self.keep is None:
             raise ValueError(
@@ -354,16 +326,14 @@ class Actions:
         on_ready=None,
         on_quit=None,
     ) -> dict:
-        """Start a browser session with the settings it should run under.
+        """Start a browser session with the settings it runs under.
 
-        This is the only place a browser is created, and the only place these
-        settings can be chosen — window size can be changed later with
-        ``resize``, but the browser and the timeouts are set here and then
-        simply hold. There is no switching a live session to another browser:
-        that is a different browser, so it is a different session.
+        The only place a browser is created. The browser and the timeouts hold
+        for the session's life; only the window size can change later
+        (``resize``).
 
-        A workspace's saved site data is restored here — cookies, every origin's
-        storage, the saved sessionStorage — before the first page loads, except
+        A workspace's saved site data (cookies, every origin's storage, the
+        saved sessionStorage) is restored before the first page loads, except
         into an ``insecure`` browser, which gets none. ``record`` asks the Grid
         to film this browser's whole life.
 
@@ -371,29 +341,27 @@ class Actions:
         a node's refusal blames the caller for it unless it is the config's.
 
         ``on_created`` is called with the Grid's id the moment the browser
-        exists, before anything here that can fail: a browser left running by
-        a failure after that is still somebody's to account for (its video,
-        for one). One that raises fails the open, so it keeps its own faults.
+        exists, before anything here that can fail, so a browser left running
+        is still accounted for (its video, for one). One that raises fails the
+        open.
 
         ``on_ready`` is called with the Grid's id once everything but the first
-        page is done — the window, the timeouts, the restore — and before
-        ``url`` loads, so a listener it starts hears that page from its first
-        request. ``capture`` only says the browser is being captured; what
-        listens is ``on_ready``'s.
+        page is done (the window, the timeouts, the restore) and before ``url``
+        loads, so a listener it starts hears that page from its first request.
+        ``capture`` only says the browser is being captured; what listens is
+        ``on_ready``'s.
 
-        **A browser this open made is never left behind.** Anything that fails
-        once it exists — a hook, the window, the first page — quits it, and
-        the open fails with that failure, not the quit's. ``on_quit`` is
-        called with the Grid's id once the quit is done; a quit that failed
-        leaves the browser possibly running, so it is not called.
+        A browser this open made is never left behind: anything that fails once
+        it exists quits it, and the open fails with that failure, not the
+        quit's. ``on_quit`` is called with the Grid's id once the quit is done;
+        a quit that failed may leave the browser running, so it is not called.
         """
         name = normalize_browser(browser)
         insecure = as_bool(insecure, False)
         headless = as_bool(headless, False)
         record = as_bool(record, False)
         capture = as_bool(capture, False)
-        # What is sent is decided once, in `session_caps`. Built before
-        # anything opens: an owned key is a 400 that costs no browser.
+        # Built before anything opens: an owned key is a 400 that costs no browser.
         built = session_caps.build(
             name,
             version=version,
@@ -410,7 +378,7 @@ class Actions:
         except SessionNotCreatedException as exc:
             # No browser exists, so there is nothing to quit. A queue timeout
             # or a node's refusal says what it means; the Grid's own failures
-            # stay as they were (spec 2026-10-26-session-capabilities).
+            # stay as they were.
             fault = session_caps.not_created(failure_text(exc), built)
             if fault is None:
                 raise
@@ -437,9 +405,8 @@ class Actions:
                 on_ready=on_ready,
             )
         except BaseException:
-            # Nobody was handed it: quit it rather than hold a Grid slot until
-            # the idle timeout. The id stays out of the log; the failure is
-            # what propagates.
+            # Nobody was handed it, so quit it rather than hold a Grid slot until
+            # the idle timeout. The id stays out of the log.
             try:
                 self.grid.quit(session_id)
             except Exception as exc:  # noqa: BLE001 - the failure matters more
@@ -491,17 +458,14 @@ class Actions:
         if script_timeout:
             driver.set_script_timeout(as_int(script_timeout, 30))
 
-        # A new browser's pointer starts at (0,0) and nothing this server sent
-        # put it there, so whatever was remembered for a previous browser must
-        # not be inherited. Grid ids are not reused, but forgetting is what
-        # makes that a fact rather than an assumption.
+        # A new browser's pointer is somewhere this server never sent it.
         self._moved(session_id, None)
 
         report = None
         if site_data_snapshot.restorable(site_data or {}):
             if insecure:
                 # It accepts any certificate, so anyone in the middle would get
-                # every saved cookie. Nothing is set, and nothing is deleted.
+                # every saved cookie.
                 report = {
                     "restored": [], "skipped": [{"reason": INSECURE_SKIP}],
                     "uri": site_data_snapshot.LIST_URI,
@@ -521,10 +485,9 @@ class Actions:
                     }
 
         if not url and report is not None and driver.current_url != "about:blank":
-            # The restore sends the tab back from its stand-in page over BiDi,
-            # and swallows a failure; the classic driver makes the reported
-            # about:blank true (Copilot, #51). Before `on_ready`, so capture
-            # never hears a restore's stand-in as a navigation.
+            # The restore sends the tab back from its stand-in page over BiDi
+            # and swallows a failure; this makes the reported about:blank true.
+            # Before `on_ready`, so capture never hears the stand-in.
             driver.get("about:blank")
 
         if on_ready is not None:
@@ -536,13 +499,8 @@ class Actions:
             current_url, title = driver.current_url, driver.title
 
         size = driver.get_window_size()
-        # Reported back so a caller can see what the cascade actually resolved
-        # to, rather than assuming its argument won. Both surfaces get this from
-        # here, so they cannot describe the same session differently.
-        #
-        # `browser` is always present, unlike the timeouts: it is never unset,
-        # only defaulted, and it is what a refresh has to replay to reopen the
-        # same browser rather than the default one.
+        # What the cascade resolved to. `browser` is always present: a refresh
+        # replays it to reopen the same browser rather than the default one.
         applied = {
             "browser": name,
             "width": size["width"],
@@ -580,8 +538,7 @@ class Actions:
             result["ignored"] = list(built.ignored)
         if report and (report["restored"] or report["skipped"]):
             result["site_data"] = report
-        # For the workspace record and the admin only (`OPEN_PRIVATE`): what
-        # was sent, and what the Grid says ran.
+        # For the workspace record and the admin only (`OPEN_PRIVATE`).
         result["sent"] = built.sent
         result["ran"] = ran
         return result
@@ -606,11 +563,7 @@ class Actions:
         return self._recipe().run(session_id, capture, url=url)
 
     def end_browser(self, session_id: str) -> dict:
-        """Quit the browser and free its Grid slot.
-
-        The session, not the workspace. A workspace survives its session and
-        keeps the context the next open inherits — see ``Workspaces``.
-        """
+        """Quit the browser and free its Grid slot; the workspace survives it."""
         self.grid.quit(session_id)
         self._moved(session_id, None)
         return {"success": True, "session_id": session_id}
@@ -618,11 +571,10 @@ class Actions:
     # ---- navigation --------------------------------------------------------
 
     def navigate(self, session_id: str, url: str) -> dict:
-        """Go to a URL, unconditionally.
+        """Go to a URL, even the one the browser is on.
 
-        The ``url`` is the body's, not the recipe's: the recipe skips a page the
-        browser is already on, and going there again is what this is for. So it
-        is checked here, as the recipe checks its own.
+        The recipe skips a page the browser is already on, so ``url`` is the
+        body's, and is checked here as the recipe checks its own.
         """
         allowed_navigation(url)
 
@@ -645,17 +597,11 @@ class Actions:
     ) -> dict:
         """Perform a mouse action on an element.
 
-        One action rather than five tools: they take identical arguments and
-        differ only in which gesture is sent, so splitting them would be five
-        near-identical schemas for a model to choose between.
-
-        Every gesture that involves the pointer **moves it first and acts
-        second**. A jump unless ``glide`` asks otherwise, so nothing that worked
-        before behaves differently; what changes is that afterwards the pointer
-        is on what was acted on, which is where a person's would be (§F2.3).
-        The click itself stays WebDriver's element click, deliberately: it is
-        the one that refuses a covered target loudly, where a pointer-action
-        click would silently press whatever is on top.
+        Every gesture that involves the pointer moves it first (a jump unless
+        ``glide``) and acts second, so afterwards the pointer is on what was
+        acted on. The click is WebDriver's element click, which refuses a
+        covered target, where a pointer-action click would press whatever is on
+        top.
         """
         resolved = str(action).strip().lower()
         if resolved not in MOUSE_ACTIONS:
@@ -670,8 +616,7 @@ class Actions:
             moved = None
             if resolved in POINTER_ACTIONS:
                 moved = self._move_onto(session_id, driver, element, glide)
-            # What the pointer is about to press, read after the move and before
-            # the gesture. Only the three that press; hover and scroll_to do not.
+            # What the pointer is about to press, read after the move.
             presses = resolved in ("click", "double_click", "right_click")
             hit = probe.received(driver, element) if presses else {}
 
@@ -679,14 +624,11 @@ class Actions:
                 try:
                     element.click()
                 except ElementClickInterceptedException as exc:
-                    # This is where a covered element actually surfaces.
-                    # Selenium's `element_to_be_clickable` considers one
-                    # clickable, so the wait above passes and the failure lands
-                    # here - and the driver's message names the element it was
-                    # asked for, not the thing on top of it. The probe asks the
-                    # page about the very element clicked, not the first match
-                    # of the selector, and says which match that was (saga
-                    # §F2.8; spec 2026-11-13, ruling 9).
+                    # `element_to_be_clickable` passes a covered element, so
+                    # it fails here, and the driver's message names the element
+                    # rather than what covers it. The probe asks about the
+                    # element clicked, which may not be the selector's first
+                    # match.
                     why = probe.explain(driver, at.target, element=element)
                     first = (getattr(exc, "msg", "") or "").strip().splitlines()
                     found = at.found
@@ -702,8 +644,7 @@ class Actions:
                         + (f" {why}" if why else "")
                     ) from exc
             elif resolved == "hover":
-                # The move IS the hover. Only when it could not be sent does
-                # this fall back to the gesture this package has always used.
+                # The move is the hover, unless it could not be sent.
                 if moved is None:
                     ActionChains(driver).move_to_element(element).perform()
             else:
@@ -721,9 +662,9 @@ class Actions:
                 **(probe.receiver_report(hit, resolved) if presses else {}),
             }
 
-        # hover and scroll_to only need an element to aim at: the first displayed
-        # match, else the first (ruling 3). Requiring it to be clickable would
-        # refuse exactly the off-screen element scroll_to is for.
+        # hover and scroll_to aim at the first displayed match, else the first:
+        # requiring it clickable would refuse the off-screen element scroll_to
+        # is for.
         wait = SHOWN if resolved in ("hover", "scroll_to") else CLICKABLE
         return self._recipe(wait, retry_stale=True).run(
             session_id, gesture, url=url, selector=selector, wait_timeout=wait_timeout
@@ -732,10 +673,8 @@ class Actions:
     def _move_onto(self, session_id: str, driver, element, glide) -> dict | None:
         """Put the pointer on ``element`` before the gesture, if it can.
 
-        Wrapped, because this is new work in front of gestures that already
-        worked: a destination WebDriver will not move to - an element taller
-        than the viewport is the usual one - must cost the pointer's position
-        and nothing else. The gesture then runs exactly as it did before.
+        A destination WebDriver will not move to (usually an element taller than
+        the viewport) costs the pointer's position and nothing else.
         """
         try:
             moved = pointer.move(
@@ -745,19 +684,13 @@ class Actions:
                 glide=as_bool(glide, False),
             )
         except INFRASTRUCTURE:
-            # A dead browser or an unreachable Grid is not something the
-            # gesture can carry on without, and `errors.py` has a specific
-            # status and a specific fix for each - 404 "call /browser/open",
-            # 503 "the Grid is unavailable". Swallowing them here turned both
-            # into "the pointer could not be moved", which for `drag` then
-            # became a 400 telling the caller their geometry was wrong
-            # (Copilot, #31).
+            # A dead browser or an unreachable Grid keeps its own status and
+            # fix in `errors.py`; swallowed, `drag` would blame the geometry.
             raise
         except Exception:  # the gesture outranks the move
             log.debug("could not move the pointer onto the target", exc_info=True)
-            # Forgotten rather than left stale: a move that failed part-way
-            # leaves the pointer somewhere we cannot name, and a glide plotted
-            # from a wrong origin crosses the wrong elements (§F2.3).
+            # A move that failed part-way leaves the pointer somewhere unknown,
+            # and a glide plotted from a wrong origin crosses the wrong elements.
             self._moved(session_id, None)
             return None
         self._moved(session_id, moved["at"])
@@ -770,9 +703,8 @@ class Actions:
             return {}
         report = {"glided": moved["glided"]}
         if moved["nudged"]:
-            # Said out loud because it explains a hover that worked this time
-            # and did nothing last time: the pointer was already inside the
-            # target, so the move had to start by leaving it (§F2.10).
+            # The pointer was already inside the target, so the move started by
+            # leaving it; this explains a hover that fired this time and not last.
             report["nudged"] = True
         if moved["unknown_start"]:
             report["glide_note"] = (
@@ -802,22 +734,16 @@ class Actions:
     ) -> dict:
         """Drag one element onto another, or by an offset.
 
-        Its own tool rather than a sixth `interact` action, because it is the
-        one gesture that needs a **source and a destination** — which is the
-        premise that put five gestures into one tool in the first place (§F2.4).
-
         Press, travel, release, with a short hold either side of the travel:
-        several drag libraries arm on a delay or a distance rather than on the
-        press, and a press and release in the same frame reads as a click.
+        several drag libraries arm on a delay or a distance, and a press and
+        release in the same frame reads as a click.
 
-        ``glide`` defaults to **true** here, the opposite of `interact`.
-        Incremental movement is most of what a drag is for — a sortable list or
-        a slider watching for `pointermove` sees a teleport otherwise.
+        ``glide`` defaults to true, unlike `interact`: a sortable list or a
+        slider watching for `pointermove` sees a teleport otherwise.
         """
-        # Resolved before the browser is touched, like every other locator
-        # mistake: an impossible drag should cost a 400, not a page load. The
-        # source first, as it always was, so a call wrong twice hears about the
-        # source; the recipe resolves it again on the way in.
+        # Resolved before the browser is touched, so an impossible drag costs a
+        # 400 and no page load. The source first: a call wrong twice hears about
+        # the source.
         browser.locator(selector)
         to_target = None
         offset = None
@@ -846,14 +772,12 @@ class Actions:
 
         def travel(at):
             driver = at.driver
-            # The approach is always a jump: `glide` is about the travel with
-            # the button down, which is the part a drag library is watching.
+            # The approach is always a jump: `glide` is for the travel with the
+            # button down.
             moved = self._move_onto(session_id, driver, at.element, False)
             if moved is None:
-                # A ValueError, so this is a 400. It describes a geometry the
-                # caller can fix - resize the window, scroll, name a smaller
-                # handle - and a 500 would tell an n8n node with Retry-On-Fail
-                # to send the identical drag again (Copilot, #31).
+                # A 400: the caller can fix the geometry, and a 500 would make a
+                # retrying client send the identical drag again.
                 raise ValueError(
                     "the pointer could not be put on the element to drag it. It "
                     "may be larger than the window, or outside it in a way "
@@ -863,11 +787,8 @@ class Actions:
             start = moved["at"]
 
             if to_target is not None:
-                # Read now rather than when the step was written: the approach
-                # may have scrolled, and every rect on the page moved with it
-                # (§F2.3).
-                # The first displayed match: a drop aimed at a hidden duplicate
-                # aims at 0,0 (ruling 4).
+                # Read after the approach, which may have scrolled. The first
+                # displayed match: a hidden duplicate's rect is at 0,0.
                 aimed = pointer.aim(
                     driver,
                     browser.wait_for_shown(driver, to_target, at.timeout).element,
@@ -882,9 +803,8 @@ class Actions:
             pointer.drag_to(driver, start, inside, glide=wanted)
             self._moved(session_id, inside)
             if inside != end:
-                # A clamp changes where the drop landed, so it cannot be
-                # silent: a slider dragged to the window edge instead of to
-                # +400 looks like the site ignoring the drag.
+                # Said, because a slider dragged to the window edge instead of
+                # to +400 looks like the site ignoring the drag.
                 clamp["clamped"] = (
                     f"the destination was outside the window, so the drag "
                     f"stopped at its edge ({round(inside[0])}, {round(inside[1])})"
@@ -898,8 +818,7 @@ class Actions:
         result = self._recipe(CLICKABLE).run(
             session_id, travel, url=url, selector=selector, wait_timeout=wait_timeout
         )
-        # After the page state, where it has always been.
-        result.update(clamp)
+        result.update(clamp)  # after the page state
         return result
 
     def frame(
@@ -912,12 +831,8 @@ class Actions:
     ) -> dict:
         """Move the session into an iframe, or back out of it.
 
-        Selenium does not look inside frames: an element in one is invisible to
-        every locator until the session is switched into it. That switch is
-        **session state on the Grid**, not something this process holds, so it
-        persists across calls — and keeps applying until something switches
-        back. That is why ``default`` exists and why ``workspace://current``
-        reports whether you are in a frame.
+        The switch is session state on the Grid, so it holds across calls until
+        something switches back.
         """
         resolved = str(action).strip().lower()
         if resolved not in FRAME_ACTIONS:
@@ -930,8 +845,7 @@ class Actions:
                 "switch needs a selector or an index to say which frame"
             )
 
-        # A selector matters only to a switch, and only a switch by selector
-        # waits for its frame; the other actions never looked at one.
+        # Only a switch by selector waits for its frame.
         by_selector = resolved == "switch" and bool(selector)
 
         def switch(at):
@@ -954,13 +868,7 @@ class Actions:
         )
 
     def resize(self, session_id: str, width=None, height=None) -> dict:
-        """Resize the window of a session that is already open.
-
-        Window size is one of the few things WebDriver lets you change after
-        creation, which is why this is a separate action rather than an argument
-        to ``open_session`` alone — a caller whose browser was opened for them
-        can still set it.
-        """
+        """Resize the window of a session that is already open."""
 
         def size(at):
             driver = at.driver
@@ -976,19 +884,15 @@ class Actions:
     def dialog(
         self, session_id: str, action="accept", text=None, wait_timeout=DIALOG_TIMEOUT
     ) -> dict:
-        """Answer a native alert, confirm or prompt.
-
-        An open dialog blocks every other command, so without this one
-        ``confirm()`` makes a session unusable until it is reaped.
-        """
+        """Answer a native alert, confirm or prompt; one blocks every other
+        command until answered."""
         resolved = str(action).strip().lower()
         if resolved not in DIALOG_ACTIONS:
             raise ValueError(
                 f"unknown action {action!r}; known actions: "
                 f"{', '.join(sorted(DIALOG_ACTIONS))}"
             )
-        # Checked before connecting: a caller's mistake should be a 400 about the
-        # argument, not a 500 about the Grid it never needed to reach.
+        # Checked before connecting: a 400 about the argument, not a Grid fault.
         if resolved == "send_text" and text is None:
             raise ValueError("text is required for the send_text action")
 
@@ -998,9 +902,7 @@ class Actions:
             alert = browser.wait_for_alert(
                 at.driver, as_int(wait_timeout, DIALOG_TIMEOUT)
             )
-            # Read before answering: the dialog is gone once accepted or
-            # dismissed.
-            message = alert.text
+            message = alert.text  # gone once answered
 
             if resolved == "send_text":
                 alert.send_keys(str(text))
@@ -1009,7 +911,6 @@ class Actions:
                 alert.accept()
             elif resolved == "dismiss":
                 alert.dismiss()
-            # "read" leaves it open, so a caller can decide what to do about it.
             return {"action": resolved, "message": message}
 
         return self._reattached().run(session_id, answer)
@@ -1029,42 +930,23 @@ class Actions:
     ) -> dict:
         """Attach a file to a file input.
 
-        ``workspace`` names which library ``file`` is read from, for a **flow
-        run** only — the flow engine injects it, named by
-        ``capabilities.LIBRARY_ARG``, so a step reads the library the flow
-        itself belongs to. Neither the MCP
-        tool nor the HTTP dispatcher exposes it as a field a caller can set:
-        `routes._add` excludes it from the accepted body, so a request naming
-        another workspace here is dropped like any other unknown field rather
-        than honoured (Copilot, #41). Passed as anything but that internal
-        injection, it is ignored and the calling workspace answers instead.
-
         The file arrives one of three ways, and exactly one is required:
+        ``text`` (plain text), ``content`` (base64, for binary) or ``file`` (any
+        file this workspace has, by its ``workspace://files`` or
+        ``session://downloads`` uri). Never a path on this server, which would
+        let a caller upload the server's config and mounted secrets.
 
-        - ``text`` — the file's content as plain text. This is the one to use
-          for anything an agent produced itself: JSON, CSV, YAML, markdown.
-          Base64-encoding text it just wrote is a wasted step it can get wrong.
-        - ``content`` — base64, which binary needs and which is the only shape
-          MCP tool arguments can carry.
-        - ``file`` — any file this workspace has, by its ``workspace://files``
-          or ``session://downloads`` uri — a screenshot, a download, or a file
-          in Files. This closes the loop the file store never had: a
-          browser could download a file or take a screenshot and there was no
-          way to give it back to a page. Now a flow can download an export and
-          upload it somewhere else, without the bytes ever passing through a
-          model's context (§F1.41, §F4.7).
+        ``workspace`` names which library ``file`` is read from. Only the flow
+        engine sets it (``capabilities.LIBRARY_ARG``), so a step reads its own
+        flow's library; `routes._add` keeps it out of the HTTP body and the MCP
+        tool has no such field.
 
-        Never a path on this server: one let any caller upload whatever the
-        server could read, its config and mounted secrets included (Ruling 3).
+        The bytes are staged in a temporary file and shipped to the Grid node by
+        Selenium, because the browser runs in another container.
 
-        Whichever it is, the bytes are written to a temporary file here and
-        shipped to the Grid node by Selenium, because the browser runs in
-        another container and cannot see this filesystem.
-
-        ``filename`` is what the page sees, and its extension is what decides
-        the MIME type the page reports — the browser derives that from the name,
-        not from anything we can send. ``mime_type`` is therefore used to supply
-        an extension when the filename lacks one, rather than to override it.
+        ``filename`` is what the page sees, and the browser derives the MIME
+        type from its extension, so ``mime_type`` only supplies an extension the
+        filename lacks.
         """
         sources = [
             n
@@ -1087,8 +969,7 @@ class Actions:
                 f"got {', '.join(sources)}"
             )
 
-        # Resolved before connecting: unusable input is a 400 about the input,
-        # and there is no point opening anything to discover it.
+        # Resolved before connecting: unusable input is a 400 about the input.
         raw = None
         if text is not None:
             raw = str(text).encode("utf-8")
@@ -1103,23 +984,14 @@ class Actions:
                     "off, so there is nowhere for keep_file to have kept one. "
                     "Pass text or content instead"
                 )
-            # `workspace` names WHICH library, and is not `session_id`, which
-            # names the browser. Both appear on `/files/list` for the same
-            # reason: a file store outlives the browser that filled it, so the
-            # two are different questions. Neither an MCP caller nor an HTTP
-            # caller can pass this one - its key answers the first and the
-            # server the second; only a flow run's own injection does.
             name, raw = self.read_file(
                 str(file), str(workspace) if workspace else None
             )
-            # The file's own name is the default, because its extension is
-            # what the page reads the type from and a caller uploading
-            # `export.csv` back should not have to say so twice.
+            # The file's own name is the default: its extension is the type.
             name = safe_name(filename or name, mime_type)
 
         def at_with_local_files(session_id, url, look=None):
-            # Part of reattaching, for this action alone: the file input is
-            # found by a driver that already knows to ship a local path.
+            # The file input is found by a driver that ships a local path.
             driver = self._at(session_id, url, look)
             browser.accept_local_files(driver)
             return driver
@@ -1130,10 +1002,8 @@ class Actions:
                 try:
                     temp_dir = tempfile.mkdtemp(prefix="selenium-flow-")
                 except OSError as exc:
-                    # The image runs read-only as an unprivileged user, so this
-                    # is a deployment problem rather than a caller's: there has
-                    # to be one writable directory to stage a file in before
-                    # Selenium can ship it to the Grid node.
+                    # The image runs read-only as an unprivileged user: a
+                    # deployment problem, not the caller's.
                     raise RuntimeError(
                         "cannot stage the upload: no writable temporary "
                         f"directory ({exc}). Mount one at /tmp (an emptyDir "
@@ -1142,14 +1012,10 @@ class Actions:
                 staged = Path(temp_dir) / name
                 staged.write_bytes(raw)
 
-                # send_keys wants a string path, and Selenium's
-                # LocalFileDetector reads it off the filesystem to ship the
-                # bytes to the Grid node.
+                # Selenium's LocalFileDetector reads the path to ship the bytes.
                 at.element.send_keys(str(staged))
                 return {"filename": staged.name, "bytes": staged.stat().st_size}
             finally:
-                # The bytes live on the Grid node now; this copy has done its
-                # job.
                 if temp_dir:
                     shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -1170,38 +1036,29 @@ class Actions:
     ) -> dict:
         """Type ``text`` into a field.
 
-        ``read_back`` is normally true and is what lets a caller confirm the
-        text landed. It is turned off for a value the caller must never be shown
-        again — a bound secret — and turning it off means the read is **not
-        performed**, not that its answer is dropped later. Redacting afterwards
-        still puts the credential in a local variable, in a traceback if one
-        fires between the two, and in whatever the action returned before
-        anything wrapped it.
+        ``read_back`` false is for a bound secret: the value is never read, so
+        the credential is never in a local variable, a traceback or a result.
         """
 
         bound = not as_bool(read_back, True)
 
         def typing(at):
             driver, element = at.driver, at.element
-            # Keys sent to a frame element land in the frame's document, whatever
-            # context is selected, so the leash checked an origin they never
-            # reach (final review, C1). Only a bound value has a leash: literal
-            # text into a rich-text editor's iframe stays legal.
+            # Keys sent to a frame element land in the frame's document, whose
+            # origin the leash never checked. Only a bound value has a leash:
+            # literal text into a rich-text editor's iframe stays legal.
             if bound and element.tag_name.lower() in FRAME_ELEMENTS:
                 raise ValueError(FRAME_REFUSAL)
             if as_bool(clear, True):
                 element.clear()
             element.send_keys(str(text))
-            # Read the value back before any submit: submitting navigates, which
-            # makes the element reference stale.
-            # A password field's value is never read back, bound or not.
+            # Read before any submit, which can make the element stale. A
+            # password field's value is never read back.
             password = (element.get_attribute("type") or "").lower() == "password"
             read = None if bound or password else element.get_attribute("value")
             if as_bool(submit, False):
                 element.send_keys(Keys.RETURN)
-                # And then wait for the navigation it may have caused, or the
-                # state below describes the page we just left. See
-                # `browser.settled`.
+                # Wait for the navigation, or the page state is the old page's.
                 browser.settled(driver, element)
             return {"value": read}
 
@@ -1210,20 +1067,15 @@ class Actions:
         )
 
     def paste(self, session_id: str, text: str) -> dict:
-        """Type ``text`` at the element a person focused, wherever the caret is.
+        """Type ``text`` at the element a person focused, at the caret.
 
-        Not through `press_key`, which sends to the selected document's active
-        element and stops at a focused frame or shadow host; and with no
-        ``clear()``, so the text lands at the caret. The element is followed
-        into a focused frame and an open shadow root, and the agent is always
-        left in the top document. Refused while the agent has a frame selected:
-        putting it back at the top would move it.
+        `press_key` stops at a focused frame or shadow host; this follows the
+        focus into both, and with no ``clear()``. The agent is always left in
+        the top document, so a paste is refused while it has a frame selected.
 
-        One trailing newline is dropped before the cap, the usual leftover of a
-        terminal copy, which would submit a form; newlines inside still type.
-
-        Answers a count and no page state: neither the value nor the text can
-        come back.
+        One trailing newline (a terminal copy's leftover, which would submit a
+        form) is dropped before the cap. Answers a count and no page state, so
+        the text never comes back.
         """
         text = str(text)
         text = text.removesuffix("\r\n" if text.endswith("\r\n") else "\n")
@@ -1272,27 +1124,19 @@ class Actions:
         url=None,
         wait_timeout=WAIT_TIMEOUT,
     ) -> dict:
-        """Press a key or combination, at an element or wherever focus is.
-
-        This is how you reach Tab, Escape, Enter and the arrows. It is *not* a
-        reliable way to scroll: page_down only moves the page when focus happens
-        to be on the scrollable container. Use ``execute_script`` to scroll.
-        """
+        """Press a key or combination, at an element or wherever focus is."""
         # Resolved before the browser is touched: a typo costs nothing.
         resolved = resolve_key(key)
 
         def press(at):
             driver, element = at.driver, at.element
             if element is None:
-                # No selector: wherever focus is. Element Send Keys focuses its
-                # target first, so sending to <body> took focus off the element
-                # that had it (#135); the active element keeps it, and is
-                # <body> when nothing is focused.
+                # Element Send Keys focuses its target first, so sending to
+                # <body> would take focus away; the active element is <body>
+                # when nothing is focused.
                 element = driver.switch_to.active_element
             element.send_keys(resolved)
-            # Only the keys that can submit a form. Tab, Escape and the arrows
-            # never navigate, and making every one of them wait to find that out
-            # would tax the common case for nothing. See `browser.settled`.
+            # Only the keys that can submit a form wait for a navigation.
             if any(submit in resolved for submit in SUBMIT_KEYS):
                 browser.settled(driver, element)
             return {"key": key}
@@ -1314,19 +1158,11 @@ class Actions:
         url=None,
         wait_timeout=WAIT_TIMEOUT,
     ) -> dict:
-        """What is on the page, with a selector for each and whether it works.
-
-        The answer an agent otherwise assembles out of DOM dumps: the first
-        pilot report spent three hand-written scripts finding one sidebar link,
-        then clicked it and failed anyway, because the element existed and its
-        ancestor was `display: none`. Both halves are here - the selector and
-        the verdict - so the failure does not have to teach it.
-        """
+        """What is on the page, with a selector for each and whether it works."""
 
         def map_(at):
-            # Both coerced here rather than in the page: an HTTP caller can send
-            # a number for `text`, which reaches JavaScript as one and dies on
-            # `.toLowerCase()`, and a negative `limit` would bound nothing.
+            # Coerced here: a number for `text` dies on `.toLowerCase()` in the
+            # page, and a negative `limit` would bound nothing.
             found, total = probe.outline(
                 at.driver,
                 at.element,
@@ -1337,24 +1173,15 @@ class Actions:
             return {
                 "elements": found,
                 "count": len(found),
-                # More than `count` is the map saying it was cut short, which an
-                # unscoped call on a real application usually is.
-                "total": total,
+                "total": total,  # more than `count` when cut short
             }
 
-        # Scoped to the selector's element when there is one, the whole page
-        # when there is not.
         return self._recipe(PRESENCE if selector else None).run(
             session_id, map_, url=url, selector=selector, wait_timeout=wait_timeout
         )
 
     def execute_script(self, session_id: str, script: str, url=None) -> dict:
-        """Run JavaScript in the page and return its result.
-
-        The escape hatch for everything the other actions do not cover —
-        scrolling, drag and drop, reading computed styles, poking the DOM.
-        ``return`` a value to get it back.
-        """
+        """Run JavaScript in the page and return its result."""
         return self._recipe().run(
             session_id,
             lambda at: {"result": run_script(at.driver, script)},
@@ -1370,37 +1197,18 @@ class Actions:
         url=None,
         stable_for=0,
     ) -> dict:
-        """Evaluate JavaScript that must come back true.
+        """Evaluate JavaScript that must come back true, a boolean (see
+        `Assertion`).
 
-        ``execute_script`` with one difference, and the difference is the point:
-        the answer has to be a **boolean**. A flow had no way to say what must be
-        true, so one reported eight passing steps while sitting on the page
-        before the one it meant to reach.
-
-        Truthiness is refused rather than accepted, because it is how an
-        assertion passes by accident: ``return document.querySelector('#x')``
-        reads correctly and is correct by luck, until the day the expression
-        answers ``0`` or ``[]``.
-
-        False is not final until the timeout. The expression is asked again,
-        the way every wait here works — a single-page app lands its route a few
-        frames after the click that caused it, and an assertion that looked
-        once would be that same race moved one step later. Nothing sleeps
-        waiting for a fixed duration; ``wait_timeout=0`` asks exactly once.
-
-        ``stable_for`` is the other half, and it is what a **guard** needs.
-        Poll-until-true means *eventually* true, which is right after a click
-        and wrong before one: an app that paints its signed-in shell for a
-        moment before redirecting to the login page satisfies "am I signed in"
-        during that moment, and a guard written that way passed while signed
-        out. With ``stable_for`` the answer has to still be true that many
-        seconds later, or the clock starts again (§F2.10).
+        False is asked again until ``wait_timeout`` (0 asks once). With
+        ``stable_for`` the answer must still be true that many seconds later,
+        or the clock starts again: a guard needs it, because an app can paint
+        its signed-in shell for a moment before redirecting to the login page.
         """
         timeout, hold = window(wait_timeout, stable_for, WAIT_TIMEOUT)
 
         def poll(at):
-            # `at.state` rather than a reading of its own: the page as it was
-            # when the answer held is the page state this reports.
+            # The page state reported is the page as it was when the answer held.
             Assertion(
                 lambda: run_script(at.driver, script),
                 at.state,
@@ -1446,8 +1254,8 @@ class Actions:
     ) -> dict:
         """Capture a PNG and return it base64-encoded.
 
-        Plain W3C WebDriver throughout, so this works on any browser the Grid
-        runs. Chrome has no W3C full-page command, hence the window resize.
+        Plain W3C WebDriver, so it works on any browser the Grid runs; a full
+        page resizes the window, because Chrome has no W3C full-page command.
         """
 
         shot = {}
@@ -1463,8 +1271,8 @@ class Actions:
                 )
 
             if at.target is not None:
-                # Its own wait rather than the recipe's: the window is sized
-                # first, so the element is found in the layout it is shot in.
+                # Its own wait, after the resize, so the element is found in
+                # the layout it is shot in.
                 element = browser.wait_for_element(driver, at.target, at.timeout)
                 image = element.screenshot_as_base64
             elif as_bool(full_page, False):
@@ -1490,10 +1298,6 @@ class Actions:
         result = self._recipe().run(
             session_id, capture, url=url, selector=selector, wait_timeout=wait_timeout
         )
-        # Saved by default. It used to be opt-in, which made the *agent* decide
-        # whether a person would ever want to look at this one — and the answer
-        # is usually no, so an operator watching the admin UI saw nothing and
-        # had nothing to open. So the cheap thing is to keep them all (§F2.9).
         if as_bool(save, True):
             try:
                 result["file"] = self._kept(
@@ -1502,12 +1306,9 @@ class Actions:
                     SCREENSHOTS_DIR,
                 )
             except Exception as exc:  # noqa: BLE001 - the picture outranks the file
-                # It must never be able to take the capture away: a full disk or
-                # a server keeping nothing costs the file, said out loud.
+                # A full disk or a server keeping nothing costs the file only.
                 result["file_error"] = _why_unsaved(exc)
         return result
-
-    # ---- internals ---------------------------------------------------------
 
     def print_(
         self,
@@ -1518,15 +1319,12 @@ class Actions:
         landscape=False,
         background=False,
     ) -> dict:
-        """Print the page into the workspace's files, as a PDF or as HTML.
+        """Print the page into the workspace's files, as a PDF (W3C ``print``)
+        or as HTML (the document as the browser holds it now).
 
-        A PDF is W3C ``print``, the rendering a person gets from Ctrl+P: text
-        stays selectable and the whole document is included. HTML is the
-        document as the browser holds it now, scripts and all already run.
         ``landscape`` and ``background`` shape a PDF and mean nothing to HTML.
         """
-        # No default here: an omitted format arrives as "pdf" already, and a
-        # `null` or `""` over HTTP is refused, as the tool's enum refuses it.
+        # A `null` or `""` over HTTP is refused, as the tool's enum refuses it.
         kind = str(format).strip().lower()
         if kind not in PRINT_FORMATS:
             raise ValueError(
@@ -1538,8 +1336,7 @@ class Actions:
                 options = PrintOptions()
                 if as_bool(landscape, False):
                     options.orientation = "landscape"
-                # Off by default in every browser's print, which is why a PDF of
-                # a page built on coloured panels comes out as bare text.
+                # Off by default in every browser's print.
                 options.background = as_bool(background, False)
                 data = base64.b64decode(at.driver.print_page(options))
             else:
@@ -1549,8 +1346,7 @@ class Actions:
                     _generated_name(filename or "page", f".{kind}"), data, FILES_DIR
                 )
             except OSError as exc:
-                # A full disk or a permission names a path under DATA_DIR,
-                # which is nobody's business but the log's. Still a server fault.
+                # The error names a path under DATA_DIR: for the log only.
                 log.error("a print could not be kept", exc_info=exc)
                 raise RuntimeError(
                     f"the print could not be kept ({type(exc).__name__})"
@@ -1560,17 +1356,11 @@ class Actions:
         return self._recipe().run(session_id, render, url=url)
 
     def page(self, session_id: str) -> dict:
-        """Where the browser is, without touching it.
+        """Where the browser is, for a secret's leash check. Not a tool.
 
-        Not a capability and so not a tool: `workspace://current` already answers
-        this for a caller. It exists because a secret's leash is checked against
-        the page about to receive the keystroke, and that check has to read the
-        page rather than trust what the caller said about it.
-
-        The origin of the document a keystroke would reach is reported as
-        ``frame_origin`` beside the top page's url: in a frame it is the
-        frame's, and it is read every time rather than when a frame check says
-        so, because a frame can forge that check (§F2).
+        ``frame_origin`` is the origin of the document a keystroke would reach
+        (the frame's, in a frame). It is read every time, because a frame can
+        forge an in-frame check.
         """
         with node_answering():
             driver = self.grid.reconnect(session_id)
@@ -1581,17 +1371,14 @@ class Actions:
 
     def network_body(self, session_id: str, id: str) -> dict:
         """One captured request's response body, asked of the browser that made
-        it and of no other (spec §7, ruling 11).
+        it and of no other.
 
-        ``id`` is checked before any lookup, and nothing is asked of a browser
-        until the request is known to be this one's. A binary body is answered
-        from its row, never fetched, and a text body over `BODY_FETCH_LIMIT` is
-        refused unasked. Chrome answers `network.getData` in one frame whatever
-        its size, so the body is asked on a connection of its own: a frame too
-        large for it closes only that one, never the one capture holds, and is
-        a 400. The text is masked like every other capture surface, and never
-        logged. It comes back whole: the caller scrubs it, then cuts it to
-        `BODY_CAP` (`cut_body`), so no cut ends partway into a value.
+        A binary body is answered from its row, never fetched, and a text body
+        over `BODY_FETCH_LIMIT` is refused unasked. Chrome answers
+        `network.getData` in one frame whatever its size, so the body is asked
+        on a connection of its own: a frame too large closes only that one, and
+        is a 400. The text is masked, never logged, and comes back whole: the
+        caller scrubs it, then cuts it (`cut_body`).
         """
         if not isinstance(id, str) or not 0 < len(id) <= ID_LIMIT:
             raise ValueError(f"id is a request id from {NETWORK_URI}, like 3.7")
@@ -1621,15 +1408,14 @@ class Actions:
                 f"{NETWORK_URI}/{id} has its headers and size"
             )
         try:
-            # Never the held connection: a reply past its limit would close it.
             with self.channels.open_channel(session_id, private=True) as channel:
                 reply = channel.call(
                     "network.getData",
                     {"dataType": "response", "request": located.request},
                 )
         except MessageTooBig:
-            # On Firefox the frame may have been an event, fanned out to every
-            # socket, rather than this reply: no more is said than is known.
+            # On Firefox the frame may have been an event fanned out to every
+            # socket, not this reply.
             raise ValueError(
                 f"request {id}'s body could not be read: the browser sent a "
                 f"message too large to read while fetching this body. "
@@ -1644,9 +1430,8 @@ class Actions:
         value = data.get("value") or ""
         if data.get("type") == "base64":
             return {**answer, "size": _decoded_length(value)}
-        # Masked whole like every other capture surface (ruling 13): no cap,
-        # since a marker can be longer than its value and the cut comes after
-        # the scrub (`cut_body`). The size is what the browser sent.
+        # Masked whole, uncut: a marker can be longer than its value. The size
+        # is what the browser sent.
         size = len(value.encode("utf-8", "surrogatepass"))
         masked = self.capture.mask(session_id, value, None)
         if masked is None:  # capture forgot this browser while it was asked
@@ -1668,17 +1453,13 @@ class Actions:
     def _recipe(self, wait=None, retry_stale=False) -> Recipe:
         """The road for an action that takes ``url``: through `_at`.
 
-        Built per call, so `_at` is read when the action runs - which is what a
-        test that reattaches through it relies on.
+        Built per call, so a test that patches `_at` is heard.
         """
         return Recipe(self._at, wait, retry_stale)
 
     def _reattached(self, wait=None) -> Recipe:
-        """The road for an action that takes no ``url``: a bare reattach.
-
-        Not `_at`: these never refused an empty ``session_id``, and moving them
-        onto the recipe is not where they start to.
-        """
+        """The road for an action that takes no ``url``: a bare reattach, which
+        does not refuse an empty ``session_id`` as `_at` does."""
         def reattach(session_id, _url, look=None):
             driver = self.grid.reconnect(session_id)
             if look:
@@ -1690,7 +1471,6 @@ class Actions:
     def _at(self, session_id: str, url=None, look=None):
         """Reconnect, and put the browser on ``url`` if it is not already there.
 
-        The first step of every `Recipe` an action with a ``url`` runs.
         ``look`` sees the browser between the two, before ``url`` moves it.
         """
         if not session_id:
