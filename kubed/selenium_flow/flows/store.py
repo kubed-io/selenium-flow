@@ -1,37 +1,16 @@
-"""Where a workspace's saved flows and files live.
+"""Where a workspace's saved flows and files live, under ``DATA_DIR/workspaces``.
 
-A **flow** is a sequence of tool calls, saved under a name and run later without
-the model deciding what to call between the steps. This module is only the
-*storage* for them: the naming rules, which workspace a caller's flows belong to,
-and reading and writing the documents and files. Nothing here knows what a step
-is or how to run one — see the saga's Chapter 1, §F1.1 through §F1.4. What a
-document is as text — parsing it once, saying where it broke, summarising it —
-is ``flows.library``.
+This is storage only: names, which workspace owns what, and reading and writing
+documents and bytes. What a document is as text is ``flows.library``.
+`FlowStore` holds documents and `FileStore` holds bytes, over one
+`WorkspaceLayout`; `LocalFlowStore` is both under one root.
 
-**The codebase sees a directory and nothing else.** ``DATA_DIR`` points at
-one (workspaces live under ``DATA_DIR/workspaces``) and the installer decides what is
-behind it: a folder on a laptop, an
-``emptyDir`` in this cluster, a PVC, an NFS mount. That choice is deliberately
-not ours, and it is why the backend is two small method sets rather than a
-module full of ``open()`` calls — a WebDAV implementation is the next one, so
-Nextcloud can hold these (§F1.12). `FlowStore` holds documents and `FileStore`
-holds bytes, over one `WorkspaceLayout`; `LocalFlowStore` is both under one root.
+What is behind ``DATA_DIR`` (a folder, an ``emptyDir``, a PVC, NFS) is the
+installer's choice. So no path is built outside this module, and no read is
+assumed cheap or local: ``summaries`` returns no steps.
 
-Two rules that exist for the backend that does not exist yet:
-
-- **No path arithmetic outside this module.** Callers ask for "the flows of
-  workspace X" and get documents. The moment something elsewhere joins a path with
-  ``/``, the WebDAV backend has to reimplement it.
-- **No assumption that a read is cheap or local.** ``summaries`` returns names
-  and descriptions rather than whole documents precisely so a listing stays one
-  cheap operation over a network store.
-
-Unset ``DATA_DIR`` means the feature is off, and deliberately not a
-fallback to a temp directory. The point is not durability — an ``emptyDir`` a
-redeploy wipes is an accepted backing — it is that *the operator chose where
-this lives*. Falling back to ``/tmp`` would put flows on the 64Mi volume the
-upload staging area uses, where they would vanish for a reason nobody could
-trace to a decision they never made.
+Unset ``DATA_DIR`` turns flows off; there is no fallback to a temporary
+directory the operator never chose.
 """
 
 from __future__ import annotations
@@ -73,19 +52,16 @@ from .shape import Shape
 if TYPE_CHECKING:
     from ..config import DataSettings
 
-# The store's old logger name, kept: operators filter Loki by it.
+# The store's old logger name: operators filter logs by it.
 log = logging.getLogger("kubed.selenium_flow.flows.library")
 
-# Flows are YAML on disk and dicts in the API. YAML because a person edits these
-# by hand and in the admin UI, and because PyYAML is already a dependency for
-# /openapi.yaml (§F1.14).
 SUFFIX = ".yaml"
 FLOWS_DIR = "flows"
 PENDING_DIR = ".pending"
 # A hint names a flow by its resource URI. Equal to `flows.api.FLOW_URI`, which
 # this module cannot import (api imports the store); a test holds them together.
 HINT_URI = "flow://flows/{name}"
-HINT_CAP = 10  # most flows one result names (ruling 17)
+HINT_CAP = 10  # most flows one result names
 LIBRARIES = 256  # libraries whose placed flows are kept
 _NO_LINK = frozenset({errno.EXDEV, errno.EPERM, errno.ENOTSUP, errno.EMLINK})
 
@@ -102,15 +78,11 @@ def valid_folder(folder) -> str:
 def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
     """The regular files in one of the store's directories, with their stats.
 
-    ``directory`` has come through `_resolved`, and what is left to refuse per
-    entry is a link or a name ``usable`` rejects. That used to be a realpath per
-    entry, which was 67ms of a 100ms listing of 142 screenshots; scandir says
-    which entries are links without asking (§F4.19).
-
-    The per-entry realpath also caught a directory swapped for a link after
-    `_resolved` returned. So the directory is pinned by descriptor first, and
-    only listed if its path still resolves to itself and names the directory
-    held (Copilot, #45). A link is refused as `_resolved` would refuse it.
+    ``directory`` has come through `_resolved`; each entry that is a link, or
+    whose name ``usable`` rejects, is skipped. scandir says which entries are
+    links without a realpath per entry. A directory swapped for a link after
+    `_resolved` is caught by pinning it by descriptor and listing it only while
+    its path still resolves to itself and names the directory held.
     """
     pinned = os.scandir in os.supports_fd
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -136,17 +108,13 @@ def _listed(directory: Path, usable) -> list[tuple[str, os.stat_result]]:
                 name = usable(entry.name)
                 if name is None:
                     continue
-                # Without a descriptor to pin, a swap during the listing is
-                # still possible, so each entry keeps the old realpath check:
-                # slower, only where `scandir(fd)` is missing (Copilot, #45).
+                # Without a descriptor to pin, each entry is checked instead.
                 path = directory / entry.name
                 if not pinned and path.resolve() != path:
                     raise InvalidName(f"{entry.name!r} does not resolve to itself")
                 try:
                     found.append((name, entry.stat(follow_symlinks=False)))
-                except FileNotFoundError:
-                    # Deleted between the listing and the stat. Its absence is
-                    # itself a change, and the next poll will agree.
+                except FileNotFoundError:  # deleted since the listing
                     continue
         return found
     finally:
@@ -187,16 +155,9 @@ def _replace(path: Path, text: str | bytes, *, sync: bool = False) -> None:
     the new one, never part of either. ``sync`` flushes it to disk before the
     rename, for bytes that have no other copy.
 
-    Writing in place let a crash or an NFS hiccup between the open and the last
-    write leave a truncated document, which reads as missing — the previous
-    good version gone, silently, and a `global` flow another agent was about to
-    run gone from every listing. So the text goes to a name beside the target
-    that no listing addresses (a leading dot, and not `.yaml`), and is renamed
-    over it: a rename within one directory is atomic, and the new inode is what
-    `revision` already expects of a replace.
-
-    A file being replaced keeps its mode, as one rewritten in place did; a new
-    one gets the umask's, from an ordinary create.
+    The text goes to a name beside the target that no listing addresses (a
+    leading dot, and not `.yaml`) and is renamed over it. A replaced file keeps
+    its mode; a new one gets the umask's.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
@@ -210,7 +171,6 @@ def _replace(path: Path, text: str | bytes, *, sync: bool = False) -> None:
             if sync:
                 file.flush()
                 os.fsync(file.fileno())
-        # Nothing to replace means the new file keeps the umask's mode.
         with contextlib.suppress(FileNotFoundError):
             temporary.chmod(stat.S_IMODE(path.stat().st_mode))
         temporary.replace(path)
@@ -220,7 +180,7 @@ def _replace(path: Path, text: str | bytes, *, sync: bool = False) -> None:
 
 
 def _shaped(name: str, info: os.stat_result) -> dict:
-    """A file entry from its name and its stat — see `FileStore._entry`."""
+    """A file entry from its name and its stat (`FileStore._entry`)."""
     return {
         "name": name,
         "size": info.st_size,
@@ -231,8 +191,8 @@ def _shaped(name: str, info: os.stat_result) -> dict:
 class WorkspaceLayout:
     """Where everything a workspace keeps lives: one directory per workspace.
 
-    The only place a path is built. Both stores below ask this for their
-    directories, so the link and traversal rules are written once.
+    The only place a path is built, so the link and traversal rules are
+    written once.
     """
 
     def __init__(self, root: str | Path):
@@ -241,24 +201,11 @@ class WorkspaceLayout:
     def _resolved(self, *parts: str) -> Path:
         """A path inside the data directory, or refuse.
 
-        ``valid_name`` has already refused anything with a separator in it, so a
-        caller cannot traverse out with a name alone. This is the second half,
-        and it is not redundant: ``resolve()`` follows **symlinks at every
-        level**, so a link left at ``<workspace>/flows`` pointing somewhere else
-        is caught here and nowhere else. Checking only the workspace directory
-        would have let a pre-existing link redirect every read and write under
-        it while the boundary still looked guarded.
-
-        "Inside the data directory" turned out to be too weak a guarantee:
-        ``bot/flows -> ../research-bot/flows`` resolves to somewhere perfectly
-        legal by that rule and still hands one workspace another's flows, which
-        breaks the ownership rule this module's whole layout exists to enforce.
-
-        So the check is equality, not containment: the resolved path must be
-        the path we asked for. Nothing below the root may traverse a link.
-        The root itself is resolved first and so may be one — pointing
-        ``DATA_DIR`` at a mount is the installer's business (§F1.12), and
-        it is only the parts *we* join on that have to be honest.
+        ``valid_name`` refuses a separator; this catches a link at any level
+        below the root. The check is equality, not containment:
+        ``bot/flows -> ../research-bot/flows`` stays inside the data directory
+        and would still hand one workspace another's flows. The root itself may
+        be a link, as a mount often is.
         """
         root = self.root.resolve()
         expected = root.joinpath(*parts)
@@ -271,13 +218,7 @@ class WorkspaceLayout:
         return path
 
     def _workspace_dir(self, workspace: str, *parts: str) -> Path:
-        """Somewhere inside one workspace's directory, with the name validated.
-
-        Every path this store builds starts here. The three below each repeated
-        `valid_name(workspace, "workspace name")`, which is the kind of duplication
-        that survives until one copy is left out — and the one left out is a
-        path built from an unchecked name.
-        """
+        """Somewhere inside one workspace's directory, with the name validated."""
         return self._resolved(valid_name(workspace, "workspace name"), *parts)
 
     def workspaces(self) -> list[str]:
@@ -301,7 +242,7 @@ class FlowStore(WorkspaceLayout):
     def __init__(self, root: str | Path):
         super().__init__(root)
         # library -> (revision, answer). Per library, so `global` is read once
-        # per version however many workspaces ask. No TTL (ruling 5).
+        # per version however many workspaces ask. No TTL.
         self._hints: LRUCache = LRUCache(maxsize=LIBRARIES)
         self._hints_lock = threading.Lock()
 
@@ -321,12 +262,10 @@ class FlowStore(WorkspaceLayout):
     def _flow_entries(self, workspace: str) -> list[tuple[str, os.stat_result]]:
         """Each flow's name and stat, from one pass over the directory.
 
-        Anything this store would refuse to address is skipped rather than
-        returned, because every caller of `names` turns a name back into a
-        path. A directory is not only written by us: a hand-made
-        `.hidden.yaml`, a macOS `._login.yaml` on a network mount, or a
-        symlinked entry would otherwise be handed to `get`, raise, and take the
-        whole listing down with it.
+        A name this store would refuse to address is skipped (a hand-made
+        `.hidden.yaml`, a macOS `._login.yaml`, a link): every caller of
+        `names` turns a name back into a path, and one raising would fail the
+        whole listing.
         """
 
         def usable(filename: str) -> str | None:
@@ -344,18 +283,11 @@ class FlowStore(WorkspaceLayout):
     def revision(self, workspace: str) -> str:
         """A token that changes whenever this workspace's flows do.
 
-        Names *and* modification times, because the two answer different
-        questions and the admin page needs both: a name appearing or leaving is
-        a flow saved, deleted or moved, and an mtime moving is a flow edited in
-        place — which a count cannot see and which is precisely what the YAML
-        editor does.
-
-        Cheap on purpose. It stats the files a listing already walks, and it is
-        asked on a poll, so it must never open one.
+        Asked on a poll, so it stats the files and never opens one.
         """
-        # Inode and size beside the mtime, the way git guards against racy
-        # timestamps: two edits inside one clock tick share an mtime, and an
-        # atomic replace always brings a new inode (§F4.19).
+        # Inode and size beside the mtime, as git guards against racy
+        # timestamps: two edits in one clock tick share an mtime, and an atomic
+        # replace always brings a new inode.
         stamps = [
             f"{name}:{info.st_ino}:{info.st_size}:{info.st_mtime_ns}"
             for name, info in sorted(self._flow_entries(workspace))
@@ -365,14 +297,13 @@ class FlowStore(WorkspaceLayout):
     def flows_here(self, workspace: str, url: str) -> list[dict]:
         """The flows that say they apply to ``url``, as hints, at most ten.
 
-        The workspace's own come first, then ``global``'s (ruling 17), each in
-        name order. A shared flow is left out when the workspace has a flow of
-        that name at all, placed or not, because ``run_flow`` by that name runs
-        the workspace's own (ruling 13). A flow whose places cannot be read is
-        never hinted and is logged by name, never by value (ruling 22). The
-        answer comes from a cache keyed on each library's `revision` (ruling 5),
-        so a warm call stats the directories and reads no file; what is
-        returned is a copy, since the cache's entries are shared (ruling 16).
+        The workspace's own come first, then ``global``'s, each in name order.
+        A shared flow is left out when the workspace has a flow of that name at
+        all, placed or not, because ``run_flow`` by that name runs the
+        workspace's. A flow whose places cannot be read is never hinted and is
+        logged by name, never by value. Answers come from a cache keyed on each
+        library's `revision`, so a warm call reads no file; the caller gets a
+        copy.
         """
         names, own = self._placed(workspace)
         found = [p for p in own if p.places.applies(url)]
@@ -430,15 +361,8 @@ class FlowStore(WorkspaceLayout):
         return answer
 
     def summaries(self, workspace: str) -> list[dict]:
-        """Name, description and parameters for each flow — never the steps.
-
-        A listing exists so a caller can choose one, and the steps are the bulk
-        of a document. Keeping them out is what lets a listing stay affordable
-        over a store that is not a local disk.
-        """
-        # Read through the parse cache rather than `get`: a listing takes two
-        # small fields and a count, and copying every document whole to find
-        # them was most of what a warm listing cost.
+        """Name, description and parameters for each flow, never the steps."""
+        # Through the parse cache, not `get`, which copies each document whole.
         return [
             summary(name, workspace, self._loaded(workspace, name) or {})
             for name in self.names(workspace)
@@ -447,19 +371,15 @@ class FlowStore(WorkspaceLayout):
     def get(self, workspace: str, name: str) -> dict | None:
         """One flow, or None if there is no such flow.
 
-        A file that is not readable as a YAML mapping reads as absent rather
-        than raising. Someone hand-edits these, and a broken one should make
-        that flow missing, not every listing that walks past it fail.
+        A file that is not readable as a YAML mapping reads as absent, so one
+        broken hand edit never fails a listing.
         """
         flow = valid_name(name, "flow name")
         loaded = self._loaded(workspace, name)
         if loaded is None:
             return None
-        # The name on disk wins over any name inside the document: the file is
-        # what `get` was asked for, and a document claiming to be something else
-        # would make save-then-get return a different flow. It is the *validated*
-        # name, so `get(" login ")` reports `login` — the same identifier a
-        # listing gives, rather than the caller's spelling of it.
+        # The validated file name wins over any name inside the document, so
+        # `get(" login ")` reports `login`, as a listing does.
         return {**copy.deepcopy(loaded), "name": flow}
 
     def _loaded(self, workspace: str, name: str) -> dict | None:
@@ -473,17 +393,13 @@ class FlowStore(WorkspaceLayout):
             loaded = view(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return None
-        # UnicodeDecodeError is a ValueError, NOT an OSError, so it needs
-        # naming here: a hand-edited file with one bad byte — or a binary file
-        # dropped in the directory — would otherwise take out every listing that
-        # walked past it, which is exactly what this branch exists to prevent.
         except yaml.YAMLError as exc:
-            # Sanitised, because the parser's own message quotes the line it
-            # choked on and this goes to the log. See `yaml_complaint`.
+            # The parser's own message quotes the line (`yaml_complaint`).
             log.warning(
                 "flow %s/%s could not be read: %s", workspace, name, yaml_complaint(exc)
             )
             return None
+        # UnicodeDecodeError is a ValueError, not an OSError.
         except (OSError, UnicodeDecodeError) as exc:
             log.warning("flow %s/%s could not be read: %s", workspace, name, exc)
             return None
@@ -495,15 +411,11 @@ class FlowStore(WorkspaceLayout):
     # -- writes --------------------------------------------------------------
 
     def save(self, workspace: str, name: str, document: dict) -> dict:
-        """Create or replace one flow. Returns what was stored.
-
-        One verb for both, as §F1.5 has it: an agent does not know whether a
-        name is taken until it lists, and if it listed then it already knows.
-        """
+        """Create or replace one flow. Returns what was stored."""
         flow = valid_name(name, "flow name")
         path = self._path(workspace, flow)
-        # The validated name, not the caller's: writing `name: " login "` into
-        # login.yaml would put an identifier in the file that no lookup returns.
+        # The validated name: `name: " login "` is an identifier no lookup
+        # returns.
         stored = {**document, "name": flow}
         _replace(path, dump(stored))
         return stored
@@ -519,36 +431,22 @@ class FlowStore(WorkspaceLayout):
     # -- the document as text, for the editor --------------------------------
 
     def read_text(self, workspace: str, name: str) -> str | None:
-        """One flow exactly as it sits on disk, or None if it is not there.
-
-        The editor edits **YAML**, not a re-dump of a parsed dict (§F1.14). A
-        person writes comments in these, and ordering they chose; round-tripping
-        through ``get`` and ``safe_dump`` would silently throw both away the
-        first time anybody opened the editor and saved.
-        """
+        """One flow exactly as it sits on disk, comments and key order kept, or
+        None if it is not there."""
         try:
             return self._path(workspace, name).read_text(encoding="utf-8")
         except FileNotFoundError:
             return None
 
     def write_text(self, workspace: str, name: str, text: str) -> None:
-        """Store one flow's YAML verbatim.
-
-        Verbatim for the same reason ``read_text`` exists: what a person typed
-        is what is kept. **The caller validates first** — this writes whatever
-        it is handed, and an invalid document reaching disk is how a listing
-        starts skipping a flow nobody can see is broken.
-        """
+        """Store one flow's YAML verbatim. The caller validates it first."""
         _replace(self._path(workspace, name), text)
 
 
 class FileStore(WorkspaceLayout):
     """A workspace's own files: bytes, in the folders :data:`FOLDERS` names.
 
-    Bytes rather than documents, and deliberately the whole of what a file
-    store needs: the Grid supplies the only other operations there are, and it
-    supplies them for *its* files, not ours. Three folders, kept apart because
-    Files is curated while screenshots and recordings are disposable until kept.
+    Files is curated; screenshots and recordings are disposable until kept.
     """
 
     def _files_dir(self, workspace: str, folder: str = FILES_DIR) -> Path:
@@ -600,10 +498,9 @@ class FileStore(WorkspaceLayout):
                     except OSError as exc:
                         if not _no_link(exc):
                             raise
-                        # No hard link here (another filesystem, or one that
-                        # has none): copy beside the target under a name no
-                        # listing addresses, so the final name never holds a
-                        # partial file.
+                        # No hard link here: copy beside the target under a
+                        # name no listing addresses, so the final name never
+                        # holds a partial file.
                         staged = target.with_name(
                             f".{target.name}.{uuid.uuid4().hex}.tmp"
                         )
@@ -794,30 +691,20 @@ class FileStore(WorkspaceLayout):
         return found
 
     def _entry(self, path: Path) -> dict:
-        """One file, in either Files or Screenshots, shaped like the Grid's own
-        listing entry.
-
-        The three sections are read separately, never merged (§F4.6, §F4.7),
-        but they still have to agree on both the key names and the *units*: the
-        Grid reports milliseconds, and a seconds-based timestamp beside it
-        would sort every kept file to 1970 without anything looking wrong.
-        """
+        """One file, shaped like the Grid's own listing entry, its time in
+        milliseconds as the Grid's is."""
         return _shaped(path.name, path.stat())
 
     def files(self, workspace: str, folder: str = FILES_DIR) -> list[dict]:
-        """Every file in one folder of this workspace, newest first.
-
-        Newest first because that is the order the Grid uses, and Files is
-        shown interleaved with its entries.
-        """
+        """Every file in one folder of this workspace, newest first, as the
+        Grid lists its own."""
 
         def usable(name: str) -> str | None:
             if name.startswith("."):
                 # Never a caller's: a staged copy (`move_in`) or the notes.
                 # Silent, or a stranded one warns on every broadcast tick.
                 return None
-            # For the reason `_flow_entries` gives: a name the store would
-            # refuse to address must not reach a caller that reads it back.
+            # As `_flow_entries` skips one.
             try:
                 return valid_file_name(name)
             except InvalidName:
@@ -839,11 +726,8 @@ class FileStore(WorkspaceLayout):
     ) -> dict:
         """Keep one file, creating it or replacing it. Returns its entry.
 
-        Create-or-replace, the same rule `save` follows: keeping a name that is
-        already kept is how someone re-keeps a file they have since downloaded
-        again, and the alternative is a second copy under a name nobody chose.
-        A new file renamed over the old, never a rewrite: a link already
-        streaming the old file keeps its bytes.
+        A new file is renamed over the old, so a link already streaming the old
+        one keeps its bytes.
         """
         path = self._file_path(workspace, name, folder)
         _replace(path, data, sync=True)
@@ -874,9 +758,8 @@ class FileStore(WorkspaceLayout):
     def clear_folder(self, workspace: str, folder: str) -> int:
         """Delete every file in one folder, returning how many went.
 
-        Files is refused: everything in it was put there on purpose, so it is
-        emptied one file at a time or not at all (§F4.1). Anything this store
-        could not address is left where it is, as `files` skips it.
+        Files is refused: it is emptied one file at a time. Anything `files`
+        skips is left where it is.
         """
         if valid_folder(folder) == FILES_DIR:
             raise InvalidName("Files is never cleared wholesale; delete one file")
@@ -888,13 +771,8 @@ class FileStore(WorkspaceLayout):
 
 
 class LocalFlowStore(FlowStore, FileStore):
-    """Flows and files as plain files under one directory.
-
-    A workspace's files live in the same workspace directory as its flows rather
-    than under a root of their own — one root, one env var, one thing to point
-    at Nextcloud. Whatever is mounted there is the installer's business — a
-    folder, an ``emptyDir``, a PVC, NFS. This class only ever sees a path.
-    """
+    """Flows and files as plain files under one directory, each workspace's
+    in one folder."""
 
     kind = "local"
 
@@ -995,8 +873,8 @@ def old_layout(root: Path, inbox: str | os.PathLike | None = None) -> list[str]:
     return sorted(found)
 
 
-# The folder workspaces lived in before they were called workspaces (spec
-# 2026-10-09-workspaces-rename, ruling 3). Moved once, at boot.
+# The folder workspaces lived in before they were called workspaces. Moved
+# once, at boot.
 _OLD_DIR = "sessions"
 
 
@@ -1049,8 +927,7 @@ def from_settings(
         _move_old_folder(root)
         stranded = old_layout(root, inbox)
     except OSError as exc:
-        # Configured and unusable stops the boot (§F4.12): a data directory
-        # that cannot be read must not be mistaken for an empty one.
+        # A data directory that cannot be read is not an empty one.
         raise ConfigError(
             f"data directory {root} cannot be read ({type(exc).__name__}: "
             f"{exc.strerror or 'I/O error'})"
