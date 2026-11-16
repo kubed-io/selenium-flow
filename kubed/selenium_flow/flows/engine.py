@@ -177,7 +177,7 @@ class Run:
     status: str = "ok"
 
     def stops(self, outcome: StepOutcome, error: str) -> bool:
-        """End the run at ``outcome``'s step, before it acted."""
+        """End the run at ``outcome``'s step, with ``error`` as its line says."""
         outcome.ok = False
         outcome.error = error
         self.reports.append(outcome.entry())
@@ -596,9 +596,5 @@ def _unchecked(run: Run, outcome: StepOutcome, exc: Exception) -> bool:
         "flow %s step %s (%s) could not be checked for secrets: %s",
         run.name, outcome.n, outcome.label, type(exc).__name__,
     )
-    outcome.ok = False
     outcome.summary = None
-    outcome.error = faults.SCRUB_FAILED
-    run.reports.append(outcome.entry())
-    run.status = "failed"
-    return False
+    return run.stops(outcome, faults.SCRUB_FAILED)
