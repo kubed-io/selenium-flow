@@ -264,13 +264,14 @@ def _merged(
             sources.append(name)
             layers.append(copy.deepcopy(dict(given[block])))
 
-    merged: dict[str, Any] = {}
     # Any other key comes from config, then raw (raw wins), unless flow sets
     # it. Flow sets only args and prefs, which are merged below.
-    for given in layers:
-        for key, value in given.items():
-            if key not in ("args", "prefs") and key not in flow:
-                merged[key] = value
+    merged: dict[str, Any] = {
+        key: value
+        for given in layers
+        for key, value in given.items()
+        if key not in ("args", "prefs") and key not in flow
+    }
 
     theirs_args = [arg for given in layers for arg in given.get("args", [])]
     args = list(dict.fromkeys([*flow.get("args", []), *option_args, *theirs_args]))

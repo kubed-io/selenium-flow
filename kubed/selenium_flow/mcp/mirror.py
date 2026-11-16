@@ -88,15 +88,15 @@ async def _rows(server) -> list[dict]:
                     "mime_type": resource.mime_type,
                 }
             )
-    for template in await server.list_resource_templates():
-        if _listed(template.uri_template):
-            rows.append(
-                {
-                    "uri_template": template.uri_template,
-                    "name": template.title or template.name,
-                    "description": template.description or "",
-                }
-            )
+    rows.extend(
+        {
+            "uri_template": template.uri_template,
+            "name": template.title or template.name,
+            "description": template.description or "",
+        }
+        for template in await server.list_resource_templates()
+        if _listed(template.uri_template)
+    )
     return rows
 
 
