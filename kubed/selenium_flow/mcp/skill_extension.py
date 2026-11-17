@@ -5,9 +5,10 @@
 digest and size of what ``resources/read`` hands back, so a client can verify
 each file it loads.
 
-FastMCP has no support of its own yet; this module is apart from ``skill.py`` so
-it can be deleted once it has. The entry is built once, with the server, since
-package data cannot change under a running process.
+FastMCP 4.2's ``SkillCatalogProvider`` serves the extension itself, and this
+module is apart from ``skill.py`` so it can be deleted once the server moves to
+it. The entry is built once, with the server, since package data cannot change
+under a running process.
 """
 
 from __future__ import annotations
