@@ -38,6 +38,7 @@ from .core.cancel import Ended
 from .faults import (
     AssertionFailed,
     BidiUnavailable,
+    Conflict,
     Controlled,
     NodeLost,
     NodeRefused,
@@ -98,8 +99,9 @@ UNAVAILABLE = (
 
 def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
-    if isinstance(exc, Controlled):
-        # The request is fine and succeeds after `await_control`.
+    if isinstance(exc, (Controlled, Conflict)):
+        # The request is fine and succeeds after `await_control`, or once
+        # what refused it has changed.
         return 409
     if isinstance(exc, (GONE, NotFound)):
         return 404

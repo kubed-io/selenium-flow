@@ -32,6 +32,7 @@ import yaml
 from cachetools import LRUCache
 
 from ..names import (
+    CONFIG_FILE,
     FILES_DIR,
     FOLDERS,
     GLOBAL_WORKSPACE,
@@ -226,6 +227,15 @@ class WorkspaceLayout:
     def _workspace_dir(self, workspace: str, *parts: str) -> Path:
         """Somewhere inside one workspace's directory, with the name validated."""
         return self._resolved(valid_name(workspace, "workspace name"), *parts)
+
+    def config_path(self, workspace: str) -> Path:
+        """Where a workspace's own config is. The folder is checked and the
+        file is not: its reader opens it without following a link."""
+        return self._workspace_dir(workspace) / CONFIG_FILE
+
+    def write_config(self, workspace: str, text: str) -> None:
+        """Replace a workspace's config whole. The caller validates it first."""
+        _replace(self.config_path(workspace), text)
 
     def workspaces(self) -> list[str]:
         """Every workspace with a directory, for the admin view."""
