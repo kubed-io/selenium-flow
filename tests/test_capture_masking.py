@@ -382,6 +382,10 @@ def test_learned_forms_are_bounded_in_characters_too():
         # A row's header values are scanned joined on NUL (R1-1).
         pytest.param("abc\x00def-0123456789-xyz", id="a-credential-holding-a-nul-is-not-learned"),
         pytest.param("abc-123-xyz-99", id="a-cookie-under-sixteen-characters-is-not-learned"),
+        # Only letters or only digits: "accepted", "undefined", a timestamp.
+        "acceptedcookiesyes",
+        "1728600000123456",
+        "undefinedundefined",
     ],
 )
 def test_a_value_that_cannot_be_a_credential_is_not_learned(value):
@@ -402,13 +406,6 @@ def test_the_probes_console_stays_readable_and_its_session_token_is_masked():
             "at 1728600000; cookies accepted NaN null true false")
     assert m.text(said) == said
     assert m.text("sid s%3Aa8F2kQ9xZ1mP0rT7vW3yB5") == f"sid {MASK}"
-
-
-@pytest.mark.parametrize("value", ["acceptedcookiesyes", "1728600000123456", "undefinedundefined"])
-def test_a_cookie_of_only_letters_or_only_digits_is_not_learned(value):
-    m = Masker()
-    cookie(m, value)
-    assert forms_of(m) == ()
 
 
 @pytest.mark.parametrize("value", ["Negotiate", "Bearer", "Basic ", "Bearer undefined"])

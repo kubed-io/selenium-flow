@@ -63,15 +63,6 @@ def secrets_server(tmp_path, named_caller):
         ("skill://selenium-flow/SKILL.md", "document"),
         ("skill://selenium-flow/_manifest", "document"),
         ("skill://selenium-flow/references/FLOWS.md", "document"),
-    ],
-)
-def test_every_showable_uri_has_one_view(uri, component):
-    assert show.view_for(uri) == component
-
-
-@pytest.mark.parametrize(
-    ("uri", "component"),
-    [
         ("workspace://console", "console"),
         ("workspace://console?level=error&pages=2", "console"),
         ("workspace://network", "network"),
@@ -79,7 +70,7 @@ def test_every_showable_uri_has_one_view(uri, component):
         ("workspace://network/3.7", "request"),
     ],
 )
-def test_the_capture_uris_have_views(uri, component):
+def test_every_showable_uri_has_one_view(uri, component):
     assert show.view_for(uri) == component
 
 
