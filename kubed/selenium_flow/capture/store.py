@@ -567,10 +567,7 @@ class Capture:
         in ``asks``. False: it lands now."""
         navigated = _navigated(method, params)
         if navigated is not None:
-            held.origins[context] = navigated
-            held.origins.move_to_end(context)
-            while len(held.origins) > CONTEXTS:
-                _, (gone, _url) = held.origins.popitem(last=False)
+            for _, (gone, _url) in _remember(held.origins, context, navigated):
                 if not _is_ready(held, gone):  # forgotten unread: none is known
                     held.unknown = EVERY
         elif context in held.origins:
@@ -748,11 +745,8 @@ class Capture:
                 return
             if forms:
                 held.masker.add(forms)
-            if origin != "":
-                held.ready[origin] = None
-                held.ready.move_to_end(origin)
-                while len(held.ready) > CONTEXTS:  # asked again when next needed
-                    held.ready.popitem(last=False)
+            if origin != "":  # past CONTEXTS, asked again when next needed
+                _remember(held.ready, origin, None)
             buffer = self._cache.get(held.workspace) or Buffer()
             landed = False
             for context, pending in list(held.waiting.items()):
@@ -1117,10 +1111,14 @@ def _inherits(held: Held, context, params: dict) -> None:
     if parent is None:
         opener = params.get("originalOpener")
         parent = opener if isinstance(opener, str) and opener else EVERY
-    held.parents[context] = parent
-    held.parents.move_to_end(context)
-    while len(held.parents) > CONTEXTS:
-        held.parents.popitem(last=False)
+    _remember(held.parents, context, parent)
+
+
+def _remember(recent: OrderedDict, key, value) -> list[tuple]:
+    """Set ``key`` as the newest; the oldest past CONTEXTS go, returned."""
+    recent[key] = value
+    recent.move_to_end(key)
+    return [recent.popitem(last=False) for _ in range(len(recent) - CONTEXTS)]
 
 
 def _weight(params) -> int:
