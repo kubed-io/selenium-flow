@@ -219,7 +219,6 @@ def route(
     closed: Callable[[str], bool],
     absent: tuple[type[Exception], ...] = (),
     what: str,
-    doc: str,
 ) -> None:
     """Mount one signed file route.
 
@@ -268,7 +267,6 @@ def route(
         return served(leaf, data, fresh_for(request))
 
     handler.__name__ = name
-    handler.__doc__ = doc
     mcp.custom_route(url, methods=["GET"], name=name)(handler)
 
 
@@ -285,12 +283,6 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         read=lambda session_id, leaf: actions.grid.read_file(session_id, leaf),
         closed=is_partial,
         what="reading {name} for {owner}",
-        doc="""One stored file, authorised by the signature in its own URL.
-
-        No bearer check here, and that is the point: this route exists to be put
-        in an ``<img src>``. The signature covers this exact path and an expiry,
-        so the URL grants one file for a while rather than access to the API.
-        """,
     )
     # Absent, or a name the store would never have written.
     gone = (FileNotFoundError, InvalidName)
@@ -305,13 +297,6 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         closed=lambda _leaf: flow_store is None,
         absent=gone,
         what="reading kept {name} for {owner}",
-        doc="""One kept file, authorised by the signature in its own URL.
-
-        A route of its own rather than a flag on the one above, because it is
-        keyed by a different thing: a download belongs to a browser id, a kept
-        file to a workspace name that outlives it. The signature covers whichever
-        path it was minted for, so a link to one is not a link to the other.
-        """,
     )
     route(
         mcp,
@@ -326,14 +311,6 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         closed=lambda _leaf: flow_store is None,
         absent=gone,
         what="reading screenshot {name} for {owner}",
-        doc="""One screenshot, authorised by the signature in its own URL.
-
-        A route of its own rather than a flag on ``kept_file``, for the same
-        reason that one is not a flag on ``file``: the signature is minted over
-        one exact path, and a screenshot outlives the browser that took it the
-        same way a kept file does, but it is not a kept file — it lives in its
-        own folder until someone keeps or clears it (§F4.6).
-        """,
     )
     route(
         mcp,
@@ -348,6 +325,4 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         closed=lambda _leaf: flow_store is None,
         absent=gone,
         what="reading recording {name} for {owner}",
-        doc="""One recording, authorised by the signature in its own URL, streamed
-        from disk so a player can seek (Range).""",
     )
