@@ -1,18 +1,10 @@
-"""One decision about what an HTTP request is, shared by every JSON tree.
+"""How an HTTP request is answered: the body, the caller, and a failure's status.
 
-Four wrappers used to make this decision separately — ``routes._answer``,
-``files.answer``, ``flowapi.answer`` and ``admin.guarded`` — and they had
-already drifted: two of them logged an unreachable Grid at WARNING and one at
-ERROR, and the browser tree carried a dead ``except ValueError`` branch for a
-body reader that has not raised since it learned to tolerate an empty body.
-
-What stays separate is what genuinely differs. ``admin`` has its handlers
-answer with HTML and event streams, not only JSON, so what it shares is the
-credential check (``guarded``) and the failure shaper (``refused``).
-
-``errors`` is deliberately not imported by any framework: it decides what a
-failure *means*, for the MCP surface as much as this one. Turning that meaning
-into a response is this module's job, which is why ``as_response`` lives here.
+``answer`` serves the browser, flows, files and site-data trees. The admin
+routes also answer with HTML and event streams, so they share only the
+credential check (``guarded``) and the failure shaper (``refused``). ``errors``
+decides what a failure means for every surface; turning that into a response
+is this module's job.
 """
 
 from __future__ import annotations
@@ -30,7 +22,7 @@ from starlette.responses import JSONResponse
 
 from .. import errors, faults
 from ..faults import TooLarge
-from ..principal import ADMIN
+from ..principal import ADMIN, Principal
 from ..workspace.workspaces import Caller, values_of
 from . import auth, links
 
@@ -41,9 +33,9 @@ UPLOAD_CAP = 64 * 2**20
 async def _within(request: Request, cap: int, what: str) -> None:
     """Read the body, refusing as soon as it passes ``cap``.
 
-    Counted as it arrives rather than from ``Content-Length`` alone, which a
-    chunked request does not send. The bytes are left on the request, where
-    ``json()`` and ``form()`` find them.
+    Counted as it arrives, since a chunked request sends no
+    ``Content-Length``. The bytes are left on the request, where ``json()``
+    and ``form()`` find them.
     """
     refusal = TooLarge(f"{what} is limited to {cap // 2**20} MiB")
     declared = request.headers.get("content-length", "")
@@ -61,14 +53,9 @@ async def _within(request: Request, cap: int, what: str) -> None:
 async def read_body(request: Request) -> dict:
     """The request body as kwargs, from JSON or a multipart form.
 
-    Multipart exists for one reason: uploading a file over HTTP should be a
-    normal file upload, not base64 wrapped in JSON. A file part arrives as raw
-    bytes in ``content`` with its ``filename`` alongside, which is exactly what
-    the upload action already accepts — so the action needs no special case.
-
-    An absent or unreadable body decodes to ``{}`` rather than failing. Every
-    one of these trees has an operation that takes nothing, and demanding an
-    empty object from it would be ceremony.
+    A file part becomes raw bytes in ``content`` with its ``filename``, which
+    is what the upload action takes. An absent or unreadable body is ``{}``,
+    for the operations that take nothing.
     """
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("multipart/form-data"):
@@ -95,23 +82,16 @@ async def read_body(request: Request) -> dict:
 def as_response(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     """One failure, as the status and message ``errors`` says it deserves.
 
-    The logger is the caller's own, so a record still names the module that
-    failed rather than this one — the point of sharing the decision is that the
-    answer reads the same, not that the log stops saying where it came from.
+    Logged to the caller's logger, so the record names the module that failed.
+    Only a 500 gets a traceback; a refusal is one INFO line.
     """
     status = errors.status_for(exc)
     text = faults.message(exc)
     if status == 500:
-        # Only the status we do not understand earns a traceback — and it is
-        # written through `faults.formatted`, not `log.exception`, because the
-        # frames quote the Grid URL with its credentials and nothing sanitises
-        # what the logger writes otherwise (Copilot, #36).
         log.error("%s failed\n%s", what, faults.formatted(exc))
     elif status > 500:
         log.warning("%s unavailable (%s): %s", what, status, text)
     else:
-        # A refused request is not an incident. Logging a mistyped XPath with a
-        # full traceback buried the real failures.
         log.info("%s refused (%s): %s", what, status, text)
     return JSONResponse({"error": text}, status_code=status)
 
@@ -119,16 +99,9 @@ def as_response(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
 def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     """A failed admin request, as the status and message ``errors`` gives it.
 
-    The log line keeps whatever ``faults.message`` says, path included — an
-    operator chasing an NFS outage needs to know which mount. A real
-    filesystem failure's ``str()`` quotes that same path, though, and the body
-    a caller reads is not the place for DATA_DIR's layout — the same
-    reason ``naming._why_unsaved`` keeps a screenshot-save failure to a type
-    name rather than the OSError's own message (Copilot, PR #41).
-
-    Unlike ``as_response`` this is for the admin surface, where a refusal is
-    what the page shows beside the button that caused it, so every status
-    logs at INFO; ``what`` is the sentence's subject.
+    Every status logs at INFO, with the path a filesystem failure names, so an
+    operator knows which mount. The body gives such a failure by its strerror
+    and type, keeping DATA_DIR's layout out of it.
     """
     status = errors.status_for(exc)
     text = faults.message(exc)
@@ -136,6 +109,16 @@ def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     if isinstance(exc, OSError) and exc.filename:
         text = f"{exc.strerror or type(exc).__name__} ({type(exc).__name__})"
     return JSONResponse({"error": text}, status_code=status)
+
+
+async def admitted(
+    door: auth.AdminDoor, request: Request
+) -> tuple[Principal | None, JSONResponse | None]:
+    """The admin door's principal (None on an open server), or its refusal."""
+    try:
+        return await door.admit(request), None
+    except auth.Refused as refused:
+        return None, JSONResponse({"error": refused.reason}, status_code=refused.status)
 
 
 async def stream_door(
@@ -153,35 +136,20 @@ async def stream_door(
         token,
     ):
         return None
-    try:
-        await door.admit(request)
-    except auth.Refused as refused:
-        return JSONResponse({"error": refused.reason}, status_code=refused.status)
-    return None
+    _, refusal = await admitted(door, request)
+    return refusal
 
 
 def guarded(door: auth.AdminDoor) -> Callable:
-    """A decorator: refuse a request the admin door does not admit.
-
-    A decorator rather than two lines at the top of each route, and the
-    reason is not the fourteen lines: every one of these returns data only an
-    admin may see, so the check has to be impossible to leave out of the
-    next one. Written per-route it was seven chances to forget.
-
-    The door decides who the admin is — the token, or an admin-UI JWT holding
-    an admin role (spec 2026-10-09-admin-oidc) — and its refusal is a 401 or a
-    403 with its reason.
-    """
+    """A decorator: refuse a request the admin door does not admit, with the
+    door's 401 or 403 and its reason."""
 
     def decorate(handler):
         @wraps(handler)
         async def wrapper(request: Request):
-            try:
-                await door.admit(request)
-            except auth.Refused as refused:
-                return JSONResponse(
-                    {"error": refused.reason}, status_code=refused.status
-                )
+            _, refusal = await admitted(door, request)
+            if refusal is not None:
+                return refusal
             return await handler(request)
 
         return wrapper
@@ -201,25 +169,15 @@ async def answer(
 ) -> JSONResponse:
     """Authorise, read the body, name the workspace, run ``call``, shape a failure.
 
-    ``call`` takes the :class:`Caller` this request describes, read here once,
-    and the body. One signature is what lets one wrapper serve every tree.
-
-    ``named`` is why this is a keyword rather than an assumption. A browser or a
-    file belongs to a caller, so naming none is a refusal, before ``call`` runs.
-    A **flow** does not: an unnamed caller reads the shared ``global`` library,
-    which is deliberate (``caller.library``, not ``caller.name``). Demanding a
-    name for them turned "here is the shared library" into "name your workspace"
-    — a refusal in place of an answer.
-
-    Naming happens inside the try on purpose: an unnamed request and one
-    carrying two names are both refusals ``errors`` already classifies, and they
-    read the same here as everywhere else.
+    ``call`` takes the :class:`Caller` this request describes and the body.
+    With ``named`` an unnamed caller is refused before ``call`` runs; the
+    flows tree passes False, because an unnamed caller reads the shared
+    library.
 
     ``scrubbed`` is `Workspaces.scrubbed`, for a tree whose answers may carry a
-    page's words without being a call on the browser - site data, files, flow
-    documents (spec 2026-11-14-secret-scope, rulings 2 and 16): the answer and
-    its failure are checked for secrets, in the worker thread. Only for a
-    synchronous ``call``.
+    page's words without being a call on the browser (site data, files, flow
+    documents): the answer and its failure are checked for secrets in the
+    worker thread. Only for a synchronous ``call``.
     """
     if not auth.authorized(request, token):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -236,14 +194,10 @@ async def answer(
             caller = replace(caller, principal=ADMIN)
         if named:
             _ = caller.name  # its refusal, if it has one, before the call
-        # In a worker thread: almost every call here is synchronous Selenium,
-        # a `requests` call to the Grid or a whole flow run, and on the event
-        # loop one `assert` waiting 900s stalled every other request, MCP and
-        # `/health` included — FastMCP already runs the same sync tools in a
-        # thread pool. An `async def` call is awaited here on the loop and
-        # takes no thread at all: a long poll waiting behind forty queued
-        # calls for a thread, only to build its coroutine, would wait for
-        # nothing (§F4.19). One that returns an awaitable is awaited too.
+        # A synchronous call runs in a worker thread: on the loop one `assert`
+        # waiting 900s stalled every other request. An `async def` call is
+        # awaited on the loop and takes no thread, so a long poll never queues
+        # behind busy threads.
         if inspect.iscoroutinefunction(call):
             result = await call(caller, body)
         elif scrubbed is not None:
@@ -256,7 +210,6 @@ async def answer(
                 result = await result
         return JSONResponse(result)
     except Exception as exc:  # noqa: BLE001 - whatever the call raises is an
-        # answer, not a crash: `errors` classifies every failure these trees can
-        # produce, and a handler that let one escape would hand a caller an
-        # HTML 500 from Starlette instead of the JSON error this API promises.
+        # answer: one that escaped would hand a caller Starlette's HTML 500
+        # instead of the JSON error this API promises.
         return as_response(exc, what, log)

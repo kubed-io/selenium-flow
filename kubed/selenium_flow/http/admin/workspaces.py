@@ -1,10 +1,8 @@
 """The workspace list: its payload, its live stream, and ending a browser.
 
-Workspaces, not Grid sessions. ``workspaces_payload`` is built once per
-registration (it remembers whether the store was failing, so an outage warns
-once) and handed to whatever else needs a row — the files tab's header.
-
-One :class:`Broadcast` per registration computes it for every open page.
+``workspaces_payload`` is built once per registration (it remembers whether the
+store was failing, so an outage warns once) and also serves the files tab's
+header. One :class:`Broadcast` per registration computes it for every open page.
 """
 
 from __future__ import annotations
@@ -50,15 +48,7 @@ FRESH_SECONDS = 1.0
 
 
 def owner_label(key: str) -> dict:
-    """A store key turned into something worth showing next to a workspace.
-
-    There is one key shape now: the name its caller chose (§F2.12). This used to
-    unpick four — a name, a negotiated transport id, stdio, and a caller with
-    nothing stable to key on — and report the last three as kinds because none
-    of them was worth printing. The function survives the collapse because the
-    admin page still wants to say where a workspace came from, and `stdio` is
-    still a workspace nobody typed.
-    """
+    """A store key and where the workspace came from: `stdio`, or named."""
     if key == STDIO_WORKSPACE:
         return {"name": key, "owner": "stdio"}
     return {"name": key, "owner": "named"}
@@ -99,12 +89,7 @@ def _grid_facts(session: dict) -> dict:
 
 
 def named(call, workspace: str) -> list[str]:
-    """What a workspace has, by name, or nothing if the store cannot say.
-
-    Names rather than a count, because two of these lists overlap: keeping a
-    file copies it, so a kept file and its download share a name and adding
-    the two lengths counted it twice.
-    """
+    """What a workspace has, by name, or nothing if the store cannot say."""
     try:
         return [str(item.get("name", item)) if isinstance(item, dict) else str(item)
                 for item in call(workspace)]
@@ -114,24 +99,16 @@ def named(call, workspace: str) -> list[str]:
 
 
 def revision(flow_store, workspace: str) -> str:
-    """A token that changes whenever this workspace's flows do.
+    """A token that changes whenever this workspace's flows do, edits included.
 
-    A *count* cannot see an edit — the YAML changes and the number does not
-    — and editing is what the flows panel is for, so a page watching the
-    count would sit there showing a document that had already been replaced.
-    The store answers this; a backend that cannot is free to return its
-    count, and the panel degrades to what the file list already does.
+    A store without ``revision`` gives its flow count instead.
     """
     if flow_store is None or workspace is None:
         return ""
     try:
         return str(flow_store.revision(workspace))
     except AttributeError:
-        # A backend that does not implement one. Falling back to the count
-        # is what makes the sentence above true: a constant here would make
-        # the page's stamp constant too, and it would never repaint again —
-        # which is the very bug this helper exists to fix, reintroduced
-        # silently for anyone whose store is not the local one.
+        # A constant here would stop the page repainting at all.
         return str(len(named(flow_store.names, workspace)))
     except Exception:  # noqa: BLE001 - never worth failing a listing
         log.info("could not read the flow revision for %s", workspace)
@@ -139,11 +116,10 @@ def revision(flow_store, workspace: str) -> str:
 
 
 def library(key: str) -> str:
-    """The workspace directory this key owns, or refuse.
+    """The workspace directory this key owns, or an ``InvalidName`` (a 400).
 
-    The write paths cannot fall back to ``global`` the way a browser lookup
-    does: that would put one workspace's file in the shared library. An
-    ``InvalidName`` is a ValueError, so ``errors.py`` already answers 400.
+    No fallback to ``global``: that would put one workspace's file in the
+    shared library.
     """
     workspace = library_of(key)
     if workspace is None:
@@ -166,12 +142,8 @@ def attached_id(workspaces, key: str) -> str:
 
 
 async def header(workspaces_payload, key: str, session_id: str) -> dict:
-    """The workspace facts the detail view leads with.
-
-    Sent alongside the files rather than fetched separately, and
-    best-effort: the files are what was asked for, and losing the header is
-    a worse answer than no answer only if it takes the files down with it.
-    """
+    """The workspace facts the detail view leads with. Best effort: a failure
+    gives the bare facts and never fails the files beside it."""
     detail = {
         "key": key,
         "session_id": session_id or None,
@@ -191,10 +163,9 @@ async def header(workspaces_payload, key: str, session_id: str) -> dict:
 class _Page:
     """One connected page: the newest payload it has not been sent yet.
 
-    A slot rather than a queue: the payload is the whole list, so a page that
-    falls a tick behind wants the latest one, not every one in between. It is
-    also the stream's shutdown event — sse-starlette only ever sets that, and
-    setting it has to wake a page waiting for its next payload.
+    A slot, not a queue: a page a tick behind wants only the latest list. It is
+    also the stream's shutdown event, which sse-starlette sets, and setting it
+    wakes a page waiting for its next payload.
     """
 
     def __init__(self):
@@ -224,14 +195,10 @@ class _Page:
 class Broadcast:
     """The workspace list, computed once a tick for every connected page.
 
-    Each page used to run its own loop, so N open tabs asked the Grid and the
-    store N times a tick for the same answer. One task does it now, and only
-    while somebody is listening: the first page starts it and it ends after the
-    last one leaves (AGENTS.md, "Refresh, not cleanup").
-
-    Everything here but ``compute`` runs on the event loop, so joining, leaving
-    and handing a payload out never interleave with each other; ``compute``
-    runs in a worker thread and touches none of it.
+    One task, running only while somebody listens: the first page starts it
+    and it ends after the last one leaves. Everything but ``compute`` runs on
+    the event loop, so joining, leaving and delivering never interleave;
+    ``compute`` runs in a worker thread and touches none of it.
     """
 
     def __init__(self, compute):
@@ -289,9 +256,8 @@ class Broadcast:
         if recent:
             page.deliver(recent[2])
         else:
-            # Too old to call "now": tick early. Mid-tick this wakes nothing —
-            # the tick under way delivers to this page too, and the nudge it
-            # set is replaced before the loop next waits.
+            # Too old to call "now": tick early. Mid-tick this wakes nothing:
+            # the tick under way delivers to this page too.
             self._nudge.set()
         loop = asyncio.get_running_loop()
         task = self._task
@@ -311,8 +277,7 @@ class Broadcast:
                 payload = await run_in_threadpool(self.compute)
                 text = json.dumps(payload, sort_keys=True)
             except Exception as exc:  # noqa: BLE001 - the Grid can blip
-                # Every page keeps what it has, exactly as a failed poll of its
-                # own used to leave it.
+                # Every page keeps what it has.
                 log.info("event poll failed: %s", faults.message(exc))
             else:
                 if started >= self._floor:
@@ -331,14 +296,12 @@ class Broadcast:
 
 
 class _Stream(EventSourceResponse):
-    """The event stream, joined to the broadcast for exactly as long as the
-    response runs.
+    """The event stream, joined to the broadcast for as long as the response
+    runs.
 
-    Around the ASGI call rather than inside the generator: a client that goes
-    away mid-send cancels the send and leaves the generator paused at its
-    `yield`, which nothing closes until the garbage collector gets to it — and
-    until then the page stayed joined and the Grid was polled for nobody. The
-    call returns however the response ends, so leaving here is immediate.
+    Around the ASGI call, not in the generator: a client that goes away leaves
+    the generator paused at its `yield` until garbage collection, and the Grid
+    would be polled for nobody until then.
     """
 
     def __init__(self, broadcast: Broadcast, page: _Page, *args, **kwargs):
@@ -369,29 +332,20 @@ def mount(
     store_failing = [False]
 
     def workspaces_payload() -> dict:
-        """Every workspace, and the session (browser) each one currently holds.
+        """Every workspace, and the browser each one holds.
 
-        Workspaces, not Grid sessions. The Grid is the superset — it runs
-        browsers put there by anything at all — and listing those would be
-        showing somebody else's work as though it were ours. What matters here
-        is the workspace: who holds it, what it was doing, and whether it still
-        has a browser attached.
-
-        Blocking — it talks to the Grid for liveness and file counts — so
-        callers on the event loop must run it in a worker thread.
+        Workspaces, not Grid sessions: the Grid runs browsers anything put
+        there. Blocking (it asks the Grid), so run it in a worker thread.
         """
         workspaces_store = getattr(workspaces, "store", None)
         if workspaces_store is None or not hasattr(workspaces_store, "records"):
-            # A store that cannot enumerate is not an error: workspaces still
-            # work, there is simply no list to show.
+            # A store that cannot enumerate has no list to show.
             return {"workspaces": [], "live_enabled": live_enabled}
         try:
             records = workspaces_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
-            # A warning, because the page renders this as "no workspaces" and that
-            # looks exactly like an empty install - at info it hid a store that
-            # failed on every poll for a day. Once, because every open page
-            # polls every two seconds (Copilot, #33).
+            # A warning, since the page shows this as an empty install; once,
+            # since every open page polls every two seconds.
             report = log.debug if store_failing[0] else log.warning
             report("could not read the workspace store: %s", exc)
             store_failing[0] = True
@@ -400,8 +354,7 @@ def mount(
             log.info("the workspace store is readable again")
             store_failing[0] = False
 
-        # One Grid listing for the whole payload rather than a liveness call per
-        # row: the answer for every workspace is in it, and it is one round trip.
+        # One Grid listing for the whole payload, not a liveness call per row.
         running: dict = {}
         grid_listed = True
         try:
@@ -410,10 +363,7 @@ def mount(
             grid_listed = False
             log.info("could not read the grid: %s", faults.message(exc))
 
-        # Once per payload, not once per row: it is the same answer for every
-        # workspace, and inside the loop it made each heartbeat walk and stat the
-        # whole shared library once per workspace — O(workspaces x shared flows) on
-        # a two-second poll.
+        # Once per payload: the shared library's revision is the same for every row.
         shared_rev = (
             revision(flow_store, GLOBAL_WORKSPACE) if flow_store is not None else ""
         )
@@ -424,39 +374,21 @@ def mount(
             live = bool(sid) and sid in running
             downloads = None
             if live:
-                # A file count per row is worth one call each: it is the reason
-                # to click into a workspace, so a list without it is guesswork.
                 try:
                     downloads = [f.get("name", "") for f in actions.grid.files(sid)]
                 except Exception:  # noqa: BLE001 - a session can end mid-call
                     downloads = []
-            # Downloads are countable only while a browser is attached; kept
-            # files and flows belong to the workspace and are countable always.
-            # So a workspace with no session open still reports a number, which
-            # is the whole reason keeping exists — a count that emptied when the
-            # Grid reaped a browser would make the durable half look lost.
-            # None when the workspace was named something no directory can be
-            # called. Such a workspace keeps nothing, and must not be shown the
-            # shared library's counts as though they were its own.
+            # Downloads are countable only while a browser is live; the rest
+            # belong to the workspace and need a store and a name that can be a
+            # directory. Without one, it must not be shown the shared library's.
             workspace = library_of(key)
             stores = flow_store is not None and workspace is not None
-            flow_names = named(flow_store.names, workspace) if stores else []
-            # Screenshots and Files are the workspace's own — countable whenever
-            # there is a store and a usable name, independent of whether a
-            # browser is attached. Downloads are the Grid's and countable only
-            # while one is live, which is why that count alone can be None for
-            # a reason `stores` never causes.
-            shots = (
-                named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), workspace)
-                if stores
-                else []
-            )
-            recs = (
-                named(lambda s: flow_store.files(s, RECORDINGS_DIR), workspace)
-                if stores
-                else []
-            )
-            kept = named(flow_store.files, workspace) if stores else []
+            flow_names = shots = recs = kept = []
+            if stores:
+                flow_names = named(flow_store.names, workspace)
+                shots = named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), workspace)
+                recs = named(lambda s: flow_store.files(s, RECORDINGS_DIR), workspace)
+                kept = named(flow_store.files, workspace)
             counts = {
                 "downloads": len(downloads) if downloads is not None else None,
                 "screenshots": len(shots) if stores else None,
@@ -464,25 +396,11 @@ def mount(
                 "files": len(kept) if stores else None,
             }
             known = [v for v in counts.values() if v is not None]
-            # The sum of what is known, not "unknown treated as zero": a live,
-            # empty browser and an empty store must still show 0 rather than the
-            # None that would claim nothing here can be counted. Only every
-            # section being unknown earns the None.
+            # None only when no section can be counted; an empty one is 0.
             files_count = sum(known) if known else None
-            # The stamp the page actually watches. A count cannot tell two
-            # states apart: a name moving between folders — kept out of
-            # Screenshots and into Files — leaves the total the same while the
-            # tile for that name switches folder, mark and URL. So which name is
-            # in which folder goes in, not just how many there are (§F1.39).
-            #
-            # JSON rather than joining on a delimiter, because a FILE name is
-            # not ours to choose — `valid_file_name` permits `:` and `;`
-            # deliberately, since the site's Content-Disposition picked it. A
-            # file called `a:d;b` in one folder and the pair (`a`, `b`) split
-            # across two would both flatten to the same joined string, so two
-            # different workspaces shared one token and the later one would not
-            # repaint. Flow names cannot do this — `NAME` has no punctuation to
-            # collide with — which is why `revision` may join and this may not.
+            # The stamp the page watches: which name is in which folder, since
+            # a keep moves a name without changing the total. JSON, since a
+            # file name may hold any delimiter a join would use.
             files_rev = json.dumps(
                 sorted(
                     [folder_name, name]
@@ -503,17 +421,13 @@ def mount(
             visited = site_data.history_hosts(record.history)
             rows.append(
                 {
-                    # The store key addresses the workspace on this API. It is not
-                    # the browser id, which comes and goes underneath it.
                     "key": key,
                     **owner_label(key),
                     "session_id": sid or None,
                     "attached": bool(sid),
                     "live": live,
-                    # Whether the listing answered, the same on every row: an
-                    # unlisted row's `live` is a guess, so its stored `record`
-                    # setting stands in rather than a failed listing turning
-                    # the badge off (spec 2026-10-27-session-touch-ups, ruling 5).
+                    # Without a listing `live` is a guess, so the stored
+                    # `record` setting stands in for the badge.
                     "grid_listed": grid_listed,
                     "recording": bool(
                         (live or (sid and not grid_listed))
@@ -527,53 +441,35 @@ def mount(
                     "url": record.url or None,
                     "browser": (record.settings or {}).get("browser")
                     or DEFAULT_BROWSER,
-                    # Beside the browser because it is the same kind of fact:
-                    # what this session is running, and how big. Live, the
-                    # size it has, as workspace://current says; idle, the size
-                    # the next open asks for (None: the node's default).
+                    # Live, the size it has; idle, the size the next open asks
+                    # for (None: the node's default).
                     "window": (record.window_seen or record.window)
                     if live
                     else record.window,
-                    # How long the Grid lets its session sit idle: kept from
-                    # the last open, so an idle card shows it too.
                     "grid_timeout": record.grid_timeout,
-                    # The Session tab (spec 2026-10-26-session-capabilities):
-                    # the version asked for, what the last open sent and what
-                    # the Grid says ran, and how that session ended. Kept when
-                    # it ends, so the idle card shows the last browser.
+                    # The Session tab's: kept when the session ends, so the
+                    # idle card shows the last browser.
                     "asked_version": (record.settings or {}).get("version"),
                     "sent": record.sent,
                     "ran": record.ran,
                     "ended": record.ended,
                     "started": record.opened_at or None,
-                    # Who opened this browser, for the meta line ("by drk").
                     "opened_by": record.opened_by,
                     "files_count": files_count,
                     "files_rev": files_rev,
                     "site_data_count": len(listed["sites"]),
                     "site_data_rev": site_data_rev,
                     "history_count": len(visited),
-                    # Every row's origin and page, in order: a new site, a
-                    # return to an older one, or a new page on any row
-                    # repaints History. Only the clock moving does not, so the
-                    # times are left out (Copilot, #51).
+                    # Origins and pages in order, without times, so only a
+                    # visit repaints History.
                     "history_rev": json.dumps(
                         [[v["origin"], v["url"]] for v in record.history]
                     ),
-                    # Named per section, so a row can say "one screenshot" and
-                    # "no browser to have downloads at all" instead of one
-                    # number that means both.
                     "counts": counts,
-                    # Beside the file count because it is the same kind of fact:
-                    # what this workspace has accumulated, and the other reason to
-                    # click into it. None when flows are off, which is not zero.
+                    # None when flows are off, which is not zero.
                     "flows_count": (len(flow_names) if stores else None),
-                    # What the flows panel watches. A count cannot see an edit —
-                    # the YAML changes and the number does not — and editing is
-                    # the thing the panel is for, so a page keyed off the count
-                    # would sit there showing the old document. The revision
-                    # covers this workspace's library and the shared one, because
-                    # the panel lists both.
+                    # This workspace's library and the shared one: the panel
+                    # lists both.
                     "flows_rev": (
                         revision(flow_store, workspace) + "+" + shared_rev
                         if stores
@@ -590,19 +486,14 @@ def mount(
         f"{prefix}/admin/workspaces", methods=["GET"], name="admin_workspaces")
     @guarded
     async def admin_workspaces(request: Request) -> JSONResponse:
-        # What the open pages were just sent, when that is recent: a page loads
-        # this and opens the stream together, and both are the same answer.
+        # What the open pages were just sent, when that is recent.
         payload = broadcast.fresh() or await run_in_threadpool(workspaces_payload)
-        # A signed URL for the event stream, because EventSource cannot send an
-        # Authorization header — the same reason the file route is signed. It is
-        # minted here so it is only ever handed to a caller that the admin door
-        # admitted (the token or an admin-UI JWT; spec 2026-10-09-admin-oidc,
-        # ruling 9).
+        # A signed URL for the event stream, since EventSource cannot send a
+        # header, minted only for a caller the admin door admitted.
         return JSONResponse(
             {
                 **payload,
-                # Mounted, so a caller other than the page can follow it; signed
-                # over the unprefixed path the route checks (Copilot, #35).
+                # Mounted, and signed over the unprefixed path the route checks.
                 "events_url": prefix
                 + (links.sign(EVENTS_PATH, token) if token else EVENTS_PATH),
             }
@@ -611,15 +502,8 @@ def mount(
     @mcp.custom_route(
         f"{prefix}/admin/events", methods=["GET"], name="admin_events")
     async def admin_events(request: Request) -> Response:
-        """The workspace list, pushed when it changes.
-
-        There is nothing to subscribe to — a browser appears on the Grid, put
-        there by anything at all — so the change has to be discovered by asking.
-        Asking once here, for every connected page, is the point: the polling
-        that would otherwise happen in each open tab collapses into one loop.
-        """
-        # A signed URL is how a page's EventSource gets in (it cannot send a
-        # header); anything else is asked of the same door as the admin API.
+        """The workspace list, pushed when it changes. There is nothing to
+        subscribe to, so one loop polls for every connected page."""
         refusal = await answer.stream_door(request, EVENTS_PATH, token, door)
         if refusal is not None:
             return refusal
@@ -634,14 +518,11 @@ def mount(
                     last = payload
                     yield {"data": payload}
 
-        # sse-starlette rather than a StreamingResponse, for shutdown: uvicorn
-        # waits for open connections before it runs the lifespan, so a stream
-        # that never ends held every SIGTERM for FastMCP's whole 2s grace, was
-        # cancelled, and left a traceback per open admin page in the log. This
-        # one hears uvicorn's exit, sets `page`, and the loop above returns,
-        # so the response finishes the way any other does (§F4.19). The grace
-        # is under FastMCP's 2s. It also sends the heartbeat comment, which
-        # keeps proxies from closing an idle stream, and `X-Accel-Buffering: no`.
+        # sse-starlette, for shutdown: uvicorn waits for open connections
+        # before the lifespan, so a stream that never ends would hold each
+        # SIGTERM for FastMCP's 2s grace. This one hears uvicorn's exit and sets
+        # `page`, within a shorter grace. Its heartbeat keeps proxies from
+        # closing an idle stream.
         return _Stream(
             broadcast,
             page,
@@ -660,30 +541,18 @@ def mount(
     @guarded
     @broadcast.changes
     async def admin_end_session(request: Request) -> JSONResponse:
-        """End the browser session a workspace holds, keeping the workspace itself.
+        """End the browser session a workspace holds, keeping the workspace.
 
-        **This does not delete the workspace.** It detaches the browser and leaves
-        the record — its browser choice and the page it was on — so the caller's
-        next ``open_session`` carries on where it left off rather than starting
-        from the server's defaults. A workspace is only ever removed by
-        expiring, which is what makes all of this safe to click.
-
-        The Grid reaps an idle browser on its own timeout, so this is not the
-        only way one ends. It is the way that does not cost minutes of a scarce
-        Grid slot while somebody waits.
+        The record stays (the browser choice, the page it was on), so the next
+        ``open_session`` carries on where it left off. Nothing attached is
+        success.
         """
         key = request.path_params["key"]
         session_id = attached_id(workspaces, key)
         if not session_id:
-            # Nothing attached is success, not a failure: the button's whole
-            # job is "make sure no session is open in this workspace".
             return JSONResponse({"success": True, "key": key, "session_id": None})
-        # Through the same command the tool uses, so the button and the tool
-        # cannot mean different things: the admin names the workspace by its
-        # key. Blocking HTTP to the Grid, so off the event loop — a slow Grid
-        # would stall every connected dashboard.
-        # `admin=True`: the End is never refused for a person's control, and
-        # ending the session is what releases it (live control spec, ruling 11).
+        # The tool's own command. `admin=True`: a person's control never refuses
+        # the End, and ending releases it.
         await run_in_threadpool(
             workspaces.end_browser, Caller(key, "admin"), admin=True
         )
