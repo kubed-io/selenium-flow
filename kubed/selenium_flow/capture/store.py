@@ -363,12 +363,8 @@ class Capture:
     def ingest(self, workspace, session_id, method, params) -> None:
         heard, asks = self.heard, []
         with self._lock:
-            held = self._sessions.get(session_id)
-            if (
-                held is None
-                or held.workspace != workspace
-                or not isinstance(params, dict)
-            ):
+            held = self._held(workspace, session_id)
+            if held is None or not isinstance(params, dict):
                 return
             context = _context(method, params)
             if context is not None and context in self._hidden.get(session_id, ()):
@@ -393,8 +389,8 @@ class Capture:
     def replayed(self, workspace, session_id) -> None:
         """Chrome's replay is over: what is still held lands, past its overlap."""
         with self._lock:
-            held = self._sessions.get(session_id)
-            if held is None or held.workspace != workspace or held.holding is None:
+            held = self._held(workspace, session_id)
+            if held is None or held.holding is None:
                 return
             buffer = self._cache.get(workspace) or Buffer()
             landed = False
@@ -410,8 +406,8 @@ class Capture:
     def lost(self, workspace, session_id) -> None:
         """An event the browser sent was dropped before it landed: counted."""
         with self._lock:
-            held = self._sessions.get(session_id)
-            if held is None or held.workspace != workspace:
+            held = self._held(workspace, session_id)
+            if held is None:
                 return
             if self.heard is not None:  # it may have been a navigation
                 self._unheard(held, [], again=False)
@@ -423,8 +419,8 @@ class Capture:
         """A hold ended, or failed before it began: anything held is dropped,
         since nothing is left to align it against."""
         with self._lock:
-            held = self._sessions.get(session_id)
-            if held is not None and held.workspace == workspace:
+            held = self._held(workspace, session_id)
+            if held is not None:
                 # A replay still waiting for its read is held too: dropped and
                 # counted, all but what waited from before the hold again.
                 for ctx in held.holding or ():
@@ -435,6 +431,11 @@ class Capture:
                 held.replay_over = False
                 held.live = False
                 self._evict()
+
+    def _held(self, workspace, session_id) -> Held | None:
+        """``session_id``'s `Held`, when it is ``workspace``'s."""
+        held = self._sessions.get(session_id)
+        return held if held is not None and held.workspace == workspace else None
 
     # ---- the workspace -------------------------------------------------------
 
