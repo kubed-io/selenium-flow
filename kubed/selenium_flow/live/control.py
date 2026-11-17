@@ -433,7 +433,8 @@ def _still(episode: Episode) -> dict:
 
 def _stopping(episode: Episode | None) -> dict:
     """The server is stopping: nothing is read, so a stop is never held behind
-    a call's turn on the browser."""
+    a call's turn on the browser. Control is forgotten with the process; the
+    agent calls again once it is back."""
     control = None
     if episode is not None:
         since = episode.granted if episode.granted is not None else episode.since
