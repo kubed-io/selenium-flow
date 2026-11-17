@@ -12,6 +12,7 @@ from kubed.selenium_flow.site_data import snapshot as site_data
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 from tests.conftest import NAMED, RecordingActions, manager
+from tests.fakes import FakeMonitor
 
 URL = "https://app.example.com/x"
 REPORT = {"restored": ["app.example.com"], "skipped": [], "uri": "workspace://site-data"}
@@ -185,11 +186,26 @@ def test_a_reap_with_no_site_data_is_said_once(named_caller):  # ruling 2
     (120, 300, 200, "lost"),  # the longer of the two (ruling 14)
 ])
 def test_the_cause_is_judged_by_the_window(named_caller, keep_alive, grid_timeout, seconds, cause):
-    m = Workspaces(SiteActions(), MemoryStore(), keep_alive=keep_alive)
+    m = Workspaces(SiteActions(), MemoryStore(), keep_alive=keep_alive, monitor=FakeMonitor())
     m.open_browser(Caller(NAMED))
     idle(m, seconds, grid_timeout)
     reaped(m)
     assert m.act(Caller(NAMED), lambda s: {"url": URL})["reopened"]["cause"] == cause
+
+
+def test_a_reap_with_no_keep_alive_running_is_reaped_not_lost():
+    workspaces = Workspaces(RecordingActions(), keep_alive=900)
+    workspaces.open_browser(Caller(NAMED), url="https://a.test/")
+    now = time.time()
+    workspaces.store.update(
+        NAMED,
+        lambda r: replace(
+            r, grid_timeout=300, called_at=now - 500, opened_at=now - 600
+        ),
+    )
+    workspaces.actions.grid.alive.clear()
+    workspaces.resolve(NAMED)
+    assert workspaces.store.get(NAMED).reopened["cause"] == "reaped"
 
 
 def test_an_open_counts_as_activity_for_the_cause(named_caller):  # ruling 14

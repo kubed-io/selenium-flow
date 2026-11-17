@@ -684,11 +684,13 @@ class Workspaces:
         window, ``lost`` when it was in use, so something else ended it.
 
         The window is the longer of the Grid's own timeout (the node's, as read
-        at the open; the default when it did not say) and ``keep_alive``. An
-        open is activity, so idleness is measured from the later of the last
-        call and the open.
+        at the open; the default when it did not say) and ``keep_alive``, which
+        counts only with a monitor to keep the browser alive. An open is
+        activity, so idleness is measured from the later of the last call and
+        the open.
         """
-        window = max(record.grid_timeout or DEFAULT_TIMEOUT, self.keep_alive)
+        kept = self.keep_alive if self.monitor is not None else 0
+        window = max(record.grid_timeout or DEFAULT_TIMEOUT, kept)
         last = max(record.called_at, record.opened_at)
         return "reaped" if now - last >= window else "lost"
 

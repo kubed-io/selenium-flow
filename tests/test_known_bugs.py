@@ -6,8 +6,6 @@ remove the marker then.
 """
 
 import contextlib
-import time
-from dataclasses import replace
 
 import pytest
 
@@ -20,22 +18,6 @@ pytestmark = pytest.mark.unit
 
 def bug(reason):
     return pytest.mark.xfail(strict=True, reason=f"#162: {reason}")
-
-
-@bug("a reap is called lost when the keep-alive window never ran")
-def test_a_reap_with_no_keep_alive_running_is_reaped_not_lost():
-    workspaces = Workspaces(RecordingActions(), keep_alive=900)
-    workspaces.open_browser(Caller(NAMED), url="https://a.test/")
-    now = time.time()
-    workspaces.store.update(
-        NAMED,
-        lambda r: replace(
-            r, grid_timeout=300, called_at=now - 500, opened_at=now - 600
-        ),
-    )
-    workspaces.actions.grid.alive.clear()
-    workspaces.resolve(NAMED)
-    assert workspaces.store.get(NAMED).reopened["cause"] == "reaped"
 
 
 # ---- auth and live view -------------------------------------------------------
