@@ -972,6 +972,9 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
         value = value_of(settings, leaf.path)
         if leaf.path in URL_LEAVES and value:
             value = without_userinfo(str(value))
+        elif leaf.path == "session.capabilities":
+            # A proxy URL or a `--proxy-server=` argument can carry userinfo.
+            value = json.loads(without_userinfo(json.dumps(value)))
         # `name` is what the row shows: the card's title is the section.
         row: dict[str, Any] = {
             "key": leaf.path,

@@ -254,19 +254,6 @@ def test_a_missing_flow_is_named_before_a_missing_browser():
 # ---- config -------------------------------------------------------------------
 
 
-@bug("the Settings tab shows session.capabilities unmasked, proxy credentials included")
-def test_the_settings_tab_does_not_show_credentials_in_capabilities():
-    import json
-
-    from kubed.selenium_flow.config import Settings, describe
-
-    proxy = {
-        "proxy": {"proxyType": "manual", "httpProxy": "http://u:hunter2@proxy:3128"}
-    }
-    shown = describe(Settings(session={"capabilities": proxy}), {})
-    assert "hunter2" not in json.dumps(shown)
-
-
 # ---- capture ------------------------------------------------------------------
 
 
