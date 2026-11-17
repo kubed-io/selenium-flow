@@ -983,3 +983,27 @@ async def test_a_required_that_is_not_a_list_of_names_is_refused(step_schema_map
     with pytest.raises(InvalidFlow) as caught:
         validate(document, step_schema_map)
     assert caught.value.problems == ["parameters.required must be a list of names"]
+
+
+async def test_a_flow_with_an_unknown_top_level_key_is_refused(server):
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
+    from kubed.selenium_flow.flows.document import (
+        InvalidFlow,
+        concerns,
+        step_schemas,
+        validate,
+    )
+
+    tools = {}
+    for name in sorted(set(ENDPOINTS.values())):
+        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
+    document = {
+        "description": "x",
+        "step": [{"tool": "navigate", "args": {"url": "https://example.test/"}}],
+        "steps": [{"tool": "navigate", "args": {"url": "https://example.test/"}}],
+    }
+    try:
+        validate(document, step_schemas(tools))
+    except InvalidFlow:
+        return  # refused
+    assert concerns(document)  # or at least warned about

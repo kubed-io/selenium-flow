@@ -207,33 +207,6 @@ def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
 # ---- saved flows -------------------------------------------------------------
 
 
-@bug(
-    "an unknown top-level key is neither refused nor warned about, so a typo saves clean"
-)
-async def test_a_flow_with_an_unknown_top_level_key_is_refused(server):
-    from kubed.selenium_flow.core.capabilities import ENDPOINTS
-    from kubed.selenium_flow.flows.document import (
-        InvalidFlow,
-        concerns,
-        step_schemas,
-        validate,
-    )
-
-    tools = {}
-    for name in sorted(set(ENDPOINTS.values())):
-        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
-    document = {
-        "description": "x",
-        "step": [{"tool": "navigate", "args": {"url": "https://example.test/"}}],
-        "steps": [{"tool": "navigate", "args": {"url": "https://example.test/"}}],
-    }
-    try:
-        validate(document, step_schemas(tools))
-    except InvalidFlow:
-        return  # refused
-    assert concerns(document)  # or at least warned about
-
-
 # ---- config -------------------------------------------------------------------
 
 
