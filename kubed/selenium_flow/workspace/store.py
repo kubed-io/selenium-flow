@@ -205,12 +205,19 @@ class Workspace:
             session_id = str(data.get("session_id") or "") if set_by is not None else ""
             site_data = data.get("site_data")
             reopened = data.get("reopened")
+            opened_at = data.get("opened_at", 0.0)
             return cls(
                 # A record without valid sources keeps no settings and lets go
                 # of its browser, so the Grid reaps it and the next call opens
                 # afresh; the rest of it stays.
                 session_id=session_id,
-                opened_at=float(data.get("opened_at", 0.0)),
+                # A number is read as `called_at` is; anything float() refuses
+                # makes the record a miss.
+                opened_at=(
+                    _seconds(opened_at)
+                    if isinstance(opened_at, (int, float))
+                    else float(opened_at)
+                ),
                 settings=settings if set_by is not None else {},
                 set_by=set_by if set_by is not None else {},
                 history=_visits(data.get("history")),

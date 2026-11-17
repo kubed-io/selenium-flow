@@ -138,6 +138,14 @@ def test_a_stored_called_at_is_read_only_when_it_is_a_number(raw, read):
     assert record is not None and record.called_at == read
 
 
+@pytest.mark.parametrize("raw, read", [("12.5", 12.5), ("-5", 0.0), ("true", 0.0), (str(10**400), 0.0),
+                                      ("NaN", 0.0), ("Infinity", 0.0)])
+def test_a_stored_opened_at_is_read_as_called_at_is_when_it_is_a_number(raw, read):
+    """Not a number at all, the record is a miss instead."""
+    record = Workspace.from_json(f'{{"session_id": "a", "set_by": {{}}, "opened_at": {raw}}}')
+    assert record is not None and record.opened_at == read
+
+
 def test_a_stored_timeout_is_read_back_only_when_it_is_a_positive_int():
     assert Workspace.from_json('{"grid_timeout": 300}').grid_timeout == 300
     for raw in ('"300"', "0", "-5", "true", "1.5", "null"):
