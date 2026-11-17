@@ -112,6 +112,24 @@ test('no flow with a tag, no filter bar (UI-70)', async () => {
   expect(container.querySelector('.tagfilter')).toBeNull()
 })
 
+test('a filter whose bar went with the last tag filters nothing (UI-70)', async () => {
+  let listings = 0
+  const untagged = { ...LIST, flows: LIST.flows.map(({ name, step_count, shared }) => ({ name, step_count, shared })) }
+  const { container } = setup({
+    'GET /admin/workspaces/k/flows': () => ({ body: listings++ ? untagged : LIST }),
+    'PUT /admin/workspaces/k/flows/login/tags': { body: {} },
+  })
+  const bar = await vi.waitFor(() => found(container, '.tagfilter'))
+  await fireEvent.click(found(bar, '.addtag'))
+  await fireEvent.input(found(bar, 'input'), { target: { value: 'demo' } })
+  await fireEvent.keyDown(found(bar, 'input'), { key: 'Enter' })
+  expect(names(container)).toEqual(['login'])
+  const panel = await vi.waitFor(() => found(container, '#flowpanel .panel'))
+  await fireEvent.click(found(panel, '.tags .tag button'))
+  await vi.waitFor(() => expect(container.querySelector('.tagfilter')).toBeNull())
+  expect(names(container)).toEqual(['login', 'nc-login', 'nc-smoke', 'plain'])
+})
+
 test('adding a tag offers the ones in use and saves at once (UI-76)', async () => {
   const { container, calls } = setup({ 'PUT /admin/workspaces/k/flows/login/tags': { body: {} } })
   const panel = await vi.waitFor(() => found(container, '#flowpanel .panel'))

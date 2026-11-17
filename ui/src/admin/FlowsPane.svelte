@@ -45,7 +45,9 @@
   let filter = $state<string[][]>([[]])
   const offered = $derived(inUse(all))
   const tagged = $derived(offered.length > 0)
-  const rows = $derived(all.filter((x) => passes(filter, x.tags)))
+  // With no tag anywhere the bar is not drawn, so a filter left over from
+  // before cannot be cleared: it applies only while the bar is there.
+  const rows = $derived(tagged ? all.filter((x) => passes(filter, x.tags)) : all)
   // The filter bar is the list's first grid row; the panel starts level with
   // it for the first flow and with the picked one below that.
   const at = $derived.by(() => {
