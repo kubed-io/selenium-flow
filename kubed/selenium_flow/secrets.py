@@ -121,6 +121,11 @@ def declared_origin(line: str) -> str | None:
     return scope_origin_of(parts)
 
 
+def _usable(entry: dict) -> bool:
+    """Whether a listing entry has a leash that can be used."""
+    return bool(entry.get("restricted")) and not entry.get("refused")
+
+
 class SecretSource(Protocol):
     """Somewhere secrets come from."""
 
@@ -463,14 +468,14 @@ class Catalogue:
         return sorted(
             (name, tuple(sorted(entry.get("allowed_urls") or [])))
             for name, entry in entries.items()
-            if entry.get("restricted") and not entry.get("refused")
+            if _usable(entry)
         )
 
     def _stamps(self, entries: dict, owners: dict) -> list:
         """The stamps of every usable secret's key files, each with its name."""
         stamps = []
         for name, entry in entries.items():
-            if not entry.get("restricted") or entry.get("refused"):
+            if not _usable(entry):
                 continue
             seen = set()
             for owner in owners[name].values():
@@ -530,9 +535,7 @@ class Catalogue:
         carries `refused` in its listing entry.
         """
         entry = self.entry(name)
-        if entry is None:
-            return False
-        if not entry.get("restricted") or entry.get("refused"):
+        if entry is None or not _usable(entry):
             return False
         allowed = entry.get("allowed_urls") or []
         return bool(allowed) and origin(url) in allowed
@@ -555,7 +558,7 @@ class Catalogue:
         """
         forms = Forms()
         for name, entry in self._entries().items():
-            if not entry.get("restricted") or entry.get("refused") or not wanted(entry):
+            if not _usable(entry) or not wanted(entry):
                 continue
             for key in entry["keys"]:
                 try:
