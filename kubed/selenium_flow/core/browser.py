@@ -614,13 +614,18 @@ IN_FRAME = "return window !== window.top"
 ORIGIN_HERE = "return document.location.origin"
 
 
+def _asked(driver, script: str):
+    """The page's answer to ``script``, or None when it cannot answer."""
+    try:
+        return driver.execute_script(script)
+    except Exception:  # noqa: BLE001 - a dialog or a dead session means not knowing
+        return None
+
+
 def in_frame(driver) -> bool:
     """Whether the session is switched into a frame. WebDriver has no command
     for it, so the page is asked."""
-    try:
-        return bool(driver.execute_script(IN_FRAME))
-    except Exception:  # noqa: BLE001 - a dialog or a dead session must not raise here
-        return False
+    return bool(_asked(driver, IN_FRAME))
 
 
 def frame_origin(driver) -> str:
@@ -633,10 +638,7 @@ def frame_origin(driver) -> str:
     URL's origin. A failure or a non-string answer is ``""``. Neither ``"null"``
     nor ``""`` matches an allowed origin, so the leash refuses both.
     """
-    try:
-        found = driver.execute_script(ORIGIN_HERE)
-    except Exception:  # noqa: BLE001 - not knowing is an answer the leash refuses
-        return ""
+    found = _asked(driver, ORIGIN_HERE)
     return found if isinstance(found, str) else ""
 
 
@@ -677,10 +679,7 @@ def document(driver) -> dict | None:
     None (no wait) when it cannot be told: in a frame, with a dialog open, a
     script that fails or an answer of the wrong shape.
     """
-    try:
-        found = driver.execute_script(DOCUMENT)
-    except Exception:  # noqa: BLE001 - not knowing only means not waiting
-        return None
+    found = _asked(driver, DOCUMENT)
     if not isinstance(found, dict):
         return None
     origin, url, title = found.get("origin"), found.get("url"), found.get("title")
