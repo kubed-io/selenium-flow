@@ -975,3 +975,11 @@ async def test_a_keep_file_step_is_refused_at_save(step_schema_map):
     with pytest.raises(InvalidFlow, match="keep_file") as caught:
         validate(document, step_schema_map)
     assert "step 1" in caught.value.problems[0]
+
+
+@pytest.mark.parametrize("required", [{}, "", 0, None, ["a", 1]])
+async def test_a_required_that_is_not_a_list_of_names_is_refused(step_schema_map, required):
+    document = flow(parameters={"properties": {"a": {"type": "string"}}, "required": required})
+    with pytest.raises(InvalidFlow) as caught:
+        validate(document, step_schema_map)
+    assert caught.value.problems == ["parameters.required must be a list of names"]

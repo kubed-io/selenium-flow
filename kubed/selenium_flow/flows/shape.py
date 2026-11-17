@@ -77,7 +77,7 @@ class Shape:
         ):
             problems.append(NOT_PROPERTIES)
         required = parameters.get("required")
-        if required and (
+        if "required" in parameters and (
             not isinstance(required, list)
             or not all(isinstance(name, str) for name in required)
         ):
