@@ -1,19 +1,14 @@
 """The MCP tool surface.
 
-Thin wrappers over ``actions.py``. Each tool here is a declaration — a signature
-and a docstring — and its name, annotations and body come from its row in
-``core/capabilities.py``, the table the HTTP surface is mounted from too. Type
-hints here are not decoration: FastMCP turns each signature into the tool's JSON
-schema, so the parameter names, types and defaults written below are exactly
-what a model sees and fills in.
+Each tool is a declaration, a signature and a docstring, and its name,
+annotations and body come from its row in ``core/capabilities.py``, the table
+the HTTP surface is mounted from too. FastMCP turns each signature into the
+tool's JSON schema and each docstring into its description, so both are what a
+model reads: the docstrings are written for a model deciding whether to call
+the tool.
 
-Docstrings are prompt. They are written for a model deciding whether to call the
-tool, not for a developer reading the source.
-
-No tool takes a ``session_id``. A caller names its workspace — ``?workspace=``
-or ``Sf-Workspace`` — and ``workspaces.py`` turns that name into the browser it
-holds. The Grid's own id is never a parameter and never a
-result (§F2.12).
+No tool takes a session id. A caller names its workspace (``?workspace=`` or
+``Sf-Workspace``) and ``Workspaces`` finds the browser it holds.
 """
 
 from __future__ import annotations
@@ -62,24 +57,19 @@ def _lowered(value):
     return value.strip().lower() if isinstance(value, str) else value
 
 
-# A closed set, published as an enum so a model planning against the schema can
-# see every choice — the first agent to fly a real app never found `hover`
-# because `action` read as an open string (saga §F2.1). Lowercased BEFORE the
-# check, because these were plain strings the action layer lowercased: `Hover`
-# worked over MCP and still works over HTTP and in a flow, and publishing the
-# list must not start refusing a caller for writing what used to be fine.
 def _blank_is_unset(value):
-    """A blank optional choice means "not given", as it did before the enum.
+    """A blank optional choice means "not given".
 
-    `normalize_browser` has always treated an empty or whitespace-only browser
-    as "carry on with the default", and a client that encodes an omitted
-    optional as "" relied on it. A bare enum refuses that before the tool runs,
-    so the blank is turned back into None here and the default decides.
+    `normalize_browser` takes a blank browser as the default, and a client that
+    sends an omitted optional as "" relies on it, which a bare enum would refuse.
     """
     resolved = _lowered(value)
     return None if resolved == "" else resolved
 
 
+# Closed sets are published as enums, so a model sees every choice. Each is
+# lowercased before the check: the action layer lowercases them over HTTP and
+# in a flow, so `Hover` works on every surface.
 MouseAction = Annotated[Literal[MOUSE_ACTIONS], BeforeValidator(_lowered)]
 DialogAction = Annotated[Literal[DIALOG_ACTIONS], BeforeValidator(_lowered)]
 FrameAction = Annotated[Literal[FRAME_ACTIONS], BeforeValidator(_lowered)]
@@ -91,13 +81,9 @@ RequestId = Annotated[str, Field(min_length=1, max_length=ID_LIMIT)]
 def _as_selector(value):
     """A selector sent as a JSON string, turned back into an object.
 
-    Some clients stringify object arguments, and pydantic refuses a string
-    where a model is expected with a message about dictionaries — which tells
-    the model nothing it can act on. The enums above take the same treatment
-    for the same reason.
-
-    A string that is not JSON is handed on unchanged, so the error a caller
-    sees is the selector's own rather than one about parsing.
+    Some clients stringify object arguments, and pydantic's refusal of a string
+    speaks of dictionaries. A string that is not JSON is handed on unchanged, so
+    the caller sees the selector's own error.
     """
     if isinstance(value, str):
         try:
@@ -107,19 +93,12 @@ def _as_selector(value):
     return value
 
 
-# One object rather than two flat arguments because they are one choice
-# (§F2.14): every tool that takes one takes the other, for the same element,
-# under the same rule — which used to be written out in a dozen descriptions
-# and is now said once, here.
-#
-# The docstring below is NOT a note for this file's reader. Pydantic publishes
-# it as the schema's description in every tool that takes a selector, and a
-# refusal quotes it, so it is written for a model filling the argument.
+# Pydantic publishes the docstring below as the schema's description in every
+# tool that takes a selector, and a refusal quotes it: it is written for a model.
 class Selector(BaseModel):
     """Which element: {"css": "button.go"} or {"xpath": "//button[@type='submit']"} - exactly one of the two."""  # noqa: E501 - one line, as a schema description
 
-    # Refused rather than dropped, as `SecretRef` does: an unknown key is a
-    # caller's mistake, and ignoring it silently runs a different request.
+    # An unknown key is refused: ignored, it would run a different request.
     model_config = ConfigDict(extra="forbid")
 
     xpath: str | None = Field(
@@ -132,8 +111,7 @@ class Selector(BaseModel):
     @model_validator(mode="after")
     def _exactly_one(self):
         """Never a fallback from one to the other: a typo in the first would
-        become a click on whatever the second found, and the run would report
-        `ok` while it drifted (§F2.14)."""
+        become a click on whatever the second found, reported as `ok`."""
         if bool(self.xpath) == bool(self.css):
             raise ValueError(
                 "a selector takes xpath or css - exactly one, not both and not neither"
@@ -147,14 +125,9 @@ SelectorArg = Annotated[Selector | None, BeforeValidator(_as_selector)]
 class SecretRef(BaseModel):
     """Which secret, and which key inside it."""
 
-    # Unknown fields are refused rather than dropped, the same way the flow
-    # validator refuses them. Pydantic's default is to ignore them silently,
-    # which turns a caller's mistake into a different request than they sent.
     model_config = ConfigDict(extra="forbid")
 
-    # Non-empty, because the validator refuses an empty one and the flow schema
-    # publishes this model: a published `string` told a caller `""` was fine,
-    # and `save_flow` then answered 400.
+    # The flow schema publishes this model, and the flow validator refuses "".
     name: str = Field(min_length=1)
     key: str = Field(min_length=1)
 
@@ -190,10 +163,7 @@ execute_script for anything the other tools do not cover, scrolling included.
 
 """
 
-# Appended only when the skill is actually being served. With
-# `--mcp-skill false` (or package data missing) nothing registers those
-# resources, and telling a client to read a URI that cannot be read is worse
-# than saying nothing (Copilot, #36).
+# Appended only when the skill is served.
 SKILL_POINTER = """
 How to drive this well — when to screenshot rather than extract, what a timeout \
 on a good XPath usually means, how to write a flow — is at \
@@ -201,9 +171,7 @@ skill://selenium-flow/SKILL.md. Read it{how} before your first call; it ships \
 with this server, so it describes this version of it.
 """
 
-# For a client whose model cannot read resources (§F3.2). Everything to read is
-# still named by URI, so it is told how to read one rather than handed a
-# different vocabulary.
+# For a client whose model cannot read resources: it is told how to read a URI.
 READING_POINTER = """
 Everything this server has to read is a URI — workspace://current, \
 session://downloads, flow://flows, secret://secrets and the like, wherever a \
@@ -226,20 +194,16 @@ def instructions(skill_available: bool = True, reads_resources: bool = True) -> 
 def first_instructions(skill_available: bool = True) -> str:
     """What the server object starts with, before any handshake has named a client.
 
-    The text `InstructionsFor` gives a client it cannot tell: the same function
-    and the same reading of "can it read resources", so the constructor and the
-    handshake cannot drift into two defaults.
+    The same text `InstructionsFor` gives a client it cannot identify.
     """
     unknown = clients.reads_resources(clients.Caller.stdio(client=""))
     return instructions(skill_available, unknown)
 
 
 class InstructionsFor(Middleware):
-    """Answer the handshake with the instructions for the client it came from.
+    """Answer each handshake with the instructions for the client it came from.
 
-    One server object serves every client, so the text is chosen per handshake
-    rather than fixed at construction: a client that cannot read resources is
-    told to use read_resource, which a client that can would only be confused by.
+    A client that cannot read resources is told to use read_resource.
     """
 
     def __init__(self, skill_available: bool):
@@ -264,21 +228,10 @@ class InstructionsFor(Middleware):
         return result
 
 
-# What an MCP screenshot keeps beside its image block: every field the
-# screenshot's published response declares except the capture itself (the
-# block is the image) and the page it is of (`url`/`title`, which every call
-# echoes). Derived from the response, so a field added there reaches an MCP
-# caller without being listed twice. Each is kept only when present:
-# - `file`: a saved screenshot has a name the caller cannot derive (a second
-#   `shot.png` is kept as `shot (1).png`);
-# - `file_error`: the capture survived and the file did not, and an MCP caller
-#   given only the image would look for a name never coming;
-# - `site_data`: the first call after a silent reopen says what came back
-#   (``Workspaces.settle``) — dropped here, it is never said at all;
-# - `reopened`: the first call after a reopen says so (`Workspaces.settle`);
-# - `page`: what the page reported while the call ran (`workspace.calls`);
-# - `flows_here`: `screenshot(url=...)` moves the record, so a hint dropped
-#   here is never said.
+# What an MCP screenshot keeps beside its image block, when present: every
+# field of the screenshot's published response except the capture itself and
+# the page's `url` and `title`. `site_data`, `reopened` and `flows_here` are
+# said once, so one dropped here is never said at all.
 _THE_CAPTURE = frozenset({"image", "width", "height", "bytes", *PAGE_STATE})
 _BESIDE_THE_IMAGE = tuple(
     k for k in capability("screenshot").response["properties"] if k not in _THE_CAPTURE
@@ -286,10 +239,10 @@ _BESIDE_THE_IMAGE = tuple(
 
 
 def _as_image(result: dict) -> Image | ToolResult:
-    """A screenshot as an MCP image block, which is what a tool caller can use.
+    """A screenshot as an MCP image block.
 
-    The one sanctioned difference between the surfaces (AGENTS.md): an HTTP
-    caller gets the same capture as base64 JSON.
+    The one difference between the surfaces: an HTTP caller gets the capture as
+    base64 JSON.
     """
     image = Image(data=base64.b64decode(result["image"]), format="png")
     told = {k: result[k] for k in _BESIDE_THE_IMAGE if result.get(k) is not None}
@@ -308,15 +261,9 @@ def register(
 ) -> None:
     """Register every capability as an MCP tool on ``mcp``.
 
-    Each tool below is a declaration: its signature is the schema and its
-    docstring (or ``description=``) the prompt, both read by FastMCP and both
-    written out by hand. Its name, its annotations and what it does come from
-    its row in ``core.capabilities``: ``action`` gives a declaration the one
-    body every action shares, and ``own`` publishes the ones whose body is
-    their own. A row left undeclared stops the server here.
-
-    ``live`` is the live view's settings, read at each call: ``await_cap``
-    bounds a blocking `await_control`.
+    ``action`` gives a declaration the body every action shares, and ``own``
+    publishes one whose body is its own. A capability left undeclared stops the
+    server here. ``live.await_cap`` bounds a blocking `await_control`.
     """
     declared: set[str] = set()
     live = live if live is not None else LiveSettings()
@@ -334,12 +281,9 @@ def register(
         )(fn)
 
     def act(row: Capability, arguments: dict):
-        """Whose browser this is, then act on it. See ``Workspaces.act``, which
-        the HTTP surface calls too so the two cannot drift."""
+        """Whose browser this is, then act on it through ``Workspaces.act``."""
         if "secret" in arguments:
-            # A capability that can type a secret (`write`) types one through
-            # the catalogue, and with neither a secret nor text has nothing to
-            # type at all.
+            # `write` types a secret through the catalogue.
             if arguments["secret"] is None and arguments.get("text") is None:
                 raise ValueError(f"{row.name} needs text, or a secret to supply it")
             if arguments["secret"] is not None:
@@ -548,8 +492,7 @@ def register(
         browser is somewhere else, so you rarely need this as a separate call.
         """
 
-    # The action list is interpolated so it cannot drift from the tuple the
-    # action layer validates against.
+    # The action list is interpolated from the tuple the action layer checks.
     @action(
         "interact",
         description=(
@@ -692,9 +635,7 @@ def register(
         every later read here.
         """
 
-    # The key names are not listed here: a name that is not one is refused with
-    # every name there is, generated from the mapping itself, which is where a
-    # model that guessed wrong is looking anyway (§F3.5).
+    # The key names are not listed: a wrong name is refused with all of them.
     @action(
         "press_key",
         description=(
@@ -769,8 +710,7 @@ def register(
         work. Not for drag and drop; drag uses real pointer input.
         """
 
-    # Declared as `assert_page` because `assert` is a Python keyword and cannot
-    # be a function name; the row's `method` is the other half of that.
+    # `assert` is a Python keyword, so the declaration is `assert_page`.
     @action(
         "assert",
         description=(
