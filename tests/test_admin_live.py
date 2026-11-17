@@ -585,3 +585,4 @@ def test_leaving_a_browser_the_grid_still_lists_keeps_the_viewer_closed(
     client, monkeypatch, caplog
 ):
     assert "the viewer closed" in left_line(client, monkeypatch, caplog)
+

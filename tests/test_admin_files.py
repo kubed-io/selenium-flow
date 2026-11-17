@@ -396,3 +396,17 @@ def test_an_admin_file_or_session_route_reads_the_store_off_the_event_loop(
     getattr(client, method)(path, headers=AUTH)
     assert on_loop == []
 
+
+
+def test_ending_a_session_whose_store_read_fails_answers_json(
+    client, live, monkeypatch
+):
+    from kubed.selenium_flow.workspace.store import StoreUnavailable
+
+    def down(key):
+        raise StoreUnavailable("redis is down")
+
+    monkeypatch.setattr(live.workspaces.store, "get", down)
+    answered = client.delete(f"/admin/workspaces/{KEY}/session", headers=AUTH)
+    assert answered.status_code >= 500
+    assert answered.json() == {"error": "redis is down"}
