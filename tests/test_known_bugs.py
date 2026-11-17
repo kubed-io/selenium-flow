@@ -329,9 +329,3 @@ def test_a_failure_logged_with_a_traceback_is_scrubbed_of_credentials(actions, c
 # ---- config -------------------------------------------------------------------
 
 
-@bug("port has no bound: a negative port loads and fails later")
-def test_a_negative_port_is_refused_at_load():
-    from kubed.selenium_flow.config import Settings
-
-    with pytest.raises(ValueError):
-        Settings(port=-1)

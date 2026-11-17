@@ -414,7 +414,7 @@ class Settings(Section):
         "http", description="http, or stdio for one local client."
     )
     host: str = Field("0.0.0.0", description="Address to listen on.")
-    port: int = Field(8000, description="Port to listen on.")
+    port: int = Field(8000, ge=1, le=65535, description="Port to listen on.")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         "INFO", description="DEBUG, INFO, WARNING or ERROR."
     )

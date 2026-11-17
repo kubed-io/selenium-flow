@@ -187,3 +187,10 @@ def test_the_settings_tab_does_not_show_credentials_in_capabilities():
     }
     shown = describe(Settings(session={"capabilities": proxy}), {})
     assert "hunter2" not in json.dumps(shown)
+
+
+def test_a_negative_port_is_refused_at_load():
+    from kubed.selenium_flow.config import Settings
+
+    with pytest.raises(ValueError):
+        Settings(port=-1)
