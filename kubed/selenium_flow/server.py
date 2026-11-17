@@ -39,6 +39,7 @@ from .mcp import (
     completions,
     control,
     failures,
+    instructions,
     mirror,
     prompts,
     resources,
@@ -272,7 +273,7 @@ class SeleniumMCP:
 
         self.mcp = FastMCP(
             "Selenium",
-            instructions=tools.first_instructions(self.skill is not None),
+            instructions=instructions.first_instructions(self.skill is not None),
             auth=self.doors.mcp,
             lifespan=lifespan,
         )
@@ -367,7 +368,7 @@ class SeleniumMCP:
         )
         secrets.register(self.mcp, self.secrets, auth_token, prefix=self.prefix)
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
-        self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
+        self.mcp.add_middleware(instructions.InstructionsFor(self.skill is not None))
         # Outside `Notices`: a call that may become a task carries its
         # workspace in a header its worker reads.
         self.mcp.add_middleware(clients.Carry())

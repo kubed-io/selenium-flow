@@ -59,7 +59,7 @@ def test_the_instructions_name_the_skill():
     manual after it had already gone wrong. The skill is published correctly and
     a client listing resources can see it; nothing told it to read it.
     """
-    from kubed.selenium_flow.mcp.tools import instructions
+    from kubed.selenium_flow.mcp.instructions import instructions
 
     assert "skill://selenium-flow/SKILL.md" in instructions(True)
 
@@ -71,7 +71,7 @@ def test_the_instructions_do_not_name_a_skill_that_is_not_served():
     which is the same failure as naming a reference the skill does not ship —
     it teaches an agent the manual is broken (Copilot, #36).
     """
-    from kubed.selenium_flow.mcp.tools import instructions
+    from kubed.selenium_flow.mcp.instructions import instructions
 
     assert "skill://" not in instructions(False)
 
