@@ -760,9 +760,9 @@ class Workspaces:
         """Record a keep-alive ping the Grid answered, on the record that still
         holds that session. Never a call: ``called_at`` stays."""
 
-        def mark(r: Workspace) -> Workspace:
+        def mark(r: Workspace) -> Workspace | None:
             if r.session_id != session_id:
-                return r
+                return None
             return replace(r, pinged_at=time.time())
 
         self.store.update(name, mark)

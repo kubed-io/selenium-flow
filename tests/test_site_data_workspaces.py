@@ -321,6 +321,13 @@ async def test_a_ping_is_recorded_on_the_record_that_holds_the_session_and_moves
     assert workspaces.store.get(NAMED).pinged_at == 0.0
 
 
+async def test_a_ping_for_a_session_the_record_no_longer_holds_writes_nothing():
+    workspaces, _ = await pinged_workspaces(True)
+    entry = workspaces.store._data[NAMED]
+    workspaces.pinged(NAMED, "another-browser")
+    assert workspaces.store._data[NAMED] is entry
+
+
 async def test_the_servers_monitor_records_a_ping_on_the_workspace(open_server):
     """Through the wiring `SeleniumMCP` builds, not one a test makes."""
     from .fakes import Clock
