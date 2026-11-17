@@ -1243,13 +1243,23 @@ def blocked(scripted):
 
 def _dialog_refusal(exc):
     assert status_for(exc.value) == 400
-    assert DIALOG in str(exc.value) and "answer it with dialog" in str(exc.value)
+    # The dialog's text is the page's: it stays out of a message that is logged.
+    assert DIALOG not in str(exc.value)
+    assert "read and answer it with dialog" in str(exc.value)
 
 
 def test_extract_with_a_dialog_open_fails_naming_the_dialog_tool(actions, blocked):
     with pytest.raises(ValueError) as exc:
         actions.extract("abc", selector={"css": "#x"})
     _dialog_refusal(exc)
+
+
+def test_a_named_url_with_a_dialog_open_fails_the_same_way(actions, scripted):
+    driver = scripted(dialog=DIALOG)
+    with pytest.raises(ValueError) as exc:
+        actions.extract("abc", url="https://b.test/", selector={"css": "#x"})
+    _dialog_refusal(exc)
+    assert ("get", "https://b.test/") not in driver.log
 
 
 def test_screenshot_with_a_dialog_open_fails_cleanly(actions, scripted):
