@@ -138,16 +138,17 @@ async def test_a_jwt_valid_since_a_moment_ago_is_accepted(issuer):
 @pytest.mark.parametrize(
     ("claims", "reason"),
     [
-        ({}, "exp"),
-        ({"exp": 2**40, "nbf": 2**40}, "nbf"),
-        ({"exp": 2**40, "roles": ["viewer"]}, "role"),
+        (lambda now: {}, "exp"),
+        # An hour ahead: past NBF_LEEWAY's minute, so a leeway grown to an hour fails.
+        (lambda now: {"exp": now + 7200, "nbf": now + 3600}, "nbf"),
+        (lambda now: {"exp": 2**40, "roles": ["viewer"]}, "role"),
     ],
     ids=["no-exp", "not-yet-valid", "no-role"],
 )
 async def test_our_refusals_are_logged_with_the_subject(issuer, caplog, claims, reason):
     """FastMCP logs its own iss/aud refusals; ours would otherwise be silent."""
     verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
-    token = _raw(issuer, **claims)
+    token = _raw(issuer, **claims(int(time.time())))
     with caplog.at_level(logging.INFO, logger=auth.__name__):
         assert await verifier.verify_token(token) is None
     [record] = [r for r in caplog.records if r.name == auth.__name__]
