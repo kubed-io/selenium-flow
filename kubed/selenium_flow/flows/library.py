@@ -6,6 +6,7 @@ Where the text is kept is ``flows.store``.
 from __future__ import annotations
 
 import copy
+import re
 import threading
 
 import yaml
@@ -110,3 +111,66 @@ def summary(name: str, workspace: str, document: dict) -> dict:
         "parameters": copy.deepcopy(document.get("parameters", {})),
         "step_count": shape.step_count,
     }
+
+
+def _top_key(line: str) -> str | None:
+    """The top-level key ``line`` opens, or None."""
+    found = re.match(r"([A-Za-z_][\w-]*)[ \t]*:(?:[ \t]|$)", line)
+    return found.group(1) if found else None
+
+
+def _block(lines: list[str], start: int) -> int:
+    """Where the top-level value opened at ``start`` ends: past its indented
+    and ``-`` lines, never taking the blank or comment lines after it."""
+    end = start + 1
+    taken = end
+    while end < len(lines):
+        line = lines[end]
+        if line[:1] in (" ", "\t", "-"):
+            taken = end = end + 1
+        elif not line.strip() or line.startswith("#"):
+            end += 1
+        else:
+            break
+    return taken
+
+
+def with_tags(text: str, tags: list[str]) -> str:
+    """``text`` with its top-level ``tags`` set to ``tags``, every other line
+    kept byte for byte: the block is replaced, or added after ``description``
+    (else after ``name``, else first), and no tags removes it.
+
+    Raises ValueError when the result would not read back as that change.
+    """
+    document = view(text)
+    if not isinstance(document, dict):
+        raise ValueError("a flow document must be a YAML mapping")
+    lines = text.splitlines(keepends=True)
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    keys = {_top_key(line): at for at, line in enumerate(lines)}
+    block = dump({"tags": tags}).splitlines(keepends=True) if tags else []
+    if "tags" in keys:
+        at = keys["tags"]
+        lines[at : _block(lines, at)] = block
+    else:
+        after = next((keys[k] for k in ("description", "name") if k in keys), None)
+        if after is not None:
+            at = _block(lines, after)
+        else:
+            at = min((at for k, at in keys.items() if k), default=len(lines))
+        lines[at:at] = block
+    rewritten = "".join(lines)
+    expected = {key: value for key, value in document.items() if key != "tags"}
+    if tags:
+        expected["tags"] = tags
+    try:
+        reread = yaml.load(rewritten, Loader=_LOADER)
+    except yaml.YAMLError:
+        reread = None
+    if reread != expected:
+        raise ValueError(
+            "the tags could not be changed without touching the rest of this "
+            "flow; edit its YAML instead"
+        )
+    return rewritten

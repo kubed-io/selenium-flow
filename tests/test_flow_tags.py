@@ -305,3 +305,122 @@ async def test_the_tags_in_use_are_a_part_of_the_context(server):
         "workspace": NAMED,
         "tags": {"smoke": 1},
     }
+
+
+# ---- the admin's tag edit ---------------------------------------------------
+
+FILE = """\
+# the one that logs us in
+name: login
+description: |
+  Sign in.
+  Twice, if asked.
+# where it applies
+paths: [/login]   # dev and live
+steps:
+- tool: navigate
+  args: {url: 'https://example.test/'}
+"""
+
+
+def put_tags(client, name, tags, key=NAMED):
+    return client.put(admin(name, "/tags", key=key), json={"tags": tags}, headers=AUTH)
+
+
+def test_the_tag_edit_adds_a_block_after_the_description(client, server):
+    server.flows.write_text(NAMED, "login", FILE)
+    response = put_tags(client, "login", ["Smoke", "auth:ldap"])
+    assert response.status_code == 200, response.text
+    assert response.json()["tags"] == ["smoke", "auth:ldap"]
+    text = server.flows.read_text(NAMED, "login")
+    assert text == FILE.replace(
+        "# where it applies\n", "tags:\n- smoke\n- auth:ldap\n# where it applies\n"
+    )
+
+
+def test_without_a_description_it_goes_after_the_name(client, server):
+    text = "name: login\nsteps: []\n"
+    server.flows.write_text(NAMED, "login", text)
+    assert put_tags(client, "login", ["smoke"]).status_code == 200
+    assert server.flows.read_text(NAMED, "login") == "name: login\ntags:\n- smoke\nsteps: []\n"
+
+
+def test_without_either_it_goes_first(client, server):
+    server.flows.write_text(NAMED, "login", "# hi\nsteps: []\n")
+    assert put_tags(client, "login", ["smoke"]).status_code == 200
+    assert server.flows.read_text(NAMED, "login") == "# hi\ntags:\n- smoke\nsteps: []\n"
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        "tags: [old, other]  # mine\n",
+        "tags:\n- old\n- other\n",
+        "tags:\n  - old\n  # a note\n  - other\n",
+        "tags: [old,\n  other]\n",
+    ],
+)
+def test_the_tag_edit_replaces_the_block_and_keeps_every_other_line(
+    client, server, block
+):
+    before = FILE.replace("# where it applies\n", block + "# where it applies\n")
+    server.flows.write_text(NAMED, "login", before)
+    assert put_tags(client, "login", ["new"]).status_code == 200
+    assert server.flows.read_text(NAMED, "login") == FILE.replace(
+        "# where it applies\n", "tags:\n- new\n# where it applies\n"
+    )
+
+
+def test_no_tags_removes_the_block(client, server):
+    server.flows.write_text(
+        NAMED, "login", FILE.replace("# where", "tags: [old]\n# where")
+    )
+    assert put_tags(client, "login", []).status_code == 200
+    assert server.flows.read_text(NAMED, "login") == FILE
+
+
+def test_a_nested_tags_key_is_not_the_flows(client, server):
+    text = "name: login\nsteps:\n- tool: navigate\n  tags: x\n  args: {url: 'https://a.test/'}\n"
+    server.flows.write_text(NAMED, "login", text)
+    assert put_tags(client, "login", ["smoke"]).status_code == 200
+    assert server.flows.read_text(NAMED, "login") == text.replace(
+        "name: login\n", "name: login\ntags:\n- smoke\n"
+    )
+
+
+def test_a_bad_tag_is_refused_and_nothing_is_written(client, server):
+    server.flows.write_text(NAMED, "login", FILE)
+    response = put_tags(client, "login", ["fine", "not fine"])
+    assert response.status_code == 400
+    assert "'not fine'" in response.json()["error"]
+    assert tags.RULE in response.json()["error"]
+    assert server.flows.read_text(NAMED, "login") == FILE
+
+
+def test_tags_that_are_not_a_list_are_refused(client, server):
+    server.flows.write_text(NAMED, "login", FILE)
+    response = put_tags(client, "login", "smoke")
+    assert response.status_code == 400
+    assert server.flows.read_text(NAMED, "login") == FILE
+
+
+def test_a_shared_flow_is_tagged_where_it_lives(client, server):
+    server.flows.write_text(GLOBAL_WORKSPACE, "banner", "name: banner\nsteps: []\n")
+    response = put_tags(client, "banner", ["shared"])
+    assert response.status_code == 200
+    assert response.json()["workspace"] == GLOBAL_WORKSPACE
+    assert server.flows.get(GLOBAL_WORKSPACE, "banner")["tags"] == ["shared"]
+    assert server.flows.get(NAMED, "banner") is None
+
+
+def test_a_missing_flow_is_a_400(client):
+    response = put_tags(client, "nope", ["smoke"])
+    assert response.status_code == 400
+    assert "no flow called 'nope'" in response.json()["error"]
+
+
+def test_the_tag_edit_needs_the_token(client, server):
+    server.flows.write_text(NAMED, "login", FILE)
+    response = client.put(admin("login", "/tags"), json={"tags": ["a"]})
+    assert response.status_code == 401
+    assert server.flows.read_text(NAMED, "login") == FILE

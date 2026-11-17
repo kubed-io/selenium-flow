@@ -13,6 +13,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ...flows import api as flowapi
+from ...flows import library as flowlib
+from ...flows import tags as flowtags
 from ...flows import template
 from ...flows.shape import Shape
 from ...names import GLOBAL_WORKSPACE, library_of, valid_name
@@ -137,6 +139,39 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"flow {name} for {key}", log)
+
+    @mcp.custom_route(
+        f"{prefix}/admin/workspaces/{{key}}/flows/{{name}}/tags",
+        methods=["PUT"],
+        name="admin_flow_tags",
+    )
+    @guarded
+    @changes
+    async def admin_flow_tags(request: Request) -> JSONResponse:
+        """Set one flow's tags where it lives, rewriting only its top-level
+        `tags` in the stored text."""
+        key = request.path_params["key"]
+        name = request.path_params["name"]
+        try:
+            workspace = library(key)
+            enabled()
+            body = await answer.read_body(request)
+            tags = flowtags.read(body.get("tags") if isinstance(body, dict) else None)
+            found = await run_in_threadpool(
+                flowapi.read_one, flow_store, workspace, name, True
+            )
+            where = found["workspace"]
+            text = await run_in_threadpool(flow_store.read_text, where, name)
+            if text is None:  # pragma: no cover - read_one just found it
+                raise ValueError(f"no flow called {name!r} in {where}")
+            rewritten = flowlib.with_tags(text, tags)
+            flowlib.check_size(rewritten)
+            await run_in_threadpool(flow_store.write_text, where, name, rewritten)
+            return JSONResponse(
+                {"saved": True, "workspace": where, "name": name, "tags": tags}
+            )
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return answer.refused(exc, f"tags of {name} for {key}", log)
 
     @mcp.custom_route(
         f"{prefix}/admin/workspaces/{{key}}/flows/{{name}}/move",
