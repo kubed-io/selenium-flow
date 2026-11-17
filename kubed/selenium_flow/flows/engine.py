@@ -53,7 +53,8 @@ class Toolbox:
     tool)` alone would reach any callable, such as `_at` or `__init__`.
 
     ``library_arg`` names, per tool, the argument that carries the caller's own
-    library.
+    library: a step reading a kept file is answered from the library the run
+    belongs to.
     """
 
     runnable: frozenset[str]

@@ -198,7 +198,8 @@ def save_one(store, workspace: str, name: str, document: dict, schemas: dict) ->
     document.pop("workspace", None)
     document.pop("shared", None)
     # `null` means unset, as it does for every optional argument an MCP caller
-    # leaves out.
+    # leaves out. Kept, it would be saved and read back as a null where the
+    # schema promises an integer.
     for key in (flowdoc.TIMEOUT, places.SITES, places.PATHS):
         if key in document and document[key] is None:
             del document[key]
@@ -617,7 +618,8 @@ def run_for(
         began_on[0] = workspaces.origins.current(workspace, resolved)
         if before_step is not None:
             before_step(watched(entry), total)
-        # A step refused because a person holds the browser is never begun.
+        # A step refused because a person holds the browser is never begun, and
+        # stops the run.
         begun[:] = [
             calls.begin(workspace, resolved, browser=kind, tool=entry["tool"])
         ]
