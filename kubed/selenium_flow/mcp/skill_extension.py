@@ -20,13 +20,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from fastmcp.server.extensions import MethodBinding, ServerExtension
-from fastmcp.server.middleware import Middleware
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS, PaginatedRequestParams, RequestParams
 from pydantic import Field
 
 from . import frontmatter
+from .extensions import AdvertiseLegacyExtensions, complete
 
 log = logging.getLogger(__name__)
 
@@ -99,11 +99,6 @@ def entry_for(provider: SkillProvider) -> dict | None:
     }
 
 
-def _result(**fields: object) -> dict:
-    # mcp-kb's freshness fields.
-    return {"resultType": "complete", "ttlMs": 0, "cacheScope": "private", **fields}
-
-
 class SkillsExtension(ServerExtension):
     """``skills/list`` and ``skills/get`` over the one embedded skill."""
 
@@ -122,30 +117,12 @@ class SkillsExtension(ServerExtension):
         if params.cursor is not None:
             # One page, so no cursor was ever issued.
             raise MCPError(code=INVALID_PARAMS, message="Invalid skills cursor")
-        return _result(skills=[copy.deepcopy(self._entry)])
+        return complete(skills=[copy.deepcopy(self._entry)])
 
     async def get_skill(self, ctx, params: GetSkillParams) -> dict:
         if params.uri != self._entry["uri"]:
             raise MCPError(code=INVALID_PARAMS, message="Skill not found")
-        return _result(skill=copy.deepcopy(self._entry))
-
-
-class AdvertiseSkills(Middleware):
-    """Declare the extension in a legacy ``initialize`` reply too.
-
-    FastMCP declares registered extensions in ``server/discover`` but drops
-    ``capabilities.extensions`` from ``initialize``, and still answers the
-    methods; without this, a handshake-era client never learns they exist.
-    """
-
-    async def on_initialize(self, context, call_next):
-        result = await call_next(context)
-        if result is not None:
-            result.capabilities.extensions = {
-                **(result.capabilities.extensions or {}),
-                EXTENSION_ID: {},
-            }
-        return result
+        return complete(skill=copy.deepcopy(self._entry))
 
 
 def register(mcp, provider: SkillProvider) -> bool:
@@ -158,5 +135,5 @@ def register(mcp, provider: SkillProvider) -> bool:
     if entry is None:
         return False
     mcp.add_extension(SkillsExtension(entry))
-    mcp.add_middleware(AdvertiseSkills())
+    mcp.add_middleware(AdvertiseLegacyExtensions({EXTENSION_ID: {}}))
     return True

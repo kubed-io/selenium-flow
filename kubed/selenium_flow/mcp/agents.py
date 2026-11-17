@@ -19,12 +19,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastmcp.server.extensions import MethodBinding, ServerExtension
-from fastmcp.server.middleware import Middleware
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS, PaginatedRequestParams, RequestParams
 from pydantic import Field
 
 from . import frontmatter
+from .extensions import AdvertiseLegacyExtensions, complete
 
 log = logging.getLogger(__name__)
 
@@ -165,11 +165,6 @@ class GetAgentParams(RequestParams):
     name: str = Field(min_length=1)
 
 
-def _result(**fields: object) -> dict:
-    # The same as the Skills extension's, written out so neither module needs the other.
-    return {"resultType": "complete", "ttlMs": 0, "cacheScope": "private", **fields}
-
-
 class AgentsExtension(ServerExtension):
     """``agents/list`` and ``agents/get`` over the loaded agents."""
 
@@ -191,12 +186,12 @@ class AgentsExtension(ServerExtension):
         if params.cursor is not None:
             # One page, so no cursor was ever issued.
             raise MCPError(code=INVALID_PARAMS, message="Invalid agents cursor")
-        return _result(agents=[copy.deepcopy(a.card) for a in self._agents])
+        return complete(agents=[copy.deepcopy(a.card) for a in self._agents])
 
     async def get_agent(self, ctx, params: GetAgentParams) -> dict:
         for agent in self._agents:
             if agent.name == params.name:
-                return _result(**copy.deepcopy(agent.detail))
+                return complete(**copy.deepcopy(agent.detail))
         raise MCPError(
             code=INVALID_PARAMS,
             message="Agent not found",
@@ -204,21 +199,7 @@ class AgentsExtension(ServerExtension):
         )
 
 
-class AdvertiseAgents(Middleware):
-    """Declare the extension in a legacy ``initialize`` reply too, as
-    AdvertiseSkills does."""
-
-    async def on_initialize(self, context, call_next):
-        result = await call_next(context)
-        if result is not None:
-            result.capabilities.extensions = {
-                **(result.capabilities.extensions or {}),
-                EXTENSION_ID: dict(AGENTS_SETTINGS),
-            }
-        return result
-
-
 def register(mcp, agents: Sequence[Agent]) -> None:
     """Serve the agents, declared even when there are none."""
     mcp.add_extension(AgentsExtension(agents))
-    mcp.add_middleware(AdvertiseAgents())
+    mcp.add_middleware(AdvertiseLegacyExtensions({EXTENSION_ID: AGENTS_SETTINGS}))
