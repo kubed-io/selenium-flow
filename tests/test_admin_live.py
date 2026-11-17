@@ -433,6 +433,16 @@ def test_paste_with_no_browser_is_404(client, server):
     assert answered.status_code == 404
 
 
+def test_a_paste_that_is_not_json_says_why(client, server, typing):
+    answered = client.post(
+        PASTE,
+        content=b"{not json",
+        headers={**AUTH, "Content-Type": "application/json"},
+    )
+    assert answered.status_code == 400
+    assert answered.json()["error"] != live_module.PASTE_FAILED
+
+
 def test_paste_is_behind_the_admin_door(client):
     assert client.post(PASTE, json={"text": "x"}).status_code == 401
 

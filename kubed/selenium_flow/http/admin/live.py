@@ -212,7 +212,10 @@ def mount(
             return refusal
         key = request.path_params["key"]
         try:
-            body = await answer.read_body(request)
+            try:
+                body = await answer.read_body(request)
+            except ValueError as exc:  # the body's own refusal, in our words
+                return answer.refused(exc, "paste", log)
             text = body.get("text") if isinstance(body, dict) else None
             if not isinstance(text, str):
                 return JSONResponse({"error": NEEDS_TEXT}, status_code=400)
