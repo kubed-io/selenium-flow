@@ -29,21 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The OpenAPI document's first server is `/`, the server it was fetched from.
 - A secret's value comes back as `[secret:name/key]` in every result and error on the sites it is allowed on, typed or not.
 - A secret's config key can set `masked: false`, so the scrub leaves a value that is not secret alone.
-- Fixed: a browser whose quit failed is no longer kept alive by the monitor, and `session.keep_alive` no longer widens the reap window when nothing kept the browser alive.
+- Fixed: a browser whose quit failed is no longer kept alive by the monitor, and `session.keep_alive` no longer widens the reap window for a browser idle since before the server started.
 - Fixed: a call on a session with capture on gets its first hint even when no buffer had been made yet.
 - Fixed: a cancelled `await_control` no longer swallows a hand-back.
 - Fixed: a request body that is not valid JSON is a 400, not an empty body.
 - Fixed: an unreachable Redis ends the boot with one line, not a traceback; a negative or oversized `port` is refused.
-- Fixed: a 503 over MCP is one warning line, not an error with a traceback, and every logged traceback is scrubbed of credentials.
+- Fixed: a 503 over MCP is one warning line, not an error with a traceback, and every logged traceback has URL credentials stripped.
 - Fixed: the Settings tab no longer shows credentials in `session.capabilities` or a proxy setting.
-- Fixed: admin end-session and live paste answer failures as JSON, and a paste is audited.
+- Fixed: admin end-session and live paste answer failures as JSON, and a live paste that fails to read its record types nothing.
 - Fixed: reading `session://console` directly names its new spelling.
 - Fixed: a save from an insecure browser keeps the stored site data, and a history origin the capture never read keeps its storage.
 - Fixed: an OIDC viewer is named `oidc:<name>`, so it cannot pass for `admin`.
 - Fixed: an action called while a dialog is open names `dialog` and does nothing.
 - Fixed: an unreadable `frame` index is refused, `upload_file` takes an empty `text`, and `write` refuses a null `text`.
 - Fixed: running a flow that does not exist names it before complaining about the browser.
-- Fixed: a flow's `properties` or `required` of the wrong type, and an unknown top-level key, are refused at save.
+- Fixed: a flow's `properties` or `required` of the wrong type, and an unknown top-level key, are refused at save; remove an extra key from an old flow to re-save it.
+- Fixed: a blank `browser` beside another bad argument is read as unset, not listed as a problem.
 - Fixed: a prompt file with CRLF line endings reads correctly, and its header opens only on a line of exactly `---`.
 - **BREAKING:** A secret must declare its allowed sites (`_allowed_urls`); one that does not is listed as refused and cannot be used.
 - `outline` ends a name it cut at 80 characters with `…`.
