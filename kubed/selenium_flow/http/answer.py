@@ -77,7 +77,8 @@ async def read_body(request: Request) -> dict:
         return {}
     try:
         return await request.json()
-    except ValueError:
+    except (ValueError, RecursionError):
+        # A deeply nested body overflows the parser's stack.
         raise ValueError("the body is not valid JSON") from None
 
 

@@ -166,3 +166,11 @@ def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
     )
     assert opened == []
     assert response.status_code == 400
+
+
+def test_a_deeply_nested_json_body_is_400_not_a_plain_text_500(client):
+    response = client.post(
+        "/browser", content=b"[" * 200_000, headers={**AUTH, "Content-Type": "application/json"}
+    )
+    assert response.status_code == 400
+    assert "error" in response.json()
