@@ -356,7 +356,6 @@ class Workspaces:
         channels=None,
         control=None,
         hints: Callable[[str, str], list[dict]] | None = None,
-        keep_alive: int = 0,
         catalogue=None,
     ):
         self.actions = actions
@@ -372,6 +371,9 @@ class Workspaces:
         # Who announces each session opened and ended (`monitor.Monitor`), or
         # None, which announces nothing: a unit test's manager.
         self.monitor = monitor
+        if monitor is not None:
+            # A ping the Grid answered is activity the reap clock counts.
+            monitor.answered = self.pinged
         # What the held connections' events are kept in (`capture.Capture`), or
         # None when capture is not set up; and how a BiDi channel to a session's
         # browser is opened (`bidi.Channels`).
@@ -388,13 +390,6 @@ class Workspaces:
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
         # is hinted. Asked only by `_hint`, never inside a store write.
         self.hints = hints
-        # Seconds a browser is kept alive past its last call (`session.keep_alive`);
-        # 0 keeps nothing. With the node's own timeout it is the window a reopen
-        # is judged against: idle past it is a reap, inside it a lost browser.
-        self.keep_alive = keep_alive
-        # When this manager began: no monitor of this process kept a browser
-        # alive through activity before it.
-        self.booted = time.time()
         # Where each workspace's browser is, and the secrets in scope there.
         # ``catalogue`` is the secrets catalogue, duck-typed (`forms_for`,
         # `leashed`, `revision`), or None with secrets off: then every answer is
@@ -690,23 +685,26 @@ class Workspaces:
 
     def _cause(self, record: Workspace, now: float) -> str:
         """Why a browser is gone: ``reaped`` when the workspace sat idle for the
-        window, ``lost`` when it was in use, so something else ended it.
+        node's timeout (the one read at the open; the default when it did not
+        say), ``lost`` when it was in use, so something else ended it.
 
-        The window is the longer of the Grid's own timeout (the node's, as read
-        at the open; the default when it did not say) and ``keep_alive``, which
-        counts only when a monitor of this process kept the browser alive since
-        its last activity: never with no monitor, nor for activity before this
-        process began. An open is activity, so idleness is measured from the
-        later of the last call and the open.
+        Idleness is measured from the latest of the last call, the open and the
+        last ping the Grid answered: each is activity to the node.
         """
-        last = max(record.called_at, record.opened_at)
-        kept = (
-            self.keep_alive
-            if self.monitor is not None and last >= self.booted
-            else 0
-        )
-        window = max(record.grid_timeout or DEFAULT_TIMEOUT, kept)
+        last = max(record.called_at, record.opened_at, record.pinged_at)
+        window = record.grid_timeout or DEFAULT_TIMEOUT
         return "reaped" if now - last >= window else "lost"
+
+    def pinged(self, name: str, session_id: str) -> None:
+        """Record a keep-alive ping the Grid answered, on the record that still
+        holds that session. Never a call: ``called_at`` stays."""
+
+        def mark(r: Workspace) -> Workspace:
+            if r.session_id != session_id:
+                return r
+            return replace(r, pinged_at=time.time())
+
+        self.store.update(name, mark)
 
     def _recorded(self, name: str, settings: dict) -> dict:
         """The arguments a recorded open adds: the video's name, and a note

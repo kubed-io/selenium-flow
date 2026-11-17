@@ -218,7 +218,6 @@ class SeleniumMCP:
             defaults=workspace_settings.from_settings(settings.session),
             recordings=self.collector,
             monitor=self.monitor,
-            keep_alive=settings.session.keep_alive,
             capture=self.capture,
             channels=self.actions.channels,
             control=self.controls,

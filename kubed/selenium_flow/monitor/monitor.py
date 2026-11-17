@@ -201,6 +201,8 @@ class Monitor:
     is the keep-alive's one cheap command (`Grid.ping`), False once the
     session is gone, and ``keep_alive`` the window in seconds after a
     session's last activity it is sent in; without either, nothing is kept.
+    ``answered(workspace, session_id)`` hears each ping the Grid answered True,
+    on a worker thread, and is set by whoever keeps the record (`Workspaces`).
     """
 
     def __init__(
@@ -214,6 +216,7 @@ class Monitor:
         connect: Callable[..., Connection] | None = None,
         sinks: Mapping[str, Sink] | None = None,
         ping: Callable[[str], bool] | None = None,
+        answered: Callable[[str, str], None] | None = None,
         keep_alive: float = 0,
         clock: Callable[[], float] = time.time,
         tick: float = LISTING_TICK,
@@ -231,6 +234,7 @@ class Monitor:
         self.connect = connect or Connection
         self.sinks: dict[str, Sink] = dict(sinks or {})
         self.ping = ping
+        self.answered = answered
         self.keep_alive = keep_alive
         self.clock = clock
         self.tick = tick
@@ -576,6 +580,15 @@ class Monitor:
             return
         if not alive:
             w.ping_gone = True
+        elif self.answered is not None:
+            try:
+                await anyio.to_thread.run_sync(self.answered, w.workspace, w.session_id)
+            except Exception as exc:  # noqa: BLE001 - the ping itself went through
+                log.warning(
+                    "monitor: a ping for %s could not be recorded (%s)",
+                    w.workspace,
+                    type(exc).__name__,
+                )
 
     def _unlisted(self, w: Watch, now: float) -> bool:
         """No node listed for the whole of this watch's idle timeout and a tick."""
