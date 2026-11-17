@@ -96,6 +96,20 @@ def test_a_key_reference_is_exactly_one_of_file_env_value():
             Settings(secrets={"entries": {"demo": {"keys": {"k": bad}}}})
 
 
+def test_a_key_sets_masked_beside_its_value_or_alone():
+    entry = {"keys": {"a": {"file": "/f", "masked": False}, "b": {"masked": False},
+                      "c": {"env": "X"}}}
+    keys = Settings(secrets={"entries": {"demo": entry}}).secrets.entries["demo"].keys
+    assert isinstance(keys["a"], config.FromFile) and keys["a"].masked is False
+    assert isinstance(keys["b"], config.KeySettings) and keys["b"].masked is False
+    assert keys["c"].masked is True
+    bad_keys = ({"masked": False, "path": "/f"}, {"masked": "sometimes"},
+                {"masked": "false"}, {"masked": 0}, {"file": "/f", "masked": "no"})
+    for bad in bad_keys:
+        with pytest.raises(ValidationError):
+            Settings(secrets={"entries": {"demo": {"keys": {"k": bad}}}})
+
+
 def test_allowed_urls_must_be_bare_origins_and_the_error_never_echoes_credentials():
     ok = Settings(secrets={"entries": {"d": {"allowed_urls": ["https://Example.com/"]}}})
     assert ok.secrets.entries["d"].allowed_urls == ["https://example.com"]

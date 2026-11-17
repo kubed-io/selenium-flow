@@ -20,6 +20,7 @@ import pytest
 from selenium.common.exceptions import InvalidSessionIdException, TimeoutException
 
 from kubed.selenium_flow import errors, faults, secrets, urls
+from kubed.selenium_flow.config import KeySettings, SecretEntry
 from kubed.selenium_flow.core.actions import BODY_CAP
 from kubed.selenium_flow.redaction import Forms, scrub
 from kubed.selenium_flow.workspace import scrub as scrub_module
@@ -1179,6 +1180,60 @@ def test_a_bound_writes_error_is_scrubbed_by_scope_too(ws):
     said = faults.message(raised.value)
     assert "tok-123456" not in said and "alpha-11" not in said
     assert errors.status_for(raised.value) == 404
+
+
+# --- a key set masked: false is never scrubbed ---------------------------------
+
+
+def on_ldap(root, **keys):
+    """A browser on `A`, where ``ldap`` is allowed, with ``keys`` over its
+    directory's username and password."""
+    directory = root / "ldap"
+    directory.mkdir()
+    for key, value in {"username": "drk-user", "password": "alpha-11",
+                       "_allowed_urls": A}.items():
+        (directory / key).write_text(value)
+    conf = secrets.ConfigEntries({"ldap": SecretEntry(keys=keys)}, None)
+    return scoped(secrets.Catalogue([secrets.FilesystemSource(root)], config=conf))
+
+
+@pytest.fixture
+def unmasked(tmp_path):
+    made = on_ldap(tmp_path, username=KeySettings(masked=False))
+    yield made
+    made.scrubber.close()
+
+
+def test_a_key_not_masked_survives_a_tool_result_and_a_masked_one_does_not(unmasked):
+    unmasked.actions.result = {"url": f"{A}/", "title": "t", "text": "drk-user alpha-11"}
+    assert act(unmasked)["text"] == "drk-user [secret:ldap/password]"
+
+
+def test_a_key_with_no_settings_is_scrubbed_as_ever(tmp_path):
+    ws = on_ldap(tmp_path)
+    try:
+        ws.actions.result = {"url": f"{A}/", "title": "t", "text": "drk-user alpha-11"}
+        said = "[secret:ldap/username] [secret:ldap/password]"
+        assert act(ws)["text"] == said
+        assert ws.scrubber.resource("w", "drk-user alpha-11") == said
+    finally:
+        ws.scrubber.close()
+
+
+def test_a_key_not_masked_survives_a_resource_read(unmasked):
+    said = unmasked.scrubber.resource("w", "drk-user alpha-11")
+    assert said == "drk-user [secret:ldap/password]"
+
+
+def test_a_key_not_masked_is_bound_and_its_write_leaves_it_on_the_page(unmasked):
+    unmasked.actions.written = {
+        "url": f"{A}/?u=drk-user", "title": "signed in as drk-user", "value": None}
+    shown = secrets.perform_write(
+        unmasked.scrubber._catalogue, unmasked.actions, unmasked, "w",
+        {"selector": {"css": "#u"}, "secret": {"name": "ldap", "key": "username"}},
+    )
+    assert shown["title"] == "signed in as drk-user"
+    assert unmasked.store.get("w").url == f"{A}/?u=drk-user"
 
 
 def test_end_browser_forgets_the_browser(ws):

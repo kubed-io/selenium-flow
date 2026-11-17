@@ -66,92 +66,7 @@ async def test_a_reap_after_every_keep_alive_ping_failed_is_reaped():
 # ---- auth and live view -------------------------------------------------------
 
 
-@bug("an OIDC user named admin has the token holder's viewer name")
-@pytest.mark.parametrize("name", ["admin", "open", "oidc"])
-def test_no_oidc_username_reads_as_the_admin_or_an_open_server(name):
-    from kubed.selenium_flow.live.audit import viewer_of
-    from kubed.selenium_flow.principal import ADMIN, Principal
-
-    person = Principal("oidc", subject="s1", username=name)
-    assert viewer_of(person) not in (viewer_of(ADMIN), viewer_of(None), "oidc")
-
-
 # ---- site data ---------------------------------------------------------------
-
-
-@bug(
-    "a save drops the storage of an origin that entered the history after the capture read it"
-)
-def test_a_save_keeps_the_storage_of_an_origin_visited_during_the_capture():
-    from kubed.selenium_flow.site_data.snapshot import CAPTURED
-
-    workspaces = Workspaces(RecordingActions())
-    workspaces.open_browser(Caller(NAMED), url="https://b.test/")
-    session_id = workspaces.store.get(NAMED).session_id
-    workspaces.store.update(
-        NAMED,
-        lambda r: r.with_site_data(
-            {
-                "cookies": [],
-                "origins": {"https://a.test": {"local": {"k": "v"}}},
-                "session": {},
-                "saved_at": 1.0,
-            }
-        ),
-    )
-    # The capture read the history as it was: only b.test. A call landing on
-    # a.test before the save is written adds it to the record's history.
-    captured = {
-        "origin": "https://b.test",
-        "local": {"x": "1"},
-        "session": {},
-        "cookies": [],
-        "others": {},
-        "failed": [],
-    }
-    workspaces.store.update(NAMED, lambda r: r.visited("https://a.test/"))
-    workspaces.settle(
-        NAMED, {CAPTURED: captured}, browser=session_id, url=None, touch=False
-    )
-    origins = workspaces.store.get(NAMED).site_data["origins"]
-    assert origins.get("https://a.test") == {"local": {"k": "v"}}
-
-
-@bug(
-    "save_site_data is not refused from an insecure browser, so a normal one restores it"
-)
-def test_an_insecure_browser_saves_no_site_data():
-    from kubed.selenium_flow.site_data.snapshot import CAPTURED
-
-    workspaces = Workspaces(RecordingActions())
-    workspaces.open_browser(Caller(NAMED), insecure=True)
-    session_id = workspaces.store.get(NAMED).session_id
-    captured = {
-        "cookies": [
-            {
-                "name": "sid",
-                "value": "v",
-                "domain": "bad.test",
-                "path": "/",
-                "http_only": True,
-                "secure": True,
-                "same_site": "lax",
-                "expiry": None,
-                "value_type": "string",
-            }
-        ],
-        "origin": "https://bad.test",
-        "local": {"k": "v"},
-        "session": {},
-        "others": {},
-        "failed": [],
-    }
-    # A refusal is as good as a drop.
-    with contextlib.suppress(Exception):
-        workspaces.settle(
-            NAMED, {"url": "https://bad.test/", CAPTURED: captured}, browser=session_id
-        )
-    assert not workspaces.store.get(NAMED).site_data
 
 
 # ---- surfaces ----------------------------------------------------------------
@@ -350,24 +265,6 @@ def test_a_503_over_mcp_is_one_warning_line_as_it_is_over_http():
     QuietCallerMistakes().filter(record)
     assert record.levelno == logging.WARNING
     assert "Traceback" not in record.getMessage()
-
-
-@bug(
-    "log.debug(exc_info=True) in core/ writes frames that can quote a Grid URL's userinfo"
-)
-def test_a_failure_logged_with_a_traceback_is_scrubbed_of_credentials(actions, caplog):
-    import logging
-    from types import SimpleNamespace
-
-    def refuse(session_id):
-        raise ConnectionError("cannot reach http://drk:hunter2@grid.test:4444/session")
-
-    actions.pointers = SimpleNamespace(get=refuse)
-    with caplog.at_level(logging.DEBUG, logger="kubed.selenium_flow.core.actions"):
-        actions._pointer("abc")
-    assert caplog.records
-    formatter = logging.Formatter()
-    assert all("hunter2" not in formatter.format(r) for r in caplog.records)
 
 
 # ---- config -------------------------------------------------------------------

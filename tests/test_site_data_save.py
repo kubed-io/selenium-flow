@@ -87,6 +87,13 @@ def test_an_origin_that_could_not_be_read_keeps_its_last_storage():
     assert saved["skipped"] == failed
 
 
+def test_an_origin_read_empty_loses_its_last_storage():
+    before = snapshot(origins={SSO: {"kc": "old"}})
+    history = [visit(APP), visit(SSO)]
+    data, _ = sd.snapshot(before, captured(local={"a": "1"}, others={SSO: {}}), history, NOW)
+    assert list(data["origins"]) == [APP], "a sign-out saved is what comes back"
+
+
 def test_over_the_cap_the_origins_visited_longest_ago_go_first():
     third = {"blob": "x" * (sd.MAX_BYTES // 3)}
     history = [visit(APP, NOW), visit(SSO, NOW - 10), visit(OLD, NOW - 20)]

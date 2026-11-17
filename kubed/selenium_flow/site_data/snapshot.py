@@ -52,7 +52,8 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
     localStorage of every origin read that has any, newest first: the page,
     then the history. ``session`` is the page's sessionStorage, for its
     origin. An origin that could not be read keeps its storage from
-    ``previous``, so a blip does not sign the agent out. Over
+    ``previous``, so a blip does not sign the agent out, and so does one in
+    ``history`` the capture never asked for (visited while it ran). Over
     :data:`MAX_BYTES` the origins visited longest ago go first and the page's
     own storage last; a jar that alone passes it is a ValueError, and nothing
     is saved.
@@ -66,12 +67,13 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
         read[here] = captured.get("local") or {}
     skipped = [dict(f) for f in captured.get("failed") or []]
     last = (previous or {}).get("origins") or {}
+    visited = tuple(v["origin"] for v in history or ())
     kept = {
-        f["site"]: (last.get(f["site"]) or {}).get("local")
-        for f in skipped
-        if f.get("site")
+        o: (last.get(o) or {}).get("local")
+        for o in (*(f.get("site") for f in skipped), *visited)
+        if o and o not in read
     }
-    newest = (here, *(v["origin"] for v in history or ()), *read, *kept)
+    newest = (here, *visited, *read, *kept)
     origins = {}
     for o in dict.fromkeys(o for o in newest if o):
         local = read.get(o) or kept.get(o)

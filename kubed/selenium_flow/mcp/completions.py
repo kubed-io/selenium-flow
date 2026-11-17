@@ -13,6 +13,8 @@ import logging
 
 from mcp.types import PromptReference, ResourceTemplateReference
 
+from ..faults import Traceback
+
 log = logging.getLogger(__name__)
 
 # What each name is completed from: the listing resource, the key of its list,
@@ -37,8 +39,8 @@ async def _names(mcp, source) -> list[str]:
     try:
         result = await mcp.read_resource(uri)
         listing = json.loads(result.contents[0].content)
-    except Exception:
-        log.debug("no completions from %s", uri, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - no names is still an answer
+        log.debug("no completions from %s:\n%s", uri, Traceback(exc))
         return []
     return [str(entry[key]) for entry in listing.get(collection, []) if key in entry]
 

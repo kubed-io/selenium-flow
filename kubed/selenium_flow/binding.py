@@ -142,7 +142,7 @@ def bind_into(
     """``kwargs`` with their secret typed into `text`, and which of them are guarded.
 
     Guarded is the argument that carries the value, with the secret's id
-    (`{"text": ("ldap", "password")}`).
+    (`{"text": ("ldap", "password")}`); nothing for a key set `masked: false`.
 
     ``page`` is where the keystroke lands (`receiving`), or how to ask: a
     callable is read only once the pair has been checked, so a refused call
@@ -158,12 +158,14 @@ def bind_into(
     problems = check_pair({**kwargs, SECRET_ARG: reference}, say)
     if problems:
         raise secrets.Refused(problems[0])
-    secrets.check(catalogue, reference, tool)  # before the page is read
+    entry = secrets.check(catalogue, reference, tool)  # before the page is read
     here = page() if callable(page) else page
     kwargs[SUPPLIES] = secrets.bind(catalogue, reference, here, tool=tool)
     if tool in READ_BACK_OFF:
         # A bound value is never read back, so there is nothing to redact.
         kwargs["read_back"] = False
+    if not secrets.masked(entry, reference["key"]):
+        return kwargs, {}
     return kwargs, {SUPPLIES: (reference["name"], reference["key"])}
 
 

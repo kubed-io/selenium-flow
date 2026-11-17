@@ -53,7 +53,7 @@ from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
 from ..capture.store import Buffer
 from ..core import guidance, session_caps
-from ..core.actions import CUTS, OPEN_PRIVATE, Actions, cut_names
+from ..core.actions import CUTS, INSECURE_SKIP, OPEN_PRIVATE, Actions, cut_names
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
@@ -1238,6 +1238,12 @@ class Workspaces:
                 return None, {
                     "cookies": 0, "sites": [],
                     "skipped": [{"reason": REPLACED_BEFORE_SAVE}],
+                }
+            if r.settings.get("insecure"):
+                # It accepted any certificate, so what it holds may have been
+                # set by anyone in the middle, and a later browser restores it.
+                return None, {
+                    "cookies": 0, "sites": [], "skipped": [{"reason": INSECURE_SKIP}],
                 }
             data, receipt = site_data_module.snapshot(
                 r.site_data, captured, r.history, time.time()

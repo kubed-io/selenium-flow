@@ -15,7 +15,14 @@ from urllib.parse import quote_plus
 import pytest
 
 from kubed.selenium_flow import secrets
-from kubed.selenium_flow.config import SecretsSettings, Settings
+from kubed.selenium_flow.config import (
+    FromFile,
+    FromValue,
+    KeySettings,
+    SecretEntry,
+    SecretsSettings,
+    Settings,
+)
 from kubed.selenium_flow.secrets import (
     ALLOWED_URLS,
     DESCRIPTION,
@@ -1778,6 +1785,54 @@ def test_a_directory_secret_with_a_config_file_key_lists_and_rotates(tmp_path):
     swap(keyfile, "two")
     clock[0] += secrets.CACHE_SECONDS + 1
     assert catalogue.revision() != before
+
+
+def ldap(tmp_path, **keys):
+    """``ldap`` from a directory, leashed to a.test, with ``keys`` over it."""
+    root = tmp_path / "dir"
+    make_secret(root, "ldap", username="drk-user", password="hunter2",
+                _allowed_urls="https://a.test")
+    conf = ConfigEntries({"ldap": SecretEntry(keys=keys)}, None)
+    return Catalogue([FilesystemSource(root)], config=conf)
+
+
+def test_a_directory_key_not_masked_is_bound_but_never_in_the_forms(tmp_path):
+    catalogue = ldap(tmp_path, username=KeySettings(masked=False))
+    entry = catalogue.entry("ldap")
+    assert entry["keys"] == ["password", "username"]
+    assert entry["key_sources"] == {
+        "password": {"from": "filesystem"},
+        "username": {"from": "filesystem", "masked": False},
+    }
+    assert catalogue.forms_for("https://a.test").ids == {("ldap", "password")}
+    assert catalogue.leashed().ids == {("ldap", "password")}
+    reference = {"name": "ldap", "key": "username"}
+    assert secrets.bind(catalogue, reference, "https://a.test/login") == "drk-user"
+
+
+def test_a_config_key_not_masked_is_never_in_the_forms(tmp_path):
+    catalogue = ldap(tmp_path, username=FromValue(value="drk-other", masked=False))
+    sources = catalogue.entry("ldap")["key_sources"]
+    assert sources["username"] == {"from": "value", "masked": False}
+    assert catalogue.leashed().ids == {("ldap", "password")}
+
+
+def test_masked_on_a_key_no_directory_has_is_unresolved(tmp_path):
+    catalogue = ldap(tmp_path, email=KeySettings(masked=False))
+    entry = catalogue.entry("ldap")
+    assert entry["keys"] == ["password", "username"]
+    assert entry["keys_unresolved"] == [{"key": "email", "reason": secrets.NO_SUCH_KEY}]
+    assert "email" not in entry["key_sources"]
+
+
+def test_a_key_is_masked_unless_set_otherwise(tmp_path):
+    keyfile = tmp_path / "pw"
+    keyfile.write_text("other-pw")
+    catalogue = ldap(tmp_path, username=KeySettings(masked=True),
+                     password=FromFile(file=str(keyfile)))
+    assert catalogue.leashed().ids == {("ldap", "password"), ("ldap", "username")}
+    sources = catalogue.entry("ldap")["key_sources"]
+    assert all("masked" not in s for s in sources.values())
 
 
 @pytest.mark.parametrize("leash", [None, "https://b.test"])

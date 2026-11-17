@@ -33,13 +33,19 @@ def test_durations(seconds, said):
 
 def test_who_the_viewer_is():
     assert viewer_of(None) == "open" and viewer_of(ADMIN) == "admin"
-    assert viewer_of(Principal("oidc", subject="s1", username="drk")) == "drk"
-    assert viewer_of(Principal("oidc", subject="s1")) == "s1"
+    assert viewer_of(Principal("oidc", subject="s1", username="drk")) == "oidc:drk"
+    assert viewer_of(Principal("oidc", subject="s1")) == "oidc:s1"
     assert viewer_of(Principal("oidc")) == "oidc"
     assert (
         viewer_of(Principal("oidc", username="dr\nk" + "x" * 80))
-        == ("dr?k" + "x" * 80)[:64]
+        == ("oidc:dr?k" + "x" * 80)[:64]
     )
+
+
+@pytest.mark.parametrize("name", ["admin", "open", "oidc"])
+def test_no_oidc_username_reads_as_the_admin_or_an_open_server(name):
+    person = Principal("oidc", subject="s1", username=name)
+    assert viewer_of(person) not in (viewer_of(ADMIN), viewer_of(None), "oidc")
 
 
 def test_clean_turns_control_characters_into_question_marks():
