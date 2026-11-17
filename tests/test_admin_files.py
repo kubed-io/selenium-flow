@@ -360,3 +360,39 @@ def test_a_storage_fault_keeping_a_recording_is_a_5xx(client, live, monkeypatch)
         f"/admin/workspaces/{KEY}/files/recordings/rec-1.mp4/keep", headers=AUTH
     )
     assert 500 <= response.status_code < 600
+
+
+# ---- the store is read off the event loop ---------------------------------
+
+
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("get", f"/admin/workspaces/{KEY}/files"),
+        ("post", f"/admin/workspaces/{KEY}/files/screenshots/a.png/keep"),
+        ("delete", f"/admin/workspaces/{KEY}/files/downloads"),
+        ("delete", f"/admin/workspaces/{KEY}/session"),
+    ],
+)
+def test_an_admin_file_or_session_route_reads_the_store_off_the_event_loop(
+    client, live, monkeypatch, method, path
+):
+    import asyncio
+
+    store = live.workspaces.store
+    real = store.get
+    on_loop = []
+
+    def get(key):
+        try:
+            asyncio.get_running_loop()
+            on_loop.append(key)
+        except RuntimeError:
+            pass  # a worker thread: no loop of its own
+        return real(key)
+
+    monkeypatch.setattr(store, "get", get)
+    monkeypatch.setattr(live.workspaces, "end_browser", lambda *a, **k: {})
+    getattr(client, method)(path, headers=AUTH)
+    assert on_loop == []
+

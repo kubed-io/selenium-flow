@@ -549,7 +549,7 @@ def mount(
         success.
         """
         key = request.path_params["key"]
-        session_id = attached_id(workspaces, key)
+        session_id = await run_in_threadpool(attached_id, workspaces, key)
         if not session_id:
             return JSONResponse({"success": True, "key": key, "session_id": None})
         # The tool's own command. `admin=True`: a person's control never refuses
