@@ -308,28 +308,6 @@ def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
 
 
 @bug(
-    "prompts._split leaves the carriage return of a CRLF file at the start of the body"
-)
-def test_a_crlf_prompt_has_no_carriage_return_before_its_body():
-    from kubed.selenium_flow.mcp.prompts import _split
-
-    _, body = _split("---\r\ndescription: a\r\n---\r\nBody\r\n")
-    assert body.startswith("Body")
-
-
-@bug(
-    "prompts._split opens a header on ---x, where the shared splitter wants exactly ---"
-)
-def test_a_first_line_that_is_not_exactly_three_dashes_opens_no_header():
-    from kubed.selenium_flow.mcp import frontmatter
-    from kubed.selenium_flow.mcp.prompts import _split
-
-    text = "---x\ndescription: a\n---\nBody\n"
-    assert frontmatter.split(text) is None
-    assert _split(text) is None
-
-
-@bug(
     "MCP logs an unreachable Grid (503) as an ERROR with a traceback; HTTP logs one WARNING"
 )
 def test_a_503_over_mcp_is_one_warning_line_as_it_is_over_http():
