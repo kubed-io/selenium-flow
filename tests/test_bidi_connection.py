@@ -11,16 +11,20 @@ from kubed.selenium_flow.faults import SocketClosed
 pytestmark = pytest.mark.unit
 
 
-async def test_a_command_is_answered_by_its_id(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+@pytest.fixture
+async def conn(browser):
+    """A connection open to `browser`; each test closes it."""
+    opened = Connection(browser.url)
+    await opened.open()
+    return opened
+
+
+async def test_a_command_is_answered_by_its_id(conn):
     assert await conn.command("browsingContext.getTree") == {"contexts": []}
     await conn.close()
 
 
-async def test_an_error_reply_raises_bidi_error(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_an_error_reply_raises_bidi_error(conn):
     with pytest.raises(BidiError, match="unknown command") as raised:
         await conn.command("nope.nothing")
     assert raised.value.error == "unknown command"
@@ -28,17 +32,13 @@ async def test_an_error_reply_raises_bidi_error(browser):
     await conn.close()
 
 
-async def test_a_command_with_no_reply_times_out(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_a_command_with_no_reply_times_out(conn):
     with pytest.raises(TimeoutError):
         await conn.command("silence", timeout=0.1)
     await conn.close()
 
 
-async def test_subscribe_records_the_id_with_its_events_and_contexts(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_subscribe_records_the_id_with_its_events_and_contexts(browser, conn):
     assert await conn.subscribe(["log.entryAdded"]) == "sub-1"
     assert await conn.subscribe(["network.fetchError"], ["tab-1"]) == "sub-2"
     assert conn.subscriptions == {
@@ -51,9 +51,7 @@ async def test_subscribe_records_the_id_with_its_events_and_contexts(browser):
     await conn.close()
 
 
-async def test_close_unsubscribes_first(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_close_unsubscribes_first(browser, conn):
     await conn.subscribe(["log.entryAdded"])
     await conn.close()
     assert browser.received == ["session.subscribe", "session.unsubscribe"]
@@ -79,9 +77,7 @@ async def test_a_server_close_fails_waiting_commands_and_calls_on_close(browser)
     assert closed == [1]
 
 
-async def test_a_cancelled_close_still_releases_and_propagates(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_a_cancelled_close_still_releases_and_propagates(browser, conn):
     await conn.subscribe(["log.entryAdded"])
     reader = conn._reader
     conn.command = lambda *a, **k: asyncio.sleep(60)  # the unsubscribe hangs
@@ -99,9 +95,7 @@ async def test_a_cancelled_close_still_releases_and_propagates(browser):
     assert browser.connections[-1].close_code is not None
 
 
-async def test_a_command_on_a_dropped_socket_is_a_connection_error(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_a_command_on_a_dropped_socket_is_a_connection_error(browser, conn):
     await browser.connections[-1].close()
     await asyncio.sleep(0.05)
     conn._closed = False  # the reader has seen the drop; send must fail alone
@@ -119,9 +113,7 @@ async def test_an_open_that_fails_is_a_connection_error():
 # ---- the dispatcher ------------------------------------------------------------
 
 
-async def test_an_event_reaches_only_the_subscribers_that_asked(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_an_event_reaches_only_the_subscribers_that_asked(browser, conn):
     logs, nets = [], []
     conn.listen(["log.entryAdded"], lambda m, p: logs.append(p), name="logs")
     conn.listen(["network.fetchError"], lambda m, p: nets.append(p), name="nets")
@@ -132,9 +124,7 @@ async def test_an_event_reaches_only_the_subscribers_that_asked(browser):
     await conn.close()
 
 
-async def test_a_blocked_subscriber_does_not_delay_a_reply(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_a_blocked_subscriber_does_not_delay_a_reply(browser, conn):
     gate = asyncio.Event()
 
     async def stuck(_m, _p):
@@ -151,9 +141,7 @@ async def test_a_blocked_subscriber_does_not_delay_a_reply(browser):
     await conn.close()
 
 
-async def test_a_full_queue_is_logged_once_a_streak(browser, caplog):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_a_full_queue_is_logged_once_a_streak(browser, caplog, conn):
     gate = asyncio.Event()
 
     async def stuck(_m, _p):
@@ -168,11 +156,9 @@ async def test_a_full_queue_is_logged_once_a_streak(browser, caplog):
     await conn.close()
 
 
-async def test_a_listener_is_told_of_every_event_it_drops(browser):
+async def test_a_listener_is_told_of_every_event_it_drops(browser, conn):
     """What capture carries as ``dropped`` (spotless 7): the count a reader
     sees, not only a log line."""
-    conn = Connection(browser.url)
-    await conn.open()
     gate, told = asyncio.Event(), []
 
     async def stuck(_m, _p):
@@ -187,9 +173,7 @@ async def test_a_listener_is_told_of_every_event_it_drops(browser):
     await conn.close()
 
 
-async def test_flush_returns_after_every_earlier_event_was_handled(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_flush_returns_after_every_earlier_event_was_handled(browser, conn):
     seen = []
 
     async def slow(_m, p):
@@ -205,9 +189,9 @@ async def test_flush_returns_after_every_earlier_event_was_handled(browser):
     await conn.close()
 
 
-async def test_a_raising_handler_is_logged_once_and_the_next_event_still_arrives(browser, caplog):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_a_raising_handler_is_logged_once_and_the_next_event_still_arrives(
+    browser, caplog, conn
+):
     got = []
 
     def handler(_m, p):
@@ -224,9 +208,7 @@ async def test_a_raising_handler_is_logged_once_and_the_next_event_still_arrives
     await conn.close()
 
 
-async def test_close_removes_collectors_and_subscriptions_then_closes(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_close_removes_collectors_and_subscriptions_then_closes(browser, conn):
     await conn.subscribe(["log.entryAdded"])
     await conn.add_collector({"dataTypes": ["response"], "maxEncodedDataSize": 10_000_000, "collectorType": "blob"})
     await conn.close()
@@ -234,9 +216,7 @@ async def test_close_removes_collectors_and_subscriptions_then_closes(browser):
     assert not conn.is_open and not conn.dropped
 
 
-async def test_close_cancels_every_subscriber(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_close_cancels_every_subscriber(conn):
     sub = conn.listen(["log.entryAdded"], lambda m, p: None, name="l")
     await conn.close()
     await asyncio.sleep(0)
@@ -244,9 +224,7 @@ async def test_close_cancels_every_subscriber(browser):
     await sub.barrier()  # a cancelled subscriber holds nobody up
 
 
-async def test_lags_are_recorded_per_event(browser):
-    conn = Connection(browser.url)
-    await conn.open()
+async def test_lags_are_recorded_per_event(browser, conn):
     sub = conn.listen(["log.entryAdded"], lambda m, p: None, name="l")
     await browser.events(3, "log.entryAdded")
     await conn.flush()
@@ -277,12 +255,12 @@ async def test_a_stalled_subscriber_drops_on_bytes_before_the_count(browser, mon
     await conn.close()
 
 
-async def test_a_burst_of_5000_events_reaches_a_fast_handler_without_a_drop(browser):
+async def test_a_burst_of_5000_events_reaches_a_fast_handler_without_a_drop(
+    browser, conn
+):
     """The reader yields every few frames and the subscriber drains a batch per
     turn: a burst already buffered in one read must not fill the queue before
     the subscriber gets a turn (Task 13 measured drops at 5 000)."""
-    conn = Connection(browser.url)
-    await conn.open()
     got = []
     sub = conn.listen(["log.entryAdded"], lambda m, p: got.append(p["i"]), name="capture")
     await browser.events(5000, "log.entryAdded")
@@ -322,11 +300,11 @@ async def test_the_fell_behind_warning_re_arms_only_once_the_queue_has_drained(c
     sub.cancel()
 
 
-async def test_close_removes_the_intercepts_it_added_and_not_the_removed_ones(browser):
+async def test_close_removes_the_intercepts_it_added_and_not_the_removed_ones(
+    browser, conn
+):
     """An intercept outliving its user would block its tab's requests; a
     connection closed under a save removes the one the save added (PR review I1)."""
-    conn = Connection(browser.url)
-    await conn.open()
     kept = (await conn.command("network.addIntercept", {"phases": ["beforeRequestSent"]}))["intercept"]
     gone = (await conn.command("network.addIntercept", {"phases": ["beforeRequestSent"]}))["intercept"]
     await conn.command("network.removeIntercept", {"intercept": gone})
@@ -336,11 +314,11 @@ async def test_close_removes_the_intercepts_it_added_and_not_the_removed_ones(br
     assert removed == [gone, kept]
 
 
-async def test_close_removes_an_intercept_before_unsubscribing_its_listener(browser):
+async def test_close_removes_an_intercept_before_unsubscribing_its_listener(
+    browser, conn
+):
     """A request the intercept blocks between the two would wait on an event
     nobody hears any more: the intercept goes first (AGENTS)."""
-    conn = Connection(browser.url)
-    await conn.open()
     await conn.subscribe(["network.beforeRequestSent"])
     await conn.command("network.addIntercept", {"phases": ["beforeRequestSent"]})
     await conn.close()

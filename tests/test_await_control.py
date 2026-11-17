@@ -37,7 +37,7 @@ from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import calling_as
-from .test_live_tunnels import held
+from .fakes import held
 
 pytestmark = pytest.mark.unit
 

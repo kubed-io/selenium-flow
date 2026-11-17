@@ -12,20 +12,12 @@ from kubed.selenium_flow.names import RECORDINGS_DIR
 from kubed.selenium_flow.recordings import collector as collector_module
 from kubed.selenium_flow.recordings import mp4
 
-from .fakes import patch_os
+from .fakes import Clock, patch_os
 
 pytestmark = pytest.mark.unit
 
 GID = "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d"
 BODY = b"\x00\x00\x00\x10moof" + b"\x00" * 100
-
-
-class Clock:
-    def __init__(self, now=1_791_500_000.0):
-        self.now = now
-
-    def __call__(self):
-        return self.now
 
 
 class Watcher:
@@ -42,10 +34,20 @@ class Watcher:
 
 
 @pytest.fixture
-def parts(tmp_path):
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
+def store(tmp_path):
+    return flows.LocalFlowStore(tmp_path / "workspaces")
+
+
+@pytest.fixture
+def inbox(tmp_path):
+    """The recorder's inbox, where the Grid writes its videos."""
+    folder = tmp_path / "recordings"
+    folder.mkdir()
+    return folder
+
+
+@pytest.fixture
+def parts(store, inbox):
     monitor = Watcher()
     filed = []
     clock = Clock()
@@ -131,12 +133,11 @@ async def test_a_discarded_video_settles_before_it_is_deleted(parts):
     assert not video.exists() and store.notes() == []
 
 
-async def test_a_settling_file_in_a_quiet_inbox_is_filed_without_waiting_a_tick(tmp_path):
+async def test_a_settling_file_in_a_quiet_inbox_is_filed_without_waiting_a_tick(
+    store, inbox
+):
     """Nothing changes in the inbox once a file is finished, so the watch has
     to time out to look again: after ``settle``, not after a tick."""
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
     filed = []
     c = collector_module.Collector(
         store, inbox, wait=600, polling=True, poll_ms=50,
@@ -306,10 +307,9 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c2.start()
     # The task ends a sweep after the filing empties `owed`: wait for the end.
-    for _ in range(50):
-        if not c2.running:
-            break
-        await asyncio.sleep(0.05)
+    task = c2._task
+    assert task is not None
+    await asyncio.wait_for(task, 5)
     assert c2.owed == {} and c2.running is False
     assert len(store.files("bot", RECORDINGS_DIR)) == 1
     await c2.stop()
@@ -361,10 +361,7 @@ def collector(store, inbox, clock, **kw):
     )
 
 
-async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
+async def test_a_failed_sweep_is_retried_a_tick_later(caplog, store, inbox):
     filed = []
     c = collector(
         store, inbox, Clock(), tick=0.1,
@@ -393,10 +390,7 @@ async def test_a_failed_sweep_is_retried_a_tick_later(tmp_path, caplog):
     await c.stop()
 
 
-async def test_a_note_that_cannot_be_read_is_skipped_by_workspace(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
+async def test_a_note_that_cannot_be_read_is_skipped_by_workspace(caplog, store, inbox):
     other = "0123456789abcdef0123456789abcdef"
     store.write_note("good", GID, {"opened": "1791500000000", "ended": 5.0})
     store.write_note("bad", other, {"opened": ["no"], "browser": "chrome"})
@@ -436,12 +430,11 @@ async def test_an_inbox_copy_that_cannot_be_removed_is_filed_once(parts, caplog)
     "field", ['"opened": 1e999', '"opened": 1e20', '"opened": -5',
               '"opened": NaN', '"ended": 1e999', '"opened": "99999999999999999999"'],
 )
-async def test_a_note_with_an_impossible_time_is_skipped_not_fatal(tmp_path, caplog, field):
+async def test_a_note_with_an_impossible_time_is_skipped_not_fatal(
+    caplog, field, store, inbox
+):
     """Overflow at boot would stop the lifespan; a year past gmtime's range
     would fail every sweep and starve every other recording."""
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
     other = "0123456789abcdef0123456789abcdef"
     store.write_note("good", GID, {"opened": 1_791_500_000_000})
     pending = store.root / "bad" / RECORDINGS_DIR / ".pending"
@@ -640,12 +633,9 @@ async def test_a_note_that_cannot_be_deleted_stays_owed_until_it_is(parts, caplo
         sub.chmod(0o755)
 
 
-async def test_a_filed_note_after_a_restart_is_only_deleted(tmp_path):
+async def test_a_filed_note_after_a_restart_is_only_deleted(store, inbox):
     """A note that says it was filed, and the inbox copy that could not be
     removed: the next process deletes the note and files nothing."""
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
     store.write_note("bot", GID, {
         "opened": 1_791_500_000_000, "ended": None, "browser": "chrome",
         "filed": "rec-20261008-1013.mp4",
@@ -683,16 +673,13 @@ async def test_a_late_note_that_cannot_be_deleted_is_never_filed(parts):
 
 
 async def test_notes_that_cannot_be_read_at_boot_are_read_on_a_later_tick(
-    tmp_path, monkeypatch, caplog,
+    monkeypatch, caplog, store, inbox
 ):
     """A storage fault reading the notes neither stops the boot nor abandons
     them: the task reads them again a tick later. A broken note is still
     skipped."""
     from pathlib import Path
 
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
     other = "0123456789abcdef0123456789abcdef"
     store.write_note("bad", other, {})
@@ -743,10 +730,9 @@ def _eio_on(path, monkeypatch):
         patch_os(monkeypatch, name, failing(getattr(os, name)))
 
 
-async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path, monkeypatch, caplog):
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
+async def test_one_workspace_that_cannot_be_read_does_not_block_another(
+    monkeypatch, caplog, store, inbox
+):
     other = "0123456789abcdef0123456789abcdef"
     store.write_note("good", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
     store.write_note("bad", other, {"opened": 1_791_500_000_000, "browser": "chrome"})
@@ -773,12 +759,9 @@ async def test_one_workspace_that_cannot_be_read_does_not_block_another(tmp_path
     await c.stop()
 
 
-async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(tmp_path):
+async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(store, inbox):
     """A rolling deploy mid-copy: the move completes in its thread, so its note
     must be settled too, or the next process files the inbox copy again."""
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})
     sub = inbox / "node"
     sub.mkdir()
@@ -806,10 +789,9 @@ async def test_a_stop_during_a_filing_lets_it_finish_and_mark_its_note(tmp_path)
         sub.chmod(0o755)
 
 
-async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(tmp_path, caplog):
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
+async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(
+    caplog, store, inbox
+):
     store.write_note("bot", GID, {"opened": 1_791_500_000_000, "filed": "rec.mp4"})
 
     def refused(*_a, **_kw):
@@ -826,11 +808,9 @@ async def test_a_note_found_done_that_cannot_be_deleted_is_logged_once(tmp_path,
     assert "bot" in caplog.text and GID not in caplog.text
 
 
-async def test_a_failed_sweep_with_only_notes_unread_says_so(tmp_path, monkeypatch, caplog):
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
-
+async def test_a_failed_sweep_with_only_notes_unread_says_so(
+    monkeypatch, caplog, store, inbox
+):
     def unreadable(on_error=None):
         raise OSError(5, "Input/output error")
 
@@ -852,14 +832,11 @@ async def test_a_failed_sweep_with_only_notes_unread_says_so(tmp_path, monkeypat
     assert "owed for ;" not in caplog.text
 
 
-async def test_a_stale_read_of_the_notes_never_brings_a_filed_one_back(tmp_path):
+async def test_a_stale_read_of_the_notes_never_brings_a_filed_one_back(store, inbox):
     """A read that began before a sweep filed and deleted a note must not put
     it back, unmarked, when it lands after."""
     import threading
 
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
     filed = []
     c = collector(
         store, inbox, Clock(), on_filed=lambda: filed.append(1),
@@ -1206,10 +1183,7 @@ async def test_a_provisional_discard_is_watched_too(parts):
     assert monitor.watched == [(GID, "bot", "recording", "chrome")]
 
 
-async def test_start_watches_what_the_notes_still_owe(tmp_path):
-    store = flows.LocalFlowStore(tmp_path / "workspaces")
-    inbox = tmp_path / "recordings"
-    inbox.mkdir()
+async def test_start_watches_what_the_notes_still_owe(store, inbox):
     ended = "0123456789abcdef0123456789abcdef"
     done = "fedcba9876543210fedcba9876543210"
     store.write_note("a", GID, {"opened": 1_791_500_000_000, "browser": "chrome"})

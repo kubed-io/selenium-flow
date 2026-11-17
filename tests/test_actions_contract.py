@@ -23,7 +23,7 @@ from selenium.common.exceptions import (
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import wait as selenium_wait
 
-from kubed.selenium_flow.core import browser, pointer
+from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.core.actions import EXTRACT_JS
 from kubed.selenium_flow.core.browser import NAVIGATION_SETTLE
 from kubed.selenium_flow.errors import status_for
@@ -34,22 +34,6 @@ pytestmark = pytest.mark.unit
 
 PAGE = "https://example.test/"
 BOTH = {"css": "a", "xpath": "//a"}
-
-
-@pytest.fixture
-def pointer_lands(monkeypatch):
-    """`pointer.move` answers as if the pointer arrived, so a gesture can run
-    against the scripted driver without a browser's geometry."""
-    monkeypatch.setattr(
-        pointer,
-        "move",
-        lambda *a, **k: {
-            "at": (10.0, 10.0), "glided": False, "nudged": False,
-            "unknown_start": False,
-            # A move reports the window's size it read on landing (Task 19).
-            "viewport": (1000, 800),
-        },
-    )
 
 
 # ---- X1: a dialog is state, never an error ----------------------------------

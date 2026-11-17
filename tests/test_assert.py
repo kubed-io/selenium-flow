@@ -440,13 +440,28 @@ def test_an_impossible_hold_is_refused_before_the_browser_is_touched(actions, mo
     assert touched == [], "the browser must not have been reconnected or moved"
 
 
-def test_a_hold_longer_than_the_wait_is_refused_naming_the_unit(actions, driving):
-    """The footgun this argument brings: `stable_for: 500` read as milliseconds
-    is 500 seconds, and an assertion that can never pass. Refused before the
-    page is asked, with the unit in the message."""
+@pytest.mark.parametrize(
+    ("refusal", "wait_timeout", "stable_for"),
+    [
+        # The footgun this argument brings: `stable_for: 500` read as milliseconds
+        # is 500 seconds, and an assertion that can never pass. Refused before the
+        # page is asked, with the unit in the message.
+        pytest.param(
+            "seconds", 30, 500, id="a-hold-longer-than-the-wait-is-refused-naming-the-unit"
+        ),
+        # Verifying a hold needs a poll AFTER the answer first came back true, and
+        # the deadline stops that poll at `wait_timeout` — so `stable_for` equal to
+        # `wait_timeout` could never be confirmed, and every such assertion failed
+        # with "did not hold" whatever the page did.
+        pytest.param("no room", 5, 5, id="a-hold-that-fills-the-whole-wait-is-refused"),
+    ],
+)
+def test_a_hold_that_does_not_fit_in_the_wait_is_refused(
+    actions, driving, refusal, wait_timeout, stable_for
+):
     driving(True)
-    with pytest.raises(ValueError, match="seconds"):
-        actions.assert_("abc", "return true", wait_timeout=30, stable_for=500)
+    with pytest.raises(ValueError, match=refusal):
+        actions.assert_("abc", "return true", wait_timeout=wait_timeout, stable_for=stable_for)
 
 
 def test_a_failure_tells_never_true_apart_from_would_not_hold(actions, driving, clock):
@@ -525,16 +540,6 @@ def test_a_stability_window_that_cannot_be_read_is_refused(actions, driving, bad
     driving(True)
     with pytest.raises(ValueError, match="stable_for"):
         actions.assert_("abc", "return true", wait_timeout=5, stable_for=bad)
-
-
-def test_a_hold_that_fills_the_whole_wait_is_refused(actions, driving):
-    """Verifying a hold needs a poll AFTER the answer first came back true, and
-    the deadline stops that poll at `wait_timeout` — so `stable_for` equal to
-    `wait_timeout` could never be confirmed, and every such assertion failed
-    with "did not hold" whatever the page did (Copilot, #31)."""
-    driving(True)
-    with pytest.raises(ValueError, match="no room"):
-        actions.assert_("abc", "return true", wait_timeout=5, stable_for=5)
 
 
 def test_a_hold_with_room_left_still_passes(actions, driving, clock):

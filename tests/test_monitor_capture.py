@@ -17,7 +17,8 @@ from kubed.selenium_flow.monitor.events import LocalBus
 from kubed.selenium_flow.monitor.monitor import Monitor
 from kubed.selenium_flow.workspace.calls import Calls
 
-from .test_monitor import GID, Clock, FakeConnection, FakeSink
+from .fakes import Clock, FakeConnection, FakeSink
+from .test_monitor import GID
 
 pytestmark = pytest.mark.unit
 

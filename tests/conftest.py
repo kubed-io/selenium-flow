@@ -12,13 +12,20 @@ The Grid is never actually dialled. Tests here exercise wiring and coercion;
 anything that needs a live Grid is an integration test and is marked as one.
 """
 
+import logging
+from contextlib import contextmanager
+
 import pytest
+from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.core import pointer
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
+from kubed.selenium_flow.flows.document import step_schemas
 from kubed.selenium_flow.http.admin import page as _admin_page
 from kubed.selenium_flow.mcp import clients as clients_module
+from kubed.selenium_flow.mcp.failures import FASTMCP_LOGGER
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Workspaces
@@ -65,6 +72,23 @@ def server():
 def open_server():
     """A server with auth disabled, as `docker compose up` runs it."""
     return SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+
+
+@pytest.fixture
+def data_server(tmp_path):
+    """An authenticated server with a data directory in ``tmp_path``, so flows
+    and kept files have somewhere to go."""
+    return SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        data={"dir": str(tmp_path)},
+    ))
+
+
+@pytest.fixture
+def client(server):
+    """An HTTP client of ``server`` that sends no credentials of its own."""
+    return TestClient(server.mcp.http_app())
 
 
 # ---- doubles ---------------------------------------------------------------
@@ -195,6 +219,49 @@ def unnamed_caller(monkeypatch):
     return
 
 
+# ---- what is logged --------------------------------------------------------
+
+
+class LogLines(logging.Handler):
+    """Every record as ``(level, message, whether it carried a traceback)``;
+    the message is formatted with any traceback appended."""
+
+    def __init__(self):
+        super().__init__()
+        self.records: list[tuple[int, str, bool]] = []
+
+    def emit(self, record):
+        self.records.append(
+            (record.levelno, self.format(record), record.exc_info is not None)
+        )
+
+
+@contextmanager
+def log_lines(name, level=None):
+    """Listen to logger ``name`` directly (at ``level`` while listening), and
+    yield its `LogLines` records."""
+    handler = LogLines()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger = logging.getLogger(name)
+    before = logger.level
+    if level is not None:
+        logger.setLevel(level)
+    logger.addHandler(handler)
+    try:
+        yield handler.records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(before)
+
+
+@pytest.fixture
+def mcp_log():
+    """FastMCP's log lines. Its logger does not propagate, so it is listened to
+    directly."""
+    with log_lines(FASTMCP_LOGGER) as lines:
+        yield lines
+
+
 # ---- the built UI ----------------------------------------------------------
 
 @pytest.fixture(autouse=True)
@@ -238,3 +305,40 @@ def issuer():
     made = Issuer()
     yield made
     made.close()
+
+
+# ---- what the tools are ------------------------------------------------------
+
+
+@pytest.fixture
+async def step_schema_map(server):
+    """The real tool schemas, built the way production builds them.
+
+    From ENDPOINTS rather than from a listing — a listing is shaped per request
+    and, since flows gained tools of their own, would have offered `save_flow`
+    as a valid step. `flowapi.RUNNABLE` refuses that at run time, so a looser
+    map here would have let validation and execution disagree.
+    """
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
+
+    tools = {}
+    for name in sorted(set(ENDPOINTS.values())):
+        full = await server.mcp.get_tool(name)
+        tools[name] = full.parameters or {}
+    return step_schemas(tools)
+
+
+@pytest.fixture
+def pointer_lands(monkeypatch):
+    """`pointer.move` answers as if the pointer arrived, so a gesture can run
+    against the scripted driver without a browser's geometry."""
+    monkeypatch.setattr(
+        pointer,
+        "move",
+        lambda *a, **k: {
+            "at": (10.0, 10.0), "glided": False, "nudged": False,
+            "unknown_start": False,
+            # A move reports the window's size it read on landing.
+            "viewport": (1000, 800),
+        },
+    )

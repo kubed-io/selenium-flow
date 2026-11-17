@@ -23,10 +23,8 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
-from .fakes import FakePeer
+from .fakes import FakePeer, FocusedDriver, element, held
 from .test_live_tunnel import GRID_ID, vnc_node
-from .test_live_tunnels import held
-from .test_paste import FocusedDriver, element
 
 pytestmark = pytest.mark.unit
 
@@ -89,11 +87,6 @@ def hub(monkeypatch):
 @pytest.fixture
 def server(hub):
     return build()
-
-
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
 
 
 def mint(client):

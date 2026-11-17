@@ -72,16 +72,28 @@ def test_a_name_that_cannot_be_a_path_segment_is_refused(name):
         valid_name(name)
 
 
-def test_a_bad_name_is_refused_rather_than_slugged():
-    """The failure mode of sanitising is a flow saved where nobody will look
-    for it, silently. A 400 is fixed in one try."""
-    with pytest.raises(InvalidName, match="not a usable"):
-        valid_name("../etc/passwd", "flow name")
-
-
-def test_the_error_names_which_kind_of_name_was_wrong():
-    with pytest.raises(InvalidName, match="workspace name"):
-        valid_name("../x", "workspace name")
+@pytest.mark.parametrize(
+    ("refusal", "name", "kind"),
+    [
+        # The failure mode of sanitising is a flow saved where nobody will look
+        # for it, silently. A 400 is fixed in one try.
+        pytest.param(
+            "not a usable",
+            "../etc/passwd",
+            "flow name",
+            id="a-bad-name-is-refused-rather-than-slugged",
+        ),
+        pytest.param(
+            "workspace name",
+            "../x",
+            "workspace name",
+            id="the-error-names-which-kind-of-name-was-wrong",
+        ),
+    ],
+)
+def test_a_bad_name_is_refused_naming_its_kind(refusal, name, kind):
+    with pytest.raises(InvalidName, match=refusal):
+        valid_name(name, kind)
 
 
 # ---- which workspace owns a caller's flows ------------------------------------
@@ -679,15 +691,31 @@ def _drag_problems(args):
     return ""
 
 
-def test_a_drag_with_no_element_is_refused_at_save():
-    """It is a registered action now, so it has to be in the set the validator
-    checks — otherwise the step saves cleanly and fails at run time, which is
-    the whole thing save-time validation exists to prevent (Copilot, #31)."""
-    assert "needs an element" in _drag_problems({"to": {"css": "#done"}})
-
-
-def test_a_drag_with_no_destination_is_refused_at_save():
-    assert "needs a destination" in _drag_problems({"selector": {"css": "#card"}})
+@pytest.mark.parametrize(
+    ("problem", "args"),
+    [
+        # It is a registered action now, so it has to be in the set the validator
+        # checks — otherwise the step saves cleanly and fails at run time, which is
+        # the whole thing save-time validation exists to prevent.
+        pytest.param(
+            "needs an element",
+            {"to": {"css": "#done"}},
+            id="a-drag-with-no-element-is-refused-at-save",
+        ),
+        pytest.param(
+            "needs a destination",
+            {"selector": {"css": "#card"}},
+            id="a-drag-with-no-destination-is-refused-at-save",
+        ),
+        pytest.param(
+            "already is",
+            {"selector": {"css": "#card"}, "by_x": 0, "by_y": 0},
+            id="a-drag-to-where-it-already-is-is-refused-at-save",
+        ),
+    ],
+)
+def test_a_drag_that_cannot_run_is_refused_at_save(problem, args):
+    assert problem in _drag_problems(args)
 
 
 def test_a_drag_with_two_kinds_of_destination_is_refused_at_save():
@@ -695,10 +723,6 @@ def test_a_drag_with_two_kinds_of_destination_is_refused_at_save():
         {"selector": {"css": "#card"}, "to": {"css": "#done"}, "by_x": 10}
     )
     assert "not both" in problems
-
-
-def test_a_drag_to_where_it_already_is_is_refused_at_save():
-    assert "already is" in _drag_problems({"selector": {"css": "#card"}, "by_x": 0, "by_y": 0})
 
 
 @pytest.mark.parametrize(
@@ -822,9 +846,35 @@ def _touch(path):
     path.write_bytes(b"x")
 
 
-def test_an_old_workspace_named_workspaces_is_refused(tmp_path):
-    _touch(tmp_path / "workspaces" / "flows" / "a.yaml")
-    with pytest.raises(ConfigError, match=r"`workspaces`.*reserved.*workspaces-old"):
+@pytest.mark.parametrize(
+    ("first", "second", "name", "refusal"),
+    [
+        pytest.param(
+            "workspaces",
+            "flows",
+            "a.yaml",
+            r"`workspaces`.*reserved.*workspaces-old",
+            id="an-old-workspace-named-workspaces-is-refused",
+        ),
+        pytest.param(
+            "recordings",
+            "flows",
+            "a.yaml",
+            r"`recordings`.*reserved",
+            id="an-old-workspace-named-recordings-is-refused",
+        ),
+        pytest.param(
+            "recordings",
+            "screenshots",
+            "SHOT.PNG",
+            r"`recordings`",
+            id="an-image-under-recordings-screenshots-is-an-old-workspace",
+        ),
+    ],
+)
+def test_an_old_layout_stops_the_boot_naming_the_move(tmp_path, first, second, name, refusal):
+    _touch(tmp_path / first / second / name)
+    with pytest.raises(ConfigError, match=refusal):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
@@ -833,21 +883,16 @@ def test_a_new_workspace_named_flows_boots(tmp_path):
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
-def test_an_old_workspace_named_recordings_is_refused(tmp_path):
-    _touch(tmp_path / "recordings" / "flows" / "a.yaml")
-    with pytest.raises(ConfigError, match=r"`recordings`.*reserved"):
-        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
-
-
-def test_a_video_under_recordings_screenshots_boots(tmp_path):
-    _touch(tmp_path / "recordings" / "screenshots" / "x.mp4")
+@pytest.mark.parametrize(
+    "folder",
+    [
+        pytest.param("screenshots", id="a-video-under-recordings-screenshots-boots"),
+        pytest.param("files", id="an-inbox-with-a-transport-prefix-boots"),
+    ],
+)
+def test_a_layout_that_is_not_an_old_workspace_boots(tmp_path, folder):
+    _touch(tmp_path / "recordings" / folder / "x.mp4")
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
-
-
-def test_an_image_under_recordings_screenshots_is_an_old_workspace(tmp_path):
-    _touch(tmp_path / "recordings" / "screenshots" / "SHOT.PNG")
-    with pytest.raises(ConfigError, match=r"`recordings`"):
-        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
 @pytest.mark.parametrize("folder", ["files", "screenshots"])
@@ -872,11 +917,6 @@ def test_a_fault_reading_a_reserved_folder_stops_the_boot(tmp_path, monkeypatch,
     _stat_eio_on(monkeypatch, fn_names, "flows")
     with pytest.raises(ConfigError, match="OSError"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
-
-
-def test_an_inbox_with_a_transport_prefix_boots(tmp_path):
-    _touch(tmp_path / "recordings" / "files" / "x.mp4")
-    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
 def _stat_eio_on(monkeypatch, fn_names, needle):

@@ -19,89 +19,9 @@ from kubed.selenium_flow.workspace.calls import Calls, hint, total
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 from .capture_events import done, fail, log, req
-from .test_workspace_monitor import Actions as MonitorActions
+from .fakes import Anywhere, FakeMonitor, PageActions, build
 
 pytestmark = pytest.mark.unit
-
-
-class Bus:
-    def __init__(self, published):
-        self.published = published
-
-    def publish(self, event):
-        self.published.append(event)
-
-
-class FakeMonitor:
-    """Records `calling` / `called` and what the bus was handed; holds no connection unless
-    a test gives it one."""
-
-    def __init__(self):
-        self.touched, self.published = [], []
-        self.bus = Bus(self.published)
-        self.held = None
-        self.loop = None
-        self.owed: set[str] = set()  # sessions that owe capture
-        self.attached: list = []
-
-    def keep(self, *a, **k):
-        pass
-
-    def calling(self, session_id):
-        self.touched.append(("calling", session_id))
-
-    def called(self, session_id):
-        self.touched.append(("called", session_id))
-
-    def backing_off(self, session_id):
-        return False
-
-    def connection(self, session_id):
-        return self.held
-
-    def owes(self, session_id, reason):
-        return reason == "capture" and session_id in self.owed
-
-    def capturing(self, session_id):
-        return self.held is not None
-
-    def attach(self, workspace, session_id, reason, **kwargs):
-        self.attached.append((workspace, session_id, reason, kwargs.get("browser")))
-
-    def opened(self, *args, **kwargs):
-        pass
-
-    def ended(self, *args, **kwargs):
-        return True
-
-
-class PageActions(MonitorActions):
-    def page(self, session_id):
-        return {"url": "https://a.test/", "title": "A"}
-
-
-class Anywhere:
-    """A catalogue holding ``demo/password``, usable on any page."""
-
-    def entry(self, name):
-        return {"name": name, "keys": ["password"], "allowed_urls": []}
-
-    def allows(self, name, url):
-        return True
-
-    def value(self, name, key):
-        return "hunter2"
-
-
-def build(capture, monitor, actions=None):
-    workspaces = Workspaces(actions or PageActions(), monitor=monitor, capture=capture)
-    workspaces.open_browser(Caller("ws", "query"))
-    if capture is not None:
-        sid = workspaces.store.get("ws").session_id
-        capture.attached("ws", sid, "chrome", "top-1", again=False)
-    monitor.touched.clear()
-    monitor.published.clear()
-    return workspaces
 
 
 @pytest.fixture
@@ -407,7 +327,7 @@ def test_a_bound_write_after_a_reap_says_the_notice_on_its_error(captured_ws, ca
 def test_a_bound_write_registers_its_value_before_typing(captured_ws, catalogue):
     workspaces, _, _ = captured_ws
     order = []
-    workspaces.calls.bound = lambda ws, forms: order.append(("bound", sorted(forms)[0]))
+    workspaces.calls.bound = lambda ws, forms: order.append(("bound", min(forms)))
     actions = workspaces.actions
     actions.write = lambda sid, text, **kw: order.append(("typed", text)) or {"url": "u", "value": None}
     perform_write(catalogue, actions, workspaces, "ws",

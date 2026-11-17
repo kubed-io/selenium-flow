@@ -403,14 +403,28 @@ def test_a_client_version_is_dropped_by_a_client_browser_other_than_configs():
     assert "version" not in s.settings
 
 
-def test_the_same_browser_keeps_the_version():
-    s = sourced({"browser": "chrome"}, defaults={"browser": "chrome", "version": "152"})
-    assert s.settings["version"] == "152" and s.version_from == "config"
-
-
-def test_a_version_in_the_same_call_stands():
-    s = sourced({"browser": "firefox", "version": "140"}, defaults={"version": "152"})
-    assert s.settings["version"] == "140" and s.version_from == "call"
+@pytest.mark.parametrize(
+    ("given", "defaults", "version", "version_from"),
+    [
+        pytest.param(
+            {"browser": "chrome"},
+            {"browser": "chrome", "version": "152"},
+            "152",
+            "config",
+            id="the-same-browser-keeps-the-version",
+        ),
+        pytest.param(
+            {"browser": "firefox", "version": "140"},
+            {"version": "152"},
+            "140",
+            "call",
+            id="a-version-in-the-same-call-stands",
+        ),
+    ],
+)
+def test_the_version_follows_the_browser(given, defaults, version, version_from):
+    s = sourced(given, defaults=defaults)
+    assert s.settings["version"] == version and s.version_from == version_from
 
 
 def test_a_remembered_version_says_so():

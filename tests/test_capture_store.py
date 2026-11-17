@@ -29,16 +29,9 @@ from .capture_events import (
     nav_started,
     req,
 )
+from .fakes import Clock
 
 pytestmark = pytest.mark.unit
-
-
-class Clock:
-    def __init__(self, now=1_791_500_000.0):
-        self.now = now
-
-    def __call__(self):
-        return self.now
 
 
 @pytest.fixture
@@ -1069,7 +1062,8 @@ def test_capture_through_the_real_workspaces_lands_the_marker(site, scope):
     """Review, round 1: the ask carries the navigation's URL, so the origin is
     the one `Workspaces` reads, an IPv6 literal included (its unbracketed
     origin is no URL of its own)."""
-    from .test_secret_scope import FakeCatalogue, scoped, sid
+    from .fakes import FakeCatalogue
+    from .test_secret_scope import scoped, sid
 
     ws = scoped(FakeCatalogue({scope: {("a", "password"): "alpha-11"}}), url=f"{site}/")
     try:

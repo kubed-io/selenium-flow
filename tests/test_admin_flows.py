@@ -57,11 +57,6 @@ def server(tmp_path, monkeypatch):
     return built
 
 
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
-
-
 def url(name: str = "", suffix: str = "") -> str:
     base = f"/admin/workspaces/{quote(KEY, safe='')}/flows"
     return f"{base}/{quote(name, safe='')}{suffix}" if name else base
@@ -263,22 +258,22 @@ def test_a_document_that_would_not_run_is_refused(client, server):
     assert server.flows.get(WORKSPACE, "bad") is None, "it was written anyway"
 
 
-def test_text_that_is_not_yaml_is_refused_as_such(client):
-    response = client.put(url("bad"), json={"yaml": "steps: [\n"}, headers=AUTH)
+@pytest.mark.parametrize(
+    ("body", "said"),
+    [
+        pytest.param(
+            {"yaml": "steps: [\n"}, "valid YAML", id="text-that-is-not-yaml-is-refused-as-such"
+        ),
+        pytest.param(
+            {"yaml": "- one\n- two\n"}, "mapping", id="yaml-that-is-not-a-mapping-is-refused"
+        ),
+        pytest.param({}, "yaml is required", id="an-empty-body-says-what-is-missing"),
+    ],
+)
+def test_a_body_that_is_not_a_flow_is_a_400_saying_why(client, body, said):
+    response = client.put(url("bad"), json=body, headers=AUTH)
     assert response.status_code == 400
-    assert "valid YAML" in response.json()["error"]
-
-
-def test_yaml_that_is_not_a_mapping_is_refused(client):
-    response = client.put(url("bad"), json={"yaml": "- one\n- two\n"}, headers=AUTH)
-    assert response.status_code == 400
-    assert "mapping" in response.json()["error"]
-
-
-def test_an_empty_body_says_what_is_missing(client):
-    response = client.put(url("bad"), json={}, headers=AUTH)
-    assert response.status_code == 400
-    assert "yaml is required" in response.json()["error"]
+    assert said in response.json()["error"]
 
 
 def test_the_document_cannot_rename_the_flow(client, server):

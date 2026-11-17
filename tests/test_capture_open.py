@@ -11,9 +11,10 @@ from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.faults import BidiUnavailable
 from kubed.selenium_flow.monitor.monitor import ATTACH_FAILED
 from kubed.selenium_flow.workspace import settings
-from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
+from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .capture_events import log
+from .fakes import caller
 
 pytestmark = pytest.mark.unit
 
@@ -251,10 +252,6 @@ class FakeMonitor:
 
     def capturing(self, sid):
         return sid in self.held
-
-
-def caller(name="bot"):
-    return Caller(name, "query")
 
 
 @pytest.fixture

@@ -202,14 +202,14 @@ async def test_every_tool_and_resource_has_a_row_on_the_page_it_always_reads(bui
 
     body = (SKILL_DIR / ENTRY).read_text()
     tools = {t.name for t in await server.mcp.list_tools()} - set(mirror.MIRROR_TOOLS)
-    missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.M))
+    missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.MULTILINE))
     assert not missing, f"SKILL.md's tool table has no row for {missing}"
 
     reads = {str(r.uri) for r in await server.mcp.list_resources()} | {
         t.uri_template for t in await server.mcp.list_resource_templates()
     }
     reads = {u for u in reads if not u.startswith(("ui://", "skill://"))}
-    missing = sorted(u for u in reads if not re.search(rf"^\| `{re.escape(u)}` \|", body, re.M))
+    missing = sorted(u for u in reads if not re.search(rf"^\| `{re.escape(u)}` \|", body, re.MULTILINE))
     assert not missing, f"SKILL.md's resource table has no row for {missing}"
 
 

@@ -321,11 +321,18 @@ def test_a_move_that_started_inside_the_target_says_it_stepped_out_first(
     assert result["nudged"] is True
 
 
-def test_a_move_that_started_outside_the_target_does_not_mention_a_nudge(
-    actions, scripted, lands
-):
+@pytest.mark.parametrize(
+    "key",
+    [
+        pytest.param(
+            "nudged", id="a-move-that-started-outside-the-target-does-not-mention-a-nudge"
+        ),
+        pytest.param("glide_note", id="a-jump-that-was-asked-for-has-no-note"),
+    ],
+)
+def test_a_move_that_needed_no_help_says_nothing_about_it(actions, scripted, lands, key):
     scripted()
-    assert "nudged" not in actions.interact("abc", "hover", selector={"css": "#go"})
+    assert key not in actions.interact("abc", "hover", selector={"css": "#go"})
 
 
 def test_an_element_no_path_can_be_plotted_to_says_this_was_a_jump(
@@ -344,11 +351,6 @@ def test_a_glide_that_was_not_delivered_for_another_reason_says_so_plainly(
     scripted()
     result = actions.interact("abc", "hover", selector={"css": "#go"}, glide=True)
     assert result["glide_note"] == "this was a jump"
-
-
-def test_a_jump_that_was_asked_for_has_no_note(actions, scripted, lands):
-    scripted()
-    assert "glide_note" not in actions.interact("abc", "hover", selector={"css": "#go"})
 
 
 def test_a_move_that_cannot_be_sent_costs_the_position_and_not_the_gesture(

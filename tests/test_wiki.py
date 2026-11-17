@@ -60,7 +60,7 @@ def test_every_internal_link_resolves():
         body = page.read_text()
         # Strip inline code first: `![alt](url)` in a syntax example is not a link.
         body = re.sub(r"`[^`\n]*`", "", body)
-        body = re.sub(r"```.*?```", "", body, flags=re.S)
+        body = re.sub(r"```.*?```", "", body, flags=re.DOTALL)
         for text, target in re.findall(r"\[([^\]]+)\]\(([^)]+)\)", body):
             if target.startswith(("http", "#", "mailto:")):
                 continue

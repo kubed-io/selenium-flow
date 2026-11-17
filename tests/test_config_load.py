@@ -105,12 +105,29 @@ def test_browser_is_not_read_from_the_unix_convention_env_var():
     assert load([], {"BROWSER": "/usr/bin/xdg-open"}).settings.session.browser is None
 
 
-def test_an_unusable_session_browser_stops_the_boot():
-    """Unlike the two default sources `workspace/settings.py` merges on top of
-    this, the config itself is strict: a typo here is the operator's, not a
-    client's, and refusing the boot says so with the reason (§F4.12)."""
-    with pytest.raises(ConfigError, match=r"session\.browser"):
-        load([], {"SESSION_BROWSER": "nonsense"})
+@pytest.mark.parametrize(
+    ("refusal", "env"),
+    [
+        # Unlike the two default sources `workspace/settings.py` merges on top of
+        # this, the config itself is strict: a typo here is the operator's, not a
+        # client's, and refusing the boot says so with the reason.
+        pytest.param(
+            r"session\.browser",
+            {"SESSION_BROWSER": "nonsense"},
+            id="an-unusable-session-browser-stops-the-boot",
+        ),
+        pytest.param(
+            "WORKSPACE_TTL", {"WORKSPACE_TTL": "soon"}, id="a-bad-env-value-names-the-variable"
+        ),
+        pytest.param("log_level", {"LOG_LEVEL": "loud"}, id="a-bad-log-level-stops-the-boot"),
+        pytest.param(
+            r"live\.grace", {"LIVE_GRACE": "10"}, id="a-live-grace-under-fifteen-is-refused"
+        ),
+    ],
+)
+def test_an_unusable_value_stops_the_boot_naming_it(refusal, env):
+    with pytest.raises(ConfigError, match=refusal):
+        load([], env)
 
 
 @pytest.mark.parametrize("name", [n for n in config.SECTION_ORDER if n != "server"])
@@ -203,11 +220,6 @@ def test_a_named_directory_is_reported_as_not_a_file(tmp_path):
         load(["--config-file", str(tmp_path)], {})
 
 
-def test_a_bad_env_value_names_the_variable():
-    with pytest.raises(ConfigError, match="WORKSPACE_TTL"):
-        load([], {"WORKSPACE_TTL": "soon"})
-
-
 def test_a_validation_error_never_echoes_the_rejected_input():
     """Renamed from `..._a_sensitive_value`: no sensitive leaf can actually fail
     validation (`SecretStr` accepts any string), so `REDIS_PORT` was never
@@ -249,14 +261,26 @@ def test_an_empty_arg_value_also_counts_as_unset():
     assert loaded.sources["auth.token"] == "default"
 
 
-def test_a_blank_redis_host_in_the_config_file_counts_as_unset(tmp_path):
-    # Env and args already dropped a blank value before it ever reached
-    # `_has`/`_merge`; the file layer did not, so this used to make
-    # `redis.host`'s source "config" and drive the store to redis anyway.
-    path = _file(tmp_path, 'redis:\n  host: ""\n')
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        pytest.param(
+            'redis:\n  host: ""\n',
+            "redis.host",
+            id="a-blank-redis-host-in-the-config-file-counts-as-unset",
+        ),
+        pytest.param(
+            'redis:\n  url: "  "\n',
+            "redis.url",
+            id="a-whitespace-only-redis-url-in-the-config-file-counts-as-unset",
+        ),
+    ],
+)
+def test_a_blank_redis_address_in_the_config_file_counts_as_unset(tmp_path, text, key):
+    path = _file(tmp_path, text)
     loaded = load([], {"CONFIG_FILE": path})
     assert loaded.settings.workspace.store == "memory"
-    assert loaded.sources["redis.host"] == "default"
+    assert loaded.sources[key] == "default"
 
 
 def test_a_blank_log_level_in_the_config_file_is_the_default(tmp_path):
@@ -264,13 +288,6 @@ def test_a_blank_log_level_in_the_config_file_is_the_default(tmp_path):
     loaded = load([], {"CONFIG_FILE": path})
     assert loaded.settings.log_level == "INFO"
     assert loaded.sources["log_level"] == "default"
-
-
-def test_a_whitespace_only_redis_url_in_the_config_file_counts_as_unset(tmp_path):
-    path = _file(tmp_path, 'redis:\n  url: "  "\n')
-    loaded = load([], {"CONFIG_FILE": path})
-    assert loaded.settings.workspace.store == "memory"
-    assert loaded.sources["redis.url"] == "default"
 
 
 def test_the_file_cannot_define_entries_through_env(tmp_path):
@@ -289,11 +306,6 @@ def test_an_abbreviated_flag_is_refused():
 @pytest.mark.parametrize("value", ["debug", "Debug", "DEBUG"])
 def test_log_level_is_case_insensitive(value):
     assert load([], {"LOG_LEVEL": value}).settings.log_level == "DEBUG"
-
-
-def test_a_bad_log_level_stops_the_boot():
-    with pytest.raises(ConfigError, match="log_level"):
-        load([], {"LOG_LEVEL": "loud"})
 
 
 def test_help_names_all_three_spellings(capsys):
@@ -360,17 +372,47 @@ def test_data_dir_is_the_setting_and_reads_from_env():
     assert loaded.sources["data.dir"] == "env"
 
 
-def test_the_retired_env_name_stops_the_boot_with_the_move():
+@pytest.mark.parametrize(
+    ("env", "message"),
+    [
+        pytest.param(
+            {"FLOW_DATA_DIR": "/data/flows"},
+            "FLOW_DATA_DIR is now DATA_DIR, and workspace folders live under "
+            "DATA_DIR/workspaces/ — move them there once, then set DATA_DIR",
+            id="the-retired-env-name-stops-the-boot-with-the-move",
+        ),
+        pytest.param(
+            {"SESSION_TTL": "60"},
+            "SESSION_TTL is now WORKSPACE_TTL: workspace settings moved out of session",
+            id="one-moved-session-env-name-stops-the-boot-naming-its-workspace-name",
+        ),
+        pytest.param(
+            {"SESSION_TTL": "60", "session_store": "redis"},
+            "SESSION_STORE, SESSION_TTL are now WORKSPACE_STORE, WORKSPACE_TTL: "
+            "workspace settings moved out of session",
+            id="several-moved-session-env-names-are-named-together",
+        ),
+    ],
+)
+def test_a_moved_env_name_stops_the_boot_saying_where_it_went(env, message):
     with pytest.raises(config.ConfigError) as exc:
-        config.load([], {"FLOW_DATA_DIR": "/data/flows"})
-    assert str(exc.value) == (
-        "FLOW_DATA_DIR is now DATA_DIR, and workspace folders live under "
-        "DATA_DIR/workspaces/ — move them there once, then set DATA_DIR"
-    )
+        config.load([], env)
+    assert str(exc.value) == (message)
 
 
-def test_a_blank_retired_env_name_is_not_a_setting():
-    config.load([], {"FLOW_DATA_DIR": ""})
+@pytest.mark.parametrize(
+    "env",
+    [
+        pytest.param({"FLOW_DATA_DIR": ""}, id="a-blank-retired-env-name-is-not-a-setting"),
+        pytest.param({"SESSION_TTL": ""}, id="a-blank-moved-session-env-name-is-not-a-setting"),
+        pytest.param(
+            {"SESSION_PORT": "tcp://10.0.0.1:80"},
+            id="an-env-name-that-merely-starts-with-session-is-not-retired",
+        ),
+    ],
+)
+def test_an_env_name_that_is_not_a_moved_setting_is_ignored(env):
+    config.load([], env)
 
 
 def test_the_retired_file_section_stops_the_boot_with_the_move(tmp_path):
@@ -404,33 +446,6 @@ def test_the_workspace_section_reads_from_env():
 def test_session_browser_is_still_a_session_setting():
     settings = config.load([], {"SESSION_BROWSER": "firefox"}).settings
     assert settings.session.browser == "firefox"
-
-
-def test_one_moved_session_env_name_stops_the_boot_naming_its_workspace_name():
-    with pytest.raises(config.ConfigError) as exc:
-        config.load([], {"SESSION_TTL": "60"})
-    assert str(exc.value) == (
-        "SESSION_TTL is now WORKSPACE_TTL: workspace settings moved out of session"
-    )
-
-
-def test_several_moved_session_env_names_are_named_together():
-    with pytest.raises(config.ConfigError) as exc:
-        config.load([], {"SESSION_TTL": "60", "session_store": "redis"})
-    assert str(exc.value) == (
-        "SESSION_STORE, SESSION_TTL are now WORKSPACE_STORE, WORKSPACE_TTL: "
-        "workspace settings moved out of session"
-    )
-
-
-def test_a_blank_moved_session_env_name_is_not_a_setting():
-    config.load([], {"SESSION_TTL": ""})
-
-
-def test_an_env_name_that_merely_starts_with_session_is_not_retired():
-    # Kubernetes injects <SERVICE>_PORT for every Service, and a Service may be
-    # called session: only a moved setting's own name is retired.
-    config.load([], {"SESSION_PORT": "tcp://10.0.0.1:80"})
 
 
 def test_a_session_file_section_with_a_moved_key_stops_the_boot(tmp_path):
@@ -480,20 +495,26 @@ def test_session_capabilities_come_from_the_command_line():
     assert loaded.settings.session.capabilities == {"kubed:pool": "a"}
 
 
-def test_an_owned_key_in_session_capabilities_stops_the_boot():
+@pytest.mark.parametrize(
+    ("env", "refusal"),
+    [
+        pytest.param(
+            {"SESSION_CAPABILITIES": '{"browserName": "x"}'},
+            "browserName cannot be sent in session.capabilities: use browser= instead",
+            id="an-owned-key-in-session-capabilities-stops-the-boot",
+        ),
+        pytest.param(
+            {"SESSION_CAPABILITIES": '{"moz:firefoxOptions": {"args": ["-headless"]}}'},
+            "moz:firefoxOptions.args -headless cannot be sent in session.capabilities: "
+            "use headless=true or headless=false instead",
+            id="a-headless-flag-in-session-capabilities-stops-the-boot",
+        ),
+    ],
+)
+def test_a_key_the_server_owns_in_session_capabilities_stops_the_boot(env, refusal):
     with pytest.raises(ConfigError) as refused:
-        load([], {"SESSION_CAPABILITIES": '{"browserName": "x"}'})
-    assert (
-        "browserName cannot be sent in session.capabilities: use browser= instead"
-        in str(refused.value)
-    )
-
-
-def test_a_headless_flag_in_session_capabilities_stops_the_boot():  # ruling 6
-    with pytest.raises(ConfigError) as refused:
-        load([], {"SESSION_CAPABILITIES": '{"moz:firefoxOptions": {"args": ["-headless"]}}'})
-    assert "moz:firefoxOptions.args -headless cannot be sent in session.capabilities: " \
-           "use headless=true or headless=false instead" in str(refused.value)
+        load([], env)
+    assert refusal in str(refused.value)
 
 
 @pytest.mark.parametrize("value", ["not json", "[1, 2]", '"a string"'])
@@ -509,27 +530,24 @@ def test_a_blank_session_version_is_unset():
 # ---- the live view (spec 2026-10-27-live-view) -------------------------------
 
 
-def test_the_live_section_loads_from_env():
-    s = load([], {
-        "LIVE_ENABLED": "false",
-        "LIVE_PASSWORD_FILE": "/run/vnc/password",
-        "LIVE_GRACE": "45",
-    }).settings
-    assert (s.live.enabled, s.live.password_file, s.live.grace) == (
-        False, "/run/vnc/password", 45,
-    )
-
-
-def test_the_live_defaults():
-    s = load([], {}).settings
-    assert (s.live.enabled, s.live.password_file, s.live.grace) == (True, None, 30)
-
-
-def test_a_live_grace_under_fifteen_is_refused():
-    # The heartbeat is fixed at 10 s: a grace shorter than that and a margin
-    # would drop a viewer whose tab is in plain sight.
-    with pytest.raises(ConfigError, match=r"live\.grace"):
-        load([], {"LIVE_GRACE": "10"})
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        pytest.param(
+            {
+                "LIVE_ENABLED": "false",
+                "LIVE_PASSWORD_FILE": "/run/vnc/password",
+                "LIVE_GRACE": "45",
+            },
+            (False, "/run/vnc/password", 45),
+            id="the-live-section-loads-from-env",
+        ),
+        pytest.param({}, (True, None, 30), id="the-live-defaults"),
+    ],
+)
+def test_the_live_section_loads(env, expected):
+    s = load([], env).settings
+    assert (s.live.enabled, s.live.password_file, s.live.grace) == expected
 
 
 def test_a_blank_live_password_file_is_none():

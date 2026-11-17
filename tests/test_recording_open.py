@@ -4,7 +4,9 @@ import pytest
 
 from kubed.selenium_flow import config
 from kubed.selenium_flow.workspace import workspaces as workspaces_module
-from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
+from kubed.selenium_flow.workspace.workspaces import Workspaces
+
+from .fakes import caller
 
 pytestmark = pytest.mark.unit
 
@@ -79,10 +81,6 @@ class Actions:
 
 def manager(recorder=None, monitor=None):
     return Workspaces(Actions(), recordings=recorder, monitor=monitor)
-
-
-def caller(name="bot"):
-    return Caller(name, "query")
 
 
 def test_record_without_recording_set_up_is_a_400_and_opens_nothing():

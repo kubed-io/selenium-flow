@@ -234,17 +234,43 @@ def test_post_browser_takes_version_and_capabilities(open_server, monkeypatch):
     assert seen["version"] == "152" and seen["capabilities"] == {"kubed:pool": "a"}
 
 
-def test_post_browser_refuses_an_owned_capability_naming_the_option(open_client):
-    """Refused before anything is opened or ended: the Grid is unroutable here,
-    so reaching it would be a 503, not this 400."""
-    response = open_client.post(
-        "/browser", json={"capabilities": {"browserName": "firefox"}}
-    )
+@pytest.mark.parametrize(
+    ("path", "body", "said"),
+    [
+        # Refused before anything is opened or ended: the Grid is unroutable here,
+        # so reaching it would be a 503, not this 400.
+        pytest.param(
+            "/browser",
+            {"capabilities": {"browserName": "firefox"}},
+            "browserName cannot be sent in capabilities: use browser= instead",
+            id="post-browser-refuses-an-owned-capability-naming-the-option",
+        ),
+        pytest.param(
+            "/browser/interact/click",
+            {"selector": {"xpath": "//a", "css": "a"}},
+            "not both",
+            id="naming-both-elements-is-a-400-rather-than-a-silent-choice",
+        ),
+        pytest.param("/browser/dialog", {"action": "shout"}, "shout", id="dialog-rejects-an-unknown-action"),
+        pytest.param(
+            "/browser/dialog",
+            {"action": "send_text"},
+            "text is required",
+            id="dialog-send-text-requires-text",
+        ),
+        # Switching without saying which frame is a caller mistake, not a default.
+        pytest.param(
+            "/browser/frame", {"action": "switch"}, "selector", id="frame-switch-needs-a-target"
+        ),
+        pytest.param(
+            "/browser/press-key", {"key": "banana"}, "unknown key", id="press-key-rejects-an-unknown-key"
+        ),
+    ],
+)
+def test_a_bad_argument_is_a_400_naming_it(open_client, path, body, said):
+    response = open_client.post(path, json=body)
     assert response.status_code == 400
-    assert (
-        "browserName cannot be sent in capabilities: use browser= instead"
-        in response.json()["error"]
-    )
+    assert said in response.json()["error"]
 
 
 def test_the_mouse_action_is_the_path_not_a_field(open_client):
@@ -262,15 +288,6 @@ def test_naming_no_element_is_a_400_that_says_how_to_address_one(open_client):
     assert "xpath" in error and "css" in error
 
 
-def test_naming_both_elements_is_a_400_rather_than_a_silent_choice(open_client):
-    response = open_client.post(
-        "/browser/interact/click",
-        json={"selector": {"xpath": "//a", "css": "a"}},
-    )
-    assert response.status_code == 400
-    assert "not both" in response.json()["error"]
-
-
 def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
     """A caller on a newer client should not hard-fail on an extra field."""
     response = open_client.post(
@@ -280,32 +297,35 @@ def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
     assert response.status_code == GRID_DOWN  # reached the Grid, not a 400
 
 
-def test_interact_rejects_an_unknown_action(open_client):
+@pytest.mark.parametrize(
+    ("path", "body", "unknown", "known_actions"),
+    [
+        pytest.param(
+            "/browser/interact/karate",
+            {"selector": {"xpath": "//a"}},
+            "karate",
+            ("click", "hover", "scroll_to"),
+            id="interact-rejects-an-unknown-action",
+        ),
+        pytest.param(
+            "/browser/frame",
+            {"action": "sideways"},
+            "sideways",
+            ("switch", "parent", "default"),
+            id="frame-rejects-an-unknown-action",
+        ),
+    ],
+)
+def test_an_unknown_action_is_a_400_naming_the_real_list(
+    open_client, path, body, unknown, known_actions
+):
     """The error names the real list, so a model can correct itself."""
-    response = open_client.post(
-        "/browser/interact/karate", json={"selector": {"xpath": "//a"}}
-    )
+    response = open_client.post(path, json=body)
     assert response.status_code == 400
     error = response.json()["error"]
-    assert "karate" in error
-    for known in ("click", "hover", "scroll_to"):
+    assert unknown in error
+    for known in known_actions:
         assert known in error
-
-
-def test_dialog_rejects_an_unknown_action(open_client):
-    response = open_client.post(
-        "/browser/dialog", json={"action": "shout"}
-    )
-    assert response.status_code == 400
-    assert "shout" in response.json()["error"]
-
-
-def test_dialog_send_text_requires_text(open_client):
-    response = open_client.post(
-        "/browser/dialog", json={"action": "send_text"}
-    )
-    assert response.status_code == 400
-    assert "text is required" in response.json()["error"]
 
 
 def test_upload_refuses_more_than_one_source(open_client):
@@ -394,24 +414,6 @@ def test_a_multipart_filename_can_be_overridden(open_client):
     assert response.status_code == GRID_DOWN, response.json()
 
 
-def test_frame_rejects_an_unknown_action(open_client):
-    response = open_client.post(
-        "/browser/frame", json={"action": "sideways"}
-    )
-    assert response.status_code == 400
-    error = response.json()["error"]
-    assert "sideways" in error
-    for known in ("switch", "parent", "default"):
-        assert known in error
-
-
-def test_frame_switch_needs_a_target(open_client):
-    """Switching without saying which frame is a caller mistake, not a default."""
-    response = open_client.post("/browser/frame", json={"action": "switch"})
-    assert response.status_code == 400
-    assert "selector" in response.json()["error"]
-
-
 def test_frame_default_needs_no_target(open_client):
     """Going back to the main page is unambiguous, so it takes no arguments.
 
@@ -426,14 +428,6 @@ def test_frame_default_needs_no_target(open_client):
 def test_a_non_object_body_is_rejected(open_client):
     response = open_client.post("/browser", json=[1, 2, 3])
     assert response.status_code == 400
-
-
-def test_press_key_rejects_an_unknown_key(open_client):
-    response = open_client.post(
-        "/browser/press-key", json={"key": "banana"}
-    )
-    assert response.status_code == 400
-    assert "unknown key" in response.json()["error"]
 
 
 def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
@@ -567,18 +561,20 @@ def test_the_prefix_is_a_mount_point_and_slash_means_root(given, expected):
     assert mount(given) == expected
 
 
-def test_every_tree_moves_with_the_prefix():
+@pytest.fixture
+def prefixed():
+    """A server mounted under ``/flow``."""
+    return SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
+    ))
+
+
+def test_every_tree_moves_with_the_prefix(prefixed):
     """The inversion §F1.11 asked for: `ROUTE_PREFIX` used to rename `/browser`
     while `/mcp`, `/admin` and `/files` stayed fixed. Nobody wants the browser
     endpoints called something else; everybody eventually wants the server
     mounted under a path."""
-    from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
-    app = server.mcp.http_app(path=server.mcp_path)  # what `run` serves
+    app = prefixed.mcp.http_app(path=prefixed.mcp_path)  # what `run` serves
     paths = {r.path for r in app.routes if hasattr(r, "path")}
     for tree in (
         "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/workspaces",
@@ -591,16 +587,10 @@ def test_every_tree_moves_with_the_prefix():
     ), "something stayed behind at the root"
 
 
-def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects():
+def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects(prefixed):
     """The UI is what a person gets for visiting the server; `/admin/*` is the
     API that page calls. The root used to 404."""
-    from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(prefixed.mcp.http_app())
     assert client.get("/flow/").status_code == 200
     moved = client.get("/flow/admin", follow_redirects=False)
     assert moved.status_code == 301
@@ -608,34 +598,23 @@ def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects():
     assert moved.headers["location"] == "./"
 
 
-def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix():
+def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix(prefixed):
     """The one path whose reader did not choose the mount. A readiness probe
     that 404s after a config change is the failure this avoids."""
-    from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(prefixed.mcp.http_app())
     for probe in ("/health", "/started", "/ready", "/info"):
         assert client.get(probe).status_code in (200, GRID_DOWN), probe
         assert client.get(f"/flow{probe}").status_code in (200, GRID_DOWN), probe
 
 
-async def test_the_published_spec_describes_the_paths_actually_served():
+async def test_the_published_spec_describes_the_paths_actually_served(prefixed):
     """A document that names a path nothing serves is worse than no document,
     and a prefix is exactly where the two drift apart."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.core.capabilities import ENDPOINTS
-    from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
-    spec = await build_spec(server.mcp, ENDPOINTS, "/flow", authenticated=True)
-    served = {r.path for r in server.mcp.http_app().routes if hasattr(r, "path")}
+    spec = await build_spec(prefixed.mcp, ENDPOINTS, "/flow", authenticated=True)
+    served = {r.path for r in prefixed.mcp.http_app().routes if hasattr(r, "path")}
     assert set(spec["paths"]) <= served, set(spec["paths"]) - served
 
 
