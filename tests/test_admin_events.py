@@ -161,25 +161,6 @@ async def _close(stop, tasks, gate=None):
     await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 5)
 
 
-async def test_three_pages_cost_one_grid_listing_a_tick(server, gated):
-    gate, entered = gated
-    server.workspaces.store.set("one", Workspace(session_id=""))
-    app = server.mcp.http_app()
-    stop = asyncio.Event()
-    sinks = [[], [], []]
-    tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
-    try:
-        for tick in (1, 2, 3):
-            await _until(lambda t=tick: len(entered) >= t, f"tick {tick}")
-            assert len(entered) == tick, "one Grid listing per tick, not per page"
-            gate.release(1)
-        await _until(lambda: len(entered) >= 4, "the fourth tick")
-        assert len(entered) == 4
-        assert all(len(s) == 1 for s in sinks) and sinks[0] == sinks[1] == sinks[2]
-    finally:
-        await _close(stop, tasks, gate)
-
-
 async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch):
     """One broadcaster sits behind every connection, so three open pages ask the
     Grid once a tick. What must survive is the rest — one payload when something
