@@ -144,9 +144,7 @@ RESPONSES = {
             "settings": {"type": "object"},
             "site_data": {
                 "type": "object",
-                "description": (
-                    "Present only when the workspace has saved site data."
-                ),
+                "description": ("Present only when the workspace has saved site data."),
                 "properties": {
                     "sites": {
                         "type": "integer",
@@ -437,9 +435,7 @@ FLOW_SCHEMAS = {
                             ),
                         },
                         "file": {
-                            "allOf": [
-                                {"$ref": "#/components/schemas/FileEntry"}
-                            ],
+                            "allOf": [{"$ref": "#/components/schemas/FileEntry"}],
                             "description": (
                                 "The file this step produced — a screenshot, a "
                                 "PDF — present whether or not the step is "
@@ -626,8 +622,7 @@ SECRET_SCHEMAS = {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": (
-                    "The sites it may be typed on, and only there. Empty means "
-                    "nowhere."
+                    "The sites it may be typed on, and only there. Empty means nowhere."
                 ),
             },
             "restricted": {
@@ -727,8 +722,7 @@ FILE_SCHEMAS = {
             "uri": {
                 "type": "string",
                 "description": (
-                    "This file's address. keep_file and upload_file(file=) "
-                    "take it."
+                    "This file's address. keep_file and upload_file(file=) take it."
                 ),
             },
             "size": {"type": "integer"},

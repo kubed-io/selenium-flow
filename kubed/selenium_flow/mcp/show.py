@@ -243,10 +243,14 @@ def register(mcp, app_config) -> set[str]:
         # text block too, doubling it. The model reads resources to think
         # (ruling 1), so its text is one line saying what was shown.
         text = summary(uri, component, data)
-        size = len(json.dumps({
-            "content": [{"type": "text", "text": text}],
-            "structuredContent": payload,
-        }))
+        size = len(
+            json.dumps(
+                {
+                    "content": [{"type": "text", "text": text}],
+                    "structuredContent": payload,
+                }
+            )
+        )
         if size > MAX_SHOWN:
             raise ValueError(
                 f"{uri} is too large to draw here ({size} characters); "

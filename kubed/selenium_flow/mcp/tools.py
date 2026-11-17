@@ -87,6 +87,7 @@ PrintFormat = Annotated[Literal[PRINT_FORMATS], BeforeValidator(_lowered)]
 Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
 RequestId = Annotated[str, Field(min_length=1, max_length=ID_LIMIT)]
 
+
 def _as_selector(value):
     """A selector sent as a JSON string, turned back into an object.
 
@@ -135,13 +136,13 @@ class Selector(BaseModel):
         `ok` while it drifted (§F2.14)."""
         if bool(self.xpath) == bool(self.css):
             raise ValueError(
-                "a selector takes xpath or css - exactly one, not both and not "
-                "neither"
+                "a selector takes xpath or css - exactly one, not both and not neither"
             )
         return self
 
 
 SelectorArg = Annotated[Selector | None, BeforeValidator(_as_selector)]
+
 
 class SecretRef(BaseModel):
     """Which secret, and which key inside it."""
@@ -280,8 +281,7 @@ class InstructionsFor(Middleware):
 #   here is never said.
 _THE_CAPTURE = frozenset({"image", "width", "height", "bytes", *PAGE_STATE})
 _BESIDE_THE_IMAGE = tuple(
-    k for k in capability("screenshot").response["properties"]
-    if k not in _THE_CAPTURE
+    k for k in capability("screenshot").response["properties"] if k not in _THE_CAPTURE
 )
 
 
@@ -344,7 +344,11 @@ def register(
                 raise ValueError(f"{row.name} needs text, or a secret to supply it")
             if arguments["secret"] is not None:
                 return secrets_module.perform_write(
-                    catalogue, actions, workspaces, clients.caller().name, arguments,
+                    catalogue,
+                    actions,
+                    workspaces,
+                    clients.caller().name,
+                    arguments,
                     surface="mcp",
                 )
             del arguments["secret"]
@@ -755,9 +759,7 @@ def register(
     ) -> dict: ...
 
     @action("execute_script")
-    def execute_script(
-        script: str, url: str | None = None
-    ) -> dict:
+    def execute_script(script: str, url: str | None = None) -> dict:
         """Run JavaScript in the page and return what it returns.
 
         Check the other tools first: interact, write, extract and outline cover most

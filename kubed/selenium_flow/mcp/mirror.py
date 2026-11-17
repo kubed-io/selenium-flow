@@ -110,8 +110,10 @@ def _media_type(uri: str, declared: str | None) -> str:
 
 
 # Where a binary file's link is listed, by the prefix of its URI.
-LINKED_FROM = (("workspace://files/", "workspace://files"),
-               ("session://downloads/", "session://downloads"))
+LINKED_FROM = (
+    ("workspace://files/", "workspace://files"),
+    ("session://downloads/", "session://downloads"),
+)
 
 
 def _where_to_read(uri: str) -> str:
@@ -227,7 +229,8 @@ class HideMirrors(Middleware):
     async def on_list_tools(self, context, call_next):
         tools = await call_next(context)
         hidden = (
-            set() if not clients.reads_resources(clients.caller())
+            set()
+            if not clients.reads_resources(clients.caller())
             else set(MIRROR_TOOLS)
         )
         if not (self.apps_enabled and apps.supported()):

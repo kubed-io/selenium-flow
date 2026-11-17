@@ -496,8 +496,8 @@ def _request_content(action: str, request_name: str) -> dict:
                     "selector": {
                         "type": "string",
                         "description": (
-                            "The element, as JSON: {\"css\": \"input[type=file]\"} "
-                            "or {\"xpath\": \"//input\"}. A form field carries "
+                            'The element, as JSON: {"css": "input[type=file]"} '
+                            'or {"xpath": "//input"}. A form field carries '
                             "text, so this one is the object encoded rather than "
                             "nested."
                         ),
@@ -653,6 +653,7 @@ def _camel(name: str) -> str:
 # and only a test notices. `test_openapi.py` holds the path list to
 # `flowapi.FLOW_ENDPOINTS` for exactly that reason.
 
+
 # A workspace name is optional everywhere and defaults to the shared library, the
 # same way it does on the MCP surface for a caller with no name of its own.
 # The write endpoints need a different sentence. Falling back to `global` is
@@ -713,8 +714,10 @@ def _flow_paths(prefix: str = "") -> dict:
     paths: dict = {}
     for path, (op, summary, description, request, response) in _FLOW_OPERATIONS.items():
         method, template = FLOW_ROUTES[path]
-        route = f"{prefix}{template}" if template.startswith("/schemas") else (
-            f"{prefix}/flows{template}"
+        route = (
+            f"{prefix}{template}"
+            if template.startswith("/schemas")
+            else (f"{prefix}/flows{template}")
         )
         schema = (
             {"$ref": f"#/components/schemas/{response}"}
@@ -733,16 +736,16 @@ def _flow_paths(prefix: str = "") -> dict:
             "description": description,
             "tags": ["flows"],
             "responses": {
-                    "200": {
-                        "description": summary,
-                        "content": {"application/json": {"schema": schema}},
-                    },
-                    "400": _error(
-                        "The request cannot succeed as sent — an unusable name, "
-                        "a flow that does not exist, a document that would not "
-                        "run, or a write aimed at the read-only shared library. "
-                        "Do not retry it unchanged."
-                    ),
+                "200": {
+                    "description": summary,
+                    "content": {"application/json": {"schema": schema}},
+                },
+                "400": _error(
+                    "The request cannot succeed as sent — an unusable name, "
+                    "a flow that does not exist, a document that would not "
+                    "run, or a write aimed at the read-only shared library. "
+                    "Do not retry it unchanged."
+                ),
                 "401": _error("Missing or wrong bearer token."),
                 "500": _error("Something failed that this server did not expect."),
             },
@@ -784,9 +787,7 @@ def _file_paths(prefix: str = "") -> dict:
 
     _, tools = _mcp_tools()
     paths = {}
-    for path, (op, summary, description, request, response) in (
-        _FILE_OPERATIONS.items()
-    ):
+    for path, (op, summary, description, request, response) in _FILE_OPERATIONS.items():
         responses = {
             "200": {
                 "description": summary,

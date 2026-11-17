@@ -56,14 +56,16 @@ log = logging.getLogger(__name__)
 EXEMPT = ("skill://", "ui://", "flow://schema", "secret://secrets")
 
 # Media types that are text whatever their `text/` prefix says.
-TEXT_TYPES = frozenset({
-    "application/json",
-    "application/xml",
-    "application/javascript",
-    "application/x-yaml",
-    "application/yaml",
-    "image/svg+xml",
-})
+TEXT_TYPES = frozenset(
+    {
+        "application/json",
+        "application/xml",
+        "application/javascript",
+        "application/x-yaml",
+        "application/yaml",
+        "image/svg+xml",
+    }
+)
 
 
 def textual(media: str | None) -> bool:

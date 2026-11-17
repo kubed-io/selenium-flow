@@ -98,7 +98,8 @@ class SeleniumMCP:
         # Resolved before the actions, because the pointer store is derived
         # from it.
         self.store = (
-            store if store is not None
+            store
+            if store is not None
             else store_module.from_settings(settings.workspace, settings.redis)
         )
         # Where the pointer is in each browser, on the same backend as the
@@ -219,7 +220,8 @@ class SeleniumMCP:
             )
             log.info(
                 "recordings: on, inbox %s, %s",
-                inbox, "polling" if self.collector.polling else "events",
+                inbox,
+                "polling" if self.collector.polling else "events",
             )
             collector_ended = self.collector.ended
             self.bus.subscribe(
@@ -377,14 +379,24 @@ class SeleniumMCP:
         # a default here would let some future two-argument call silently land
         # in Files.
         self.actions.keep = lambda name, data, folder: files.keep_made(
-            clients.caller().name, self.flows, name, data, auth_token, base,
-            self.prefix, folder, ttl=settings.link_ttl,
+            clients.caller().name,
+            self.flows,
+            name,
+            data,
+            auth_token,
+            base,
+            self.prefix,
+            folder,
+            ttl=settings.link_ttl,
         )
         # And how it reads one back, for `upload_file(file=...)`. Wired here for
         # the same reason: which workspace owns a file is a question about
         # the caller, which the behaviour layer deliberately cannot see.
         self.actions.read_file = lambda uri, workspace=None: files.read_file(
-            self.actions, self.workspaces, self.flows, uri,
+            self.actions,
+            self.workspaces,
+            self.flows,
+            uri,
             workspace or clients.caller().name,
         )
         # And where the caller's workspace has been, so one save reads every
