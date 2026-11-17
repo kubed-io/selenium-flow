@@ -156,9 +156,7 @@ class Pages:
         conn = self.connection(grid_id)
         if conn is None:
             return
-        task = asyncio.get_running_loop().create_task(
-            self._title(conn, context, entry)
-        )
+        task = asyncio.get_running_loop().create_task(self._title(conn, context, entry))
         followed.reading.add(task)
         task.add_done_callback(followed.reading.discard)
 

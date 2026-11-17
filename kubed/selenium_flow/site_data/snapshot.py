@@ -21,7 +21,6 @@ Values are credentials. They live in the workspace store and nowhere else, are
 never logged, and an httpOnly cookie's value is never shown on any surface.
 """
 
-
 from __future__ import annotations
 
 import json
@@ -72,7 +71,8 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
     last = (previous or {}).get("origins") or {}
     kept = {
         f["site"]: (last.get(f["site"]) or {}).get("local")
-        for f in skipped if f.get("site")
+        for f in skipped
+        if f.get("site")
     }
     newest = (here, *(v["origin"] for v in history or ()), *read, *kept)
     origins = {}
@@ -89,9 +89,7 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
     }
     if _size({**data, "origins": {}, "session": {}}) > MAX_BYTES:
         # The jar is the one thing a save cannot leave out.
-        raise ValueError(
-            f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved"
-        )
+        raise ValueError(f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved")
     # Sized once, then evicted by subtracting: re-serialising the whole payload
     # per eviction was quadratic (1.2 s at 400 origins of 20 KB). Every piece is
     # sized with the same ``json.dumps`` the payload is, and the separators
@@ -140,7 +138,8 @@ def restorable(data: dict) -> bool:
         return False
     session = data.get("session")
     return bool(
-        data.get("cookies") or data.get("origins")
+        data.get("cookies")
+        or data.get("origins")
         or (isinstance(session, dict) and session.get("items"))
     )
 
@@ -173,7 +172,8 @@ class _Jar:
         # that is the way out of it (Copilot, #51).
         self.data = _a(data, dict)
         self.cookies = [
-            c for c in _a(self.data.get("cookies"), list)
+            c
+            for c in _a(self.data.get("cookies"), list)
             if isinstance(c, dict)
             and all(isinstance(c.get(k), str) and c[k] for k in ("name", "domain"))
         ]
@@ -186,7 +186,8 @@ class _Jar:
         self.origins: dict[str, dict] = {}
         for o, e in _a(self.data.get("origins"), dict).items():
             self.origins.setdefault(host_of(o), {})[o] = {
-                "local": dict(_a(_a(e, dict).get("local"), dict)), "session": {},
+                "local": dict(_a(_a(e, dict).get("local"), dict)),
+                "session": {},
             }
         session = _a(self.data.get("session"), dict)
         items = _a(session.get("items"), dict)
@@ -264,7 +265,8 @@ def _shared(cookies: list[dict], host: str) -> list[dict]:
     """Covering cookies that stay when ``host`` is forgotten: a parent's
     leading-dot cookie, which other rows use."""
     return [
-        c for c in cookies
+        c
+        for c in cookies
         if (c.get("domain") or "").startswith(".") and not _own(c["domain"], host)
     ]
 
@@ -293,7 +295,9 @@ def _ordered(jar: _Jar, history=()) -> list[str]:
 
 def _row(site: dict) -> dict:
     return {
-        "site": site["site"], "uri": site["uri"], "cookies": len(site["_cookies"]),
+        "site": site["site"],
+        "uri": site["uri"],
+        "cookies": len(site["_cookies"]),
         "storage": [
             {
                 "origin": e["origin"],
@@ -308,7 +312,8 @@ def _row(site: dict) -> dict:
 def _detail(site: dict) -> dict:
     host = site["site"]
     return {
-        "site": host, "uri": site["uri"],
+        "site": host,
+        "uri": site["uri"],
         "cookies": [_cookie_view(c, host) for c in site["_cookies"]],
         "storage": site["storage"],
         # What Forget would do, by the rule Forget itself uses.
@@ -360,17 +365,21 @@ def history_view(history, data: dict, secrets: list[dict] | None = None) -> dict
     rows = []
     for host in history_hosts(history):
         row = saved.get(host)
-        rows.append({
-            "site": host,
-            "url": latest[host]["url"],
-            "at": latest[host]["at"],
-            "saved": {
-                "cookies": row["cookies"],
-                "local": sum(e["local_storage"] for e in row["storage"]),
-                "session": sum(e["session_storage"] for e in row["storage"]),
-            } if row else None,
-            "secrets": matching_secrets(secrets, host),
-        })
+        rows.append(
+            {
+                "site": host,
+                "url": latest[host]["url"],
+                "at": latest[host]["at"],
+                "saved": {
+                    "cookies": row["cookies"],
+                    "local": sum(e["local_storage"] for e in row["storage"]),
+                    "session": sum(e["session_storage"] for e in row["storage"]),
+                }
+                if row
+                else None,
+                "secrets": matching_secrets(secrets, host),
+            }
+        )
     return {"sites": rows}
 
 
@@ -406,4 +415,3 @@ def forget(data: dict, host: str) -> tuple[dict, dict]:
         "origins": origins,
         "kept_shared": [_identity(c) for c in _shared(covering, host)],
     }
-

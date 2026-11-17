@@ -75,31 +75,49 @@ def spare_tab(
             # On the loop, once per event: a refused response is not an error
             # here, it leaves the request blocked and the navigate times out.
             if params.get("isBlocked"):
-                channel.post("network.provideResponse", {
-                    "request": params["request"]["request"],
-                    "statusCode": 200,
-                    "headers": [{
-                        "name": "content-type",
-                        "value": {"type": "string", "value": "text/html"},
-                    }],
-                    "body": {"type": "string", "value": SPARE_PAGE},
-                })
+                channel.post(
+                    "network.provideResponse",
+                    {
+                        "request": params["request"]["request"],
+                        "statusCode": 200,
+                        "headers": [
+                            {
+                                "name": "content-type",
+                                "value": {"type": "string", "value": "text/html"},
+                            }
+                        ],
+                        "body": {"type": "string", "value": SPARE_PAGE},
+                    },
+                )
 
-        intercept.append(channel.call("network.addIntercept", {
-            "phases": ["beforeRequestSent"],
-            "contexts": [tab],
-            "urlPatterns": [{"type": "pattern", "pathname": SPARE_PATH}],
-        })["intercept"])
+        intercept.append(
+            channel.call(
+                "network.addIntercept",
+                {
+                    "phases": ["beforeRequestSent"],
+                    "contexts": [tab],
+                    "urlPatterns": [{"type": "pattern", "pathname": SPARE_PATH}],
+                },
+            )["intercept"]
+        )
 
         def run(origin: str, expression: str):
-            channel.call("browsingContext.navigate", {
-                "context": tab, "url": origin + SPARE_PATH, "wait": "complete",
-            })
-            reply = channel.call("script.evaluate", {
-                "expression": _on_spare(expression, origin),
-                "target": {"context": tab},
-                "awaitPromise": True,
-            })
+            channel.call(
+                "browsingContext.navigate",
+                {
+                    "context": tab,
+                    "url": origin + SPARE_PATH,
+                    "wait": "complete",
+                },
+            )
+            reply = channel.call(
+                "script.evaluate",
+                {
+                    "expression": _on_spare(expression, origin),
+                    "target": {"context": tab},
+                    "awaitPromise": True,
+                },
+            )
             if reply.get("type") == "exception":
                 details = reply.get("exceptionDetails") or {}
                 raise RuntimeError(details.get("text") or "the script failed")
