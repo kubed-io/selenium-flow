@@ -78,11 +78,6 @@ def origin(url: str) -> str:
     return scope_origin(url)
 
 
-def _origin(parts) -> str:
-    """`origin` for a URL already split by `urlsplit`."""
-    return scope_origin_of(parts)
-
-
 def _shown(line: str) -> str:
     """A rejected `_allowed_urls` line, safe to publish in `/secrets`.
 
@@ -91,7 +86,7 @@ def _shown(line: str) -> str:
     """
     try:
         parts = urlsplit((line or "").strip())
-        origin = _origin(parts)
+        origin = scope_origin_of(parts)
     except ValueError:
         return "<a line that is not a URL>"
     if not parts.scheme or not origin:
@@ -123,7 +118,7 @@ def declared_origin(line: str) -> str | None:
     if parts.username or parts.password:
         # Always a mistake, and the same site would read as two origins.
         return None
-    return _origin(parts)
+    return scope_origin_of(parts)
 
 
 class SecretSource(Protocol):
