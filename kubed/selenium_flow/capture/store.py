@@ -31,11 +31,8 @@ known-empty only for the top page; any other context's ``""`` inherits, as
 the browser's does, so it waits with its parent (a popup's opener; every
 leashed secret for a tab with neither).
 
-The ask is made after the lock is released, because a build already done
-calls back at once. Its ``done`` runs on a scrubber thread, so when ``ingest``
-ran on a loop the landing is handed to that loop with ``call_soon_threadsafe``
-(the tails are asyncio queues); with none it lands at once. `_landed` replays
-the raw events through the same handlers, so Chrome's replay hold and
+`_ask` and `_deliver` say how an ask is made and lands. `_landed` replays the
+raw events through the same handlers, so Chrome's replay hold and
 ``_started``'s marks behave as if they had just arrived. What waits is bounded
 by `PENDING_EVENTS` per context and `QUEUE_BYTES` (estimated) per session,
 the oldest going first, and an event older than `PENDING_SECONDS` is dropped
