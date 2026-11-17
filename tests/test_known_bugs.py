@@ -86,16 +86,6 @@ def test_a_reap_with_no_keep_alive_running_is_reaped_not_lost():
 # ---- auth and live view -------------------------------------------------------
 
 
-@bug("an OIDC user named admin has the token holder's viewer name")
-@pytest.mark.parametrize("name", ["admin", "open", "oidc"])
-def test_no_oidc_username_reads_as_the_admin_or_an_open_server(name):
-    from kubed.selenium_flow.live.audit import viewer_of
-    from kubed.selenium_flow.principal import ADMIN, Principal
-
-    person = Principal("oidc", subject="s1", username=name)
-    assert viewer_of(person) not in (viewer_of(ADMIN), viewer_of(None), "oidc")
-
-
 # ---- site data ---------------------------------------------------------------
 
 

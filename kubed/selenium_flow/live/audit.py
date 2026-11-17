@@ -25,12 +25,17 @@ def clean(name: str, cap: int = NAME_CAP) -> str:
 
 
 def viewer_of(principal: Principal | None) -> str:
-    """Who is watching, as one line names them."""
+    """Who is watching, as one line names them.
+
+    A person signed in with OIDC is ``oidc:<name>``: the name is also who holds
+    control, so a user called ``admin`` or ``open`` must not read as either.
+    """
     if principal is None:
         return "open"
     if principal.admin:
         return "admin"
-    return clean(principal.username or principal.subject or "oidc")
+    name = principal.username or principal.subject
+    return clean(f"oidc:{name}" if name else "oidc")
 
 
 def session_label(opened_at: float) -> str:
