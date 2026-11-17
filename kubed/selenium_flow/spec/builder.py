@@ -186,11 +186,11 @@ async def build_spec(
                         "the browser does not trust. Do not retry it "
                         "unchanged."
                     ),
-                    "401": _error("Missing or wrong bearer token."),
+                    "401": _error(UNAUTHORIZED),
                     "413": _error(TOO_LARGE),
                     "404": _error(NOT_FOUND.get(action, GONE_BROWSER)),
                     "409": _error(CONTROLLED),
-                    "500": _error("Something failed that this server did not expect."),
+                    "500": _error(UNEXPECTED),
                     "503": _error(
                         "The Grid could not serve this — unreachable, or no free "
                         "slot for a new browser. Worth retrying after a wait."
@@ -235,7 +235,7 @@ async def build_spec(
             "responses": {
                 "200": _answer(summary, _ref(response_name)),
                 "400": _error(RESOURCE_400.get(action, RESOURCE_400[""])),
-                "401": _error("Missing or wrong bearer token."),
+                "401": _error(UNAUTHORIZED),
                 "409": _error(CONTROLLED),
                 "413": _error(TOO_LARGE),
                 "503": _error(RESOURCE_503.get(action, RESOURCE_503[""])),
@@ -257,7 +257,7 @@ async def build_spec(
                 "The workspace's current state. Opens nothing.", _ref("WorkspaceStatus")
             ),
             "400": _error("No workspace named, or two names given."),
-            "401": _error("Missing or wrong bearer token."),
+            "401": _error(UNAUTHORIZED),
         },
     }
 
@@ -498,6 +498,8 @@ def _without(schema: dict, *names: str) -> dict:
     return schema
 
 
+UNAUTHORIZED = "Missing or wrong bearer token."
+UNEXPECTED = "Something failed that this server did not expect."
 TOO_LARGE = (
     "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of "
     "flow YAML. Send less; retrying it unchanged will fail again."
@@ -624,8 +626,8 @@ def _flow_paths(prefix: str = "") -> dict:
                     "run, or a write aimed at the read-only shared library. "
                     "Do not retry it unchanged."
                 ),
-                "401": _error("Missing or wrong bearer token."),
-                "500": _error("Something failed that this server did not expect."),
+                "401": _error(UNAUTHORIZED),
+                "500": _error(UNEXPECTED),
             },
         }
         if has_body:
@@ -665,12 +667,12 @@ def _file_paths(prefix: str = "") -> dict:
                     "unchanged.",
                 )
             ),
-            "401": _error("Missing or wrong bearer token."),
+            "401": _error(UNAUTHORIZED),
             "404": _error(
                 "No such browser session, or no such file in it. It ended, the "
                 "Grid reaped it, or the id was never real."
             ),
-            "500": _error("Something failed that this server did not expect."),
+            "500": _error(UNEXPECTED),
             "503": _error(
                 "The Grid could not serve this — unreachable, or failing. Worth "
                 "retrying after a wait."
@@ -716,8 +718,8 @@ def _site_data_paths(prefix: str = "") -> dict:
                         "No workspace named, two names given, or no saved data for "
                         "that site. Do not retry it unchanged."
                     ),
-                    "401": _error("Missing or wrong bearer token."),
-                    "500": _error("Something failed that this server did not expect."),
+                    "401": _error(UNAUTHORIZED),
+                    "500": _error(UNEXPECTED),
                 },
             }
         }
@@ -770,8 +772,8 @@ def _secret_paths(prefix: str = "") -> dict:
                         "with no secrets.dirs and no secrets.entries, so there "
                         "are no secrets to list."
                     ),
-                    "401": _error("Missing or wrong bearer token."),
-                    "500": _error("Something failed that this server did not expect."),
+                    "401": _error(UNAUTHORIZED),
+                    "500": _error(UNEXPECTED),
                 },
             }
         }
