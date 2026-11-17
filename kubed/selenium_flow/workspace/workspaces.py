@@ -57,7 +57,7 @@ from ..core.actions import CUTS, OPEN_PRIVATE, Actions, cut_names
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
-from ..monitor.monitor import ATTACH_FAILED, DEFAULT_TIMEOUT
+from ..monitor.monitor import ATTACH_FAILED, DEFAULT_TIMEOUT, KEEPALIVE
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
 from ..redaction import Forms
@@ -771,6 +771,11 @@ class Workspaces:
     def _ended(self, name: str, session_id: str, cause: str) -> None:
         """Announce that ``session_id`` ended, when there is a monitor."""
         self._told("ended", name, session_id, cause)
+
+    def _let_go(self, session_id: str) -> None:
+        """Stop keeping alive a browser whose quit failed: pinged, a browser left
+        running would never time out."""
+        self._told("release", session_id, KEEPALIVE)
 
     def _refuse(self, caller: Caller, tool: str) -> None:
         """Raise the refusal for ``tool`` while a person holds this workspace's
@@ -1529,6 +1534,7 @@ class Workspaces:
                 name,
                 type(exc).__name__,
             )
+            self._let_go(session_id)
         else:
             self._ended(name, session_id, "ended")
         return kept
@@ -1724,5 +1730,7 @@ class Workspaces:
         # the monitor's listing finds it later if it is watched.
         if quit_ok:
             self._ended(name, target, "ended")
+        else:
+            self._let_go(target)
         log.info("ended the browser for workspace %s", name)
         return target

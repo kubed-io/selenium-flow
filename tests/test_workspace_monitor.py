@@ -6,8 +6,9 @@ from dataclasses import replace
 import pytest
 
 from kubed.selenium_flow.workspace.store import Workspace
-from kubed.selenium_flow.workspace.workspaces import Workspaces
+from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
+from .conftest import NAMED, RecordingActions
 from .fakes import WorkspaceActions, caller
 
 pytestmark = pytest.mark.unit
@@ -142,3 +143,46 @@ def test_a_stored_timeout_is_read_back_only_when_it_is_a_positive_int():
     for raw in ('"300"', "0", "-5", "true", "1.5", "null"):
         record = Workspace.from_json(f'{{"grid_timeout": {raw}}}')
         assert record.grid_timeout is None, raw
+
+
+class SpyMonitor:
+    """Records what the manager tells the monitor."""
+
+    def __init__(self):
+        self.told = []
+
+    def __getattr__(self, what):
+        def record(*args, **kwargs):
+            self.told.append((what, args))
+
+        return record
+
+
+class StuckActions(RecordingActions):
+    """A Grid that answers the quit with an error other than 404."""
+
+    def end_browser(self, session_id):
+        raise RuntimeError("grid down")
+
+
+def let_go(spy, session_id):
+    """Whether the monitor was told to stop watching, or that it ended."""
+    return any(
+        what in ("release", "ended") and session_id in args for what, args in spy.told
+    )
+
+
+def test_a_failed_quit_lets_the_monitor_go_of_the_browser():
+    spy = SpyMonitor()
+    workspaces = Workspaces(StuckActions(), monitor=spy)
+    workspaces.remember(NAMED, "one", "https://a.test/")
+    workspaces.end_browser(Caller(NAMED))
+    assert let_go(spy, "one")
+
+
+def test_a_losing_open_whose_quit_fails_is_not_left_watched():
+    spy = SpyMonitor()
+    workspaces = Workspaces(StuckActions(), monitor=spy)
+    workspaces.remember(NAMED, "winner", "https://a.test/")
+    workspaces.remember(NAMED, "loser", "https://a.test/")
+    assert let_go(spy, "loser")
