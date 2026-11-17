@@ -1,7 +1,6 @@
-"""Saved flows, offered every way a client might reach them.
+"""Saved flows as MCP resources and tools, and as REST routes under `/flows`.
 
-A listing is *state to read*, so it is a resource; writes are only ever tools,
-because a resource cannot write.
+Reads are resources, writes are tools:
 
 | Verb | Surface |
 |---|---|
@@ -12,25 +11,13 @@ because a resource cannot write.
 | run | `run_flow` |
 | delete | `delete_flow` |
 
-A client that cannot read resources reads the same URIs with `read_resource`
-(§F3.6). That is the answer to "how do we avoid five CRUD tools" (§F1.5) — not
-by overloading one verb, but by putting reads where reads belong.
+`/flows` has its own route table, apart from the browser actions', so the
+one-to-one check `test_surfaces.py` makes over browser actions does not count it.
 
-**`/flows` is a layer above `/browser`, not more of it.** The browser endpoints
-are single actions; these are about documents that *contain* them. They get
-their own route table, so the one-to-one promise `test_surfaces.py` guards over
-browser actions is untouched (§F1.7, question #7).
-
-Two rules from the chapter show up here as code:
-
-- **Reads merge your workspace with `global`, writes never do** (§F1.2). Your
-  own flow wins a name collision, so a workspace can shadow a shared one without
-  disturbing it, and nothing an agent does can publish to the shared library —
-  including a caller that has no name of its own, which used to be the one
-  exception and is now refused like any other. `writable` is where that is
-  enforced, and the admin UI deliberately does not come through it.
-- **A flow is validated when it is saved** (§F1.6), against the real tool
-  schemas, so a broken one is refused while its author is still looking at it.
+Reads merge the caller's library with `global`, and the caller's flow wins a
+name both hold. Writes go only to the caller's own library: `writable` enforces
+it, and the admin UI does not come through it. A flow is validated against the
+live tool schemas when it is saved.
 """
 
 from __future__ import annotations
@@ -63,14 +50,12 @@ from . import run as flowrun
 
 log = logging.getLogger(__name__)
 
-# The only tools a step may dispatch to: the browser actions' commands, read off
-# the capability table that both surfaces are mounted from and that
-# test_surfaces.py holds to its hand list. The lifecycle calls are not steps
-# (`flowdoc.NOT_STEPS`).
+# The only tools a step may dispatch to: the capability table's commands, less
+# the lifecycle calls.
 RUNNABLE = frozenset(ENDPOINTS.values()) - flowdoc.NOT_STEPS.keys()
 
-# A run is handed what it must not import: the capability table's tools and the
-# skill's URIs. This module knows both, so it is where the two are joined.
+# The run must not import the capability table or the skill; this module knows
+# both and hands them in.
 flowrun.wire(
     engine.Toolbox(runnable=RUNNABLE, method_for=method_for, library_arg=LIBRARY_ARG),
     guidance.pointer,
@@ -88,24 +73,20 @@ DELETE_TOOL = "delete_flow"
 # that name.
 SCHEMA_PATH = "/schemas/flow"
 
-# The REST shape of each one: method, and the path under the /flows prefix. The
-# route table and the published spec read the same rows, so a path can only be
-# described the way it is actually served (§F2.13).
+# Method, and the path under the /flows prefix. The route table and the
+# published spec both read these rows.
 FLOW_ROUTES = {
     "list": ("get", ""),
     "get": ("get", "/{name}"),
     "save": ("put", "/{name}"),
     "delete": ("delete", "/{name}"),
     "run": ("post", "/{name}/runs"),
-    # Its own tree beside /flows, and mounted like every other tree.
+    # Beside /flows, not under it.
     "schema": ("get", SCHEMA_PATH),
 }
 
-# The endpoints by name, read off the route table rather than listed beside it.
-# Separate from the capability table on purpose: these are not browser actions and
-# must not be counted as though they were. Kept as names rather than paths
-# because the spec and the wiki describe capabilities, and the path each one
-# lives at is the route table's business (§F2.13).
+# By name, apart from the capability table: these are not browser actions and
+# must not be counted as one.
 FLOW_ENDPOINTS = tuple(FLOW_ROUTES)
 
 OFF = (
@@ -140,19 +121,15 @@ def _context():
 
 
 def catalogue(store, workspace: str) -> dict:
-    """Every flow this workspace can run: its own, plus the shared library.
+    """Every flow this workspace can run: its own, plus the shared library's.
 
-    A name defined in both resolves to this workspace's, and the entry says which
-    library it came from — "why am I running the wrong login" is otherwise
-    unanswerable.
+    A name defined in both resolves to this workspace's, and each entry says
+    which library it came from.
     """
     store = _require(store)
     entries = {}
-    # `shared` says which directory the flow is in, never who is asking. A
-    # caller whose own library *is* the shared one still has to be told so: the
-    # admin decides from this flag whether to show the globe and which way the
-    # move button points, and "not shared" on a flow sitting in `global` offers
-    # a move that would be a no-op.
+    # `shared` says which directory holds the flow, never who is asking: the
+    # admin reads it to choose the globe and which way the move button points.
     own_are_shared = workspace == GLOBAL_WORKSPACE
     if not own_are_shared:
         for summary in store.summaries(GLOBAL_WORKSPACE):
@@ -170,8 +147,7 @@ def read_one(store, workspace: str, name: str) -> dict:
     """One flow: this workspace's if it has one, else the shared library's."""
     store = _require(store)
     flow = store.get(workspace, name)
-    # A caller whose library is the shared one reads a shared flow. See
-    # `catalogue`: the flag describes the directory, not the reader.
+    # The flag describes the directory, as in `catalogue`.
     shared = workspace == GLOBAL_WORKSPACE
     if flow is None and workspace != GLOBAL_WORKSPACE:
         flow = store.get(GLOBAL_WORKSPACE, name)
@@ -189,22 +165,12 @@ def read_one(store, workspace: str, name: str) -> dict:
 
 
 def writable(workspace: str) -> str:
-    """``workspace`` if an agent may write to it, else refuse (§F1.2).
+    """``workspace`` if an agent may write to it, else refuse.
 
-    **`global` is read-and-run only on this surface**, and the argument is
-    concurrency rather than tidiness: the shared library is *live*. Every
-    workspace lists and runs what is in it, so a flow rewritten or deleted by one
-    agent changes or vanishes underneath another that is part-way through using
-    it — a race with no error message and nothing recording who did it.
-
-    This used to have an exception that swallowed the rule: a caller with no
-    workspace name *is* `global`, so unnamed callers could write to the shared
-    library while named ones could not. That was written down and apologised
-    for; now it is simply closed.
-
-    **The operator path must not come through here.** Moving a flow into
-    `global` from the admin UI is a person doing it deliberately, on a surface
-    that can show what a change affects. That writes to the store directly.
+    `global` is read-and-run only here: every workspace runs what is in it, so
+    a flow one agent rewrote or deleted would change or vanish under another
+    mid-run. A caller with no workspace name is `global` and is refused too.
+    The admin UI writes to the store directly and never comes through here.
     """
     if workspace == GLOBAL_WORKSPACE:
         raise ValueError(
@@ -219,32 +185,25 @@ def writable(workspace: str) -> str:
 
 
 def save_one(store, workspace: str, name: str, document: dict, schemas: dict) -> dict:
-    """Create or replace one of *this workspace's* flows.
+    """Create or replace one of this workspace's flows.
 
-    Never the shared library, even when a flow of that name was read from it:
-    a save is a copy into your own, which is the copy-on-write half of §F1.2.
-    Moving a flow into `global` is an operator action in the admin UI.
+    Never the shared library's, even when a flow of that name was read from it:
+    a save is a copy into the caller's own.
     """
-    # `_require` first, deliberately. With flows switched off there is nowhere
-    # to keep one, and that is the true answer for every caller; telling an
-    # unnamed one to go and name its workspace would send it to fix the wrong
-    # thing entirely. A named caller already got OFF here, so this ordering is
-    # also what makes the two consistent.
+    # `_require` first: with flows off, OFF is the answer for every caller, and
+    # an unnamed one told to name its workspace would fix the wrong thing.
     store = _require(store)
     workspace = writable(workspace)
     document = dict(document or {})
     document.pop("workspace", None)
     document.pop("shared", None)
     # `null` means unset, as it does for every optional argument an MCP caller
-    # leaves out. Kept, it would be saved and read back as a null where the
-    # schema promises an integer (Copilot, #37).
+    # leaves out.
     for key in (flowdoc.TIMEOUT, places.SITES, places.PATHS):
         if key in document and document[key] is None:
             del document[key]
     flowdoc.validate(document, schemas)
-    # Stored as the integer it was accepted as. `"900"` is coerced on the way
-    # in, as every boundary value is, and keeping the string would publish a
-    # document that does not match its own schema (Copilot, #37).
+    # `"900"` is accepted, and stored as the integer the schema promises.
     if document.get(flowdoc.TIMEOUT) is not None:
         document[flowdoc.TIMEOUT] = flowdoc.declared_timeout(document)
     flowlib.check_size(flowlib.dump(document))
@@ -252,8 +211,6 @@ def save_one(store, workspace: str, name: str, document: dict, schemas: dict) ->
     steps = len(stored.get("steps") or [])
     log.info("flow %s/%s saved (%s steps)", workspace, name, steps)
     saved = {"saved": True, "workspace": workspace, **stored}
-    # Said on the way out rather than refused on the way in: the flow is valid
-    # and has been kept. See `flowdoc.concerns`.
     concerns = flowdoc.concerns(document)
     if concerns:
         saved["warnings"] = concerns
@@ -261,8 +218,8 @@ def save_one(store, workspace: str, name: str, document: dict, schemas: dict) ->
 
 
 def delete_one(store, workspace: str, name: str) -> dict:
-    """Remove one of *this workspace's* flows. Never the shared library."""
-    store = _require(store)  # see save_one: the disabled answer comes first
+    """Remove one of this workspace's flows. Never the shared library's."""
+    store = _require(store)  # first, as in save_one
     workspace = writable(workspace)
     removed = store.delete(workspace, name)
     return {"deleted": removed, "workspace": workspace, "name": name}
@@ -271,18 +228,12 @@ def delete_one(store, workspace: str, name: str) -> dict:
 async def save_text(
     store, workspace: str, name: str, text, schemas: Schemas
 ) -> dict:
-    """Rewrite one flow from the YAML a person typed — the **operator** path.
+    """Store the YAML a person typed in the admin editor as one flow, verbatim.
 
-    The admin editor's PUT. It stores the text **verbatim** (§F1.14): a person
-    wrote these, comments and ordering included, and a save that round-tripped
-    through a parsed dict (``save_one``) would quietly discard both. It is
-    validated against the live step schemas first, exactly as ``save_one`` is,
-    so the editor cannot store something that would not run.
-
-    It deliberately does not go through ``writable``: that gate keeps agents
-    out of the live shared library, and this is the surface where a person is
-    present and allowed in. A flow is written back where it already lives, so
-    editing a shared one edits the shared one; a new one is created in
+    Verbatim keeps the person's comments and key order, which ``save_one``'s
+    parsed dict would drop. It is validated as ``save_one`` validates. It skips
+    ``writable``: the admin may write `global`. A flow is written back where it
+    lives, so editing a shared one edits the shared one; a new one is created in
     ``workspace``.
     """
     if not isinstance(text, str) or not text.strip():
@@ -296,13 +247,8 @@ async def save_text(
         ) from None
     if not isinstance(document, dict):
         raise ValueError("a flow document must be a YAML mapping")
-    # The file name is the flow's identity — `LocalFlowStore.get` says
-    # so, and overwrites whatever the document claims. So an edited
-    # `name:` cannot rename anything: without this the save reports
-    # success, the flow keeps its old name, and the file is left saying
-    # otherwise. Refusing is not a smaller feature than renaming, it is
-    # an honest one; a rename is a move to a new name and belongs with
-    # the move verb whenever someone wants it.
+    # The file name is the flow's identity (`FlowStore.get`), so an edited
+    # `name:` would report success and rename nothing.
     claimed = document.get("name")
     if claimed is not None and valid_name(
         claimed, "flow name"
@@ -314,9 +260,6 @@ async def save_text(
             "under the name you want."
         )
     flowdoc.validate(document, await schemas.get())
-    # Written back where it already lives, so editing a shared flow
-    # edits the shared one rather than silently forking a copy into
-    # this workspace. A flow that does not exist yet is created here.
     existing = await run_in_threadpool(store.get, workspace, name)
     where = workspace
     if existing is None:
@@ -332,17 +275,15 @@ async def save_text(
 class Schemas:
     """The step schemas, built once from the registered tools.
 
-    Built lazily because `get_tool` is async and registration is not, and from
-    `ENDPOINTS` rather than from a listing: a listing is filtered per request
-    by `mirror.HideMirrors`, so what it contains depends on who is asking. What a
-    flow step may say must not.
+    Lazily, because `get_tool` is async and registration is not. From
+    `ENDPOINTS`, never a listing: `mirror.HideMirrors` filters a listing per
+    caller, and what a step may say must not depend on who asks.
     """
 
     def __init__(self, mcp):
         self.mcp = mcp
         self._cache: dict | None = None
-        # The published document schema, built from the step schemas once.
-        self._document: dict | None = None
+        self._document: dict | None = None  # `_document_schema`'s
 
     async def get(self) -> dict:
         if self._cache is None:
@@ -355,43 +296,21 @@ class Schemas:
 
 
 def run_one(
-    store,
-    actions,
-    workspace: str,
-    name: str,
-    params: dict | None = None,
-    verbose: bool = False,
-    session_id: str = "",
-    after_step=None,
-    secrets_catalogue=None,
-    skill_available: bool = True,
-    before_step=None,
-    stop=None,
-    before_save=None,
-    bound=None,
-    step_done=None,
-    in_scope=None,
+    store, actions, workspace: str, name: str, secrets_catalogue=None, **run_args
 ) -> dict:
-    """Run one flow against an already-resolved browser."""
+    """Run one flow against an already-resolved browser.
+
+    ``run_args`` are `flows.run.run`'s keyword arguments, ``session_id`` among them.
+    """
     document = read_one(store, workspace, name)
     report = flowrun.run(
         actions,
         document,
-        session_id,
-        params=params,
-        verbose=verbose,
-        after_step=after_step,
-        before_step=before_step,
-        stop=stop,
-        before_save=before_save,
-        bound=bound,
-        step_done=step_done,
-        in_scope=in_scope,
         catalogue=secrets_catalogue,
-        skill_available=skill_available,
-        # The CALLER's library, not `document["workspace"]`: a flow read from the
-        # shared `global` library still uploads a file this caller kept.
+        # The caller's library, not `document["workspace"]`: a flow read from
+        # `global` still uploads a file this caller kept.
         library=workspace,
+        **run_args,
     )
     return {"workspace": document["workspace"], **report}
 
@@ -401,10 +320,7 @@ def register(
     secrets_catalogue=None, schemas=None, skill_available: bool = True,
 ) -> None:
     """Register the flow resources, tools and endpoints."""
-    # Shared with the admin surface when the server hands one in, so the editor
-    # there validates against the same step schemas these tools do. Two
-    # instances would only mean building the same thing twice, but two
-    # *sources* of truth is the failure this package keeps finding.
+    # The server hands in the admin editor's, so both validate against one.
     schemas = schemas or Schemas(mcp)
 
     # ---- resources ---------------------------------------------------------
@@ -499,10 +415,9 @@ def register(
         caller = clients.caller()  # on the request, before the thread
         library = caller.library
         steps_schemas = await schemas.get()
-        # Validating, dumping and writing in a worker thread, as every other
-        # save does: the data directory may be NFS, and a slow write on the
-        # loop stalls every other request. What it says back is the document,
-        # checked for secrets as `flow://flows/{name}` is (ruling 16).
+        # In a worker thread: the data directory may be NFS, and a slow write on
+        # the loop stalls every request. The answer is checked for secrets as
+        # `flow://flows/{name}` is.
         return await anyio.to_thread.run_sync(
             workspaces.scrubbed,
             caller.named,
@@ -528,8 +443,7 @@ def register(
     async def run_flow(
         name: str, params: dict | None = None, verbose: bool = False
     ) -> dict:
-        # `name`, not `library`: a run drives a browser, so this is one of the
-        # calls that has to know who is asking. Asked here, on the request,
+        # `name`, not `library`: a run drives a browser. Read on the request,
         # before the run moves to a thread.
         workspace = clients.caller().name
         watch = progress.Watch()
@@ -549,9 +463,8 @@ def register(
                 stop=watch.stop,
             )
 
-        # Async so the run can report progress while it works (§F2.15). The
-        # context is looked up rather than declared, so the tool's published
-        # signature is exactly what it was.
+        # The context is looked up, not declared, so it stays out of the tool's
+        # published signature.
         return await progress.reporting(_context(), work, watch)
 
     @mcp.tool(
@@ -578,15 +491,10 @@ def register(
 
 
 async def _document_schema(schemas: Schemas) -> dict:
-    """The flow document's shape, derived from the live tools.
+    """The flow document's shape, built from the step schemas the validator uses.
 
-    Published so a model writing a flow is given the shape rather than inferring
-    it. It cannot describe a step that would not run, because it is built from
-    the same schemas the validator checks against.
-
-    Built once per `Schemas` and kept beside the step schemas it is made of:
-    both are fixed for the life of the server, and this one costs a pydantic
-    schema generation to build.
+    Built once per `Schemas` and kept on it: it costs a pydantic schema
+    generation.
     """
     if schemas._document is None:
         schemas._document = _build_document_schema(await schemas.get())
@@ -638,11 +546,7 @@ def _build_document_schema(steps: dict) -> dict:
                 "required": ["tool"],
                 "properties": {
                     "tool": {"type": "string", "enum": sorted(steps)},
-                    # No `secret` here: it is an argument of `write`, so it
-                    # lives in `args` and the per-action schemas below describe
-                    # it. A step key would be a second place to say it, and a
-                    # caller following this resource would have built a
-                    # document save_flow rejects.
+                    # No `secret`: it is `write`'s argument, in `args`.
                     "args": {"type": "object"},
                     "id": {"type": "string"},
                     "note": {"type": "string"},
@@ -654,17 +558,13 @@ def _build_document_schema(steps: dict) -> dict:
     }
     return {
         "type": "object",
-        # A key in DOCUMENT_KEYS with nothing said about it here fails on the
-        # first read, rather than going unpublished.
+        # A key in DOCUMENT_KEYS missing from `keys` fails on the first read.
         "properties": {
             "name": {"type": "string"},
             **{key: keys[key] for key in flowdoc.DOCUMENT_KEYS},
         },
         "required": ["name", "steps"],
         "x-step-params": steps,
-        # How a value that is not written literally reaches an argument. Two
-        # mechanisms, and the schema says so rather than leaving an author to
-        # discover the difference through a rejection (§F1.38).
         "x-parameters": {
             "description": (
                 "A value that varies between runs is a parameter: declare it in "
@@ -674,11 +574,8 @@ def _build_document_schema(steps: dict) -> dict:
             ),
             "pattern": template.PARAM_REFERENCE.pattern,
         },
-        # The secret reference is the MCP tool's own model rather than a copy of
-        # it — a hand-written one is how this repo keeps finding its bugs. It is
-        # CLOSED, as the validator is: JSON Schema allows extra properties by
-        # default, so a consumer building from this could produce a misspelt
-        # reference that it accepts and `save_flow` refuses.
+        # The MCP tool's own model, closed to extra properties as the validator
+        # is.
         "x-secret": {
             "description": (
                 "A value nobody may see is a secret, and it is never part of a "
@@ -697,45 +594,37 @@ def run_for(
     secrets_catalogue=None, skill_available: bool = True,
     before_step=None, stop=None,
 ) -> dict:
-    """Run a saved flow in ``workspace``'s browser, and keep the record honest.
+    """Run a saved flow in ``workspace``'s browser, and update its record.
 
-    Shared by the tool and the endpoint. The bookkeeping either side of the run
-    is the part that used to be duplicated, and the HTTP surface simply did not
-    have it: a run there slid no TTL and recorded no page, so a workflow that
-    ran flows for an hour could expire out of the store while it worked.
-
-    Each step is a call like any other (`workspace.calls`): begun once the
-    caller's own ``before_step`` has heard it, said when it is done, inside its
-    turn on the browser. With capture on, the run's report carries ``page``,
-    its steps' hints summed. Each step's line is checked for the secrets
-    allowed where it ran, typed or not (`Workspaces.in_scope`).
+    Shared by the tool and the endpoint. Each step is a call like any other
+    (`workspace.calls`): begun after the caller's ``before_step`` has heard it,
+    ended inside its turn on the browser. With capture on, the report carries
+    ``page``, its steps' hints summed. Each step's line is checked for the
+    secrets allowed where it ran, typed or not (`Workspaces.in_scope`).
     """
     resolved, kind = workspaces.resolved(workspace)
-    # The page the run began on: its hint compares the end against this, since
-    # a flush before a save moves the record's page part-way (ruling 20).
+    # The run's hint compares its end with this, since a flush before a save
+    # moves the record's page part-way.
     before = workspaces.context(workspace).get("url", "")
     calls = workspaces.calls
     step_hints: list = []
     begun: list = []  # the step under way's, from `before_step` to `step_done`
-    # The origin the step under way began on, read inside its turn.
-    began_on: list = [None]
+    began_on: list = [None]  # the origin the step under way began on
 
     def step_started(entry, total):
-        # Inside the step's turn (`engine._take`), before it begins, as a
-        # single call reads it (`Workspaces._said`).
+        # Inside the step's turn, as a single call reads it
+        # (`Workspaces._said`).
         began_on[0] = workspaces.origins.current(workspace, resolved)
         if before_step is not None:
             before_step(watched(entry), total)
-        # Inside the step's turn: a step refused because a person holds the
-        # browser is never begun, and stops the run.
+        # A step refused because a person holds the browser is never begun.
         begun[:] = [
             calls.begin(workspace, resolved, browser=kind, tool=entry["tool"])
         ]
 
     def watched(entry):
-        """The progress line, told before the step's scope is known: its
-        summary checked for the secrets allowed where the step begins, or
-        only its tool when that cannot be done - fails safe."""
+        """The progress line, its summary checked for the secrets allowed
+        where the step begins, or only its tool when that check fails."""
         summary = entry.get("summary")
         if not summary:
             return entry
@@ -747,8 +636,7 @@ def run_for(
         return {**entry, "summary": redact.scrub(summary, forms)}
 
     def in_scope(result):
-        # The secrets allowed where the step ran, typed or not: the origins it
-        # began and ended on (spec 2026-11-14-secret-scope, "Flows").
+        # The origins the step began and ended on.
         return workspaces.in_scope(workspace, resolved, result, began_on[0])
 
     def step_done(tool, error):
@@ -763,10 +651,9 @@ def run_for(
         calls.bound(workspace, forms)
 
     def remember(tool, result):
-        # The same post-action work a single call gets from `Workspaces.act`:
-        # `resize` changes something the workspace RECORD stores, and a save's
-        # capture is stored as the snapshot and stripped from the result. The
-        # touch is left to `before_save` and the one at the end of the run.
+        # What a single call gets from `Workspaces.act`: `resize` changes the
+        # record, and a save's capture is stored and stripped from the result.
+        # The touch is left to `before_save` and the end of the run.
         workspaces.settle(
             workspace,
             result,
@@ -775,10 +662,9 @@ def run_for(
             touch=False,
         )
 
-    # A save reads the localStorage of every site in the history, and the run
-    # writes its pages once, at the end: so just before a save step the pages
-    # reached so far go in, in one write, and the end writes only the rest.
-    # The flush leaves a held notice for the run's own result (ruling 23).
+    # A save reads the localStorage of every site in the history, so just
+    # before a save step the pages reached so far go in, and the end writes
+    # only the rest. The flush holds its notice for the run's own result.
     count = [0]
 
     def before_save(pages):
@@ -810,31 +696,21 @@ def run_for(
         page = calls_module.total(step_hints)
         if page is not None:
             report["page"] = page
-        # A touch at the end, not one per step: the point of running server-side
-        # is that the bookkeeping happens once (a save step flushes the pages so
-        # far first, above). It carries every page the run reached since, in
-        # order, so the history has each step's site and not only the last.
-        #
-        # Only pages the report itself shows. A step's `url` is there only when
-        # the step moved and the page was safe to show, so a failed step's — the
-        # scrubbed one, a URL that does not exist — is left out. And the run's own
-        # page is withheld when redaction had to touch it: a submitting bound
-        # write lands on `?q=<what was typed>`, and `Workspaces.resolve` would
-        # reopen the browser there after the Grid reaped it.
-        #
-        # The touch happens regardless: it slides the TTL, and a run is the
-        # clearest evidence there is that a workspace is in use.
+        # One touch at the end, carrying every page reached since the last
+        # flush, in order. Only pages the report shows: a failed step's scrubbed
+        # URL is left out, and so is a final page redaction touched, where
+        # `Workspaces.resolve` would reopen the browser. The touch happens
+        # regardless, to slide the TTL.
         visited = [
             step["url"] for step in report.get("steps") or []
             if step.get("ok") and step.get("url")
         ][count[0]:]
         if report.get("url") and not report.get("url_redacted"):
             visited.append(report["url"])
-        # The run's browser replaced a gone one: the notice, once, on the run.
         workspaces.settle(
             workspace, report, url=visited, browser=resolved, since=before,
-            # A withheld page never hints (ruling 6): `visited` stops short of it,
-            # and a hint for the last page it does hold names a page left behind.
+            # A withheld page never hints, and the last page `visited` holds is
+            # one the run left.
             hint=not report.get("url_redacted"),
         )
     except Exception as exc:
@@ -847,18 +723,11 @@ def _routes(
     mcp, store, workspaces, actions, schemas: Schemas, token, prefix,
     secrets_catalogue=None, skill_available: bool = True,
 ) -> None:
-    """The flow library as REST (§F2.13).
+    """The flow library as REST, under ``prefix``.
 
-    ``prefix`` is where the whole server is mounted; `/flows` is fixed beneath
-    it, as is the schema route (§F1.11).
-
-    A flow is a resource: ``GET /flows/{name}``, ``PUT`` to create or replace
-    it, ``DELETE`` to remove it. Running one **creates a run**, so that is a
-    POST to a sub-collection rather than a verb in the path.
-
-    Which library is a question about who is calling, so it comes from the
-    header or ``?workspace=`` like everything else — and a caller that names no
-    workspace gets the shared one, which it may read and may not write.
+    The library is the caller's, from the header or ``?workspace=``; a caller
+    that names no workspace gets the shared one, which it may read and may not
+    write.
     """
 
     flows_root = f"{prefix}/flows"
@@ -866,16 +735,12 @@ def _routes(
     async def answer(
         request: Request, what: str, call, *, scrub: bool = True
     ) -> JSONResponse:
-        """One request, answered the way every other tree answers one.
+        """One request, answered as every other tree answers one.
 
-        Unnamed is allowed here: a flow belongs to a library, and ``caller.library``
-        is the shared one when the request named no workspace. A run asks for
-        ``caller.name``, because it drives a browser.
-
-        A flow document is checked for secrets as `flow://flows/{name}` is
-        (spec 2026-11-14-secret-scope, ruling 16), unless ``scrub`` is False:
-        the schema, which this server wrote, and a run, each of whose steps
-        was checked where it ran.
+        Unnamed callers are allowed: ``caller.library`` is the shared one then.
+        The answer is checked for secrets as `flow://flows/{name}` is, unless
+        ``scrub`` is False: the schema, which this server wrote, and a run,
+        whose steps were each checked where they ran.
         """
         return await answer_module.answer(
             request, token, f"flows/{what}", call, log, named=False,
@@ -893,11 +758,7 @@ def _routes(
 
     @mcp.custom_route(f"{prefix}{SCHEMA_PATH}", methods=["GET"], name="flows_schema")
     async def flow_schema(request: Request) -> JSONResponse:
-        """What a flow document may contain — every tool that may be a step.
-
-        Not under /flows, where `schema` would be indistinguishable from a flow
-        of that name.
-        """
+        """What a flow document may contain: every tool that may be a step."""
         return await answer(
             request, "schema", lambda _caller, _body: _document_schema(schemas),
             scrub=False,
@@ -916,14 +777,13 @@ def _routes(
 
     @mcp.custom_route(flows_root + "/{name}", methods=["PUT"], name="flows_save")
     async def save_flow(request: Request) -> JSONResponse:
-        """Create or replace one flow. One verb for both, as §F1.5 has it."""
+        """Create or replace one flow."""
 
         async def call(caller, body):
             document = {key: body[key] for key in flowdoc.DOCUMENT_KEYS if key in body}
             library = caller.library
             steps_schemas = await schemas.get()
-            # Off the loop, as the MCP save is: see `save_flow` above. What it
-            # says back is the document, checked as a flow read is.
+            # Off the loop and checked for secrets, as the MCP save is.
             return await anyio.to_thread.run_sync(
                 workspaces.scrubbed,
                 caller.named,
@@ -961,14 +821,11 @@ def _routes(
                 store,
                 actions,
                 workspaces,
-                # `name`, not `library`: a run drives a browser, so this is one
-                # of the calls that has to know who is asking.
-                caller.name,
+                caller.name,  # a run drives a browser
                 request.path_params["name"],
                 params=body.get("params"),
-                # as_bool, not bool: over HTTP "false" arrives as a string, and
-                # bool("false") is True — which would turn on full per-step
-                # results and return every extract in the flow.
+                # Over HTTP "false" arrives as a string, and bool("false") is
+                # True.
                 verbose=as_bool(body.get("verbose"), False),
                 secrets_catalogue=secrets_catalogue,
                 skill_available=skill_available,

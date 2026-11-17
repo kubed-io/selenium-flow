@@ -1,31 +1,17 @@
-"""The step loop: every step of a flow, in order, once each, on one clearance.
+"""The step loop: every step of a flow, in order, once each.
 
-The saving is not where it looks. `Grid.reconnect` deliberately skips
-`start_session`, so binding to a running browser is local object construction
-rather than a call to the Grid — batching saves nothing there, and each step
-sends the same WebDriver commands it would have sent alone. What a run collapses
-is everything *around* the steps (saga §F1.1):
+The caller resolves the browser once, and this calls the ordinary action
+methods in a loop. Binding to a running browser costs no Grid call
+(`Grid.reconnect` skips `start_session`), so threading one driver through the
+actions would save nothing.
 
-| Per step, called one at a time | Per run |
-|---|---|
-| a model inference — the dominant cost | 1 |
-| an MCP round trip | 1 |
-| an `is_alive` GET, from `Workspaces.resolve` | 1 |
-| a workspace-store read and write | 1 |
+Which tools a step may name (`Toolbox`), what to tell the code around the run
+(`Hooks`) and the clock are handed in. Nothing here imports the route table,
+the MCP layer or Selenium.
 
-So the browser is resolved **once**, by the caller, and this calls the ordinary
-action methods in a loop. It deliberately does *not* thread one driver through
-them: that would be a micro-optimisation on the one cost that is already near
-zero, paid for by making every action take a driver it does not otherwise need.
-
-**What it needs from outside is handed in.** Which tools a step may name and the
-action method behind each (`Toolbox`), what to tell a watcher as a run goes
-(`Hooks`), and the clock. Nothing here imports the route table, the MCP layer
-or Selenium: the engine drives any object with the action methods on it.
-
-**A run is not a program.** Steps execute in order, once each. No branching, no
-loops, no step reading another's output — that last one is Chapter 2. A flow is
-a wizard, not a language.
+The store also reads flows edited on disk, which never went through saving, so
+each check saving makes is made again here: the tool allowlist, the secret
+binding, the timeout, `writeOnly`, and never continuing past an assert.
 """
 
 from __future__ import annotations
@@ -34,7 +20,6 @@ import logging
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Protocol
 
 from .. import binding, faults, secrets
 from ..binding import SECRET_ARG
@@ -53,7 +38,7 @@ from .template import (
     with_defaults,
 )
 
-# The runner's old logger name, kept: operators filter Loki by it.
+# The runner's old logger name: operators filter logs by it.
 log = logging.getLogger("kubed.selenium_flow.flows.run")
 
 # The step that reads every site in the workspace's history (`before_save`).
@@ -64,14 +49,11 @@ SAVE_SITE_DATA = "save_site_data"
 class Toolbox:
     """The tools a step may name, and where each one is served.
 
-    ``runnable`` is the only set a step may dispatch to. `getattr(actions,
-    tool)` alone accepts any callable on the object — `_at` would navigate the
-    browser and `__init__` would re-point it at another Grid — and saving
-    validates the name but a file edited on disk never passed through saving.
+    ``runnable`` is the only set a step may dispatch to: `getattr(actions,
+    tool)` alone would reach any callable, such as `_at` or `__init__`.
 
     ``library_arg`` names, per tool, the argument that carries the caller's own
-    library: a step reading a kept file is answered from the library the run
-    belongs to.
+    library.
     """
 
     runnable: frozenset[str]
@@ -79,101 +61,54 @@ class Toolbox:
     library_arg: Mapping[str, str]
 
 
-class Hooks(Protocol):
-    """What a run tells the code around it, step by step.
+def _ignored(*_args) -> None:
+    return None
 
-    ``before_step(entry, total)`` as each step is about to act, where ``entry``
-    carries its number, tool, id and safe summary. It is how a caller watches a
-    long run; it must not change anything.
 
-    ``after_step(tool, result)`` after each step that succeeds. It exists
-    because a step can change something the *workspace record* stores rather than
-    just the page: `resize` is the one, and a flow that resized without telling
-    the workspace would come back the old size the next time the Grid reaped the
-    browser — exactly the silent shape change `Workspaces.reshape` was written to
-    prevent.
+def _nothing_in_scope(_result) -> Forms:
+    # Secrets off, or a run nobody wired.
+    return Forms()
 
-    ``before_save(pages)`` with the pages this run has reached so far, in order
-    — exactly the step URLs its report shows — just before a ``save_site_data``
-    step acts. A save reads every site in the workspace's history, and the history
-    is otherwise written once, after the run.
 
-    ``bound(forms)`` with every spelling of the secret values a step binds, as
-    soon as they are known and before the step acts: capture masks them from
-    the first keystroke (capture spec, ruling 13). Only for a step that binds.
+@dataclass(frozen=True)
+class Hooks:
+    """What a run tells the code around it, step by step. Each is optional.
+
+    ``before_step(entry, total)`` as each step is about to act; ``entry`` has
+    its number, tool, id and scrubbed summary. It must not change anything.
+
+    ``after_step(tool, result)`` after each step that succeeds: `resize`
+    changes the workspace record, which would otherwise reopen at the old size.
+
+    ``before_save(pages)`` just before a ``save_site_data`` step, with the step
+    URLs the report shows so far, in order: a save reads every site in the
+    history, which is otherwise written once, after the run.
+
+    ``bound(forms)`` before a step that binds a secret acts, with every
+    spelling of its values, so capture masks them from the first keystroke.
 
     ``step_done(tool, error)`` after every step `before_step` began, still
-    inside its turn on the browser — ``error`` is what it raised, or None. A
-    step refused before it began (a bad binding, cancelled while it waited) is
-    never done.
+    inside its turn on the browser; ``error`` is what it raised, or None. A
+    step refused before it began is never done.
 
     ``in_scope(result)`` after each step, still inside its turn: the forms of
-    the secrets allowed where the step ran, typed or not (spec
-    2026-11-14-secret-scope, ruling 1). ``result`` is the step's raw result,
-    or None for a step that raised, whose page is unknown. The step's report
-    line, its error, the page it landed on and the run's URL are scrubbed with
-    them and with every value the run typed. One that raises fails closed: the
-    step fails with `faults.SCRUB_FAILED` and the run stops there (ruling 2).
+    the secrets allowed where the step ran. ``result`` is the step's raw
+    result, or None for a step that raised. The step's line and the run's URL
+    are scrubbed with them and with every value the run typed. One that raises
+    fails closed: the step fails with `faults.SCRUB_FAILED` and the run stops.
     """
 
-    def before_step(self, entry: dict, total: int) -> None: ...
+    before_step: Callable[[dict, int], None] = _ignored
+    after_step: Callable[[str, object], None] = _ignored
+    before_save: Callable[[list[str]], None] = _ignored
+    bound: Callable[[Forms], None] = _ignored
+    step_done: Callable[[str, BaseException | None], None] = _ignored
+    in_scope: Callable[[dict | None], Forms] = _nothing_in_scope
 
-    def after_step(self, tool: str, result) -> None: ...
-
-    def before_save(self, pages: list[str]) -> None: ...
-
-    def bound(self, forms: Forms) -> None: ...
-
-    def step_done(self, tool: str, error: BaseException | None) -> None: ...
-
-    def in_scope(self, result: dict | None) -> Forms: ...
-
-
-class Callbacks:
-    """`Hooks` from plain functions, any of which may be absent."""
-
-    def __init__(
-        self,
-        before_step=None,
-        after_step=None,
-        before_save=None,
-        *,
-        bound=None,
-        step_done=None,
-        in_scope=None,
-    ):
-        self._before_step = before_step
-        self._after_step = after_step
-        self._before_save = before_save
-        self._bound = bound
-        self._step_done = step_done
-        self._in_scope = in_scope
-
-    def before_step(self, entry: dict, total: int) -> None:
-        if self._before_step is not None:
-            self._before_step(entry, total)
-
-    def after_step(self, tool: str, result) -> None:
-        if self._after_step is not None:
-            self._after_step(tool, result)
-
-    def before_save(self, pages: list[str]) -> None:
-        if self._before_save is not None:
-            self._before_save(pages)
-
-    def bound(self, forms: Forms) -> None:
-        if self._bound is not None:
-            self._bound(forms)
-
-    def step_done(self, tool: str, error: BaseException | None) -> None:
-        if self._step_done is not None:
-            self._step_done(tool, error)
-
-    def in_scope(self, result: dict | None) -> Forms:
-        """No hook is nothing in scope: secrets off, or a run nobody wired."""
-        if self._in_scope is None:
-            return Forms()
-        return self._in_scope(result)
+    @classmethod
+    def of(cls, **hooks) -> Hooks:
+        """Hooks by name, where None means absent."""
+        return cls(**{name: hook for name, hook in hooks.items() if hook is not None})
 
 
 _UNSET = object()
@@ -183,8 +118,8 @@ _UNSET = object()
 class StepOutcome:
     """One step as its report line will read, filled in as the step goes.
 
-    A field is in the line only once it is set: silence is information here — a
-    step with no `url` did not move the page, and one with no `file` kept none.
+    A field is in the line only once it is set: a step with no `url` did not
+    move the page, and one with no `file` kept none.
     """
 
     n: int
@@ -197,6 +132,11 @@ class StepOutcome:
     url: str | None = None
     file: object = None
     result: object = _UNSET
+
+    @property
+    def label(self):
+        """How the log names the step: its id, else its tool."""
+        return self.id or self.tool
 
     def entry(self) -> dict:
         line = {"n": self.n, "tool": self.tool}
@@ -213,18 +153,14 @@ class StepOutcome:
 class Run:
     """One run's state: its budget, what it has seen and where it has been.
 
-    ``seen`` is every spelling of every value typed from a secret so far. It is
-    accumulated across the run, not scoped to a step: a submitting bound write
-    in step two leaves the value in the browser's URL, and step five's page
-    state would carry it back out if `seen` were recomputed per step. Once a
-    value has been typed, nothing later in this run may echo it. Each step is
-    scrubbed with it and with the secrets in scope where that step ran
-    (`Hooks.in_scope`), which are handed to `acted` and `landed` as ``forms``.
+    ``seen`` is every spelling of every value typed from a secret so far, kept
+    for the whole run: a bound write in step two can leave the value in the URL
+    that step five reports. Each step is scrubbed with it and with the secrets
+    in scope where it ran (`Hooks.in_scope`), together ``forms``.
 
-    ``pages`` are the pages the report shows, in order, for `before_save`;
-    ``was_at`` is the page the previous step ended on, so a step can say where it
-    went when it went somewhere. It starts unset, which makes step one report
-    where the flow began — a fact about the run nobody else states (§F2.7).
+    ``pages`` are the pages the report shows, in order, for `before_save`.
+    ``was_at`` is the page the previous step ended on; it starts unset, so
+    step one reports where the flow began.
     """
 
     name: str
@@ -241,7 +177,7 @@ class Run:
     status: str = "ok"
 
     def stops(self, outcome: StepOutcome, error: str) -> bool:
-        """End the run at ``outcome``'s step, before it acted."""
+        """End the run at ``outcome``'s step, with ``error`` as its line says."""
         outcome.ok = False
         outcome.error = error
         self.reports.append(outcome.entry())
@@ -256,33 +192,19 @@ class Run:
         result = clean(raw, guarded, forms)
         outcome.ok = True
         outcome.summary = scrub(outcome.summary, forms)
-        # Recorded rather than inferred later by searching the string for
-        # the marker, and asked of the raw URL rather than by comparing it
-        # with its scrubbed form: a secret whose value happens to BE the
-        # marker survives both of those tests unchanged.
-        #
-        # Set per page rather than left sticky, because it describes the
-        # page this run *reports* — the last one — not the run's history. A
-        # flow that types a password and then navigates away ends somewhere
-        # perfectly ordinary, and a sticky flag threw that page away and
-        # left the workspace pointing at whatever it knew before.
+        # Asked of the raw URL: a secret whose value is the marker would pass a
+        # search for the marker. Set per page, since it describes the last page
+        # the run reports, not its history.
         self.redacted_url = isinstance(raw, dict) and taints(raw.get("url"), forms)
-        # Where this step went, and only when it went somewhere. Silence
-        # means the page did not change, which is what makes a navigation
-        # that did not happen visible in a report nobody asked to be
-        # verbose - the cheapest defence left when an author forgets an
-        # assert (§F2.7). Withheld on exactly the terms the failure branch
-        # withholds it: a URL carrying a typed secret is not reported.
+        # Only when the step went somewhere, and never a URL carrying a typed
+        # secret, as `landed` withholds it.
         went_to = raw.get("url") if isinstance(raw, dict) else None
         if went_to and went_to != self.was_at:
             if not self.redacted_url and "url" not in guarded:
                 outcome.url = went_to
                 self.pages.append(went_to)
             self.was_at = went_to
-        # A step that produced a file says so, even when the report is
-        # not verbose. A screenshot whose link appears nowhere cannot show
-        # anybody what it saw, which is most of why a flow took it — and a
-        # person reading the report is exactly who it was for (pilot, §F2.15).
+        # A kept file is named even when the report is not verbose.
         made = raw.get("file") if isinstance(raw, dict) else None
         if made and not taints(str(made), forms):
             outcome.file = made
@@ -293,23 +215,14 @@ class Run:
     def landed(
         self, outcome: StepOutcome, page, guarded: dict[str, Id], forms: Forms
     ) -> None:
-        """Record where a failed step actually left the browser.
-
-        Where it actually failed, not where the last step succeeded. Swept,
-        because the page can carry the value back: typing into a search box
-        lands you on `?q=<what you typed>`, and the URL of the page a bound
-        write failed on is exactly the kind of place a credential turns up
-        without anyone putting it there.
-        """
+        """Record where a failed step left the browser, scrubbed with ``forms``:
+        a search box lands on `?q=<what was typed>`."""
         landed = scrub_values(page, forms)
         if landed.get("url") and "url" not in guarded:
             outcome.url = landed["url"]
             self.was_at = landed["url"]
-            # The same fact on the branch that had not recorded it: a step
-            # can fail *after* the value reached the page, so the URL it
-            # failed on is exactly as unsafe to store as one a step
-            # succeeded on. Set where `last` changes, so the flag always
-            # describes the page the report ends up carrying.
+            # A step can fail after the value reached the page. Set where
+            # `last` changes, so the flag describes the page the report carries.
             self.redacted_url = taints(page.get("url"), forms)
             self.last = {**self.last, **landed}
 
@@ -321,32 +234,16 @@ class Run:
             "steps_total": self.total,
             "steps": self.reports,
         }
-        # Where the browser ended up. Taken from the last step that produced it
-        # rather than asked for again: a run that failed should report the page
-        # it failed on, and asking now would report whatever it drifted to
-        # since.
+        # From the last step that produced it, so a failed run reports the
+        # page it failed on.
         for key in ("url", "title"):
             if self.last.get(key):
                 report[key] = self.last[key]
-        # Chosen from what actually failed, and only when something did.
         with_hint(report, skill_available)
         if self.redacted_url:
-            # Says the reported page is not the page: a caller must not store
-            # it as somewhere to navigate back to.
+            # The reported page is not an address to go back to.
             report["url_redacted"] = True
-        # No top-level `result`. It used to carry the last step's, which meant
-        # a flow ending in `extract` with `return: true` — the shape every
-        # example taught — reported the same object twice, once under its step
-        # and once here. Worse, it was a second way to say what a run answers
-        # with: `return` is the explicit one, and two mechanisms for one job is
-        # how they drift.
-        #
-        # A step now says whether its result is part of the flow's answer, any
-        # number of steps may say so, and a caller running somebody else's flow
-        # that marks none can still pass `verbose`. `url` and `title` stay,
-        # because where the browser ended up is a fact about the *run* rather
-        # than a step's output — and it is the thing a caller needs to carry on
-        # from.
+        # No top-level `result`: the steps marked `return` carry the answer.
         return report
 
 
@@ -356,27 +253,15 @@ def resolve_step(
     catalogue=None,
     page: str | tuple[str, ...] | Callable[[], str | tuple[str, ...]] = "",
 ) -> tuple[dict, dict[str, Id]]:
-    """A step's keyword arguments, and **which of them** must not be echoed.
+    """A step's keyword arguments, and which of them must not be echoed.
 
-    Two mechanisms, deliberately unlike each other (§F1.38).
-
-    A **parameter** is text. It is substituted into the arguments wherever it
-    appears, and nothing is guarded: a parameter is non-secret by definition,
-    which is what makes substituting it anywhere safe. There is no `writeOnly`.
-
-    A **secret** is structural and never becomes part of a string. It arrives as
-    `args.secret`, an argument only `write` has, and the value goes straight
-    into `text` — so the credential exists only as one keyword argument, and the
-    guard set names that argument for the redaction that follows.
-
-    The guard is a mapping (argument to secret id) rather than a flag because
-    the *result* redaction keys off argument names, and a second guarded
-    argument should not require rewriting it.
+    Parameters are substituted as text and guard nothing. A secret
+    (`args.secret`, only `write` has one) goes straight into `text`, and the
+    guard maps that argument to the secret's id for the result redaction.
     """
     args = dict(step.get(ARGS) or {})
-    # Substituted first, and the secret lifted out before it — so a parameter
-    # can never reach the secret's name or key. Saving refuses that too; this
-    # is the same rule applied to a document that may never have been saved.
+    # The secret is lifted out before substitution, so a parameter can never
+    # reach its name or key.
     reference = args.pop(SECRET_ARG, None)
     kwargs = substitute(args, params)
     if reference is None:
@@ -384,10 +269,8 @@ def resolve_step(
 
     tool = step.get("tool", "")
     label = step.get("id") or tool
-    # Saving refuses a literal or a url beside the secret, and saving is not
-    # the only way a document gets here: the store reads YAML somebody may have
-    # written by hand. `page` is where the browser actually is, so the leash is
-    # checked against the page about to receive the keystroke.
+    # The leash is checked against `page`, the page about to receive the
+    # keystroke.
     try:
         return binding.bind_into(
             {**kwargs, SECRET_ARG: reference}, catalogue, page, tool, binding.AT_RUN
@@ -397,22 +280,12 @@ def resolve_step(
 
 
 def page_state(actions, session_id: str) -> dict:
-    """Where the browser actually is, best effort.
+    """Where the browser is, or ``{}`` when it cannot be read.
 
-    A step that carries `url` navigates *before* it waits for its element, so a
-    failed wait leaves the browser on the new page while the last successful
-    step's URL is the newest one recorded. Reporting that stale URL is
-    misleading; letting `Workspaces.touch` store it is worse, because a later
-    reopen would land on the wrong page.
-
-    Goes through `actions.page` rather than reaching for the Grid itself, so
-    that "where is the browser" has one implementation. The binding check reads
-    the page the same way, and a secret's leash being checked against a
-    different notion of "here" than the failure report uses would be a subtle
-    and unpleasant divergence.
-
-    Wrapped because it runs while reporting a failure and must never turn one
-    failure into two.
+    A step with a `url` navigates before it waits, so a failed step can leave
+    the browser somewhere newer than the last recorded URL. Read through
+    `actions.page`, as the binding check reads it, and never raising: it runs
+    while a failure is being reported.
     """
     try:
         return actions.page(session_id)
@@ -422,14 +295,6 @@ def page_state(actions, session_id: str) -> dict:
 
 def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
     """A report refusing ``document`` before step one, or None to go ahead."""
-    # A document the validator would refuse, reaching here anyway because the
-    # store reads YAML that may never have been saved through it. `writeOnly`
-    # is the one that matters: it used to hide a parameter from the report and
-    # now hides nothing, so an author who trusted it — and a hand-edited file is
-    # exactly where that marker survives a migration — would have the value
-    # echoed back by any `return: true` step. Refusing the run is the same
-    # answer saving gives, in the only other place a document can arrive
-    # (§F1.38).
     shape = Shape(document)
     malformed = shape.problems()
     if malformed:
@@ -464,10 +329,6 @@ def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
         if isinstance(step, dict) and ("valueFrom" in step or "params" in step)
     ]
     if stale:
-        # Preflighted, not caught mid-loop: a stale key on step nine would
-        # otherwise have run the first eight and then reported `steps_run: 0`,
-        # which both half-runs a flow the message says was refused and misstates
-        # what happened.
         return with_hint(
             {
                 "flow": name,
@@ -528,39 +389,31 @@ def execute(
 ) -> dict:
     """Run every step of ``document`` against the browser ``session_id``.
 
-    ``stop`` is a `threading.Event`. Once it is set no further step starts, and
-    a step that is waiting gives up at its next poll (see `core.cancel`).
-    Ending the browser does the same (`workspace.locks`).
+    Once ``stop`` (a `threading.Event`) is set, or the browser ends, no further
+    step starts and a waiting step gives up at its next poll (`core.cancel`).
 
     Each step has the browser to itself, from reading the page a secret is
     checked against to the action's last page read; the run as a whole does
-    not. The lock is first come, first served, so a call on the session that
-    asks during a step runs before the next one, not after the whole run.
-    Ending the browser raises the run's own `Cancelled`, never `Ended`: the
-    run-level flags are outermost, and the first set one decides.
+    not, so another call on the session runs between two steps. Ending the
+    browser raises the run's own `Cancelled`, never `Ended`: the run-level
+    flags are outermost, and the first set one decides.
 
     ``timeout`` overrides the budget the document declares, which overrides
     ``default_timeout``. ``clock`` is read once for the deadline and once
     before each step.
     """
-    # Kept for the whole run so an `end_browser` between two steps is still
-    # seen when the next one is about to start: unheld, it would be gone.
+    # Held for the whole run, so an `end_browser` between two steps is seen.
     turn = locks.hold(session_id)
     with cancel.watching(stop), cancel.watching(turn.ending):
-        # Checked against what the CALLER passed, then filled. The other order
-        # lets a `default` satisfy `required`, which would make `required` mean
-        # nothing — and "needs term: pass them in params" is advice the caller
-        # can act on, where a silently-defaulted required parameter is not.
+        # Checked against what the caller passed, then filled, so a `default`
+        # never satisfies `required`.
         shape = Shape(document)
         check_params(document, params or {})
         params = with_defaults(document, params)
         name = document.get("name", "flow")
 
-        # `is None`, not `or`: an explicit 0 means "no budget" and must not be
-        # read as "unset" and silently given the full default budget.
+        # `is None`, not `or`: an explicit 0 means no budget.
         if timeout is None:
-            # Saving refuses a bad one; a document edited on disk never went
-            # through saving, and is refused here on the same terms.
             try:
                 timeout = declared_timeout(document)
             except ValueError as exc:
@@ -586,7 +439,7 @@ def execute(
             catalogue=catalogue,
             library=library,
             toolbox=toolbox,
-            hooks=hooks or Callbacks(),
+            hooks=hooks or Hooks(),
             clock=clock,
         )
         for number, step in enumerate(shape.steps, start=1):
@@ -615,36 +468,28 @@ def _take(run: Run, call: _Call, number: int, step: dict) -> bool:
         else None
     )
     if method is None:
-        # Saving validates the name, so reaching this means the document was
-        # written before a tool was renamed — or edited on disk, which never
-        # passed through saving at all. Hence the allowlist rather than a
-        # callable check: `__init__` and `_at` are both callable.
         return run.stops(outcome, f"there is no action called {tool!r}")
 
-    # Cancelled while waiting its turn (`end_browser`, or the caller gone): the
-    # step never started, so it stops the run like the check above, with its
-    # report. Only the entering is caught; `_drive` answers for the step itself.
+    # Cancelled while waiting its turn, the step never started and stops the
+    # run with its line. Only the entering is caught.
     entered = False
     try:
         with locks.driving(call.session_id):
             entered = True
-            return _drive(run, call, number, step, outcome, method)
+            return _drive(run, call, step, outcome, method)
     except cancel.Cancelled:
         if entered:
             raise
         return run.stops(outcome, "the run was cancelled before this step")
 
 
-def _drive(
-    run: Run, call: _Call, number: int, step: dict, outcome: StepOutcome, method
-) -> bool:
+def _drive(run: Run, call: _Call, step: dict, outcome: StepOutcome, method) -> bool:
     """A step's page read, action and report, on the browser alone (`_take`)."""
     tool = step.get("tool")
-    label = step.get("id") or tool
     toolbox = call.toolbox
     try:
-        # The page is read only when a step actually binds a secret: it costs a
-        # WebDriver round trip, and every other step has no leash to check.
+        # The page is read only for a step that binds a secret: it costs a
+        # WebDriver round trip.
         kwargs, guarded = resolve_step(
             step,
             call.params,
@@ -654,30 +499,20 @@ def _drive(
     except FlowError as exc:
         return run.stops(outcome, str(exc))
 
-    # Filled in before the summary, so a step reading a kept file is
-    # answered by the library this run belongs to rather than by whatever
-    # the ambient caller key happens to resolve to.
-    #
-    # It OVERWRITES rather than filling a gap, and that is the point. The
-    # argument is not part of the saved-flow schema - `step_schemas` is
-    # built from the MCP tool, which deliberately omits it - so a document
-    # carrying one was hand-edited on disk and never passed validation. A
-    # step that could name a library would be a step that reads another
-    # workspace's kept files, which is not a feature (Copilot, #32).
+    # Set over any value the step carries: the argument is not in the
+    # saved-flow schema, and a step that could name a library could read
+    # another workspace's kept files.
     holder = toolbox.library_arg.get(tool)
     if holder and call.library:
         kwargs[holder] = call.library
 
     typed = binding.forms_of(kwargs, guarded)
     run.seen |= typed
-    # Built from the step's arguments, which can hold a value: what the run has
-    # typed is hidden from it now, before `before_step` hands it to a watcher;
-    # the secrets in scope where the step runs, once they are known (`acted`,
-    # `_failed`). The watcher's own scope is its host's (`flows.api.run_for`).
+    # Scrubbed now of what the run typed, before `before_step` sees it, and
+    # of the step's scope once that is known (`acted`, `_failed`).
     outcome.summary = scrub(summarise(tool, kwargs, guarded), run.seen)
-    # `step_done` once for a step that was begun, and never for one that was
-    # not: a save whose pages could not be written first was still begun, and
-    # a call never ended would keep its capture held past every deadline.
+    # `step_done` exactly once for a begun step: a call never ended keeps its
+    # capture held. A save whose pages could not be written was still begun.
     acting = done = False
     raw = failure = None
     try:
@@ -688,25 +523,19 @@ def _drive(
         if tool == SAVE_SITE_DATA:
             call.hooks.before_save(list(run.pages))
         raw = method(call.session_id, **kwargs)
-        # Before the result is copied for the report: the hook strips the
-        # private capture from `raw`.
+        # Before the result is copied: the hook strips the capture from `raw`.
         call.hooks.after_step(tool, raw)
         done = True
         call.hooks.step_done(tool, None)
     except Exception as exc:  # noqa: BLE001 - a failing step is an outcome
-        # First, so a sentence about what the page reported (`workspace.calls`)
-        # is on the error the step's line says.
+        # First, so what `workspace.calls` adds to the error is on the line.
         if acting and not done:
             call.hooks.step_done(tool, exc)
         failure = exc
-    # What this step's line is scrubbed with: every value the run typed, and
-    # the secrets allowed where it ran, typed or not (spec
-    # 2026-11-14-secret-scope, ruling 1). Asked with the raw result, or with
-    # None when the step raised: then where it is is unknown.
     try:
         scope = call.hooks.in_scope(None if failure is not None else raw)
     except Exception as exc:  # noqa: BLE001 - fails closed, whatever it was
-        return _unchecked(run, number, label, outcome, exc)
+        return _unchecked(run, outcome, exc)
     forms = run.seen | scope
     if failure is None:
         try:
@@ -716,13 +545,12 @@ def _drive(
         else:
             run.reports.append(outcome.entry())
             return True
-    return _failed(run, call, number, step, outcome, guarded, forms, failure)
+    return _failed(run, call, step, outcome, guarded, forms, failure)
 
 
 def _failed(
     run: Run,
     call: _Call,
-    number: int,
     step: dict,
     outcome: StepOutcome,
     guarded: dict[str, Id],
@@ -731,25 +559,22 @@ def _failed(
 ) -> bool:
     """Record a step that raised ``exc``, scrubbed with ``forms``. True to go on."""
     tool = step.get("tool")
-    label = step.get("id") or tool
     outcome.ok = False
     outcome.summary = scrub(outcome.summary, forms)
-    # An action puts its arguments in its error text, so the message is
-    # scrubbed before it reaches either the report or the log. One line,
-    # as a single call answers: no driver stack trace, no Grid credential.
+    # An action puts its arguments in its error text. One line, as a single
+    # call answers.
     outcome.error = scrub(faults.message(exc), forms)
     run.landed(outcome, page_state(call.actions, call.session_id), guarded, forms)
     log.info(
-        "flow %s step %s (%s) failed: %s", run.name, number, label, outcome.error
+        "flow %s step %s (%s) failed: %s",
+        run.name,
+        outcome.n,
+        outcome.label,
+        outcome.error,
     )
     run.reports.append(outcome.entry())
-    # An assertion is never continued past, whatever the document
-    # says. Saving refuses the pairing; this is the second half, for a
-    # flow edited on disk - without it a false assertion could still
-    # end `ok`, which is the whole failure this action exists to stop.
-    # Nor is a step refused because a person holds the browser: the run
-    # stops there with the refusal (live control spec, ruling 3), since
-    # every step after it would be refused the same way.
+    # Never continued past: an assertion, a cancelled run, or a step refused
+    # because a person holds the browser (every later step would be too).
     if (
         step.get("onError") == "continue"
         and tool != ASSERTION
@@ -760,24 +585,16 @@ def _failed(
     return False
 
 
-def _unchecked(
-    run: Run, number: int, label, outcome: StepOutcome, exc: Exception
-) -> bool:
+def _unchecked(run: Run, outcome: StepOutcome, exc: Exception) -> bool:
     """End the run at a step whose answer could not be checked for secrets.
 
-    Fails closed (spec 2026-11-14-secret-scope, ruling 2): the step says only
-    the fixed sentence - not its result, its error, the page it landed on or
-    its summary, any of which may carry a value - and the run stops there whatever its
-    `onError` says, since nothing after it could be checked either. The
-    failure is logged by its type alone.
+    The step says only the fixed sentence, none of its result, error, page or
+    summary, and the run stops whatever its `onError` says. The log names the
+    failure by its type alone.
     """
     log.warning(
         "flow %s step %s (%s) could not be checked for secrets: %s",
-        run.name, number, label, type(exc).__name__,
+        run.name, outcome.n, outcome.label, type(exc).__name__,
     )
-    outcome.ok = False
     outcome.summary = None
-    outcome.error = faults.SCRUB_FAILED
-    run.reports.append(outcome.entry())
-    run.status = "failed"
-    return False
+    return run.stops(outcome, faults.SCRUB_FAILED)

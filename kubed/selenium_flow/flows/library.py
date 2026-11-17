@@ -1,7 +1,6 @@
 """A flow document as text: parsed once, complained about safely, summarised.
 
-Where the text is kept is ``flows.store``; this is what the text *is*, and it
-is the same for a directory today and for WebDAV tomorrow.
+Where the text is kept is ``flows.store``.
 """
 
 from __future__ import annotations
@@ -20,15 +19,8 @@ from .shape import Shape
 def yaml_complaint(exc: Exception) -> str:
     """Say where a flow document broke, without quoting what was there.
 
-    PyYAML's own message embeds the offending source line verbatim. That text
-    is a person's document, typed into an editor that accepts anything, and it
-    travels further than the person expects: into the HTTP response and into
-    the server log, which outlives the request and is read by people who were
-    never shown the flow. Position plus the parser's short ``problem`` is
-    enough to find the mistake and carries none of the line.
-
-    Every YAML failure in this server goes through here — the store reading a
-    hand-edited file and the admin editor saving one are the same disclosure.
+    PyYAML's own message quotes the offending line, and this goes into HTTP
+    answers and the log. Every YAML failure in this server goes through here.
     """
     problem = getattr(exc, "problem", None) or "it could not be parsed"
     mark = getattr(exc, "problem_mark", None)
@@ -37,18 +29,16 @@ def yaml_complaint(exc: Exception) -> str:
     return f"{str(problem).strip()} (line {mark.line + 1}, column {mark.column + 1})"
 
 
-# libyaml when the wheel has it, which every platform we ship does. The
-# pure-Python parser is ten times slower, and a Secrets tab or a flow listing
-# parses every stored flow: 26 flows took 1.1s of CPU in the pod (§F4.19).
+# libyaml when the wheel has it: the pure-Python parser is ten times slower,
+# and a listing parses every stored flow.
 _LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
-# Measured in YAML source, not entries: 512 entries is no bound at all when one
-# entry can be any size. Today's flows average 3KB, so this holds over a
-# thousand, and a document bigger than all of it is parsed but never kept.
+# Measured in YAML source, since an entry can be any size. A document bigger
+# than all of it is parsed and never kept.
 CACHE_BYTES = 4 * 2**20
-# What every entry costs beyond its source, the key and the parsed dict, so a
-# directory of empty files cannot fill the cache for free (Copilot, #45).
+# What every entry costs beyond its source, so empty files cannot fill the cache
+# for free.
 ENTRY_BYTES = 1024
 
 
@@ -61,15 +51,11 @@ def _parsed(text: str) -> tuple[int, object]:
 
 
 def view(text: str):
-    """A YAML document, parsed once per distinct text (§F4.19), and SHARED.
+    """A YAML document, parsed once per distinct text, and shared.
 
-    Keyed on the text itself, not a TTL or an mtime: reading a file is cheap
-    and parsing it is not, and a key that *is* the content cannot serve a stale
-    flow after a save, a hand edit or a clock that ticks coarser than the disk.
-
-    The object is the cache's own, so it is read and never changed. A reader
-    that keeps or hands out any part of it takes a copy of that part: `parse`
-    copies the whole, `summary` only the small fields it returns.
+    Keyed on the text itself, so no save, hand edit or coarse clock can serve
+    a stale flow. The object is the cache's own: read it, never change it, and
+    copy any part that leaves (`parse` copies the whole).
     """
     return _parsed(text)[1]
 
@@ -78,8 +64,7 @@ FLOW_CAP = 2**20
 
 
 def check_size(text: str) -> None:
-    """Refuse a flow document over 1 MiB: they run to a few KB, and parsing is
-    the work an oversized one would make a token-holder's save cost."""
+    """Refuse a flow document over 1 MiB, before it is parsed."""
     if len(text.encode()) > FLOW_CAP:
         raise TooLarge(f"a flow is limited to {FLOW_CAP // 2**20} MiB of YAML")
 
@@ -93,22 +78,20 @@ def parse(text: str):
 def dump(document: dict) -> str:
     """``document`` as the YAML a save writes: keys in the order given.
 
-    The pure-Python emitter, not libyaml's, though libyaml is seven times
-    faster: it escapes anything outside the Basic Multilingual Plane (`😀`
-    becomes `"\\U0001F600"`) and breaks long quoted lines elsewhere, and a
-    person reads this text in the admin editor (Dr K).
+    The pure-Python emitter: libyaml's escapes anything outside the Basic
+    Multilingual Plane and breaks long quoted lines elsewhere, and a person
+    reads this text in the admin editor.
     """
     return yaml.safe_dump(document, sort_keys=False, width=100, allow_unicode=True)
 
 
 def summary(name: str, workspace: str, document: dict) -> dict:
-    """Name, description and parameters for one flow — never the steps.
+    """Name, description and parameters for one flow, never the steps.
 
-    ``document`` may be the cache's own (`view`), so the two fields handed out
-    are copied and the steps, the bulk of a document, are only counted.
+    ``document`` may be the cache's own (`view`), so what is handed out is
+    copied.
     """
-    # Where it applies, only when it can be read: a hand-edited `sites:
-    # example.com` lists without it rather than failing the listing (ruling 22).
+    # Places only when they can be read: a bad hand edit lists without them.
     where = {}
     if not places.problems(document):
         where = {
@@ -122,8 +105,5 @@ def summary(name: str, workspace: str, document: dict) -> dict:
         "description": copy.deepcopy(document.get("description", "")),
         **where,
         "parameters": copy.deepcopy(document.get("parameters", {})),
-        # Named for what it is. Calling it `steps` would put an int where the
-        # document itself carries a list, and E2 reads both — one consumer
-        # doing summary["steps"][0] is the whole cost of the shorter name.
         "step_count": Shape(document).step_count,
     }

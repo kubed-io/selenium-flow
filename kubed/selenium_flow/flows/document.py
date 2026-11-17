@@ -1,49 +1,13 @@
 """What a flow document is, and whether one is valid.
 
-A flow is a sequence of tool calls saved under a name (saga Chapter 1, §F1.6).
-This module owns its *shape*: what a step may contain, which tools may be steps,
-and how a step reaches a value it was not given literally. It does not store
-flows — that is ``flows.py`` — and it does not run them, which is E3.
+Steps are checked against the live tool schemas, passed in, never a copy of
+them. Validation runs when a flow is saved, so every problem, every undeclared
+``${name}`` included, is found before a browser moves.
 
-**Steps are validated against the tool schemas rather than a second definition
-of them.** ``tools.py``'s signatures are the tool schema, FastMCP derives the
-JSON Schema from them, and ``openapi.py`` already publishes those same schemas
-as its request bodies. A hand-written copy here would be a third place to update
-when ``write`` gains a parameter, and the first one anybody forgot. So the
-schemas are passed in, and everything below is a check against them.
-
-**A parameter is text; a secret is structural.** The two look alike and are
-opposites (§F1.38).
-
-A *parameter* is supplied by the caller, belongs to the flow, and is something
-the author may read in the report. It is written ``${name}`` and substituted
-into any argument, anywhere — including part of a longer string. That is worth
-it because a parameter has no reason to be confined: the alternative forced one
-bindable argument per action, so a flow could vary what it typed and never
-where it went.
-
-A *secret* is the opposite in every respect: the caller never sees it, it may
-reach exactly one sink, and it is checked against the page about to receive it.
-So it is **never** substituted into a string. `write` takes a `secret`
-parameter, structurally, and no other action has one — which is enforced by the
-tool schemas rather than by a list here, because an action that has no such
-parameter cannot be given one.
-
-**A parameter may therefore never hold something secret.** There is no
-``writeOnly`` any more: the mechanism for a value nobody may see is a secret,
-and a half-secret riding the text path would need every summary, result, error
-and URL string-scrubbed to hide it again.
-
-**Substitution is single-pass.** A value a caller supplied is never rescanned,
-so passing ``${admin_token}`` as a parameter's value yields that literal text
-rather than resolving anything. This is the rule that keeps "a payload can
-never collide with a reference" true now that strings are scanned at all.
-
-**Validation happens when a flow is SAVED, not when it runs.** Learning at step
-nine that step ten names a parameter that does not exist is the worst version of
-this feature: the browser is half way through a form and the flow was never
-going to finish. A save is the moment an author is present and can fix it — so
-every ``${name}`` is checked against the declared parameters here.
+A parameter is text the author may read in the report, written ``${name}``
+anywhere in any argument. A secret is never part of a string: only `write` has
+a `secret` argument, and the tool schemas enforce that. So a parameter may
+never be `writeOnly`.
 """
 
 from __future__ import annotations
@@ -60,47 +24,33 @@ from .template import PARAM_REFERENCE, listed, references
 
 log = logging.getLogger(__name__)
 
-# A step's arguments are `args`, not `params`, and the distinction is the whole
-# point: the FLOW has `parameters`, a run supplies `params`, and a step passes
-# `args` to a tool. One word for two of those made `${name}` inside a step's
-# `params` read as if it referred to the step's own. It is also the ordinary
-# distinction — a parameter is declared, an argument is passed.
+# The flow declares `parameters`, a run supplies `params`, and a step passes
+# `args` to a tool.
 ARGS = "args"
 
+# No `timeout`: a Selenium call blocks, so nothing could honour one. A step
+# bounds itself with its tool's `wait_timeout`.
 STEP_KEYS = {
-    "tool",  # which action — the discriminator
-    ARGS,  # its arguments, literally and completely
-    "id",  # a name for this step, unique in the flow
+    "tool",
+    ARGS,  # the tool's arguments, literally and completely
+    "id",  # unique in the flow
     "onError",  # abort (default) | continue
     "return",  # include this step's full result in the run report
-    "note",  # a human comment
+    "note",
 }
-# `timeout` was specified as a step key and is deliberately NOT one. Nothing
-# could honour it: a Selenium call blocks, so a wall-clock bound cannot
-# interrupt one, and the actions that *can* be bounded already take
-# `wait_timeout` in their own params — which is the per-step bound, is
-# validated against each tool's schema, and is what a step should use. A key
-# that parses and then does nothing is worse than a key that is refused.
 
 ON_ERROR = ("abort", "continue")
 
-# A whole run's budget in seconds, declared by the flow rather than chosen by
-# whoever runs it. The author is the one who knows a flow exists to wait — for
-# an order to ship, a build to finish — and a caller running somebody else's
-# flow has no way to know it needs fifteen minutes (pilot, §F2.15). Like the
-# default it replaces, it bounds *starting* a step: a Selenium call blocks, so
-# the step already running is bounded by its own `wait_timeout`.
+# A whole run's budget in seconds, declared by the flow's author, who knows
+# whether it exists to wait. It bounds starting a step.
 TIMEOUT = "timeout"
 
-# What a caller may say in a flow document, beside the name it is saved under.
-# The HTTP save picks exactly these from its body and the published document
-# schema describes exactly these, so a new key is one edit here — and the MCP
-# save tool, whose signature FastMCP reads, is held to the same set by a test.
+# What a caller may say in a flow document, beside its name. The HTTP save and
+# the published schema read these; a test holds the MCP save tool to them.
 DOCUMENT_KEYS = ("description", "sites", "paths", "parameters", TIMEOUT, "steps")
 
-# What `parameters` looks like, said in save_flow's schema and description, in
-# flow://schema and in the HTTP save's body, so a model writing a flow is shown
-# the shape before its first save rather than taught it by refusals (#118).
+# Shown in save_flow's schema and description, flow://schema and the HTTP
+# save's body.
 PARAMETERS_EXAMPLE = {
     "type": "object",
     "properties": {"email": {"type": "string"}},
@@ -117,7 +67,7 @@ def declared_timeout(document: dict) -> int | None:
     """The run budget ``document`` declares, or None when it declares none.
 
     Raises ValueError with the sentence to show an author. A bool is refused
-    even though it is an int to Python: `timeout: true` is a typo, not a second.
+    though Python counts it an int.
     """
     if not isinstance(document, dict) or document.get(TIMEOUT) is None:
         return None
@@ -130,14 +80,11 @@ def declared_timeout(document: dict) -> int | None:
         )
     return value
 
-# The one step `onError: continue` may never be paired with. Named here rather
-# than in `flowrun` so saving and running read the same constant.
+# The one step `onError: continue` may never be paired with, read by saving and
+# running.
 ASSERTION = "assert"
 
-# Lifecycle, not action. A flow runs against the browser the caller already has,
-# which is what lets one flow be run on Chrome and then on Firefox without being
-# edited — see §F1.9. A flow that opened its own browser would also end the
-# caller's, since open_session replaces the one you are holding.
+# Tools a step may not name, each with the reason the refusal gives.
 NOT_STEPS = {
     "await_control": (
         "A flow cannot wait for a person: a refused step stops the run, and "
@@ -164,42 +111,33 @@ NOT_STEPS = {
     ),
 }
 
-# The runner supplies this. A step naming it would be addressing someone else's
-# browser, which is the one thing a caller must never be able to do.
+# The runner supplies this; a step naming it could address another browser.
 RESERVED_PARAMS = {"session_id"}
 
-# `write` accepts its value as `text` or as a `secret`, so the tool schema
-# marks neither required and this says what it actually needs. A secret
-# satisfies it through `bound` rather than by being listed here — listing
-# both would demand both.
+# Needed but not `required` in the schema, because a secret may supply it
+# instead (through `bound`).
 NEEDED_SOMEHOW = {"write": ("text",)}
 
-# Tools that act on an element, and the ones where naming none is legitimate —
-# press_key goes wherever focus is, screenshot captures the viewport, frame
-# takes an index instead.
+# Tools that act on an element, and the ones that may name none: press_key goes
+# wherever focus is and screenshot takes the viewport. frame is decided per call
+# (`_needs_an_element`).
 ADDRESSES_AN_ELEMENT = {
     "interact", "write", "extract", "upload_file", "press_key", "screenshot",
     "frame", "drag",
 }
 OPTIONAL_ELEMENT = {"press_key", "screenshot"}
 
-# `drag` alone needs a second address: where the thing goes. Exactly one of a
-# destination selector or a by_x/by_y offset — a shape beyond what a JSON schema
-# can say. Without this a drag step with no destination saved cleanly and failed
-# at run time, which is the whole reason validation happens at save
-# (Copilot, #31).
+# A drag takes exactly one of a destination selector or a by_x/by_y offset,
+# which a JSON schema cannot say.
 DESTINATION = "to"
 OFFSET = ("by_x", "by_y")
 
 
 def _needs_an_element(tool: str, params: dict) -> bool:
-    """Whether this particular call has to name one.
+    """Whether this call has to name an element.
 
-    `frame` is not simply optional: `switch` needs a selector **or** an index,
-    and only `parent` and `default` need nothing. Treating the whole action as
-    optional let `frame(action="switch")` with no target save cleanly and then
-    be refused by `actions.frame` at run time, which is precisely the split
-    between validation and execution that save-time checking exists to close.
+    `frame`'s `switch` needs a selector or an index; `parent` and `default`
+    need nothing.
     """
     if tool == "frame":
         action = str(params.get("action", "switch")).strip().lower()
@@ -211,17 +149,11 @@ REFERENCE_FIELDS = ("name", "key")
 
 
 def reference_problems(reference) -> list[str]:
-    """What is wrong with a secret reference.
+    """What is wrong with a secret reference: a `name` and a `key`, nothing else.
 
-    It names a secret and a key inside it. Two fields, never one dotted string:
-    a Kubernetes key is routinely `tls.crt`, so there is no split point to find
-    (§F1.26).
-
-    Shared with `secrets.bind`, because the HTTP body reaches the binder as raw
-    JSON: the binder read `name` and `key` and ignored the rest, so
-    `{"name": ..., "key": ..., "namespace": ...}` ran as a different binding
-    than the request described, while the validator and the MCP model both
-    refused it. Unknown fields are refused, never dropped.
+    Two fields, never one dotted string: a Kubernetes key is often `tls.crt`.
+    Shared with `secrets.bind`, which gets the HTTP body as raw JSON, so an
+    unknown field is refused there too.
     """
     if not isinstance(reference, dict):
         return ["secret must be an object with name and key"]
@@ -239,8 +171,7 @@ def reference_problems(reference) -> list[str]:
 class InvalidFlow(ValueError):
     """A flow document that cannot be saved, with every reason it cannot.
 
-    A ValueError, so `errors.py` classifies it as the caller's problem and
-    returns 400 rather than 500.
+    A ValueError, so `errors.py` answers 400.
     """
 
     def __init__(self, problems: list[str]):
@@ -254,14 +185,8 @@ def _types(schema: dict) -> set[str]:
     """The JSON types a property accepts, flattening the optional `anyOf`.
 
     FastMCP writes an optional parameter as ``anyOf: [{type: string}, {type:
-    null}]``, so reading ``type`` alone would find nothing there and check
-    nothing at all.
-
-    A branch that is a **model** arrives as ``$ref`` with no ``type`` of its
-    own, and skipping it left `write`'s optional `secret` reading as
-    null-only — so the one shape it exists to accept was refused as "should be
-    null, got dict". A reference is to an object; what is inside it is
-    `reference_problems`' business, not this one's.
+    null}]``. A model branch arrives as a ``$ref`` with no ``type``, and counts
+    as an object.
     """
     if "type" in schema:
         return {schema["type"]}
@@ -277,8 +202,7 @@ def _types(schema: dict) -> set[str]:
 def _allowed(schema: dict) -> list | None:
     """The closed set a property accepts, whether or not it may also be null.
 
-    A `Literal` argument arrives as `enum`; an optional one as an `enum` branch
-    beside `null` in `anyOf`, which is how `open_session.browser` is published.
+    An optional `Literal` arrives as an `enum` branch beside `null` in `anyOf`.
     """
     if "enum" in schema:
         return schema["enum"]
@@ -302,10 +226,8 @@ _JSON_TYPES = {
 def _type_fits(value, accepted: set[str]) -> bool:
     """Whether ``value`` is one of the JSON types ``accepted`` allows.
 
-    Shallow on purpose: this catches `wait_timeout: "soon"` and leaves anything
-    deeper to the action, which has to cope with a hand-written call anyway.
-    `bool` is checked before `integer` because in Python `True` is an `int`, and
-    accepting it as one would let `clear: true` satisfy a timeout.
+    Shallow: anything deeper is the action's to refuse. `bool` comes first
+    because Python counts `True` an `int`.
     """
     if not accepted:
         return True
@@ -314,7 +236,7 @@ def _type_fits(value, accepted: set[str]) -> bool:
     for name in accepted:
         expected = _JSON_TYPES.get(name)
         if expected is None:
-            return True  # a type we do not model — do not invent a failure
+            return True  # a type not modelled here is not a failure
         if name == "integer" and isinstance(value, bool):
             continue
         if isinstance(value, expected):
@@ -327,12 +249,8 @@ def _check_references(
 ) -> list[str]:
     """Every parameter an argument names must be one the flow declares.
 
-    Both messages name the escape, because the commonest way to reach either is
-    to have meant no reference at all. A `script` argument carrying a JavaScript
-    template literal — ``return `${Math.round(n)} KB` `` — is refused here, and
-    told only "is not a parameter of this flow" it sends the author hunting for
-    a parameter they never wanted. `substitute` already treats such a payload as
-    ordinary text; this is the one place that has to say how to write it.
+    Both messages name the `$${` escape: the usual cause is a JavaScript
+    template literal in a `script`, ``return `${Math.round(n)} KB` ``.
     """
     problems = []
     for name in dict.fromkeys(references(args)):
@@ -356,8 +274,7 @@ def _check_references(
 # Every JSON Schema 2020-12 keyword: core, applicator, unevaluated, validation,
 # meta-data, format and content. Any `$` or `x-` key counts as one too. Only a
 # key outside these, holding a bare type name, is taken for a misplaced
-# parameter: `"title": "string"` is a valid schema, and refusing it is the
-# guess #53 ruled out.
+# parameter: `"title": "string"` is a valid schema.
 SCHEMA_KEYWORDS = frozenset({
     "prefixItems", "items", "contains", "additionalProperties", "properties",
     "patternProperties", "dependentSchemas", "propertyNames", "if", "then",
@@ -370,8 +287,8 @@ SCHEMA_KEYWORDS = frozenset({
     "title", "description", "default", "deprecated", "readOnly", "writeOnly",
     "examples", "format", "contentEncoding", "contentMediaType", "contentSchema",
 })
-# The bare type names a misplaced parameter is written with (Dr K, #118).
-# `"null"` is not one: no parameter is only ever null.
+# The bare type names a misplaced parameter is written with. Not `"null"`: no
+# parameter is only ever null.
 TYPE_NAMES = frozenset({"string", "number", "integer", "boolean", "object", "array"})
 
 
@@ -382,18 +299,15 @@ def _is_keyword(key: str) -> bool:
 def _misplaced(parameters, steps) -> dict[str, dict]:
     """Top-level `parameters` keys that are parameters, each with its schema.
 
-    Two kinds of evidence, and never a guess from the key alone (Copilot, #53):
-    with no `properties`, a key the steps name as ``${key}``; and, with or
-    without, a key no keyword has whose value is a bare type name, which cannot
-    mean anything else (Dr K, #118). Only at save: a stored flow still runs as
-    it did.
+    Never guessed from the key alone: with no `properties`, a key the steps
+    name as ``${key}``; with or without, a non-keyword key whose value is a
+    bare type name. Only at save: a stored flow still runs as it did.
     """
     if not isinstance(parameters, dict):
         return {}
     named = set()
     if "properties" not in parameters:
-        # Each step's args only, where a parameter is substituted: a `note`
-        # that mentions `${x-ui}` names nothing (Copilot, #53).
+        # Each step's args only: a `note` that mentions `${x-ui}` names nothing.
         named = {
             name
             for step in (steps if isinstance(steps, list) else [])
@@ -412,11 +326,10 @@ def _misplaced(parameters, steps) -> dict[str, dict]:
 
 
 def _undeclared_shape(parameters, misplaced: dict[str, dict]) -> list[str]:
-    """`parameters` written as ``{"email": ...}`` rather than as a schema.
+    """`parameters` written as ``{"email": ...}`` instead of a schema.
 
-    It used to pass as "no parameters", so each ``${email}`` was refused with
-    "this flow declares none" - true, and no help. The example declares every
-    misplaced key, beside the properties already declared.
+    The example declares every misplaced key, beside the properties already
+    declared.
     """
     if not misplaced:
         return []
@@ -438,17 +351,10 @@ def _undeclared_shape(parameters, misplaced: dict[str, dict]) -> list[str]:
     ]
 
 
-def _check_secret(where: str, reference) -> list[str]:
-    """``args.secret``: which secret, and which key inside it."""
-    return [f"{where}: {problem}" for problem in reference_problems(reference)]
-
-
 def _is_whole_reference(value) -> bool:
     """Whether ``value`` is one reference and nothing else.
 
-    `"${secs}"` is; `"page ${n}"` is not, and neither is `"$${secs}"` — an
-    escape matches the same expression, so the group has to be checked rather
-    than the match alone.
+    `"$${secs}"` also matches the expression, so the group is checked.
     """
     if not isinstance(value, str):
         return False
@@ -474,9 +380,8 @@ def _described(schema: dict) -> str:
 def _home_of(name: str, properties: dict) -> str | None:
     """The argument ``name`` belongs inside, when it is a key of one of them.
 
-    `interact(css="button.go")` is the shape `selector` replaced (§F2.14), and a
-    client that cached the old schema keeps sending it. "No parameter 'css'" is
-    true and useless; the schema knows where `css` went, so the refusal says.
+    A client with an old schema sends `interact(css="button.go")`, and the
+    refusal says `css` goes inside `selector`.
     """
     for argument, schema in sorted(properties.items()):
         for branch in _branches(schema):
@@ -488,15 +393,10 @@ def _home_of(name: str, properties: dict) -> str | None:
 def argument_problems(tool: str, arguments: dict, schema: dict) -> list[str]:
     """What is wrong with a direct tool call, in the words `save_flow` uses.
 
-    A step's arguments *are* a tool call's arguments, so a refused call and a
-    refused step are the same mistake and get the same sentence. Without this
-    the call got pydantic's own dump — a type code, the input echoed back and a
-    link to pydantic's documentation — and a pilot spent six calls finding out
-    what shape `selector` wanted (§F2.15).
+    A step's arguments are a tool call's arguments, so both get one sentence
+    for one mistake.
     """
-    # What a secret supplies, exactly as for a step: a call carrying one has
-    # its text, and saying "needs text" beside another mistake sent the caller
-    # to fix the one thing that was right (#38).
+    # A call carrying a secret has its text, as a step does.
     bound = {binding.SUPPLIES} if binding.binds(arguments) else set()
     return [
         problem.removeprefix(": ")
@@ -522,9 +422,8 @@ def _check_params(
     problems = []
     properties = schema.get("properties") or {}
     known = set(properties)
-    # Arguments already told which argument they belong inside. Saying "needs
-    # an element" as well, after naming the selector to send, is the same fix
-    # twice.
+    # Arguments already told which argument they belong inside, so "needs an
+    # element" is not said as well.
     routed = set()
 
     for name, value in sorted(params.items(), key=lambda item: str(item[0])):
@@ -549,12 +448,8 @@ def _check_params(
                 f"{where}: {tool} has no parameter {name!r}. Takes: {close}"
             )
             continue
-        # An argument that is *exactly* one reference carries the parameter's
-        # value with its type intact — `substitute` is deliberate about that —
-        # so checking the placeholder against the tool's schema would refuse
-        # `wait_timeout: "${secs}"` for being a string, when at run time it is
-        # the integer the caller passed. The reference is checked instead:
-        # `_check_references` has already required the name to be declared.
+        # Exactly one reference takes the parameter's value with its type, so
+        # `wait_timeout: "${secs}"` is not a string at run time.
         if in_flow and _is_whole_reference(value):
             continue
         if not _type_fits(value, _types(properties[name])):
@@ -564,10 +459,8 @@ def _check_params(
                 f"{where}: {tool}.{name} should be {accepted}, got "
                 f"{type(value).__name__}" + (f". {wanted}" if wanted else "")
             )
-        # A closed set is checked here too, or `action: mouseover` saves cleanly
-        # and fails at step nine. Compared without case because the action layer
-        # lowercases: validation must never be stricter than execution. A value
-        # carrying a reference is left alone, since only the run knows it.
+        # Compared without case, because the actions lowercase. A value carrying
+        # a reference is left to the run.
         allowed = _allowed(properties[name])
         if (
             allowed
@@ -584,17 +477,9 @@ def _check_params(
     if bound and binding.gives_twice(params, as_written=True):
         problems.append(f"{where}: {binding.AT_SAVE.twice}")
 
-    # Arguments a tool needs but its JSON schema cannot demand, because they
-    # may arrive by more than one route. `write` takes `text` OR a binding, so
-    # neither is `required` in the schema — and without this, a step with no
-    # text at all saved cleanly and failed at run time, which is the whole thing
-    # validating-on-save exists to prevent.
     for argument in NEEDED_SOMEHOW.get(tool, ()):
-        # `is None` as well as absent: the schema permits null so that
-        # `is None` as well as absent: the schema permits null so a secret can
-        # supply the value instead, and `args: {text: null}` would otherwise
-        # save cleanly and have `Actions.write` type the string "None" into
-        # the field.
+        # `is None` as well as absent: the schema permits null, and `Actions.write`
+        # would type `text: null` as the string "None".
         if params.get(argument) is None and argument not in bound:
             where_to = f"give it in {ARGS}" if in_flow else "give it"
             problems.append(
@@ -602,10 +487,6 @@ def _check_params(
                 "or give a secret for it to type"
             )
 
-    # The element. The selector model says "exactly one of xpath or css" for
-    # itself, so what is left here is whether this step needed one at all —
-    # `frame(action="switch")` with neither a selector nor an index saved
-    # cleanly and was refused at run time before this existed.
     if tool in ADDRESSES_AN_ELEMENT:
         named = params.get("selector") or "selector" in bound or "selector" in routed
         if not named and _needs_an_element(tool, params):
@@ -626,11 +507,9 @@ def _check_params(
 
 
 def _check_selector(where: str, tool: str, selector: dict) -> list[str]:
-    """One selector names one element, the way `browser.locator` requires.
+    """One selector names one element, as `browser.locator` requires.
 
-    Checked here as well as by the model because a flow is YAML somebody may
-    have written by hand, and a document that saves cleanly and fails at run
-    time is the split save-time validation exists to close.
+    The model checks this too, but a flow may be YAML written by hand.
     """
     named = [k for k in ("xpath", "css") if selector.get(k)]
     unknown = sorted(set(selector) - {"xpath", "css"})
@@ -707,10 +586,6 @@ def _check_step(
             f"{where}: onError is {on_error!r}; use {' or '.join(ON_ERROR)}"
         )
     elif tool == ASSERTION and on_error == "continue":
-        # An assertion you continue past is not an assertion: the run would go
-        # on and report `ok`, which is the confident green `assert` exists to
-        # prevent. Refused here, and refused again at run time, because a
-        # document edited on disk never passed through saving.
         problems.append(
             f"{where}: an assert cannot be continued past - a run that carries "
             "on after a false assertion reports success it did not earn. Drop "
@@ -727,28 +602,19 @@ def _check_step(
     if not isinstance(args, dict):
         return [*problems, f"{where}: {ARGS} must be an object"]
 
-    # Every `${name}` anywhere in the arguments, against what the flow declares.
-    # Checked before the schema check below, because an argument whose value is
-    # a reference is still the type the tool wants once it is substituted.
     problems += _check_references(where, args, declared, misplaced)
 
     secret = args.get(SECRET_ARG)
     bound = set()
     if binding.binds(args):
         bound = {binding.SUPPLIES}
-        problems += _check_secret(where, secret)
-        # The pair is `binding`'s rule. Its two halves are placed apart here
-        # only so the problems keep the order a saved flow has always listed
-        # them in: the url beside the reference, the text beside the other
-        # arguments (`_check_params`).
+        problems += [f"{where}: {problem}" for problem in reference_problems(secret)]
+        # `binding`'s rule, in two halves so the problems keep their order: the
+        # url here, the text with the other arguments (`_check_params`).
         if binding.navigates(args):
             problems.append(f"{where}: {binding.AT_SAVE.navigates}")
-        # A secret is the one value that may not be assembled from text, so it
-        # is the one argument a reference may not reach. Nothing about `${}`
-        # resolution would leak here — the reference names a *parameter* — but
-        # a secret whose name came from the caller is a caller choosing which
-        # credential gets typed, which is not a decision a flow's parameters
-        # are allowed to make.
+        # A parameter naming the secret would let the caller choose which
+        # credential is typed.
         if references(secret):
             problems.append(
                 f"{where}: a secret cannot be named by a parameter — "
@@ -760,11 +626,8 @@ def _check_step(
 
 
 def validate(document, schemas: dict) -> dict:
-    """``document`` if it is a flow that can be run, else raise `InvalidFlow`.
-
-    Returns **every** problem at once rather than the first. An agent fixing a
-    twelve-step flow one error per round trip is the reason this collects.
-    """
+    """``document`` if it is a flow that can be run, else raise `InvalidFlow`
+    with every problem at once."""
     if not isinstance(document, dict):
         raise InvalidFlow(["a flow must be an object"])
 
@@ -784,14 +647,7 @@ def validate(document, schemas: dict) -> dict:
     problems += _undeclared_shape(document.get("parameters"), misplaced)
     properties = shape.properties
     declared = shape.declared
-    # `writeOnly` is standard JSON Schema for "supplied but not returned", and
-    # it used to mean exactly that here. Accepting it now that nothing redacts
-    # it is the worst of both: an author marks a password `writeOnly`, believes
-    # it is hidden, and reads it back out of the report. A familiar marker that
-    # silently does nothing is a leak with a reassuring name on it, so it is
-    # refused and the refusal says what to use instead (§F1.38).
-    # Sorted by the string of each key: YAML makes `1:` an integer, and an
-    # integer beside a string does not sort. `Shape` has made every name one.
+    # `writeOnly` would read as hidden, and nothing hides a parameter.
     for name in sorted(properties):
         schema = properties[name]
         if isinstance(schema, dict) and schema.get("writeOnly"):
@@ -815,8 +671,8 @@ def validate(document, schemas: dict) -> dict:
     seen = set()
     for index, step in enumerate(shape.steps, start=1):
         problems += _check_step(index, step, declared, schemas, misplaced.keys())
-        # Only a string id can repeat: a list is already refused by
-        # `_check_step`, and cannot be a member of a set.
+        # Only a string id: `_check_step` refuses any other, and a list cannot
+        # go in a set.
         if isinstance(step, dict) and step.get("id") and isinstance(step["id"], str):
             if step["id"] in seen:
                 problems.append(
@@ -831,14 +687,11 @@ def validate(document, schemas: dict) -> dict:
 
 
 def concerns(document) -> list[str]:
-    """What is probably wrong with a valid flow, said once at save time.
+    """What is probably wrong with a valid flow, as warnings for its save.
 
-    A **warning**, not a refusal, and the difference is deliberate: a flow whose
-    first step acts on whatever page the browser happens to be on is legitimate
-    when the caller arranged that page, and a mistake the rest of the time.
-    Refusing it would break the legitimate case; saying nothing is how eight
-    green steps get reported on the page before the one the flow meant to reach
-    (§F2.6).
+    A first step that acts on whatever page the browser is on is right when
+    the caller arranged that page, and a mistake otherwise, so it is warned of
+    and kept.
     """
     if not isinstance(document, dict):
         return []
@@ -862,11 +715,8 @@ def concerns(document) -> list[str]:
 def inlined(schema: dict) -> dict:
     """``schema`` with every local ``$ref`` replaced by the definition it names.
 
-    FastMCP publishes a model argument — `Selector`, `SecretRef` — as a `$ref`
-    into the tool schema's own `$defs`. Copy a property out of that schema and
-    the reference dangles: the flow document schema carried ten of them, each
-    pointing at a `$defs` it did not have. Inlined, a property means the same
-    thing wherever it is copied to, and a checker reading it can see inside.
+    FastMCP publishes a model argument (`Selector`, `SecretRef`) as a `$ref`
+    into the schema's own `$defs`, which dangles once a property is copied out.
     """
     defs = schema.get("$defs") or {}
 
@@ -886,15 +736,10 @@ def inlined(schema: dict) -> dict:
 
 
 def step_schemas(tools: dict) -> dict:
-    """The tool schemas a step's ``params`` are checked against.
+    """The tool schemas a step's ``args`` are checked against.
 
-    ``session_id`` is stripped: the run supplies it, and a step naming it would
-    be addressing a browser that is not the caller's. Lifecycle tools are
-    dropped entirely (§F1.9).
-
-    Taken from the registered tools rather than from a listing, because a
-    listing is filtered per request by ``mirror.HideMirrors`` — so what it
-    contains depends on which client is asking, and a flow's shape must not.
+    ``tools`` are the registered tools' schemas. ``session_id`` is stripped,
+    and the tools a step may not name are dropped.
     """
     schemas = {}
     for name, schema in tools.items():
