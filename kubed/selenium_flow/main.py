@@ -12,11 +12,7 @@ log = logging.getLogger(__name__)
 
 
 def _secrets_summary(catalogue) -> str:
-    """"off", or how many directories and how many config entries feed it.
-
-    "secrets=0" used to mean either off or entries-only, which read as a
-    contradiction next to a config that plainly turned secrets on.
-    """
+    """"off", or how many directories and how many config entries feed it."""
     if catalogue is None:
         return "off"
     dirs = len(catalogue.sources)
@@ -44,13 +40,10 @@ def plain_fastmcp_logs() -> None:
 
     FastMCP configures its own logger at import: Rich handlers on stderr and no
     propagation. In a pod there is no TTY, so Rich wraps at 80 columns, and Loki
-    stores each physical line as its own entry, so only the first fragment of an
-    error matches its text. Dropping the handlers and propagating gives one
-    format. The level is INFO or the root's, whichever is higher, never lower:
-    FastMCP logs every tool's arguments at DEBUG (scripts, typed text, upload
-    content), so LOG_LEVEL=DEBUG must not open it, while WARNING still quiets
-    it. Filters on its child loggers stay, as they belong to the logger and not
-    to a handler.
+    stores each physical line as its own entry. The level is the higher of INFO
+    and the root's: FastMCP logs every tool's arguments at DEBUG (scripts, typed
+    text, upload content), while WARNING still quiets it. Filters on its child
+    loggers stay, as they belong to the logger and not to a handler.
     """
     logger = logging.getLogger("fastmcp")
     for handler in list(logger.handlers):
@@ -68,8 +61,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         loaded = config.load(argv)
     except config.ConfigError as exc:
-        # A config this server cannot run on stops the boot with the reason:
-        # restarted until fixed beats started on something misread (§F4.12).
+        # Restarted until fixed beats started on something misread.
         raise SystemExit(f"selenium-flow: {exc}") from None
     settings = loaded.settings
     logging.basicConfig(level=settings.log_level)
