@@ -84,7 +84,8 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
         "session": {"origin": here, "items": items} if here else {},
         "saved_at": now,
     }
-    if _size({**data, "origins": {}, "session": {}}) > MAX_BYTES:
+    total = _size({**data, "origins": {}, "session": {}})
+    if total > MAX_BYTES:
         # The jar is the one thing a save cannot leave out.
         raise ValueError(f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved")
     # Sized once, then evicted by subtracting: re-serialising the whole payload
@@ -92,7 +93,6 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
     # ``json.dumps`` the payload is, and the separators ("key": value joined by
     # ", ") are counted, so the running total is the serialised length.
     entries = {o: len(json.dumps(o)) + 2 + _size(e) for o, e in origins.items()}
-    total = _size({**data, "origins": {}, "session": {}})
     total += _joined(entries.values()) - 2
     total += _size(data["session"]) - 2
     while total > MAX_BYTES:
