@@ -382,6 +382,21 @@ def test_paste_needs_control(client, server, typing, mode):
     assert ("element", "send_keys", "hello") not in typing.log
 
 
+def test_an_oidc_user_named_admin_cannot_paste_while_the_token_holder_has_control(
+    client, server, typing, monkeypatch
+):
+    from kubed.selenium_flow.principal import Principal
+
+    async def admit(_request):
+        return Principal("oidc", subject="s9", username="admin")
+
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    monkeypatch.setattr(server.doors.admin, "admit", admit)
+    answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
+    assert answered.status_code == 409
+    assert ("element", "send_keys", "hello") not in typing.log
+
+
 def test_paste_in_control_types_and_audits_a_count(client, server, typing, caplog):
     held(server.tunnels, "w1", "admin", "control", GRID_ID)
     with caplog.at_level(logging.DEBUG):

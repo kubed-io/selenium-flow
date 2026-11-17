@@ -39,7 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed: admin end-session and live paste answer failures as JSON, and a live paste that fails to read its record types nothing.
 - Fixed: reading `session://console` directly names its new spelling.
 - Fixed: a save from an insecure browser keeps the stored site data, and a history origin the capture never read keeps its storage.
-- Fixed: an OIDC viewer is named `oidc:<name>`, so it cannot pass for `admin`.
+- Fixed: an OIDC user named `admin` can no longer act as the token holder in the live view.
 - Fixed: an action called while a dialog is open names `dialog` and does nothing.
 - Fixed: an unreadable `frame` index is refused, `upload_file` takes an empty `text`, and `write` refuses a null `text`.
 - Fixed: running a flow that does not exist names it before complaining about the browser.

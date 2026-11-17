@@ -33,10 +33,10 @@ import anyio
 
 from ..core.capabilities import UNDER_CONTROL
 from ..faults import Controlled
-from .audit import duration
+from .audit import duration, shown
 
 PERSON = "a person"
-ANONYMOUS = ("admin", "open")
+ANONYMOUS = ("admin", "open", "oidc")
 # The only caller of a `paste` is the admin's paste route, after its own
 # `controlling` check: the person in control is never refused.
 PASTE = "paste"
@@ -80,8 +80,11 @@ ANSWERS = frozenset(name for name, says in UNDER_CONTROL.items() if says == "ans
 
 
 def names(who: Iterable[str]) -> list[str]:
-    """Who, as a sentence names them: `admin` and `open` are "a person", once."""
-    return list(dict.fromkeys(PERSON if name in ANONYMOUS else name for name in who))
+    """Who, as a sentence names them, once each: `admin`, `open` and a nameless
+    OIDC viewer are "a person", any other by its plain name (`audit.shown`)."""
+    return list(
+        dict.fromkeys(PERSON if name in ANONYMOUS else shown(name) for name in who)
+    )
 
 
 def said(who: Iterable[str]) -> str:
