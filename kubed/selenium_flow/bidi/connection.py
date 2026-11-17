@@ -4,9 +4,9 @@ Everything that speaks BiDi goes through a `Connection`, on ``websockets``'
 asyncio client. This is the only module that imports it
 (`tests/test_boundaries.py`).
 
-A socket is a channel, never a liveness signal. Against the Grid, a held
-socket stays open after its session is deleted and after the Grid reaps it,
-and a command sent on it is never answered. The hub still answers its pings,
+A socket is a channel, never a liveness signal. Measured against the cluster's
+Grid, a held socket stays open after its session is deleted and after the Grid
+reaps it, and a command sent on it is never answered. The hub still answers its pings,
 so a ping proves the hub, never the browser. A command that gets no reply is
 the sign of a zombie socket, not of a session to declare gone, and a
 connection is closed when the reason it was held ends.
@@ -65,7 +65,8 @@ FLUSH_GRACE = 0.0
 # already holds is read without suspending, so without this the reader would
 # queue a whole TCP read before any subscriber ran.
 READ_TURN = 64
-# Seconds of events one subscriber handles in a turn before it yields.
+# Seconds of events one subscriber handles in a turn before it yields. A turn
+# per event let a burst fill the queue while the reader routed whole reads.
 DRAIN_TURN = 0.005
 
 

@@ -142,8 +142,8 @@ def request(buffer: Buffer, id: str) -> dict | None:
 
 def counts(buffer: Buffer) -> dict:
     """What was kept since the last navigation: console counts kept entries,
-    network every request seen, static included. Its `lost` counts since the
-    buffer began."""
+    network every request seen, static included. ``dropped`` and ``unmasked``
+    (`lost`), each present only when non-zero, count since the buffer began."""
     nav = buffer.nav
     return {
         "console": sum(1 for e in buffer.console if e["nav"] == nav),
