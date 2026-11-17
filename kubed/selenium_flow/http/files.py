@@ -765,41 +765,27 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
             ),
         )
 
-    @mcp.custom_route(path("screenshots"), methods=["GET"], name="files_screenshots")
-    async def list_screenshots(request: Request) -> JSONResponse:
-        """This workspace's saved screenshots, not yet kept."""
-        return await answer(
-            request,
-            "screenshots",
-            lambda caller, _body: folder(
-                actions, workspaces, store, token, caller.name, SCREENSHOTS,
-                base=base, mount=prefix, ttl=ttl,
-            ),
-        )
+    def folder_route(which: str):
+        """The handler for one folder's listing."""
 
-    @mcp.custom_route(path("downloads"), methods=["GET"], name="browser_downloads")
-    async def list_downloads(request: Request) -> JSONResponse:
-        """The downloads of the session open in this workspace."""
-        return await answer(
-            request,
-            "downloads",
-            lambda caller, _body: folder(
-                actions, workspaces, store, token, caller.name, DOWNLOADS,
-                base=base, mount=prefix, ttl=ttl,
-            ),
-        )
+        async def list_folder(request: Request) -> JSONResponse:
+            return await answer(
+                request,
+                which,
+                lambda caller, _body: folder(
+                    actions, workspaces, store, token, caller.name, which,
+                    base=base, mount=prefix, ttl=ttl,
+                ),
+            )
 
-    @mcp.custom_route(path("recordings"), methods=["GET"], name="files_recordings")
-    async def list_recordings(request: Request) -> JSONResponse:
-        """This workspace's recordings, not yet kept."""
-        return await answer(
-            request,
-            "recordings",
-            lambda caller, _body: folder(
-                actions, workspaces, store, token, caller.name, RECORDINGS,
-                base=base, mount=prefix, ttl=ttl,
-            ),
-        )
+        return list_folder
+
+    for which, name in (
+        (SCREENSHOTS, "files_screenshots"),
+        (DOWNLOADS, "browser_downloads"),
+        (RECORDINGS, "files_recordings"),
+    ):
+        mcp.custom_route(path(which), methods=["GET"], name=name)(folder_route(which))
 
     @mcp.custom_route(path("keep"), methods=["PUT"], name="files_keep")
     async def keep_route(request: Request) -> JSONResponse:
