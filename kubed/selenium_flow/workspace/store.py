@@ -123,6 +123,10 @@ class Workspace:
     # When this workspace's last call ended, in wall time; 0.0 before any. It
     # is what tells a reap (idle past the window) from a lost browser.
     called_at: float = 0.0
+    # When the Grid last answered a keep-alive ping for the held browser, in
+    # wall time; 0.0 before any. To the node a ping is activity, so it moves the
+    # reap clock like a call does.
+    pinged_at: float = 0.0
     # Who opened the browser this workspace holds, {"kind", "username"}, for
     # the admin list. Shown, never consulted.
     opened_by: dict | None = None
@@ -224,6 +228,7 @@ class Workspace:
                 site_data=site_data if isinstance(site_data, dict) else {},
                 reopened=reopened if isinstance(reopened, dict) else {},
                 called_at=_seconds(data.get("called_at")),
+                pinged_at=_seconds(data.get("pinged_at")),
                 opened_by=_opener(data.get("opened_by")),
                 grid_timeout=_timeout(data.get("grid_timeout")),
                 window_seen=_size(data.get("window_seen")),
