@@ -53,6 +53,7 @@ from .monitor.events import LocalBus
 from .monitor.monitor import Monitor
 from .recordings import collector as recording_collector
 from .recordings import mounts
+from .workspace import config as workspace_config
 from .workspace import locks
 from .workspace import settings as workspace_settings
 from .workspace import store as store_module
@@ -112,6 +113,11 @@ class SeleniumMCP:
         # Where this whole server is mounted: "" for root.
         self.prefix = routes.mount(settings.route_prefix)
         self.mcp_path = f"{self.prefix}/mcp"
+        # The server's public root, or "" when unset. Links carry the mount
+        # themselves, so a base that ends in it has it cut, not doubled.
+        base = (settings.public_base_url or "").strip().rstrip("/")
+        if self.prefix and base.endswith(self.prefix):
+            base = base[: -len(self.prefix)]
         # Loaded first: the instructions and the workspace status name the
         # skill only when it is served.
         self.skill = skill.load() if settings.mcp.skill else None
@@ -124,6 +130,13 @@ class SeleniumMCP:
             settings.data,
             config.recording_dir(settings) if settings.recording.enabled else None,
         )
+
+        # Each workspace's own config, read from its folder. A workspace
+        # that has one is kept: its record is written with no expiry.
+        self.configs = workspace_config.Configs(
+            self.flows, admin=base + self.prefix if base else ""
+        )
+        self.store.kept = self.configs.kept
 
         # One bus and one monitor in this process. The monitor watches the
         # Grid's status listing, holds a BiDi socket only for a reason that
@@ -224,6 +237,7 @@ class SeleniumMCP:
             control=self.controls,
             hints=self.flows.flows_here if self.flows is not None else None,
             catalogue=self.secrets,
+            configs=self.configs,
         )
         # Capture holds a page's events until the secrets in scope there are
         # in its masker. With secrets off it holds nothing.
@@ -301,11 +315,6 @@ class SeleniumMCP:
         mirror.register(self.mcp)
         completions.register(self.mcp)
 
-        # The server's public root, or "" when unset. Links carry the mount
-        # themselves, so a base that ends in it has it cut, not doubled.
-        base = (settings.public_base_url or "").strip().rstrip("/")
-        if self.prefix and base.endswith(self.prefix):
-            base = base[: -len(self.prefix)]
         if not admin_page.ui_built("admin"):
             log.info(
                 "The admin UI is not built, so its URL shows a placeholder: "

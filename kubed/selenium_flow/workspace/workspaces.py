@@ -72,6 +72,7 @@ from ..urls import (
 from . import locks
 from . import settings as settings_module
 from .calls import Calls, told
+from .config import Configs
 from .origins import OriginChanged, Origins
 from .scrub import Scrubber
 from .store import DEFAULT_TTL_SECONDS, MemoryStore, Workspace, WorkspaceStore
@@ -358,6 +359,7 @@ class Workspaces:
         hints: Callable[[str, str], list[dict]] | None = None,
         keep_alive: int = 0,
         catalogue=None,
+        configs: Configs | None = None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -388,6 +390,8 @@ class Workspaces:
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
         # is hinted. Asked only by `_hint`, never inside a store write.
         self.hints = hints
+        # Each workspace's own config (`workspace.config`): none without one.
+        self.configs = configs if configs is not None else Configs(None)
         # Seconds a browser is kept alive past its last call (`session.keep_alive`);
         # 0 keeps nothing. With the node's own timeout it is the window a reopen
         # is judged against: idle past it is a reap, inside it a lost browser.

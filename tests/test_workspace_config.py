@@ -11,18 +11,22 @@ import logging
 import os
 
 import pytest
+from starlette.testclient import TestClient
 
 from kubed.selenium_flow import faults
 from kubed.selenium_flow.flows.store import LocalFlowStore
 from kubed.selenium_flow.names import InvalidName
 from kubed.selenium_flow.workspace import config as config_module
 from kubed.selenium_flow.workspace.config import CONFIG_FILE, Configs
+from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, Workspace
 
-from .conftest import log_lines
+from .conftest import TOKEN, log_lines
+from .fakes import FakeRedis
 
 pytestmark = pytest.mark.unit
 
 NAME = "desktop"
+AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 @pytest.fixture
@@ -256,3 +260,69 @@ def test_kept_names_are_the_folders_holding_a_file(configs, tmp_path):
     (tmp_path / "laptop").mkdir()
     write(tmp_path, "colour: blue\n", name="broken")
     assert configs.kept_names() == ["broken", NAME]
+
+
+# ---- kept: a workspace with a config never expires ------------------------------
+
+
+def _kept_stores(tmp_path, configs):
+    memory_now = [1000.0]
+    memory = MemoryStore(ttl=60, clock=lambda: memory_now[0])
+    fake = FakeRedis()
+    redis = RedisStore(fake, prefix="p:", ttl=60)
+    for store in (memory, redis):
+        store.kept = configs.kept
+    return memory, memory_now, redis, fake
+
+
+def test_a_kept_workspace_is_written_with_no_expiry(configs, tmp_path):
+    memory, now, redis, fake = _kept_stores(tmp_path, configs)
+    configs.save(NAME, "flows: {}\n")
+    memory.set(NAME, Workspace(session_id="a"))
+    redis.set(NAME, Workspace(session_id="a"))
+    redis.update(NAME, lambda r: r.with_site_data({"x": 1}))
+    now[0] += 10**9
+    assert memory.get(NAME) is not None
+    assert NAME in memory.records()
+    assert fake.expiries[f"p:{NAME}"] is None
+
+
+def test_the_first_write_after_the_file_goes_sets_the_expiry_again(configs, tmp_path):
+    memory, now, redis, fake = _kept_stores(tmp_path, configs)
+    configs.save(NAME, "flows: {}\n")
+    memory.set(NAME, Workspace(session_id="a"))
+    redis.set(NAME, Workspace(session_id="a"))
+    configs.remove(NAME)
+    memory.update(NAME, lambda r: r.with_site_data({"x": 1}))
+    redis.upsert(NAME, lambda r: r.with_site_data({"x": 1}))
+    assert fake.expiries[f"p:{NAME}"] == 60
+    now[0] += 61
+    assert memory.get(NAME) is None
+
+
+def test_an_invalid_config_keeps_the_workspace_too(configs, tmp_path):
+    """Kept is the file being there: a broken one is still the admin's."""
+    write(tmp_path, "colour: blue\n")
+    memory, now, _, _ = _kept_stores(tmp_path, configs)
+    memory.set(NAME, Workspace())
+    now[0] += 61
+    assert memory.get(NAME) is not None
+
+
+def test_the_server_keeps_a_workspace_its_config_names(data_server, tmp_path):
+    """Wired at boot: the store asks the server's configs."""
+    data_server.workspaces.configs.save(NAME, "flows: {}\n")
+    store = data_server.store
+    store.set(NAME, Workspace())
+    assert store._data[NAME][0] == float("inf")
+
+
+def test_the_admin_list_shows_a_kept_workspace_with_no_record(data_server):
+    data_server.workspaces.configs.save("kept-only", "flows: {}\n")
+    data_server.store.set(NAME, Workspace())
+    client = TestClient(data_server.mcp.http_app(), headers=AUTH)
+    rows = {r["key"]: r for r in client.get("/admin/workspaces").json()["workspaces"]}
+    assert set(rows) == {"kept-only", NAME}
+    assert rows["kept-only"]["kept"] is True
+    assert rows["kept-only"]["attached"] is False
+    assert rows[NAME]["kept"] is False

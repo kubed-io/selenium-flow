@@ -404,6 +404,10 @@ def _visits(raw) -> list[dict]:
     ]
 
 
+def _never(_key: str) -> bool:
+    return False
+
+
 class WorkspaceStore(Protocol):
     """Maps a caller key to its workspace: the record of what it was doing, and
     the session (the live browser) it holds, if any."""
@@ -412,6 +416,9 @@ class WorkspaceStore(Protocol):
     # How long an entry is kept: things derived from a store keep its retention
     # (`pointer.matching`).
     ttl: int
+    # Whether a key's record is written with no expiry: its workspace has a
+    # config (`workspace.config.Configs.kept`). Asked once per write.
+    kept: Callable[[str], bool]
 
     def get(self, key: str) -> Workspace | None: ...
 
@@ -488,6 +495,7 @@ class MemoryStore(_Writes):
         self._data: dict[str, tuple[float, Workspace]] = {}
         self._ttl = ttl
         self._clock = clock
+        self.kept: Callable[[str], bool] = _never
         # One lock per key, held only while someone is using it, so a workspace
         # named once does not keep a lock for the life of the process.
         self._guard = threading.Lock()
@@ -523,18 +531,23 @@ class MemoryStore(_Writes):
                 if not held[1]:
                     del self._locks[key]
 
+    def _deadline(self, key: str) -> float:
+        return math.inf if self.kept(key) else self._clock() + self._ttl
+
     def set(self, key: str, record: Workspace) -> None:
+        deadline = self._deadline(key)
         # Under the key's lock, so a plain write cannot land inside an update.
         with self._locked(key):
-            self._data[key] = (self._clock() + self._ttl, record)
+            self._data[key] = (deadline, record)
 
     def upsert(self, key: str, fn: Create) -> Workspace | None:
+        deadline = self._deadline(key)
         with self._locked(key):
             current = self.get(key)
             changed = fn(current)
             if changed is None:
                 return current
-            self._data[key] = (self._clock() + self._ttl, changed)
+            self._data[key] = (deadline, changed)
             return changed
 
     def delete(self, key: str) -> None:
@@ -576,6 +589,7 @@ class RedisStore(_Writes):
         self._redis = client
         self._prefix = prefix
         self._ttl = ttl
+        self.kept: Callable[[str], bool] = _never
 
     @property
     def client(self):
@@ -599,8 +613,12 @@ class RedisStore(_Writes):
             return None
         return Workspace.from_json(value)
 
+    def _ex(self, key: str) -> int | None:
+        # A SET without EX also drops the expiry the key had.
+        return None if self.kept(key) else self._ttl
+
     def set(self, key: str, record: Workspace) -> None:
-        self._redis.set(self._k(key), record.to_json(), ex=self._ttl)
+        self._redis.set(self._k(key), record.to_json(), ex=self._ex(key))
 
     def upsert(self, key: str, fn: Create) -> Workspace | None:
         """WATCH, read, MULTI, write: EXEC refuses if another replica wrote the
@@ -610,6 +628,7 @@ class RedisStore(_Writes):
         from redis.exceptions import WatchError  # optional dependency, as above
 
         k = self._k(key)
+        ex = self._ex(key)
         with self._redis.pipeline() as pipe:
             for _ in range(UPDATE_RETRIES):
                 try:
@@ -621,7 +640,7 @@ class RedisStore(_Writes):
                         pipe.unwatch()
                         return current
                     pipe.multi()
-                    pipe.set(k, changed.to_json(), ex=self._ttl)
+                    pipe.set(k, changed.to_json(), ex=ex)
                     pipe.execute()
                     return changed
                 except WatchError:
