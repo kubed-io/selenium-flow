@@ -31,6 +31,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from .. import errors, faults
 from ..flows.document import argument_problems
+from ..names import retired_uri
 from ..urls import without_userinfo
 
 # Where FastMCP logs a failed call or read, and the words it opens each with.
@@ -101,6 +102,15 @@ class Explained(Middleware):
         try:
             return await call_next(context)
         except NotFoundError as exc:
+            # A URI that moved is answered with where it went, as
+            # `read_resource` does. FastMCP words a NotFoundError itself, so
+            # this is an MCPError.
+            try:
+                retired_uri(getattr(context.message, "uri", ""))
+            except ValueError as moved:
+                raise MCPError(
+                    code=RESOURCE_NOT_FOUND, message=without_userinfo(str(moved))
+                ) from None
             # "Unknown resource: '<uri>'" quotes the caller's URI too.
             raise NotFoundError(without_userinfo(str(exc))) from None
         except ResourceError as exc:

@@ -163,3 +163,9 @@ async def test_the_capture_listings_say_they_outlive_the_browser(server):  # rul
         listed = {str(r.uri): r.description for r in await c.list_resources()}
     for uri in ("workspace://console", "workspace://network", "workspace://current"):
         assert resources.CAPTURE_KEPT in listed[uri], uri
+
+
+async def test_reading_the_old_console_uri_directly_names_where_it_went(server):
+    async with Client(server.mcp) as c:
+        with pytest.raises(Exception, match=r"workspace://console\?level=error"):
+            await c.read_resource("session://console?level=error")
