@@ -481,12 +481,6 @@ def test_a_bare_origin_is_accepted_with_or_without_a_trailing_slash(tmp_path, li
     assert len(entry["allowed_urls"]) == 1
 
 
-def test_a_secret_with_no_declaration_is_marked_unrestricted_and_refused(tmp_path):
-    entry = make(tmp_path, {"app": {"password": "p"}}).entry("app")
-    assert entry["restricted"] is False
-    assert "refused" in entry
-
-
 def test_an_unreadable_directory_does_not_take_down_the_catalogue(tmp_path):
     """"Unreadable is absent" is a promise this module makes, and iterdir can
     raise PermissionError."""

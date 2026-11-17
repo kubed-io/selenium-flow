@@ -470,29 +470,6 @@ def test_the_grids_own_status_decides_what_its_refusal_means(status, expected):
 # ---- the name a caller needs in order to keep anything ----------------------
 
 
-async def test_a_saved_screenshot_tells_the_caller_what_it_was_called(
-    live, named_caller
-):
-    """`keep_file` takes a name, and this is the tool that most often makes one.
-
-    Chrome deduplicates, so `shot.png` can land as `shot (1).png` and no caller
-    can derive it. Returning the image alone left the one thing you have to know
-    obtainable only by listing the files and guessing which entry was yours —
-    while the HTTP endpoint had been returning it all along (§F1.37).
-    """
-    entry = {"name": "shot (1).png", "size": 3, "creationTime": 1}
-    tool = await live.mcp.get_tool("screenshot")
-    with patch.object(
-        live.actions,
-        "screenshot",
-        return_value={"image": "", "url": "https://x/", "file": entry},
-    ):
-        result = tool.fn(save=True)
-    assert result.structured_content == {"file": entry}
-    # And still an image: the point is to add the name, not to stop showing it.
-    assert result.content and result.content[0].type == "image"
-
-
 async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
     """Nothing was stored, so there is no name to carry and no reason to wrap
     the result in anything. Storing is now the default, so this is the caller
@@ -508,7 +485,9 @@ async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
 
 
 async def test_the_tool_saves_by_default_too(live, named_caller):
-    """Through the tool, not the action: the default has to travel."""
+    """Through the tool, not the action: the default has to travel. The result
+    names the kept file, which Chrome may have renamed (`shot (1).png`), and
+    is still an image."""
     entry = {"name": "screenshot.png", "size": 3, "creationTime": 1}
     asked = {}
 

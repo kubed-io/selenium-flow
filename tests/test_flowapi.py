@@ -102,6 +102,7 @@ async def test_the_reads_are_resources_and_the_writes_are_tools(flow_server):
 async def test_every_flow_tool_declares_honest_annotations(flow_server):
     tools = {t.name: t for t in await flow_server.mcp.list_tools()}
     assert tools[flowapi.DELETE_TOOL].annotations.destructive_hint is True
+    # A run can click anything, and this server cannot tell which click.
     assert tools[flowapi.RUN_TOOL].annotations.destructive_hint is True
 
 
@@ -562,12 +563,6 @@ async def test_parameters_reach_the_step_that_names_them(ran):
     await call(server, flowapi.RUN_TOOL, name="login",
                params={"email": "someone@example.test"})
     assert calls[0][2]["text"] == "someone@example.test"
-
-
-async def test_run_flow_admits_it_is_destructive(flow_server):
-    """It can click anything, and this server cannot tell which click."""
-    tools = {t.name: t for t in await flow_server.mcp.list_tools()}
-    assert tools[flowapi.RUN_TOOL].annotations.destructive_hint is True
 
 
 def test_running_over_http_needs_a_named_workspace(client):

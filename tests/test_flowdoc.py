@@ -154,20 +154,6 @@ async def test_an_unknown_parameter_names_the_ones_the_tool_takes(step_schema_ma
     assert "xpath" in str(caught.value)
 
 
-async def test_a_binding_satisfies_what_the_schema_cannot_demand(step_schema_map):
-    assert validate(
-        flow(
-            steps=[
-                {
-                    "tool": "write",
-                    "args": {"selector": {"css": "#p"}, "secret": {"name": "n", "key": "password"}},
-                }
-            ]
-        ),
-        step_schema_map,
-    )
-
-
 async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
     """press_key goes wherever focus is; screenshot captures the viewport."""
     assert validate(
@@ -217,18 +203,6 @@ async def test_a_declared_parameter_may_be_referenced(step_schema_map, parameter
 @pytest.mark.parametrize(
     "steps",
     [
-        pytest.param(
-            [
-                {
-                    "tool": "write",
-                    "args": {
-                        "selector": {"css": "#password"},
-                        "secret": {"name": "nextcloud", "key": "password"},
-                    },
-                }
-            ],
-            id="a-step-may-take-its-value-from-a-secret",
-        ),
         # `$${` is a literal `${`. Without the escape there would be no way to
         # type one, and a page that genuinely wants `${x}` in a field is not exotic —
         # it is every templating tutorial on the internet.

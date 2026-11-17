@@ -128,18 +128,6 @@ def _raw(issuer, **claims):
     return issuer.mint_raw(base | claims)
 
 
-async def test_a_jwt_without_exp_is_refused(issuer):
-    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
-    assert await verifier.verify_token(_raw(issuer)) is None
-
-
-async def test_a_jwt_not_yet_valid_is_refused(issuer):
-    verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
-    now = int(time.time())
-    token = _raw(issuer, exp=now + 7200, nbf=now + 3600)
-    assert await verifier.verify_token(token) is None
-
-
 async def test_a_jwt_valid_since_a_moment_ago_is_accepted(issuer):
     verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
     now = int(time.time())

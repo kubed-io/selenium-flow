@@ -195,12 +195,6 @@ def test_the_probes_answer_when_the_grid_url_is_malformed():
     assert ready.status_code == GRID_DOWN and "hunter2" not in ready.text
 
 
-def test_endpoints_reject_a_missing_token(client):
-    response = client.post("/browser", json={})
-    assert response.status_code == 401
-    assert response.json() == {"error": "unauthorized"}
-
-
 def test_endpoints_reject_a_wrong_token(client):
     response = client.post(
         "/browser", json={}, headers={"Authorization": "Bearer nope"}

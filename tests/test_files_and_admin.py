@@ -513,11 +513,6 @@ async def test_the_mcp_surface_never_lists_other_workspaces(built_ui, server):
     assert "workspace://current" in uris
 
 
-async def test_the_app_shell_is_a_ui_resource(built_ui, server):
-    uris = {str(r.uri) for r in await server.mcp.list_resources()}
-    assert apps.RESOURCE_URI in uris
-
-
 async def test_apps_can_be_turned_off(built_ui):
     off = SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},

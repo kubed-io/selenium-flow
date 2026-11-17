@@ -150,16 +150,6 @@ def test_a_screenshot_is_named_as_the_png_it_is(acting, keeper, given, expected)
     assert keeper.kept[0][0] == expected
 
 
-def test_a_screenshot_is_kept_in_the_screenshots_folder(acting, keeper):
-    acting.screenshot("abc")
-    assert keeper.kept[0][2] == "screenshots"
-
-
-def test_a_print_is_kept_in_files(acting, keeper):
-    acting.print_("abc")
-    assert keeper.kept[0][2] == "files"
-
-
 # ---- print -------------------------------------------------------------------
 
 

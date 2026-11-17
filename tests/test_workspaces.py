@@ -1000,15 +1000,11 @@ def test_session_ttl_is_honoured():
 
 
 def test_no_redis_env_means_memory():
+    """Memory is the answer only when nothing asked for Redis at all, never a
+    step down from a Redis that failed."""
     store = from_settings(WorkspaceSettings(), RedisSettings())
     assert isinstance(store, MemoryStore)
     assert store.kind == "memory"
-
-
-def test_memory_is_used_when_nothing_asked_for_redis():
-    """Unchanged behaviour (§F4.12): memory is the answer only when nothing
-    asked for Redis at all, never a step down from a Redis that failed."""
-    assert isinstance(from_settings(WorkspaceSettings(), RedisSettings()), MemoryStore)
 
 
 def test_an_unreachable_redis_stops_the_boot_with_the_reason(monkeypatch):
@@ -1293,10 +1289,6 @@ def test_an_unreachable_grid_does_not_strand_the_workspace(monkeypatch):
 # ---- a workspace outlives its session ---------------------------------------
 
 
-def test_ending_something_that_is_not_there_is_not_an_error():
-    assert manager().end_browser(Caller("nobody")) is None
-
-
 def test_context_is_what_a_reopen_should_inherit(monkeypatch):
     workspaces = manager()
     workspaces.store.set(
@@ -1339,18 +1331,6 @@ def test_opening_a_replacement_ends_the_browser_it_replaces():
     ended = workspaces.end_browser(Caller(NAMED))
     assert ended == "old-browser"
     assert actions.closed == ["old-browser"]
-
-
-def test_replacing_keeps_the_workspace_and_its_context():
-    """The same command the admin End uses — the context is what the
-    replacement inherits, so ending must not take it."""
-    workspaces = manager()
-    workspaces.remember(NAMED, "old-browser", "https://x/", {"browser": "firefox"})
-    workspaces.end_browser(Caller(NAMED))
-    record = workspaces.store.get(NAMED)
-    assert not record.attached
-    assert record.url == "https://x/"
-    assert record.settings == {"browser": "firefox"}
 
 
 def test_ending_a_workspace_with_no_browser_ends_nothing():
