@@ -34,6 +34,8 @@ export type SetBy = 'config' | 'client' | 'caller'
 
 export interface WorkspaceRow {
   key: string
+  /** A workspace with a config: it never expires. */
+  kept?: boolean
   name?: string | null
   owner?: string | null
   browser?: string | null
@@ -141,6 +143,14 @@ export interface SettingRow {
   source: SettingSource
   sensitive?: boolean
   set?: boolean
+}
+/** A workspace's config, as `GET /admin/workspaces/{key}/config` answers it. */
+export interface ConfigPayload {
+  text: string | null
+  config: Record<string, { value: unknown; source: 'default' | 'workspace' }>
+  /** Why the file is refused, else null. */
+  error: string | null
+  kept: boolean
 }
 export interface SettingsSection { name: string; description: string; settings: SettingRow[] }
 export interface SettingsPayload { sections: SettingsSection[] }

@@ -3,6 +3,10 @@ import type { Snippet } from 'svelte'
 /* One modal, three uses: the confirm that lists what it removes (native
    confirm() cannot show a list, and "Delete 12 files?" without saying which
    is an assertion, not a disclosure), the flow delete confirm, the YAML editor. */
+/* A failed confirm whose reason the box's body already shows: the box stays
+   open and says nothing more. */
+export class Shown extends Error {}
+
 export interface ModalSpec<T = unknown> {
   title: string
   body: Snippet<[T]>

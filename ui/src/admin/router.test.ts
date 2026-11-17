@@ -73,3 +73,8 @@ test('the Live tab has a route of its own', () => {
   expect(hashes.live('a b')).toBe('#/workspaces/a%20b/live')
   expect(parse(hashes.live('a b'))).toMatchObject({ key: 'a b', tab: 'live' })
 })
+
+test('a URL opens a workspace on its Config tab (UI-75)', () => {
+  expect(hashes.config('a b')).toBe('#/workspaces/a%20b/config')
+  expect(parse(hashes.config('k'))).toEqual({ view: 'workspace', key: 'k', tab: 'config', flow: undefined })
+})

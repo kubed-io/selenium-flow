@@ -1,7 +1,7 @@
 <script lang="ts" generics="T">
   import { fade, scale } from 'svelte/transition'
   import { ms } from '../motion'
-  import type { ModalSpec } from './modal'
+  import { Shown, type ModalSpec } from './modal'
 
   // Generic over T, rather than the default `unknown`: a caller's
   // `ModalSpec<T>` for its own T (a snippet typed to the list it renders) is
@@ -46,7 +46,7 @@
       // click's `catch` keeps its own `e.target` and runs regardless. Kept
       // deliberately rather than silenced.
       busy = false
-      alert((err as Error).message)
+      if (!(err instanceof Shown)) alert((err as Error).message)
     }
   }
 </script>
