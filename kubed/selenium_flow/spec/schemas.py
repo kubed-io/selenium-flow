@@ -55,6 +55,15 @@ RESPONSES = {
                     " reflected."
                 ),
             },
+            "tags": {
+                "type": "object",
+                "additionalProperties": {"type": "integer"},
+                "description": (
+                    "The tags in use on the flows this workspace is offered, its"
+                    " own and global's, each with how many carry it, in tag"
+                    " order. Empty when no flow has one."
+                ),
+            },
             "live": {
                 "type": "boolean",
                 "description": "Whether a session is open in this workspace.",

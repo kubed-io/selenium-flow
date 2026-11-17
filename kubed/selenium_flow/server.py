@@ -224,6 +224,7 @@ class SeleniumMCP:
             control=self.controls,
             hints=self.flows.flows_here if self.flows is not None else None,
             catalogue=self.secrets,
+            tags=self.flows.tags_in_use if self.flows is not None else None,
         )
         # Capture holds a page's events until the secrets in scope there are
         # in its masker. With secrets off it holds nothing.

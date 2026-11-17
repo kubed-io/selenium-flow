@@ -48,6 +48,7 @@ from . import engine, places, redact, template
 from . import library as flowlib
 from . import run as flowrun
 from . import tags as flowtags
+from .shape import Shape
 
 log = logging.getLogger(__name__)
 
@@ -98,8 +99,9 @@ OFF = (
 LIST_DESCRIPTION = (
     "The flows this workspace can run: saved sequences of tool calls that run "
     "server-side in one call.\n\n"
-    "Each entry has a name, a description, the parameters it takes and how many "
-    "steps it has — never the steps themselves, which flow://flows/{name} returns.\n\n"
+    "Each entry has a name, a description, its tags, the parameters it takes "
+    "and how many steps it has — never the steps themselves, which "
+    "flow://flows/{name} returns.\n\n"
     "Flows saved in this workspace come first; anything in the shared 'global' "
     "library is also listed, and a flow of your own with the same name wins."
 )
@@ -121,8 +123,9 @@ def _context():
         return None
 
 
-def catalogue(store, workspace: str) -> dict:
-    """Every flow this workspace can run: its own, plus the shared library's.
+def catalogue(store, workspace: str, every: bool = False) -> dict:
+    """Every flow this workspace can run: its own, plus the shared library's
+    it is offered, or all of those with ``every`` (the admin's view).
 
     A name defined in both resolves to this workspace's, and each entry says
     which library it came from.
@@ -133,8 +136,10 @@ def catalogue(store, workspace: str) -> dict:
     # admin reads it to choose the globe and which way the move button points.
     own_are_shared = workspace == GLOBAL_WORKSPACE
     if not own_are_shared:
+        offer = store.offered(workspace)
         for summary in store.summaries(GLOBAL_WORKSPACE):
-            entries[summary["name"]] = {**summary, "shared": True}
+            if every or offer(summary.get(flowtags.TAGS, ())):
+                entries[summary["name"]] = {**summary, "shared": True}
     for summary in store.summaries(workspace):
         entries[summary["name"]] = {**summary, "shared": own_are_shared}
     return {
@@ -144,14 +149,17 @@ def catalogue(store, workspace: str) -> dict:
     }
 
 
-def read_one(store, workspace: str, name: str) -> dict:
-    """One flow: this workspace's if it has one, else the shared library's."""
+def read_one(store, workspace: str, name: str, every: bool = False) -> dict:
+    """One flow: this workspace's if it has one, else the shared library's when
+    the workspace is offered it, or with ``every`` (the admin's view)."""
     store = _require(store)
     flow = store.get(workspace, name)
     # The flag describes the directory, as in `catalogue`.
     shared = workspace == GLOBAL_WORKSPACE
     if flow is None and workspace != GLOBAL_WORKSPACE:
         flow = store.get(GLOBAL_WORKSPACE, name)
+        if flow is not None and not every:
+            flow = flow if store.offered(workspace)(Shape(flow).tags) else None
         shared = flow is not None
     if flow is None:
         raise ValueError(

@@ -86,7 +86,7 @@ def dump(document: dict) -> str:
 
 
 def summary(name: str, workspace: str, document: dict) -> dict:
-    """Name, description and parameters for one flow, never the steps.
+    """Name, description, tags and parameters for one flow, never the steps.
 
     ``document`` may be the cache's own (`view`), so what is handed out is
     copied.
@@ -99,11 +99,14 @@ def summary(name: str, workspace: str, document: dict) -> dict:
             for key in (places.SITES, places.PATHS)
             if document.get(key) is not None
         }
+    shape = Shape(document)
+    tagged = {"tags": shape.tags} if shape.tags else {}
     return {
         "name": name,
         "workspace": workspace,
         "description": copy.deepcopy(document.get("description", "")),
+        **tagged,
         **where,
         "parameters": copy.deepcopy(document.get("parameters", {})),
-        "step_count": Shape(document).step_count,
+        "step_count": shape.step_count,
     }

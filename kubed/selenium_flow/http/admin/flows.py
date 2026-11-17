@@ -79,7 +79,9 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             + revision(flow_store, GLOBAL_WORKSPACE)
         )
         try:
-            payload = await run_in_threadpool(flowapi.catalogue, flow_store, workspace)
+            payload = await run_in_threadpool(
+                flowapi.catalogue, flow_store, workspace, True
+            )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"flows for {key}", log)
         return JSONResponse(
@@ -112,7 +114,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             if request.method in ("GET", "DELETE"):
                 # The flow as resolved: this workspace's, else the shared one.
                 found = await run_in_threadpool(
-                    flowapi.read_one, flow_store, workspace, name
+                    flowapi.read_one, flow_store, workspace, name, True
                 )
                 where = found["workspace"]
                 if request.method == "GET":
@@ -156,7 +158,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
                 body.get("to") if isinstance(body, dict) else None, "workspace name"
             )
             found = await run_in_threadpool(
-                flowapi.read_one, flow_store, workspace, name
+                flowapi.read_one, flow_store, workspace, name, True
             )
             source = found["workspace"]
             if source == target:
