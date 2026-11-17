@@ -175,6 +175,6 @@ def test_every_component_show_names_the_shell_draws():
     """The other end of the table: a component with no Svelte view would draw
     'Nothing to show'."""
     keys = set(re.findall(
-        r"^\s+'?([\w-]+)'?: \w+ as Component<Props>,", APP.read_text(), re.M
+        r"^\s+'?([\w-]+)'?: \w+ as Component<Props>,", APP.read_text(), re.MULTILINE
     ))
     assert {view.component for view in show.VIEWS} == keys

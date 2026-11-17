@@ -494,7 +494,7 @@ def _documented():
     root = skill_module.skill_path()
     found = []
     for path in sorted(root.rglob("*.md")):
-        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.S):
+        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.DOTALL):
             data = json.loads(block)
             where = path.relative_to(root).as_posix()
             if "steps" in data and "status" not in data:
@@ -513,7 +513,7 @@ def test_every_json_example_in_the_skill_parses():
     from kubed.selenium_flow.mcp import skill as skill_module
 
     for path in skill_module.skill_path().rglob("*.md"):
-        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.S):
+        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.DOTALL):
             json.loads(block)
 
 

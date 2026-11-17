@@ -327,7 +327,7 @@ def test_a_bound_write_after_a_reap_says_the_notice_on_its_error(captured_ws, ca
 def test_a_bound_write_registers_its_value_before_typing(captured_ws, catalogue):
     workspaces, _, _ = captured_ws
     order = []
-    workspaces.calls.bound = lambda ws, forms: order.append(("bound", sorted(forms)[0]))
+    workspaces.calls.bound = lambda ws, forms: order.append(("bound", min(forms)))
     actions = workspaces.actions
     actions.write = lambda sid, text, **kw: order.append(("typed", text)) or {"url": "u", "value": None}
     perform_write(catalogue, actions, workspaces, "ws",
