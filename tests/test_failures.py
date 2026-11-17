@@ -307,3 +307,37 @@ async def test_a_resource_that_is_not_there_is_resource_not_found(server, monkey
             await client.read_resource("wrong://thing")
     assert missing.value.error.code == -32002
     assert refused.value.error.code == -32602
+
+
+def test_a_503_over_mcp_is_one_warning_line_as_it_is_over_http():
+    import logging
+    import sys
+
+    import requests
+
+    from kubed.selenium_flow import errors
+    from kubed.selenium_flow.mcp.failures import FAILED_CALL, QuietCallerMistakes
+
+    try:
+        raise requests.ConnectionError("grid down")
+    except requests.ConnectionError:
+        exc_info = sys.exc_info()
+    assert errors.status_for(exc_info[1]) == 503
+    record = logging.LogRecord(
+        "fastmcp.server.server",
+        logging.ERROR,
+        __file__,
+        1,
+        f"{FAILED_CALL} 'navigate'",
+        (),
+        exc_info,
+    )
+    QuietCallerMistakes().filter(record)
+    assert record.levelno == logging.WARNING
+    assert "Traceback" not in record.getMessage()
+
+
+async def test_a_blank_browser_beside_another_bad_argument_is_not_a_problem(server):
+    said = await refused(server, "open_session", {"browser": "", "headless": "maybe"})
+    assert "headless" in said
+    assert "browser" not in said

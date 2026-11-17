@@ -53,11 +53,11 @@ from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
 from ..capture.store import Buffer
 from ..core import guidance, session_caps
-from ..core.actions import CUTS, OPEN_PRIVATE, Actions, cut_names
+from ..core.actions import CUTS, INSECURE_SKIP, OPEN_PRIVATE, Actions, cut_names
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER
-from ..monitor.monitor import ATTACH_FAILED, DEFAULT_TIMEOUT
+from ..monitor.monitor import ATTACH_FAILED, DEFAULT_TIMEOUT, KEEPALIVE
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
 from ..redaction import Forms
@@ -392,6 +392,9 @@ class Workspaces:
         # 0 keeps nothing. With the node's own timeout it is the window a reopen
         # is judged against: idle past it is a reap, inside it a lost browser.
         self.keep_alive = keep_alive
+        # When this manager began: no monitor of this process kept a browser
+        # alive through activity before it.
+        self.booted = time.time()
         # Where each workspace's browser is, and the secrets in scope there.
         # ``catalogue`` is the secrets catalogue, duck-typed (`forms_for`,
         # `leashed`, `revision`), or None with secrets off: then every answer is
@@ -572,11 +575,17 @@ class Workspaces:
         browser keeps its id in the record until something refreshes it, so
         liveness is asked of the Grid.
         """
+        return self._live(name)[0]
+
+    def _live(self, name: str) -> tuple[str, str]:
+        """`browser`, with its kind read off the same record; ("", "") with
+        no live one."""
         record = self.store.get(name)
         if record is None or not record.attached:
-            return ""
-        live = self.actions.grid.is_alive(record.session_id)
-        return record.session_id if live else ""
+            return "", ""
+        if not self.actions.grid.is_alive(record.session_id):
+            return "", ""
+        return record.session_id, _kind(record.settings)
 
     def resolve(self, name: str) -> str:
         """The Grid session id ``name`` is driving, reopening a reaped browser.
@@ -684,12 +693,19 @@ class Workspaces:
         window, ``lost`` when it was in use, so something else ended it.
 
         The window is the longer of the Grid's own timeout (the node's, as read
-        at the open; the default when it did not say) and ``keep_alive``. An
-        open is activity, so idleness is measured from the later of the last
-        call and the open.
+        at the open; the default when it did not say) and ``keep_alive``, which
+        counts only when a monitor of this process kept the browser alive since
+        its last activity: never with no monitor, nor for activity before this
+        process began. An open is activity, so idleness is measured from the
+        later of the last call and the open.
         """
-        window = max(record.grid_timeout or DEFAULT_TIMEOUT, self.keep_alive)
         last = max(record.called_at, record.opened_at)
+        kept = (
+            self.keep_alive
+            if self.monitor is not None and last >= self.booted
+            else 0
+        )
+        window = max(record.grid_timeout or DEFAULT_TIMEOUT, kept)
         return "reaped" if now - last >= window else "lost"
 
     def _recorded(self, name: str, settings: dict) -> dict:
@@ -751,6 +767,7 @@ class Workspaces:
                 log.info(
                     "capture did not attach for %s: %s", name, type(exc).__name__
                 )
+                log.debug("%s", faults.Traceback(exc))
                 raise faults.BidiUnavailable(ATTACH_FAILED) from exc
 
         try:
@@ -771,6 +788,11 @@ class Workspaces:
     def _ended(self, name: str, session_id: str, cause: str) -> None:
         """Announce that ``session_id`` ended, when there is a monitor."""
         self._told("ended", name, session_id, cause)
+
+    def _let_go(self, session_id: str) -> None:
+        """Stop keeping alive a browser whose quit failed: pinged, a browser left
+        running would never time out."""
+        self._told("release", session_id, KEEPALIVE)
 
     def _refuse(self, caller: Caller, tool: str) -> None:
         """Raise the refusal for ``tool`` while a person holds this workspace's
@@ -976,11 +998,9 @@ class Workspaces:
         The page is not recorded: a pasted newline can submit a form and land
         on a URL carrying the text, which is never kept.
         """
-        session_id = self.browser(name)
+        session_id, kind = self._live(name)
         if not session_id:
             raise faults.NotFound("this workspace has no browser open")
-        record = self.store.get(name)
-        kind = _kind(record.settings if record else None)
         result = self._said(
             name,
             session_id,
@@ -1037,12 +1057,10 @@ class Workspaces:
             # The pages a person reached may be on any origin: scrubbed as a
             # resource is, with every leashed secret.
             summary["visited"] = self.scrubber.resource(name, summary["visited"])
-        session_id = "" if summary["ended"] else self.browser(name)
+        session_id, kind = ("", "") if summary["ended"] else self._live(name)
         if not session_id:
             summary["ended"] = episode is not None
             return summary
-        record = self.store.get(name)
-        kind = _kind(record.settings if record else None)
         try:
             read = self._said(
                 name,
@@ -1221,6 +1239,12 @@ class Workspaces:
                 return None, {
                     "cookies": 0, "sites": [],
                     "skipped": [{"reason": REPLACED_BEFORE_SAVE}],
+                }
+            if r.settings.get("insecure"):
+                # It accepted any certificate, so what it holds may have been
+                # set by anyone in the middle, and a later browser restores it.
+                return None, {
+                    "cookies": 0, "sites": [], "skipped": [{"reason": INSECURE_SKIP}],
                 }
             data, receipt = site_data_module.snapshot(
                 r.site_data, captured, r.history, time.time()
@@ -1529,6 +1553,7 @@ class Workspaces:
                 name,
                 type(exc).__name__,
             )
+            self._let_go(session_id)
         else:
             self._ended(name, session_id, "ended")
         return kept
@@ -1724,5 +1749,7 @@ class Workspaces:
         # the monitor's listing finds it later if it is watched.
         if quit_ok:
             self._ended(name, target, "ended")
+        else:
+            self._let_go(target)
         log.info("ended the browser for workspace %s", name)
         return target

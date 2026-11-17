@@ -8,6 +8,7 @@ refactor of the recipe every action shares (reconnect, maybe navigate, wait, act
 report) is provable rather than hoped for.
 """
 
+import contextlib
 import re
 import tempfile
 from itertools import pairwise
@@ -1203,3 +1204,93 @@ def test_a_plain_screenshot_answers_while_controlled(actions, scripted):
     scripted()
     actions.control = _Held()
     assert actions.screenshot("abc", save=False)["image"]
+
+
+def test_an_unreadable_frame_index_is_refused(actions, scripted):
+    driver = scripted()
+    with pytest.raises(ValueError):
+        actions.frame("abc", "switch", index="abc")
+    assert ("switch_to", "frame", 0) not in driver.log
+
+
+def test_an_empty_text_file_can_be_uploaded(actions, scripted):
+    scripted()
+    result = actions.upload_file("abc", selector={"css": "input"}, text="")
+    assert result["bytes"] == 0
+
+
+def test_a_null_text_is_never_typed_as_the_word_none(actions, scripted):
+    driver = scripted()
+    sent = []
+    driver.element.send_keys = lambda *keys: sent.append(keys)
+    with contextlib.suppress(ValueError):
+        actions.write("abc", None, selector={"css": "#q"})
+    assert sent == []
+
+
+@pytest.fixture
+def blocked(scripted):
+    """A browser whose every lookup is refused for a dialog that is open."""
+    driver = scripted(dialog=DIALOG)
+
+    def refuse(by=None, value=None):
+        raise UnexpectedAlertPresentException("unexpected alert open")
+
+    driver.__dict__["find_element"] = refuse
+    driver.__dict__["find_elements"] = refuse
+    return driver
+
+
+def _dialog_refusal(exc):
+    assert status_for(exc.value) == 400
+    # The dialog's text is the page's: it stays out of a message that is logged.
+    assert DIALOG not in str(exc.value)
+    assert "read and answer it with dialog" in str(exc.value)
+
+
+def test_extract_with_a_dialog_open_fails_naming_the_dialog_tool(actions, blocked):
+    with pytest.raises(ValueError) as exc:
+        actions.extract("abc", selector={"css": "#x"})
+    _dialog_refusal(exc)
+
+
+def test_a_named_url_with_a_dialog_open_fails_the_same_way(actions, scripted):
+    driver = scripted(dialog=DIALOG)
+    with pytest.raises(ValueError) as exc:
+        actions.extract("abc", url="https://b.test/", selector={"css": "#x"})
+    _dialog_refusal(exc)
+    assert ("get", "https://b.test/") not in driver.log
+
+
+def test_screenshot_with_a_dialog_open_fails_cleanly(actions, scripted):
+    driver = scripted(dialog=DIALOG)
+
+    def refuse(*_args):
+        raise UnexpectedAlertPresentException("unexpected alert open")
+
+    driver.__dict__["get_screenshot_as_base64"] = refuse
+    with pytest.raises(ValueError) as exc:
+        actions.screenshot("abc", save=False)
+    _dialog_refusal(exc)
+
+
+def test_assert_with_a_dialog_open_fails(actions, scripted):
+    driver = scripted(dialog=DIALOG)
+
+    def refuse(*_args):
+        raise UnexpectedAlertPresentException("unexpected alert open")
+
+    driver.__dict__["execute_script"] = refuse
+    with pytest.raises(Exception) as exc:
+        actions.assert_("abc", "return true", wait_timeout=0)
+    assert "dialog" in str(exc.value)
+
+
+def test_a_flow_step_with_a_dialog_open_fails_the_run(actions, blocked):
+    from kubed.selenium_flow.flows import api  # noqa: F401 - sets up the toolbox
+    from kubed.selenium_flow.flows.run import run
+
+    document = {"steps": [{"tool": "extract", "args": {"selector": {"css": "#x"}}}]}
+    report = run(actions, document, "abc")
+    assert report["status"] != "ok"
+    assert "answer it with dialog" in str(report)

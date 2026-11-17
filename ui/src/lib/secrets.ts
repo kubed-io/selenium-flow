@@ -5,9 +5,10 @@ import type { Secret } from './types'
 
 export const keyLabel = (s: Secret, k: string) => {
   const from = s.key_sources?.[k]
-  if (!from || from.from === 'filesystem') return k
-  if (from.from === 'env') return `${k} · env ${from.name}`
-  return `${k} · ${from.from}`
+  const shown = from?.masked === false ? ' · unmasked' : ''
+  if (!from || from.from === 'filesystem') return k + shown
+  if (from.from === 'env') return `${k} · env ${from.name}${shown}`
+  return `${k} · ${from.from}${shown}`
 }
 // A list, not one pill: a secret with an inline or unresolved key and a leash
 // that does not work needs ALL its warnings shown, not whichever one happened

@@ -7,6 +7,7 @@ import logging
 from . import config
 from .server import SeleniumMCP
 from .urls import without_userinfo
+from .workspace.store import StoreUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ def main(argv: list[str] | None = None) -> None:
         settings = loaded.settings
         configure_logging(settings.log_level)
         server = SeleniumMCP(settings, sources=loaded.sources)
-    except config.ConfigError as exc:
+    except (config.ConfigError, StoreUnavailable) as exc:
         # Restarted until fixed beats started on something misread.
         raise SystemExit(f"selenium-flow: {exc}") from None
     log.info(

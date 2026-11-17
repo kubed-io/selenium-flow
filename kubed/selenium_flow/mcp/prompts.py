@@ -65,17 +65,20 @@ def prompts_path() -> Path:
 
 def _split(text: str) -> tuple[dict, str] | None:
     """Frontmatter and body, or None when there is no frontmatter block."""
-    if not text.startswith("---"):
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].rstrip() != "---":
         return None
-    _, _, rest = text.partition("---")
-    block, separator, body = rest.partition("\n---")
-    if not separator:
+    end = next(
+        (n for n, line in enumerate(lines[1:], start=1) if line.rstrip() == "---"),
+        None,
+    )
+    if end is None:
         return None
-    meta = yaml.safe_load(block)
+    meta = yaml.safe_load("".join(lines[1:end]))
     if meta is not None and not isinstance(meta, dict):
         # Published with no metadata, it would be an unusable picker entry.
         raise ValueError(f"frontmatter must be a mapping, got {type(meta).__name__}")
-    return (meta or {}), body.lstrip("\n")
+    return (meta or {}), "".join(lines[end + 1 :]).lstrip("\r\n")
 
 
 def load_prompt(path: Path) -> FilePrompt:

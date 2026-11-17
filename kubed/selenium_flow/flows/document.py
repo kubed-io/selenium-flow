@@ -466,6 +466,8 @@ def _check_params(
             allowed
             and isinstance(value, str)
             and not (in_flow and references(value))
+            # A blank optional choice is unset, as `tools._blank_is_unset` has it.
+            and not (not value.strip() and "null" in _types(properties[name]))
             and value.strip().lower() not in {str(a).lower() for a in allowed}
         ):
             problems.append(
@@ -632,6 +634,13 @@ def validate(document, schemas: dict) -> dict:
         raise InvalidFlow(["a flow must be an object"])
 
     problems = []
+    # `name` is checked against the file name by the editor's save.
+    unknown = set(document) - set(DOCUMENT_KEYS) - {"name", "workspace", "shared"}
+    if unknown:
+        problems.append(
+            f"unknown flow key {listed(unknown)}; a flow takes "
+            f"{', '.join(DOCUMENT_KEYS)}"
+        )
     if "description" in document and not isinstance(document["description"], str):
         problems.append("description must be a string")
 

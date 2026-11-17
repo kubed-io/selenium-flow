@@ -33,10 +33,10 @@ import anyio
 
 from ..core.capabilities import UNDER_CONTROL
 from ..faults import Controlled
-from .audit import duration
+from .audit import duration, shown
 
 PERSON = "a person"
-ANONYMOUS = ("admin", "open")
+ANONYMOUS = ("admin", "open", "oidc")
 # The only caller of a `paste` is the admin's paste route, after its own
 # `controlling` check: the person in control is never refused.
 PASTE = "paste"
@@ -80,8 +80,11 @@ ANSWERS = frozenset(name for name, says in UNDER_CONTROL.items() if says == "ans
 
 
 def names(who: Iterable[str]) -> list[str]:
-    """Who, as a sentence names them: `admin` and `open` are "a person", once."""
-    return list(dict.fromkeys(PERSON if name in ANONYMOUS else name for name in who))
+    """Who, as a sentence names them, once each: `admin`, `open` and a nameless
+    OIDC viewer are "a person", any other by its plain name (`audit.shown`)."""
+    return list(
+        dict.fromkeys(PERSON if name in ANONYMOUS else shown(name) for name in who)
+    )
 
 
 def said(who: Iterable[str]) -> str:
@@ -392,6 +395,13 @@ class Controls:
             del self._unsaid[workspace]
         return Waited("handed_back", episode)
 
+    def put_back(self, workspace: str, episode: Episode) -> None:
+        """Make a hand-back `wait` spent unsaid again, for a waiter that never
+        answered; not once the workspace has moved on or the server stops."""
+        if self.stopped or workspace in self._episodes or workspace in self._unsaid:
+            return
+        self._unsaid[workspace] = episode
+
 
 # ---- await_control ---------------------------------------------------------------
 
@@ -499,8 +509,15 @@ async def await_control(
     if waited.kind == "still":
         return _still(episode)
     told = None if episode is None else handed(episode)
-    summary = await anyio.to_thread.run_sync(
-        functools.partial(workspaces.handed_back, name, told, surface=surface)
-    )
+    try:
+        summary = await anyio.to_thread.run_sync(
+            functools.partial(workspaces.handed_back, name, told, surface=surface)
+        )
+    except asyncio.CancelledError:
+        # A task is marked cancelled a moment before its coroutine is, so a
+        # hand-back can wake a wait nobody will read: the next call says it.
+        if waited.kind == "handed_back":
+            controls.put_back(name, episode)
+        raise
     summary["message"] = _message(episode, summary)
     return summary

@@ -36,7 +36,7 @@ class Behind:
 
 
 class FakeTunnel:
-    def __init__(self, who="drk", workspace="w1", grid_id="g1"):
+    def __init__(self, who="oidc:drk", workspace="w1", grid_id="g1"):
         self.who = who
         self.workspace = workspace
         self.grid_id = grid_id
@@ -65,12 +65,12 @@ async def controls(passed, clock):
 
 @pytest.fixture
 def t1():
-    return FakeTunnel("drk")
+    return FakeTunnel("oidc:drk")
 
 
 @pytest.fixture
 def t2():
-    return FakeTunnel("kim")
+    return FakeTunnel("oidc:kim")
 
 
 async def until(check, timeout=1.0):
@@ -91,7 +91,7 @@ async def test_with_no_call_running_control_is_granted_at_once(controls, passed,
     assert isinstance(refused, Controlled)
     assert str(refused) == HELD.format(who="drk", at="15:12")
     assert passed.marked == ["g1"]
-    assert controls.controlling("w1", "drk")
+    assert controls.controlling("w1", "oidc:drk")
 
 
 async def test_with_a_call_running_control_is_requested_then_granted(
@@ -100,14 +100,14 @@ async def test_with_a_call_running_control_is_requested_then_granted(
     passed.value = False
     assert controls.ask(t1) == "requested"
     assert "asked for control" in str(controls.refusal("g1", "interact"))
-    assert not controls.controlling("w1", "drk")
+    assert not controls.controlling("w1", "oidc:drk")
     await asyncio.sleep(0.05)
     assert not t1.granted
     clock.now = T + 60
     passed.value = True
     await until(lambda: t1.granted)
     assert str(controls.refusal("g1", "interact")) == HELD.format(who="drk", at="15:13")
-    assert controls.controlling("w1", "drk")
+    assert controls.controlling("w1", "oidc:drk")
     assert passed.marked == ["g1"]  # one mark per episode
 
 
@@ -137,10 +137,10 @@ async def test_control_is_held_while_any_viewer_holds_it(controls, t1, t2):
     assert str(controls.refusal("g1", "navigate")).startswith("drk and kim has control")
     controls.withdraw(t1)
     assert str(controls.refusal("g1", "navigate")).startswith("kim has control")
-    assert not controls.controlling("w1", "drk") and controls.controlling("w1", "kim")
+    assert not controls.controlling("w1", "oidc:drk") and controls.controlling("w1", "oidc:kim")
     controls.withdraw(t2)
     assert controls.refusal("g1", "navigate") is None
-    assert not controls.controlling("w1", "kim")
+    assert not controls.controlling("w1", "oidc:kim")
 
 
 async def test_a_second_viewer_joins_the_episode_in_its_state(controls, passed, t1, t2):
@@ -150,7 +150,7 @@ async def test_a_second_viewer_joins_the_episode_in_its_state(controls, passed, 
     assert controls.ask(t1) == "requested"  # asking again changes nothing
     passed.value = True
     await until(lambda: t1.granted and t2.granted)
-    third = FakeTunnel("lee")
+    third = FakeTunnel("oidc:lee")
     assert controls.ask(third) == "control"
     assert not third.granted  # told by its answer, not by a grant
     assert passed.marked == ["g1"]
@@ -178,7 +178,7 @@ async def test_the_browser_ending_cancels_a_pending_grant(controls, passed, t1):
 
 async def test_a_new_browser_in_the_workspace_starts_a_new_episode(controls, t1):
     controls.ask(t1)
-    other = FakeTunnel("kim", grid_id="g2")
+    other = FakeTunnel("oidc:kim", grid_id="g2")
     assert controls.ask(other) == "requested"
     assert controls.refusal("g1", "navigate") is None
     await until(lambda: other.granted)
@@ -186,7 +186,7 @@ async def test_a_new_browser_in_the_workspace_starts_a_new_episode(controls, t1)
 
 
 async def test_stop_cancels_a_pending_grant_and_sets_every_event(controls, passed, t1):
-    held = FakeTunnel("kim", workspace="w2", grid_id="g2")
+    held = FakeTunnel("oidc:kim", workspace="w2", grid_id="g2")
     controls.ask(held)  # w2 held once its grant runs
     await until(lambda: held.granted)
     passed.value = False
@@ -220,7 +220,7 @@ async def test_a_grant_that_fails_for_one_tunnel_still_grants_the_others(
     controls.ask(t2)
     passed.value = True
     await until(lambda: t2.granted)
-    assert controls.controlling("w1", "kim")
+    assert controls.controlling("w1", "oidc:kim")
 
 
 # ---- the words -----------------------------------------------------------------
@@ -240,7 +240,7 @@ async def test_the_refusal_says_who_and_when():
 
 async def test_the_requested_refusal_says_who_and_when(controls, passed):
     passed.value = False
-    controls.ask(FakeTunnel("alex"))
+    controls.ask(FakeTunnel("oidc:alex"))
     assert str(controls.refusal("g1", "navigate")) == REQUESTED.format(
         who="alex", at="15:12"
     )
@@ -249,7 +249,32 @@ async def test_the_requested_refusal_says_who_and_when(controls, passed):
 def test_said_names_people():
     assert said(["admin"]) == "a person"
     assert said(["admin", "open"]) == "a person"
-    assert said(["drk", "admin", "drk", "open", "kim"]) == "drk and a person and kim"
+    assert said(["oidc:drk", "admin", "oidc:drk", "open", "oidc:kim"]) == (
+        "drk and a person and kim"
+    )
+    assert said(["oidc"]) == "a person", "an OIDC viewer with no name"
+
+
+async def test_an_oidc_user_named_admin_never_holds_the_token_holders_control():
+    from kubed.selenium_flow.live.audit import viewer_of
+    from kubed.selenium_flow.principal import ADMIN, Principal
+
+    controls = Controls(behind=Behind(), clock=Clock(T))
+    holder = FakeTunnel(viewer_of(ADMIN))
+    controls.ask(holder)
+    await until(lambda: holder.granted)
+    impostor = viewer_of(Principal("oidc", subject="s9", username="admin"))
+    assert controls.controlling("w1", viewer_of(ADMIN))
+    assert not controls.controlling("w1", impostor)
+
+
+async def test_the_agent_reads_an_oidc_viewer_by_its_plain_name(controls, t1):
+    controls.ask(t1)
+    await until(lambda: t1.granted)
+    assert str(controls.refusal("g1", "navigate")).startswith(
+        "drk has control of this browser"
+    )
+    assert controls.notice("w1")["who"] == ["drk"]
 
 
 def test_a_gate_is_a_frozen_snapshot():
@@ -269,7 +294,7 @@ async def test_the_gate_is_read_from_a_worker_thread(controls, t1):
 
 async def test_the_notice_while_requested(controls, passed):
     passed.value = False
-    controls.ask(FakeTunnel("alex"))
+    controls.ask(FakeTunnel("oidc:alex"))
     assert controls.notice("w1") == {
         "state": "requested",
         "who": ["alex"],
@@ -322,7 +347,7 @@ async def test_a_new_episode_forgets_an_unsaid_hand_back(controls, t1, t2):
 async def test_a_fresh_controls_knows_nothing(controls):
     assert controls.notice("w1") is None
     assert controls.refusal("g1", "navigate") is None
-    assert not controls.controlling("w1", "drk")
+    assert not controls.controlling("w1", "oidc:drk")
 
 
 # ---- waiting -------------------------------------------------------------------
@@ -336,7 +361,7 @@ async def test_waiting_returns_an_unsaid_hand_back_once(controls, t1):
     controls.ask(t1)
     controls.withdraw(t1)
     first = await controls.wait("w1", 1)
-    assert first.kind == "handed_back" and first.episode.who == ["drk"]
+    assert first.kind == "handed_back" and first.episode.who == ["oidc:drk"]
     assert controls.notice("w1") is None  # said by the wait
     assert (await controls.wait("w1", 1)).kind == "nobody"
 
@@ -369,7 +394,7 @@ async def test_a_cancelled_wait_leaves_the_episode_holding(controls, t1):  # Rev
     with pytest.raises(asyncio.CancelledError):
         await waiter
     assert controls.refusal("g1", "navigate") is not None
-    assert controls.controlling("w1", "drk")
+    assert controls.controlling("w1", "oidc:drk")
     again = asyncio.create_task(controls.wait("w1", None))
     await asyncio.sleep(0.02)
     controls.withdraw(t1)
@@ -384,7 +409,7 @@ async def test_a_release_during_the_grant_tells_no_further_viewer(controls, pass
             controls.stop()
 
     passed.value = False
-    first, second = Releasing("drk"), FakeTunnel("kim")
+    first, second = Releasing("oidc:drk"), FakeTunnel("oidc:kim")
     controls.ask(first)
     controls.ask(second)
     passed.value = True
@@ -454,13 +479,13 @@ async def test_the_grant_waits_for_the_pages_to_be_followed(followed, monitor, p
     await until(lambda: monitor.attached)
     assert pages.followed == ["g1"] and monitor.attached == [("w1", "g1", "control")]
     await asyncio.sleep(0.03)
-    assert not t1.granted and not followed.controlling("w1", "drk")
+    assert not t1.granted and not followed.controlling("w1", "oidc:drk")
     assert "asked for control" in str(followed.refusal("g1", "navigate"))
     monitor.gate.set()
     await until(lambda: t1.granted)
     episode = followed._episodes["w1"]
     assert episode.followed and episode.state == "held"
-    assert followed.controlling("w1", "drk")
+    assert followed.controlling("w1", "oidc:drk")
 
 
 async def test_bidi_unavailable_still_grants_with_followed_false(followed, monitor, t1):

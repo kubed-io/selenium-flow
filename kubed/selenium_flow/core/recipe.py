@@ -15,6 +15,7 @@ from typing import Any, NamedTuple
 
 from selenium.common.exceptions import (
     StaleElementReferenceException,
+    UnexpectedAlertPresentException,
     WebDriverException,
 )
 
@@ -75,6 +76,20 @@ class At(NamedTuple):
     found: browser.Found | None = None
 
 
+@contextmanager
+def _dialog_blocks():
+    """A dialog already open makes the driver refuse the call outright: nothing
+    was done, so it is a failure, not a success carrying page state. The
+    dialog's text is the page's and stays out of the message, which is logged."""
+    try:
+        yield
+    except UnexpectedAlertPresentException:
+        raise ValueError(
+            "a dialog is open and blocked this call; nothing was done: "
+            "read and answer it with dialog"
+        ) from None
+
+
 class Recipe:
     """One action's road: validate, reconnect, wait, body, page state.
 
@@ -133,7 +148,7 @@ class Recipe:
         if url:
             allowed_navigation(url)
 
-        with locks.driving(session_id), node_answering():
+        with locks.driving(session_id), node_answering(), _dialog_blocks():
             before: list[dict | None] = []
             driver = self.reconnect(
                 session_id, url, look=lambda d: before.append(browser.document(d))

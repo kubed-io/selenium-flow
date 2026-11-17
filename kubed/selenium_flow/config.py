@@ -28,6 +28,7 @@ from pydantic import (
     Field,
     JsonValue,
     SecretStr,
+    StrictBool,
     ValidationError,
     field_validator,
 )
@@ -82,19 +83,30 @@ class Section(BaseModel):
 
 class FromFile(Section):
     file: str
+    masked: StrictBool = True
 
 
 class FromEnv(Section):
     env: str
+    masked: StrictBool = True
 
 
 class FromValue(Section):
     value: SecretStr
+    masked: StrictBool = True
+
+
+class KeySettings(Section):
+    """Settings for a key a directory provides; its value stays the directory's."""
+
+    masked: StrictBool
 
 
 # The key present is the discriminator. Each member forbids extra keys, so
-# `{file, env}` and `{}` match none of them and are refused.
-KeyRef = FromFile | FromEnv | FromValue
+# `{file, env}` and `{}` match none of them and are refused. `masked: false`
+# leaves the key's value out of the scrub, for a value that is not secret. It is
+# strict: a stray "no" or 0 must not unmask a key.
+KeyRef = FromFile | FromEnv | FromValue | KeySettings
 
 
 class SecretEntry(Section):
@@ -414,7 +426,7 @@ class Settings(Section):
         "http", description="http, or stdio for one local client."
     )
     host: str = Field("0.0.0.0", description="Address to listen on.")
-    port: int = Field(8000, description="Port to listen on.")
+    port: int = Field(8000, ge=1, le=65535, description="Port to listen on.")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         "INFO", description="DEBUG, INFO, WARNING or ERROR."
     )
@@ -961,6 +973,24 @@ URL_LEAVES = {
 }
 
 
+PROXY_KEYS = {"httpProxy", "sslProxy", "socksProxy", "ftpProxy"}
+
+
+def _without_proxy_userinfo(value):
+    """``value`` with ``user:pass@`` dropped from the W3C proxy keys, which are
+    ``host:port`` with no scheme for `without_userinfo` to anchor on."""
+    if isinstance(value, dict):
+        return {
+            key: re.sub(r"^[^/@\s]*@", "", item)
+            if key in PROXY_KEYS and isinstance(item, str)
+            else _without_proxy_userinfo(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_without_proxy_userinfo(item) for item in value]
+    return value
+
+
 def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
     """The Settings tab's payload. Never a sensitive value, and no secret entries.
 
@@ -972,6 +1002,11 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
         value = value_of(settings, leaf.path)
         if leaf.path in URL_LEAVES and value:
             value = without_userinfo(str(value))
+        elif leaf.path == "session.capabilities":
+            # A proxy URL or a `--proxy-server=` argument can carry userinfo.
+            value = _without_proxy_userinfo(
+                json.loads(without_userinfo(json.dumps(value)))
+            )
         # `name` is what the row shows: the card's title is the section.
         row: dict[str, Any] = {
             "key": leaf.path,

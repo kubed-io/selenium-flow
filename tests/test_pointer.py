@@ -108,6 +108,63 @@ def test_an_unreachable_redis_costs_the_position_and_nothing_else():
     assert store.get("a") is None
 
 
+def test_a_failure_logged_with_a_traceback_is_scrubbed_of_credentials(actions, caplog):
+    import logging
+    from types import SimpleNamespace
+
+    def refuse(session_id):
+        raise ConnectionError("cannot reach http://drk:hunter2@grid.test:4444/session")
+
+    actions.pointers = SimpleNamespace(get=refuse)
+    with caplog.at_level(logging.DEBUG, logger="kubed.selenium_flow.core.actions"):
+        actions._pointer("abc")
+    assert caplog.records
+    formatter = logging.Formatter()
+    said = "\n".join(formatter.format(r) for r in caplog.records)
+    assert "hunter2" not in said
+    assert "Traceback" in said and "ConnectionError" in said
+
+
+def test_a_debug_traceback_is_not_built_when_debug_is_off(actions, caplog, monkeypatch):
+    import logging
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow import faults
+
+    built = []
+    monkeypatch.setattr(
+        faults.traceback, "format_exception", lambda *a, **k: built.append(a) or []
+    )
+
+    def refuse(session_id):
+        raise ConnectionError("redis is down")
+
+    actions.pointers = SimpleNamespace(get=refuse)
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.core.actions"):
+        assert actions._pointer("abc") is None
+    assert built == []
+
+
+def test_a_redis_failure_is_logged_without_its_credentials(caplog):
+    import logging
+
+    class _Leaky:
+        def __getattr__(self, _):
+            def refuse(*args, **kwargs):
+                raise ConnectionError("cannot reach redis://:hunter2@redis.test:6379")
+
+            return refuse
+
+    store = RedisPointers(_Leaky())
+    with caplog.at_level(logging.DEBUG, logger="kubed.selenium_flow.core.pointer"):
+        store.get("a")
+        store.set("a", 1, 2)
+        store.forget("a")
+    assert len(caplog.records) == 3
+    formatter = logging.Formatter()
+    assert all("hunter2" not in formatter.format(r) for r in caplog.records)
+
+
 class _Redis:
     def __init__(self):
         self.data = {}

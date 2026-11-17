@@ -382,6 +382,21 @@ def test_paste_needs_control(client, server, typing, mode):
     assert ("element", "send_keys", "hello") not in typing.log
 
 
+def test_an_oidc_user_named_admin_cannot_paste_while_the_token_holder_has_control(
+    client, server, typing, monkeypatch
+):
+    from kubed.selenium_flow.principal import Principal
+
+    async def admit(_request):
+        return Principal("oidc", subject="s9", username="admin")
+
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    monkeypatch.setattr(server.doors.admin, "admit", admit)
+    answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
+    assert answered.status_code == 409
+    assert ("element", "send_keys", "hello") not in typing.log
+
+
 def test_paste_in_control_types_and_audits_a_count(client, server, typing, caplog):
     held(server.tunnels, "w1", "admin", "control", GRID_ID)
     with caplog.at_level(logging.DEBUG):
@@ -431,6 +446,16 @@ def test_paste_with_no_browser_is_404(client, server):
         "/admin/workspaces/idle/live/paste", json={"text": "x"}, headers=AUTH
     )
     assert answered.status_code == 404
+
+
+def test_a_paste_that_is_not_json_says_why(client, server, typing):
+    answered = client.post(
+        PASTE,
+        content=b"{not json",
+        headers={**AUTH, "Content-Type": "application/json"},
+    )
+    assert answered.status_code == 400
+    assert answered.json()["error"] != live_module.PASTE_FAILED
 
 
 def test_paste_is_behind_the_admin_door(client):
@@ -585,3 +610,47 @@ def test_leaving_a_browser_the_grid_still_lists_keeps_the_viewer_closed(
     client, monkeypatch, caplog
 ):
     assert "the viewer closed" in left_line(client, monkeypatch, caplog)
+
+
+
+def test_a_paste_is_audited_even_when_the_store_fails_once_it_is_typed(
+    client, server, typing, monkeypatch, caplog
+):
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    store = server.workspaces.store
+    real_get, real_paste = store.get, server.workspaces.paste
+    typed = []
+
+    def paste(key, text):
+        done = real_paste(key, text)
+        typed.append(key)
+        return done
+
+    def get(key):
+        if typed:
+            raise RuntimeError("redis is down")
+        return real_get(key)
+
+    monkeypatch.setattr(server.workspaces, "paste", paste)
+    monkeypatch.setattr(store, "get", get)
+    with caplog.at_level(logging.INFO):
+        answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
+    assert answered.status_code == 200
+    assert "pasted 5 characters into w1" in caplog.text
+
+
+def test_a_paste_with_an_unreadable_start_time_types_nothing_and_says_so(
+    client, server, typing, monkeypatch
+):
+    from kubed.selenium_flow.workspace.store import Workspace
+
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    real = server.workspaces.store.get
+    monkeypatch.setattr(
+        server.workspaces.store,
+        "get",
+        lambda key: Workspace(**{**vars(real(key)), "opened_at": float("nan")}),
+    )
+    answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
+    assert answered.status_code >= 400
+    assert ("element", "send_keys", "hello") not in typing.log

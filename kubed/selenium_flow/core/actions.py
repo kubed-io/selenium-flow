@@ -28,7 +28,7 @@ from selenium.webdriver.common.print_page_options import PrintOptions
 from ..bidi.connection import BidiError, MessageTooBig
 from ..capture import NETWORK_URI
 from ..errors import GONE, UNAVAILABLE
-from ..faults import BidiUnavailable, NotFound, ScriptTimedOut
+from ..faults import BidiUnavailable, NotFound, ScriptTimedOut, Traceback, formatted
 from ..faults import message as failure_text
 from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..redaction import clip
@@ -296,8 +296,8 @@ class Actions:
         """Where the pointer is in this browser, or None if we never sent it."""
         try:
             return self.pointers.get(session_id)
-        except Exception:  # not knowing is a state here, not a failure
-            log.debug("could not read the pointer", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - not knowing is a state here, not a failure
+            log.debug("could not read the pointer:\n%s", Traceback(exc))
             return None
 
     def _moved(self, session_id: str, at) -> None:
@@ -307,8 +307,8 @@ class Actions:
                 self.pointers.forget(session_id)
             else:
                 self.pointers.set(session_id, at[0], at[1])
-        except Exception:  # see `_pointer`
-            log.debug("could not record the pointer", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - see `_pointer`
+            log.debug("could not record the pointer:\n%s", Traceback(exc))
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -694,8 +694,8 @@ class Actions:
             # A dead browser or an unreachable Grid keeps its own status and
             # fix in `errors.py`; swallowed, `drag` would blame the geometry.
             raise
-        except Exception:  # the gesture outranks the move
-            log.debug("could not move the pointer onto the target", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - the gesture outranks the move
+            log.debug("could not move the pointer onto the target:\n%s", Traceback(exc))
             # A move that failed part-way leaves the pointer somewhere unknown,
             # and a glide plotted from a wrong origin crosses the wrong elements.
             self._moved(session_id, None)
@@ -848,6 +848,14 @@ class Actions:
             )
         if resolved == "switch" and not selector and index is None:
             raise ValueError("switch needs a selector or an index to say which frame")
+        if resolved == "switch" and not selector:
+            # An omitted optional often arrives as "": the first frame.
+            try:
+                frame_index = int(str(index).strip() or 0)
+            except ValueError:
+                raise ValueError(
+                    f"index must be a whole number, not {index!r}"
+                ) from None
 
         # Only a switch by selector waits for its frame.
         by_selector = resolved == "switch" and bool(selector)
@@ -861,7 +869,7 @@ class Actions:
             elif by_selector:
                 driver.switch_to.frame(at.element)
             else:
-                driver.switch_to.frame(as_int(index, 0))
+                driver.switch_to.frame(frame_index)
             return {"action": resolved, "in_frame": browser.in_frame(driver)}
 
         return self._reattached(PRESENCE if by_selector else None).run(
@@ -957,6 +965,8 @@ class Actions:
             )
             if v
         ]
+        if not sources and text is not None:
+            sources = ["text"]  # an empty text file is still a file
         if not sources:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
@@ -970,13 +980,13 @@ class Actions:
 
         # Resolved before connecting: unusable input is a 400 about the input.
         raw = None
-        if text is not None:
+        if sources == ["text"]:
             raw = str(text).encode("utf-8")
             name = safe_name(filename, mime_type, default_extension=".txt")
-        elif content is not None:
+        elif sources == ["content"]:
             raw = content if isinstance(content, bytes) else _decode(content)
             name = safe_name(filename, mime_type)
-        elif file is not None:
+        elif sources == ["file"]:
             if self.read_file is None:
                 raise ValueError(
                     "file is not available on this server: the flow store is "
@@ -1037,6 +1047,8 @@ class Actions:
         the credential is never in a local variable, a traceback or a result.
         """
 
+        if text is None:
+            raise ValueError("text is required: pass the text to type")
         bound = not as_bool(read_back, True)
 
         def typing(at):
@@ -1341,7 +1353,7 @@ class Actions:
                 )
             except OSError as exc:
                 # The error names a path under DATA_DIR: for the log only.
-                log.error("a print could not be kept", exc_info=exc)
+                log.error("a print could not be kept:\n%s", formatted(exc))
                 raise RuntimeError(
                     f"the print could not be kept ({type(exc).__name__})"
                 ) from None

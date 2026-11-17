@@ -1,6 +1,7 @@
 """The workspace's side of site data: a save stored and never returned, a
 restore on open and on a silent reopen, and the one report each makes."""
 
+import contextlib
 import json
 import time
 from dataclasses import replace
@@ -8,10 +9,12 @@ from dataclasses import replace
 import pytest
 
 from kubed.selenium_flow import faults
+from kubed.selenium_flow.core.actions import INSECURE_SKIP
 from kubed.selenium_flow.site_data import snapshot as site_data
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 from tests.conftest import NAMED, RecordingActions, manager
+from tests.fakes import FakeMonitor
 
 URL = "https://app.example.com/x"
 REPORT = {"restored": ["app.example.com"], "skipped": [], "uri": "workspace://site-data"}
@@ -142,6 +145,50 @@ def test_an_insecure_open_keeps_what_was_saved(named_caller):
     assert m.store.get(NAMED).site_data["origins"]
 
 
+def test_an_insecure_browser_saves_no_site_data():
+    from kubed.selenium_flow.site_data.snapshot import CAPTURED
+
+    workspaces = Workspaces(RecordingActions())
+    workspaces.open_browser(Caller(NAMED), insecure=True)
+    session_id = workspaces.store.get(NAMED).session_id
+    captured = {
+        "cookies": [
+            {
+                "name": "sid",
+                "value": "v",
+                "domain": "bad.test",
+                "path": "/",
+                "http_only": True,
+                "secure": True,
+                "same_site": "lax",
+                "expiry": None,
+                "value_type": "string",
+            }
+        ],
+        "origin": "https://bad.test",
+        "local": {"k": "v"},
+        "session": {},
+        "others": {},
+        "failed": [],
+    }
+    # A refusal is as good as a drop.
+    with contextlib.suppress(Exception):
+        workspaces.settle(
+            NAMED, {"url": "https://bad.test/", CAPTURED: captured}, browser=session_id
+        )
+    assert not workspaces.store.get(NAMED).site_data
+
+
+def test_an_insecure_save_keeps_what_a_secure_browser_saved_and_says_why(named_caller):
+    m = opened_with_save()
+    before = m.store.get(NAMED).site_data
+    reopened(m, insecure=True)
+    result = m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
+    assert site_data.CAPTURED not in result
+    assert result["saved"]["skipped"] == [{"reason": INSECURE_SKIP}]
+    assert m.store.get(NAMED).site_data == before
+
+
 def test_remember_keeps_site_data(named_caller):
     m = opened_with_save()
     m.open_browser(Caller(NAMED))
@@ -185,12 +232,44 @@ def test_a_reap_with_no_site_data_is_said_once(named_caller):  # ruling 2
     (120, 300, 200, "lost"),  # the longer of the two (ruling 14)
 ])
 def test_the_cause_is_judged_by_the_window(named_caller, keep_alive, grid_timeout, seconds, cause):
-    m = Workspaces(SiteActions(), MemoryStore(), keep_alive=keep_alive)
+    m = Workspaces(SiteActions(), MemoryStore(), keep_alive=keep_alive, monitor=FakeMonitor())
+    m.booted = 0.0  # the idle spell was this process's
     m.open_browser(Caller(NAMED))
     idle(m, seconds, grid_timeout)
     reaped(m)
     assert m.act(Caller(NAMED), lambda s: {"url": URL})["reopened"]["cause"] == cause
 
+
+def test_a_reap_with_no_keep_alive_running_is_reaped_not_lost():
+    workspaces = Workspaces(RecordingActions(), keep_alive=900)
+    workspaces.open_browser(Caller(NAMED), url="https://a.test/")
+    now = time.time()
+    workspaces.store.update(
+        NAMED,
+        lambda r: replace(
+            r, grid_timeout=300, called_at=now - 500, opened_at=now - 600
+        ),
+    )
+    workspaces.actions.grid.alive.clear()
+    workspaces.resolve(NAMED)
+    assert workspaces.store.get(NAMED).reopened["cause"] == "reaped"
+
+
+def test_activity_before_this_process_began_is_judged_without_the_keep_alive():
+    """Nothing in this process kept the browser alive through a restart."""
+    workspaces = Workspaces(RecordingActions(), keep_alive=900, monitor=FakeMonitor())
+    workspaces.open_browser(Caller(NAMED), url="https://a.test/")
+    now = time.time()
+    workspaces.booted = now - 100
+    workspaces.store.update(
+        NAMED,
+        lambda r: replace(
+            r, grid_timeout=300, called_at=now - 500, opened_at=now - 600
+        ),
+    )
+    workspaces.actions.grid.alive.clear()
+    workspaces.resolve(NAMED)
+    assert workspaces.store.get(NAMED).reopened["cause"] == "reaped"
 
 def test_an_open_counts_as_activity_for_the_cause(named_caller):  # ruling 14
     """Last called yesterday, opened 10 s ago: a browser gone now was lost."""
@@ -258,9 +337,13 @@ def test_a_run_that_fails_to_start_after_a_reap_says_so(named_caller, tmp_path):
     from kubed.selenium_flow.flows import api as flowapi
 
     store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.example.com/"}}])
+    store.save(NAMED, "needs-who", {
+        "parameters": {"properties": {"who": {"type": "string"}}, "required": ["who"]},
+        "steps": [{"tool": "navigate", "args": {"url": "https://w.example.com/${who}"}}],
+    })
     reaped(m)
-    with pytest.raises(ValueError) as exc:  # `read_one`: no flow called 'no-such-flow'
-        flowapi.run_for(store, m.actions, m, NAMED, "no-such-flow")
+    with pytest.raises(ValueError) as exc:  # the required parameter is missing
+        flowapi.run_for(store, m.actions, m, NAMED, "needs-who")
     assert faults.REOPENED["lost"] in faults.message(exc.value)
 
 
@@ -448,6 +531,41 @@ def test_a_save_from_a_replaced_browser_keeps_nothing(named_caller):
     assert told["saved"]["sites"] == [] and told["saved"]["cookies"] == 0
     assert told["saved"]["skipped"][0]["reason"].startswith("another session took over")
     assert m.store.get(NAMED).site_data == {}
+
+
+def test_a_save_keeps_the_storage_of_an_origin_visited_during_the_capture():
+    from kubed.selenium_flow.site_data.snapshot import CAPTURED
+
+    workspaces = Workspaces(RecordingActions())
+    workspaces.open_browser(Caller(NAMED), url="https://b.test/")
+    session_id = workspaces.store.get(NAMED).session_id
+    workspaces.store.update(
+        NAMED,
+        lambda r: r.with_site_data(
+            {
+                "cookies": [],
+                "origins": {"https://a.test": {"local": {"k": "v"}}},
+                "session": {},
+                "saved_at": 1.0,
+            }
+        ),
+    )
+    # The capture read the history as it was: only b.test. A call landing on
+    # a.test before the save is written adds it to the record's history.
+    captured = {
+        "origin": "https://b.test",
+        "local": {"x": "1"},
+        "session": {},
+        "cookies": [],
+        "others": {},
+        "failed": [],
+    }
+    workspaces.store.update(NAMED, lambda r: r.visited("https://a.test/"))
+    workspaces.settle(
+        NAMED, {CAPTURED: captured}, browser=session_id, url=None, touch=False
+    )
+    origins = workspaces.store.get(NAMED).site_data["origins"]
+    assert origins.get("https://a.test") == {"local": {"k": "v"}}
 
 
 def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_caller):

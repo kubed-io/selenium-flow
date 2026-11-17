@@ -59,6 +59,22 @@ test('config secrets: key sources, every origin, and the two new warnings', asyn
   expect(github).toHaveTextContent('token: env GITHUB_TOKEN is not set')
 })
 
+test('a key set masked: false says so on its pill', async () => {
+  fakeFetch({ 'GET /admin/secrets': { body: {
+    enabled: true,
+    secrets: [
+      { name: 'ldap', keys: ['password', 'username'], restricted: true, allowed_urls: ['https://l'],
+        origins: [{ source: 'filesystem', location: '/secrets' }, { source: 'config', location: '/etc/c.yaml' }],
+        key_sources: { password: { from: 'filesystem' }, username: { from: 'filesystem', masked: false } } },
+    ],
+  } } })
+  const { container } = render(SecretsPane, { api })
+  await vi.waitFor(() => expect(screen.getByRole('heading', { name: 'Secrets' })).toBeInTheDocument())
+  const pills = [...container.querySelectorAll('.card.secret .pill')].map((p) => p.textContent)
+  expect(pills).toContain('password')
+  expect(pills).toContain('username · unmasked')
+})
+
 test('an unleashed secret with an inline key shows both its warnings, not just one', async () => {
   fakeFetch({ 'GET /admin/secrets': { body: {
     enabled: true,

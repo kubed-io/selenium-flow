@@ -16,6 +16,7 @@ from ..principal import Principal
 log = logging.getLogger("kubed.selenium_flow.live")
 
 NAME_CAP = 64
+OIDC = "oidc:"
 REASON_CAP = 200  # a reason can come from the node or the viewer
 
 
@@ -25,12 +26,23 @@ def clean(name: str, cap: int = NAME_CAP) -> str:
 
 
 def viewer_of(principal: Principal | None) -> str:
-    """Who is watching, as one line names them."""
+    """Who is watching, as control and a signed link compare them.
+
+    A person signed in with OIDC is ``oidc:<name>``, so a user called ``admin``
+    or ``open`` never holds the token holder's or an open server's control.
+    What people and agents read is `shown`.
+    """
     if principal is None:
         return "open"
     if principal.admin:
         return "admin"
-    return clean(principal.username or principal.subject or "oidc")
+    name = principal.username or principal.subject
+    return clean(f"{OIDC}{name}" if name else "oidc")
+
+
+def shown(who: str) -> str:
+    """A viewer as a person or an agent reads it: an OIDC viewer by its plain name."""
+    return who.removeprefix(OIDC)
 
 
 def session_label(opened_at: float) -> str:
@@ -54,7 +66,7 @@ def duration(seconds: float) -> str:
 def opened(who: str, workspace: str, session: str, mode: str) -> None:
     log.info(
         "live: %s opened the live view of %s (%s) in %s",
-        who,
+        shown(who),
         clean(workspace),
         session,
         mode,
@@ -64,7 +76,7 @@ def opened(who: str, workspace: str, session: str, mode: str) -> None:
 def switched(who: str, workspace: str, session: str, mode: str) -> None:
     log.info(
         "live: %s switched to %s in %s (%s)",
-        who,
+        shown(who),
         mode,
         clean(workspace),
         session,
@@ -75,7 +87,7 @@ def asked(who: str, workspace: str, session: str) -> None:
     """Control asked for and not yet granted."""
     log.info(
         "live: %s asked for control of %s (%s)",
-        who,
+        shown(who),
         clean(workspace),
         session,
     )
@@ -85,7 +97,7 @@ def pasted(who: str, workspace: str, session: str, characters: int) -> None:
     """A paste, by its length: never the text."""
     log.info(
         "live: %s pasted %d characters into %s (%s)",
-        who,
+        shown(who),
         characters,
         clean(workspace),
         session,
@@ -97,7 +109,7 @@ def left(
 ) -> None:
     log.info(
         "live: %s left the live view of %s (%s) after %s in %s: %s",
-        who,
+        shown(who),
         clean(workspace),
         session,
         duration(seconds),
@@ -109,7 +121,7 @@ def left(
 def refused(who: str | None, workspace: str, why: str) -> None:
     log.warning(
         "live: refused %s the live view of %s: %s",
-        who or "someone",
+        shown(who) if who else "someone",
         clean(workspace),
         clean(why, REASON_CAP),
     )

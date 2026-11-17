@@ -96,6 +96,20 @@ def test_a_key_reference_is_exactly_one_of_file_env_value():
             Settings(secrets={"entries": {"demo": {"keys": {"k": bad}}}})
 
 
+def test_a_key_sets_masked_beside_its_value_or_alone():
+    entry = {"keys": {"a": {"file": "/f", "masked": False}, "b": {"masked": False},
+                      "c": {"env": "X"}}}
+    keys = Settings(secrets={"entries": {"demo": entry}}).secrets.entries["demo"].keys
+    assert isinstance(keys["a"], config.FromFile) and keys["a"].masked is False
+    assert isinstance(keys["b"], config.KeySettings) and keys["b"].masked is False
+    assert keys["c"].masked is True
+    bad_keys = ({"masked": False, "path": "/f"}, {"masked": "sometimes"},
+                {"masked": "false"}, {"masked": 0}, {"file": "/f", "masked": "no"})
+    for bad in bad_keys:
+        with pytest.raises(ValidationError):
+            Settings(secrets={"entries": {"demo": {"keys": {"k": bad}}}})
+
+
 def test_allowed_urls_must_be_bare_origins_and_the_error_never_echoes_credentials():
     ok = Settings(secrets={"entries": {"d": {"allowed_urls": ["https://Example.com/"]}}})
     assert ok.secrets.entries["d"].allowed_urls == ["https://example.com"]
@@ -175,3 +189,36 @@ def test_keep_alive_is_fifteen_minutes_capped_at_an_hour_and_zero_is_off():  # r
     for bad in (-1, 3601):
         with pytest.raises(ValidationError):
             Settings(session={"keep_alive": bad})
+
+
+def test_the_settings_tab_does_not_show_credentials_in_capabilities():
+    import json
+
+    from kubed.selenium_flow.config import Settings, describe
+
+    proxy = {
+        "proxy": {"proxyType": "manual", "httpProxy": "http://u:hunter2@proxy:3128"}
+    }
+    shown = describe(Settings(session={"capabilities": proxy}), {})
+    assert "hunter2" not in json.dumps(shown)
+
+
+def test_a_negative_port_is_refused_at_load():
+    from kubed.selenium_flow.config import Settings
+
+    with pytest.raises(ValueError):
+        Settings(port=-1)
+
+
+def test_the_settings_tab_masks_a_proxy_with_no_scheme_and_keeps_an_email():
+    import json
+
+    from kubed.selenium_flow.config import Settings, describe
+
+    capabilities = {
+        "proxy": {"proxyType": "manual", "httpProxy": "u:hunter2@proxy:3128"},
+        "goog:note": "mail drk@example.com",
+    }
+    shown = json.dumps(describe(Settings(session={"capabilities": capabilities}), {}))
+    assert "hunter2" not in shown
+    assert "drk@example.com" in shown

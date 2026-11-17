@@ -210,6 +210,44 @@ def test_no_browser_is_404_and_nothing_is_reopened():
     assert workspaces.actions.opened == 0
 
 
+def reopened_between_reads(workspaces, monkeypatch):
+    """After the first read of ``w1``, the record names a Firefox reopen: what
+    a reopen landing between two reads would show the second. Returns the
+    browser kinds the calls were said with."""
+    real, reads, said = workspaces.store.get, [], []
+
+    def get(name):
+        reads.append(name)
+        if len(reads) > 1:
+            return Workspace(session_id="def", settings={"browser": "firefox"})
+        return real(name)
+
+    monkeypatch.setattr(workspaces.store, "get", get)
+    begin = workspaces.calls.begin
+    monkeypatch.setattr(
+        workspaces.calls,
+        "begin",
+        lambda *a, browser, **k: said.append(browser) or begin(*a, browser=browser, **k),
+    )
+    return said
+
+
+def test_a_paste_says_the_kind_of_the_browser_it_read(held, monkeypatch):
+    workspaces, _ = held
+    workspaces.store.set("w1", Workspace(session_id="abc", settings={"browser": "chrome"}))
+    said = reopened_between_reads(workspaces, monkeypatch)
+    workspaces.paste("w1", "hello")
+    assert said == ["chrome"]
+
+
+def test_a_hand_back_says_the_kind_of_the_browser_it_read(held, monkeypatch):
+    workspaces, _ = held
+    workspaces.store.set("w1", Workspace(session_id="abc", settings={"browser": "chrome"}))
+    monkeypatch.setattr(workspaces.actions, "outline", lambda session_id: {"url": None})
+    said = reopened_between_reads(workspaces, monkeypatch)
+    workspaces.handed_back("w1", None)
+    assert said == ["chrome"]
+
 def test_a_paste_waits_for_a_call_in_flight(held):
     workspaces, driver = held
     entered, release, done = threading.Event(), threading.Event(), threading.Event()

@@ -8997,7 +8997,7 @@
     },
     "/secrets": {
       "get": {
-        "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites.",
+        "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites, unless its key_sources entry says masked: false.",
         "operationId": "listSecrets",
         "parameters": [
           {

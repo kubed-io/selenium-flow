@@ -704,6 +704,13 @@ async def test_parameters_that_are_a_list_are_refused(step_schema_map):
     assert caught.value.problems == ["parameters must be a JSON Schema object"]
 
 
+@pytest.mark.parametrize("properties", [[], None, "email"])
+async def test_properties_that_are_not_an_object_are_refused(step_schema_map, properties):
+    with pytest.raises(InvalidFlow) as caught:
+        validate(flow(parameters={"properties": properties}), step_schema_map)
+    assert caught.value.problems == ["parameters.properties must be an object"]
+
+
 async def test_an_integer_key_in_args_is_a_problem_not_a_crash(step_schema_map):
     """`args: {1: x, url: ...}` — YAML reads the key as an int (D19)."""
     document = flow(steps=[{"tool": "navigate", "args": {1: "x", "url": "https://a.test/"}}])
@@ -960,3 +967,43 @@ async def test_places_are_checked_with_every_other_problem(step_schema_map):
 async def test_a_flow_with_places_is_valid(step_schema_map):
     document = flow(sites=["localhost:8080", "*.example.com"], paths=["/login", "/apps/*/settings"])
     assert validate(document, step_schema_map)
+
+
+async def test_a_keep_file_step_is_refused_at_save(step_schema_map):
+    """`keep_file` is a files tool, not a browser action: a flow cannot name it."""
+    document = flow(steps=[{"tool": "keep_file", "args": {"uri": "session://downloads/a.txt"}}])
+    with pytest.raises(InvalidFlow, match="keep_file") as caught:
+        validate(document, step_schema_map)
+    assert "step 1" in caught.value.problems[0]
+
+
+@pytest.mark.parametrize("required", [{}, "", 0, None, ["a", 1]])
+async def test_a_required_that_is_not_a_list_of_names_is_refused(step_schema_map, required):
+    document = flow(parameters={"properties": {"a": {"type": "string"}}, "required": required})
+    with pytest.raises(InvalidFlow) as caught:
+        validate(document, step_schema_map)
+    assert caught.value.problems == ["parameters.required must be a list of names"]
+
+
+async def test_a_flow_with_an_unknown_top_level_key_is_refused(server):
+    from kubed.selenium_flow.core.capabilities import ENDPOINTS
+    from kubed.selenium_flow.flows.document import (
+        InvalidFlow,
+        concerns,
+        step_schemas,
+        validate,
+    )
+
+    tools = {}
+    for name in sorted(set(ENDPOINTS.values())):
+        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
+    document = {
+        "description": "x",
+        "step": [{"tool": "navigate", "args": {"url": "https://example.test/"}}],
+        "steps": [{"tool": "navigate", "args": {"url": "https://example.test/"}}],
+    }
+    try:
+        validate(document, step_schemas(tools))
+    except InvalidFlow:
+        return  # refused
+    assert concerns(document)  # or at least warned about

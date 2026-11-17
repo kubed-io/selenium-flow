@@ -10,6 +10,7 @@ from kubed.selenium_flow.live.audit import (
     opened,
     refused,
     session_label,
+    shown,
     switched,
     viewer_of,
 )
@@ -32,14 +33,23 @@ def test_durations(seconds, said):
 
 
 def test_who_the_viewer_is():
+    """Compared as `oidc:<name>`, shown as the plain name."""
     assert viewer_of(None) == "open" and viewer_of(ADMIN) == "admin"
-    assert viewer_of(Principal("oidc", subject="s1", username="drk")) == "drk"
-    assert viewer_of(Principal("oidc", subject="s1")) == "s1"
+    drk = viewer_of(Principal("oidc", subject="s1", username="drk"))
+    assert drk == "oidc:drk" and shown(drk) == "drk"
+    assert shown(viewer_of(Principal("oidc", subject="s1"))) == "s1"
     assert viewer_of(Principal("oidc")) == "oidc"
+    assert shown("admin") == "admin" and shown("open") == "open"
     assert (
-        viewer_of(Principal("oidc", username="dr\nk" + "x" * 80))
-        == ("dr?k" + "x" * 80)[:64]
+        shown(viewer_of(Principal("oidc", username="dr\nk" + "x" * 80)))
+        == ("dr?k" + "x" * 80)[:59]
     )
+
+
+@pytest.mark.parametrize("name", ["admin", "open", "oidc"])
+def test_no_oidc_username_reads_as_the_admin_or_an_open_server(name):
+    person = Principal("oidc", subject="s1", username=name)
+    assert viewer_of(person) not in (viewer_of(ADMIN), viewer_of(None), "oidc")
 
 
 def test_clean_turns_control_characters_into_question_marks():
@@ -48,9 +58,9 @@ def test_clean_turns_control_characters_into_question_marks():
 
 def test_the_three_lines(caplog):
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.live"):
-        opened("drk", "w1", "session started 2026-10-27T14:02:11Z", "watch")
+        opened("oidc:drk", "w1", "session started 2026-10-27T14:02:11Z", "watch")
         left(
-            "drk",
+            "oidc:drk",
             "w1",
             "session started 2026-10-27T14:02:11Z",
             724,
@@ -71,10 +81,13 @@ def test_failed_names_the_type_and_nothing_else(caplog):
 
 def test_a_switch_and_a_refusal(caplog):
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.live"):
-        switched("drk", "w1", "an unknown session", "control")
+        switched("oidc:drk", "w1", "an unknown session", "control")
         refused(None, "w1", "the browser ended")
+        refused("oidc:drk", "w1", "the link expired")
     assert caplog.messages == [
         "live: drk switched to control in w1 (an unknown session)",
         "live: refused someone the live view of w1: the browser ended",
+        "live: refused drk the live view of w1: the link expired",
     ]
-    assert [r.levelno for r in caplog.records] == [logging.INFO, logging.WARNING]
+    assert [r.levelno for r in caplog.records] == [
+        logging.INFO, logging.WARNING, logging.WARNING]
