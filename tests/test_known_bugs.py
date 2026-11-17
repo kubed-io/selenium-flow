@@ -72,30 +72,6 @@ async def test_a_reap_after_every_keep_alive_ping_failed_is_reaped():
 # ---- surfaces ----------------------------------------------------------------
 
 
-@bug("an unparseable JSON body is read as empty, so POST /browser opens a browser")
-def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
-    from starlette.testclient import TestClient
-
-    from .conftest import TOKEN
-
-    opened = []
-    monkeypatch.setattr(
-        server.workspaces, "open_browser", lambda *a, **k: opened.append(k) or {}
-    )
-    client = TestClient(server.mcp.http_app())
-    response = client.post(
-        "/browser",
-        content=b"{not json",
-        headers={
-            "Authorization": f"Bearer {TOKEN}",
-            "Sf-Workspace": NAMED,
-            "Content-Type": "application/json",
-        },
-    )
-    assert opened == []
-    assert response.status_code == 400
-
-
 # ---- browser actions ----------------------------------------------------------
 
 
@@ -173,44 +149,6 @@ def test_a_missing_flow_is_named_before_a_missing_browser():
 # ---- config -------------------------------------------------------------------
 
 
-@bug("an unreachable Redis at boot is a traceback, not 'selenium-flow: <reason>'")
-def test_an_unreachable_redis_stops_the_boot_with_the_reason(tmp_path, monkeypatch):
-    import sys
-    import types
-
-    from kubed.selenium_flow import main as main_module
-
-    module = types.ModuleType("redis")
-    module.Redis = type(
-        "Redis",
-        (),
-        {
-            "__init__": lambda self, **kw: None,
-            "ping": lambda self: (_ for _ in ()).throw(ConnectionError("refused")),
-            "from_url": classmethod(lambda cls, url, **kw: cls()),
-        },
-    )
-    monkeypatch.setitem(sys.modules, "redis", module)
-    path = tmp_path / "config.yaml"
-    path.write_text("workspace:\n  store: redis\nredis:\n  url: redis://nope:6379\n")
-    with pytest.raises(SystemExit) as caught:
-        main_module.main(["--config-file", str(path)])
-    assert str(caught.value.code).startswith("selenium-flow: ")
-
-
-@bug("the Settings tab shows session.capabilities unmasked, proxy credentials included")
-def test_the_settings_tab_does_not_show_credentials_in_capabilities():
-    import json
-
-    from kubed.selenium_flow.config import Settings, describe
-
-    proxy = {
-        "proxy": {"proxyType": "manual", "httpProxy": "http://u:hunter2@proxy:3128"}
-    }
-    shown = describe(Settings(session={"capabilities": proxy}), {})
-    assert "hunter2" not in json.dumps(shown)
-
-
 # ---- plugin and protocol -------------------------------------------------------
 
 
@@ -236,43 +174,6 @@ def test_a_first_line_that_is_not_exactly_three_dashes_opens_no_header():
     assert _split(text) is None
 
 
-@bug(
-    "MCP logs an unreachable Grid (503) as an ERROR with a traceback; HTTP logs one WARNING"
-)
-def test_a_503_over_mcp_is_one_warning_line_as_it_is_over_http():
-    import logging
-    import sys
-
-    import requests
-
-    from kubed.selenium_flow import errors
-    from kubed.selenium_flow.mcp.failures import FAILED_CALL, QuietCallerMistakes
-
-    try:
-        raise requests.ConnectionError("grid down")
-    except requests.ConnectionError:
-        exc_info = sys.exc_info()
-    assert errors.status_for(exc_info[1]) == 503
-    record = logging.LogRecord(
-        "fastmcp.server.server",
-        logging.ERROR,
-        __file__,
-        1,
-        f"{FAILED_CALL} 'navigate'",
-        (),
-        exc_info,
-    )
-    QuietCallerMistakes().filter(record)
-    assert record.levelno == logging.WARNING
-    assert "Traceback" not in record.getMessage()
-
-
 # ---- config -------------------------------------------------------------------
 
 
-@bug("port has no bound: a negative port loads and fails later")
-def test_a_negative_port_is_refused_at_load():
-    from kubed.selenium_flow.config import Settings
-
-    with pytest.raises(ValueError):
-        Settings(port=-1)

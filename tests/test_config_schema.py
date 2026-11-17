@@ -189,3 +189,36 @@ def test_keep_alive_is_fifteen_minutes_capped_at_an_hour_and_zero_is_off():  # r
     for bad in (-1, 3601):
         with pytest.raises(ValidationError):
             Settings(session={"keep_alive": bad})
+
+
+def test_the_settings_tab_does_not_show_credentials_in_capabilities():
+    import json
+
+    from kubed.selenium_flow.config import Settings, describe
+
+    proxy = {
+        "proxy": {"proxyType": "manual", "httpProxy": "http://u:hunter2@proxy:3128"}
+    }
+    shown = describe(Settings(session={"capabilities": proxy}), {})
+    assert "hunter2" not in json.dumps(shown)
+
+
+def test_a_negative_port_is_refused_at_load():
+    from kubed.selenium_flow.config import Settings
+
+    with pytest.raises(ValueError):
+        Settings(port=-1)
+
+
+def test_the_settings_tab_masks_a_proxy_with_no_scheme_and_keeps_an_email():
+    import json
+
+    from kubed.selenium_flow.config import Settings, describe
+
+    capabilities = {
+        "proxy": {"proxyType": "manual", "httpProxy": "u:hunter2@proxy:3128"},
+        "goog:note": "mail drk@example.com",
+    }
+    shown = json.dumps(describe(Settings(session={"capabilities": capabilities}), {}))
+    assert "hunter2" not in shown
+    assert "drk@example.com" in shown

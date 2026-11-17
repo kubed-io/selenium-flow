@@ -147,3 +147,30 @@ def test_a_rest_caller_is_the_admin_when_there_is_a_token(token, principal):
     answered = TestClient(_probe(token, seen)).post("/p", json={}, headers=headers)
     assert answered.status_code == 200
     assert seen == [principal]
+
+
+def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
+    opened = []
+    monkeypatch.setattr(
+        server.workspaces, "open_browser", lambda *a, **k: opened.append(k) or {}
+    )
+    client = TestClient(server.mcp.http_app())
+    response = client.post(
+        "/browser",
+        content=b"{not json",
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "Sf-Workspace": WORKSPACE,
+            "Content-Type": "application/json",
+        },
+    )
+    assert opened == []
+    assert response.status_code == 400
+
+
+def test_a_deeply_nested_json_body_is_400_not_a_plain_text_500(client):
+    response = client.post(
+        "/browser", content=b"[" * 200_000, headers={**AUTH, "Content-Type": "application/json"}
+    )
+    assert response.status_code == 400
+    assert "error" in response.json()

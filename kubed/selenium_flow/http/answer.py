@@ -54,8 +54,8 @@ async def read_body(request: Request) -> dict:
     """The request body as kwargs, from JSON or a multipart form.
 
     A file part becomes raw bytes in ``content`` with its ``filename``, which
-    is what the upload action takes. An absent or unreadable body is ``{}``,
-    for the operations that take nothing.
+    is what the upload action takes. An absent body is ``{}``, for the
+    operations that take nothing; one that does not parse is refused.
     """
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("multipart/form-data"):
@@ -73,10 +73,13 @@ async def read_body(request: Request) -> dict:
         return body
 
     await _within(request, JSON_CAP, "a JSON body")
+    if not request._body.strip():
+        return {}
     try:
         return await request.json()
-    except Exception:  # noqa: BLE001 - an empty body is legitimate for an open
-        return {}
+    except (ValueError, RecursionError):
+        # A deeply nested body overflows the parser's stack.
+        raise ValueError("the body is not valid JSON") from None
 
 
 def as_response(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
@@ -183,7 +186,7 @@ async def answer(
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     try:
         body = await read_body(request)
-    except TooLarge as exc:
+    except ValueError as exc:  # TooLarge, or a body that is not JSON
         return as_response(exc, what, log)
     if not isinstance(body, dict):
         return JSONResponse({"error": "body must be a JSON object"}, status_code=400)

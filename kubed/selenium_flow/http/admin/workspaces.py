@@ -549,14 +549,17 @@ def mount(
         success.
         """
         key = request.path_params["key"]
-        session_id = attached_id(workspaces, key)
-        if not session_id:
-            return JSONResponse({"success": True, "key": key, "session_id": None})
-        # The tool's own command. `admin=True`: a person's control never refuses
-        # the End, and ending releases it.
-        await run_in_threadpool(
-            workspaces.end_browser, Caller(key, "admin"), admin=True
-        )
+        try:
+            session_id = await run_in_threadpool(attached_id, workspaces, key)
+            if not session_id:
+                return JSONResponse({"success": True, "key": key, "session_id": None})
+            # The tool's own command. `admin=True`: a person's control never
+            # refuses the End, and ending releases it.
+            await run_in_threadpool(
+                workspaces.end_browser, Caller(key, "admin"), admin=True
+            )
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return answer.refused(exc, f"ending the session of {key}", log)
         return JSONResponse({"success": True, "key": key, "session_id": session_id})
 
     return broadcast

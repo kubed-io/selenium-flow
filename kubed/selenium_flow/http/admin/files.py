@@ -44,7 +44,7 @@ def mount(
             # dead id would fail the whole view. `is_alive`, not the header's
             # `live`: it assumes alive when it cannot tell, so a Grid that is
             # down still fails below instead of showing no downloads.
-            attached = attached_id(workspaces, key)
+            attached = await run_in_threadpool(attached_id, workspaces, key)
             alive = attached and await run_in_threadpool(
                 actions.grid.is_alive, attached
             )
@@ -105,6 +105,7 @@ def mount(
                     f"{folder!r} is not something to keep from: use "
                     f"{stored.SCREENSHOTS}, {stored.RECORDINGS} or {stored.DOWNLOADS}"
                 )
+            session_id = await run_in_threadpool(attached_id, workspaces, key)
             kept = await run_in_threadpool(
                 stored.keep,
                 actions,
@@ -112,7 +113,7 @@ def mount(
                 flow_store,
                 stored.uri_of(folder, name),
                 name=library(key),
-                session_id=attached_id(workspaces, key),
+                session_id=session_id,
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"keeping {folder}/{name} for {key}", log)
@@ -133,7 +134,9 @@ def mount(
         try:
             if name == stored.DOWNLOADS:
                 # The Grid's whole store: it has no per-file delete.
-                session_id = attached_id(workspaces, key)
+                session_id = await run_in_threadpool(
+                    attached_id, workspaces, key
+                )
                 alive = session_id and await run_in_threadpool(
                     actions.grid.is_alive, session_id
                 )
