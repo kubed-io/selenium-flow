@@ -59,7 +59,7 @@ The `assert` proves the sign-in worked, and `save_site_data` keeps it
 (SITE_DATA.md). The report shows the typing steps as
 `text=[secret:nextcloud/password]`. Any later read shows that marker,
 `[secret:name/key]`, where a secret's value was, and `write` with that name and
-key types it again.
+key types it again. A key set `masked: false` is never shown as a marker.
 
 Each of these is refused:
 
