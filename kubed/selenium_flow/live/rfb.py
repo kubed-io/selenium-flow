@@ -2,16 +2,15 @@
 
 WebSocket frames are not aligned with RFB messages on either side, so the
 handshakes read from `Bytes`, a buffer that hands back exactly the count asked
-for. The proxy answers both handshakes itself (spec 2026-10-27, rulings 11, 23
-and 25): upstream as a 3.8 client of the Grid's VNC server, downstream as a 3.8
-server offering security type None to the viewer.
+for. The proxy answers both handshakes itself: upstream as a 3.8 client of the
+Grid's VNC server, downstream as a 3.8 server offering security type None to
+the viewer, so the page never holds the password.
 
-**The gate is an allowlist** (rulings 16, 21, 22 and 24). The viewer's stream is
-parsed into whole client messages, because that is the only way to tell input
-from the framebuffer requests noVNC sends continuously. Watch forwards only the
-messages that ask for pictures; an unknown type closes the tunnel, since the
-parser could no longer find message boundaries and guessing would forward input
-in Watch. This module imports no selenium and no protocol library.
+The gate is an allowlist. The viewer's stream is parsed into whole client
+messages, because that is the only way to tell input from the framebuffer
+requests noVNC sends continuously. Watch forwards only the messages that ask
+for pictures; an unknown type closes the tunnel, since the parser could no
+longer find message boundaries and guessing would forward input in Watch.
 """
 
 from __future__ import annotations
@@ -30,12 +29,13 @@ Mode = Literal["watch", "control"]
 
 RFB_38 = b"RFB 003.008\n"
 NONE, VNC_AUTH = 1, 2
-# noVNC 1.7.0, core/encodings.js: pseudoEncodingExtendedMouseButtons: -316
-# (confirmed against the v1.7.0 tag).
+# noVNC 1.7.0's pseudoEncodingExtendedMouseButtons (core/encodings.js). It is
+# taken out of SetEncodings so a PointerEvent stays 6 bytes for the gate.
 EXTENDED_MOUSE_BUTTONS = -316
 MAX_CLIENT_MESSAGE = 2**20
 
-# What the tunnel sends upstream for the viewer's ClientInit (ruling 23): share.
+# The ClientInit the tunnel sends upstream: shared, so a new viewer never drops
+# the others.
 SHARED = b"\x01"
 
 NO_PASSWORD = "this Grid asks for a VNC password and live.password_file is not set"

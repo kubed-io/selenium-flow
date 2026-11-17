@@ -1,11 +1,9 @@
 """The live view's audit line: who watched which browser, and for how long.
 
-A person looking at a browser, and above all one typing into it, is something
-an operator may be asked about afterwards (spec 2026-10-27, "The audit line").
 This is the one module that logs for the live view, so the rule that no line
 carries a frame, a keystroke, pasted text, the password or a Grid id is held in
-one place: a line names the viewer, the workspace and the session's start time,
-which is what a person can recognise where a Grid id is a secret.
+one place. A line names the viewer, the workspace and the session's start time,
+which a person can recognise where a Grid id is a secret.
 """
 
 from __future__ import annotations
@@ -74,7 +72,7 @@ def switched(who: str, workspace: str, session: str, mode: str) -> None:
 
 
 def asked(who: str, workspace: str, session: str) -> None:
-    """Control asked for while an agent's call runs: granted when it ends."""
+    """Control asked for and not yet granted."""
     log.info(
         "live: %s asked for control of %s (%s)",
         who,

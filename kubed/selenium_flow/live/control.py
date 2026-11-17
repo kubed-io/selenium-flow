@@ -1,29 +1,22 @@
 """Who has control of which browser: requested, held, handed back.
 
-A person clicking Control while an agent's call runs *requests* it, and the call
-finishes first; Control is *granted* once the calls that asked before the
-request have had their turn on the session's lock, and once the pages the
-person reaches are followed (spec 2026-10-27-live-control, rulings 1, 13, 14,
-25 and 27). Every request is answered ``requested`` first, even with no call
-running: the grant waits on the monitor, so the viewer hears ``control`` only
-once the pages are followed or could not be (ruling 19). From the request on,
-the browser is controlled: a call that would change it is refused with
-`faults.Controlled`, a 409, naming who and since when, and reads keep
-answering. The last viewer to leave Control, or to withdraw a request, hands
-the browser back (rulings 7 and 23).
+A person clicking Control requests it. Control is granted once the calls that
+queued on the session's lock before the request have had their turn, and once
+the pages the person reaches are followed or could not be, so every request is
+answered ``requested`` first, even with no call running. From the request on,
+a call that would change the browser is refused with `faults.Controlled`,
+naming who and since when, and reads keep answering. The last viewer to leave
+Control, or to withdraw a request, hands the browser back.
 
 One episode per workspace, run on the event loop. The one thing read off it is
 the gate: a dict from Grid id to a frozen `Gate`, replaced whole and never
-mutated, so a worker thread's `refusal` is one dict read (as the monitor's
-``watches`` are read). The grant's turn is a mark in the lock's queue that the
-loop polls; no thread ever waits on the lock for it (ruling 25).
+mutated, so a worker thread's `refusal` is one dict read. The grant's turn is a
+mark in the lock's queue that the loop polls; no thread waits on the lock for it.
 
-`await_control` is the agent's side: one body for both surfaces that waits for
-the episode to end and answers with what the person did, read through
-`Workspaces.handed_back` and said in the copy below (rulings 4, 6, 15-17).
+`await_control` is the agent's side: it waits for the episode to end and answers
+with what the person did, read through `Workspaces.handed_back`.
 
-Process memory, like the tunnels: a restart forgets every episode, and with
-them every tunnel, which is the truth.
+Process memory, like the tunnels: a restart forgets every episode.
 """
 
 from __future__ import annotations
@@ -44,7 +37,7 @@ from ..faults import Controlled
 PERSON = "a person"
 ANONYMOUS = ("admin", "open")
 # The only caller of a `paste` is the admin's paste route, after its own
-# `controlling` check: the person in control is never refused (ruling 3).
+# `controlling` check: the person in control is never refused.
 PASTE = "paste"
 
 HELD = (
@@ -65,8 +58,8 @@ HANDED_BACK = (
     "carrying on."
 )
 
-# What `await_control` answers (rulings 15-17), its progress line, and the
-# hand-back's own sentence, built from its clauses.
+# What `await_control` answers, its progress line, and the clauses of the
+# hand-back's sentence.
 STILL = "still in {who}'s control; call again."
 NOBODY = "nobody has control of this browser: carry on."
 ENDED = "the browser ended while {who} had control: call open_session."
@@ -188,7 +181,7 @@ class Controls:
             self._release(episode, ended=True)
             episode = None
         if episode is None:
-            # A new episode makes an unsaid hand-back moot (ruling 17: one kept).
+            # A new episode forgets an unsaid hand-back.
             self._unsaid.pop(tunnel.workspace, None)
             episode = Episode(
                 tunnel.workspace,
@@ -257,8 +250,8 @@ class Controls:
     async def _grant(self, episode: Episode) -> None:
         """Follow the pages, then hold and tell every requesting viewer. A page
         the person reaches must not be missed, so the grant waits for the
-        attach, up to ``ATTACH_TIMEOUT`` (ruling 27); one that fails grants
-        all the same, unfollowed (ruling 19)."""
+        attach, up to the monitor's ``ATTACH_TIMEOUT``; one that fails grants
+        all the same, unfollowed."""
         if episode.state != "requested":
             return
         episode.followed = await self._follow(episode)
@@ -271,8 +264,7 @@ class Controls:
             try:
                 await tunnel.grant()
             except Exception:  # noqa: BLE001 - one viewer's failure is its own
-                # A `Tunnel` ends itself on a failure it did not expect; nothing
-                # here is the next viewer's business.
+                # A `Tunnel` ends itself on a failure it did not expect.
                 continue
 
     async def _follow(self, episode: Episode) -> bool:
@@ -436,7 +428,7 @@ def handed(episode: Episode) -> dict:
 
 
 def _still(episode: Episode) -> dict:
-    """At the cap: who has it and since when, and call again (ruling 15)."""
+    """At the cap: who has it and since when, and call again."""
     held = episode.state == "held" and episode.granted is not None
     return {
         "handed_back": False,
@@ -451,9 +443,8 @@ def _still(episode: Episode) -> dict:
 
 
 def _stopping(episode: Episode | None) -> dict:
-    """The server is stopping: nothing is read, the browser's turn included, so
-    a stop is never held behind a call (control is forgotten with the
-    process; the agent calls again once it is back)."""
+    """The server is stopping: nothing is read, so a stop is never held behind
+    a call's turn on the browser."""
     control = None
     if episode is not None:
         since = episode.granted if episode.granted is not None else episode.since
@@ -502,11 +493,11 @@ async def await_control(
     cap: float | None,
     surface: str = "mcp",
 ) -> dict:
-    """`await_control`'s one body, for both surfaces (R2, R6).
+    """`await_control`'s one body, for both surfaces.
 
     Waits for the workspace's episode to end, up to ``cap`` (None: until it
     does, as a background task). With nobody in control it answers at once,
-    with the unsaid hand-back if there is one, which this says (ruling 17).
+    with the unsaid hand-back if there is one, which this says.
     The summary is read by ``workspaces.handed_back`` (`Workspaces`, duck-typed)
     in a worker thread: it reaches the Grid, and never reopens a browser. Let
     go by the server stopping, it reads nothing and says so.

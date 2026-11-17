@@ -1,12 +1,9 @@
 """The live tunnels that are open, wired to who has control of which browser.
 
-The registry is what the session monitor's bus reaches (a browser ending closes
-its viewers and releases its control) and what the next agent call asks: a
-workspace someone is typing into is not the workspace the agent last left
-(spec 2026-10-27, ruling 35). Control itself is `live.control`'s; a tunnel asks
-it through ``on_ask`` and hands back through ``on_mode`` and ``on_end``. It is
-process memory, like the monitor: a restart drops every tunnel, so a fresh
-registry knows no controller, which is the truth.
+The session monitor's bus reaches the registry: a browser ending closes its
+viewers and releases its control. Control itself is `live.control`'s; a tunnel
+asks it through ``on_ask`` and hands back through ``on_mode`` and ``on_end``.
+It is process memory, like the monitor: a restart drops every tunnel.
 """
 
 from __future__ import annotations
