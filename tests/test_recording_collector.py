@@ -307,10 +307,9 @@ async def test_the_task_runs_only_while_something_is_owed_and_survives_a_restart
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c2.start()
     # The task ends a sweep after the filing empties `owed`: wait for the end.
-    for _ in range(50):
-        if not c2.running:
-            break
-        await asyncio.sleep(0.05)
+    task = c2._task
+    assert task is not None
+    await asyncio.wait_for(task, 5)
     assert c2.owed == {} and c2.running is False
     assert len(store.files("bot", RECORDINGS_DIR)) == 1
     await c2.stop()
