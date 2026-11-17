@@ -15,6 +15,7 @@ this order:
 from __future__ import annotations
 
 from dataclasses import replace
+from urllib.parse import urlsplit
 
 import anyio
 from fastmcp.exceptions import ToolError
@@ -196,7 +197,8 @@ class Carry(Middleware):
 
 class Refused(Middleware):
     """Refuse every call, read and prompt that names a workspace whose config
-    is refused (`workspace.config`), before anything it would do.
+    is refused (`workspace.config`), before anything it would do. A
+    ``skill://`` read is not refused.
 
     Here, where the name is read, so no tool or resource can forget to: a
     broken file may be one that locks the workspace, and ignoring it would
@@ -223,9 +225,14 @@ class Refused(Middleware):
         return await call_next(context)
 
     async def on_read_resource(self, context, call_next):
+        uri = str(getattr(context.message, "uri", ""))
+        # The skill ships in the image and holds nothing of a workspace; it is
+        # what tells a refused agent what to do.
+        if urlsplit(uri).scheme == "skill":
+            return await call_next(context)
         refusal = await self._refusal()
         if refusal is not None:
-            uri = without_userinfo(str(getattr(context.message, "uri", "")))
+            uri = without_userinfo(uri)
             raise MCPError(
                 code=INVALID_PARAMS,
                 message=f"Error reading resource {uri!r}: {faults.message(refusal)}",

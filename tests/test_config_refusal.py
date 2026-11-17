@@ -146,9 +146,21 @@ async def test_every_resource_is_refused_the_context_included(broken):
         uris = [str(r.uri) for r in await client.list_resources()]
         uris += ["workspace://current", "flow://flows/login", "workspace://files/a.txt"]
         for uri in uris:
+            if uri.startswith("skill://"):
+                continue
             with pytest.raises(MCPError) as refused:
                 await client.read_resource(uri)
             assert REFUSED in str(refused.value), uri
+
+
+async def test_the_skill_is_read_while_refused(broken):
+    """Static, shipped in the image, and how the agent learns what to do now."""
+    async with Client(broken.mcp) as client:
+        uris = [str(r.uri) for r in await client.list_resources()]
+        skills = [uri for uri in uris if uri.startswith("skill://")]
+        assert "skill://selenium-flow/SKILL.md" in skills
+        for uri in skills:
+            assert (await client.read_resource(uri))[0], uri
 
 
 async def test_a_prompt_is_refused_too(broken):
