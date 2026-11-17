@@ -15,6 +15,7 @@ from typing import Any, NamedTuple
 
 from selenium.common.exceptions import (
     StaleElementReferenceException,
+    UnexpectedAlertPresentException,
     WebDriverException,
 )
 
@@ -162,10 +163,15 @@ class Recipe:
                 element = found.element if found else None
                 return body(At(driver, element, target, timeout, state, found))
 
-            if self.retry_stale:
-                fields = self._once_more_if_stale(attempt)
-            else:
-                fields = attempt()
+            try:
+                if self.retry_stale:
+                    fields = self._once_more_if_stale(attempt)
+                else:
+                    fields = attempt()
+            except UnexpectedAlertPresentException:
+                # A dialog is page state, never an error: the page state below
+                # carries it, and the hint names `dialog`.
+                fields = {}
             found = chosen[-1] if chosen else None
             return {
                 **fields,

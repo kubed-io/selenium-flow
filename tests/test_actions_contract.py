@@ -1226,3 +1226,15 @@ def test_a_null_text_is_never_typed_as_the_word_none(actions, scripted):
     with contextlib.suppress(ValueError):
         actions.write("abc", None, selector={"css": "#q"})
     assert sent == []
+
+
+def test_extract_with_a_dialog_open_names_the_dialog_tool(actions, scripted):
+    driver = scripted(dialog=DIALOG)
+
+    def refuse(by=None, value=None):
+        raise UnexpectedAlertPresentException("unexpected alert open")
+
+    driver.__dict__["find_element"] = refuse
+    result = actions.extract("abc", selector={"css": "#x"})
+    assert result["dialog"] == DIALOG
+    assert "answer it with dialog" in result["hint"]
