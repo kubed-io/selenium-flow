@@ -179,6 +179,7 @@ def check(
     owned = [key for key in raw if key in OWNED]
     if owned:
         raise ValueError("; ".join(_refusal(key, where, remembered) for key in owned))
+    flags = []
     for block in VENDOR.values():
         if block not in raw:
             continue
@@ -192,11 +193,6 @@ def check(
             raise ValueError(f"{block}.args in {where} must be a list of strings")
         if "prefs" in value and not isinstance(value["prefs"], Mapping):
             raise ValueError(f"{block}.prefs in {where} must be an object")
-    flags = []
-    for block in VENDOR.values():
-        value = raw.get(block)
-        if not isinstance(value, Mapping):
-            continue
         flags += [
             f"{block}.args {arg} cannot be sent in {where}: {HEADLESS_OWNED}"
             for arg in value.get("args", ())
