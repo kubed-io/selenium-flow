@@ -221,6 +221,12 @@ class Grid:
                 raise
         return send(url, timeout=timeout, **kwargs)
 
+    def _json(self, method: str, path: str, **kwargs):
+        """`_send`'s answer as JSON, raising for an error status first."""
+        response = self._send(method, path, **kwargs)
+        response.raise_for_status()
+        return response.json()
+
     def _options(self, built: Built | None = None):
         """The Options object an open sends: exactly ``built.send``.
 
@@ -375,9 +381,8 @@ class Grid:
 
         Asked once and briefly (`SHOWN_TIMEOUT`): it is shown, never needed.
         """
-        response = self._send("get", "/status", timeout=SHOWN_TIMEOUT, retry=False)
-        response.raise_for_status()
-        return _listed(response.json())[1].get(session_id)
+        status = self._json("get", "/status", timeout=SHOWN_TIMEOUT, retry=False)
+        return _listed(status)[1].get(session_id)
 
     def files(self, session_id: str) -> list[dict]:
         """What this session has finished downloading, newest first.
@@ -385,11 +390,10 @@ class Grid:
         The Grid's store lives on the node and ends with the session. Downloads
         in flight are omitted (`is_partial`).
         """
-        response = self._send("get", f"/session/{session_id}/se/files")
-        response.raise_for_status()
+        listed = self._json("get", f"/session/{session_id}/se/files")
         files = [
             f
-            for f in response.json().get("value", {}).get("files", [])
+            for f in listed.get("value", {}).get("files", [])
             if not is_partial(f.get("name", ""))
         ]
         return sorted(files, key=lambda f: f.get("creationTime", 0), reverse=True)
@@ -397,11 +401,10 @@ class Grid:
     def read_file(self, session_id: str, name: str) -> bytes:
         """One downloaded file's bytes, unwrapped from the zip the Grid always
         answers with."""
-        response = self._send(
+        answer = self._json(
             "post", f"/session/{session_id}/se/files", json={"name": name}
         )
-        response.raise_for_status()
-        archive = base64.b64decode(response.json()["value"]["contents"])
+        archive = base64.b64decode(answer["value"]["contents"])
         with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
             member = name if name in bundle.namelist() else bundle.namelist()[0]
             return bundle.read(member)
@@ -418,17 +421,13 @@ class Grid:
 
     def status(self) -> dict:
         """The Grid's own readiness payload."""
-        response = self._send("get", "/status")
-        response.raise_for_status()
-        return response.json()
+        return self._json("get", "/status")
 
     def session_count(self) -> int:
         """How many sessions are currently held across the Grid."""
-        response = self._send(
-            "post", "/graphql", json={"query": "{ grid { sessionCount } }"}
-        )
-        response.raise_for_status()
-        return response.json()["data"]["grid"]["sessionCount"]
+        query = {"query": "{ grid { sessionCount } }"}
+        answer = self._json("post", "/graphql", json=query)
+        return answer["data"]["grid"]["sessionCount"]
 
 
 # Selenium's TimeoutException has an empty message ("Message:"), so every wait
