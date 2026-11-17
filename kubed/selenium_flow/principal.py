@@ -3,7 +3,7 @@
 Two kinds, from the two credentials `/mcp` accepts: the server token, which is
 the operator and so the admin, and a JWT from the configured OIDC issuer, which
 is a subject. Built by the verifiers in ``http/auth.py`` and carried on
-``Caller``; nothing decides anything from it yet (spec 2026-10-04, groundwork).
+``Caller``; nothing decides anything from it yet.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ class Principal:
 
     def opener(self) -> dict:
         """What a workspace keeps about who opened its browser. Shown, never
-        consulted (spec 2026-10-09-admin-oidc, ruling 11)."""
+        consulted."""
         return {"kind": self.kind, "username": self.username}
 
     @classmethod

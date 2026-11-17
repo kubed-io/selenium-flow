@@ -32,12 +32,8 @@ def read(path: pathlib.Path) -> dict:
 
 
 def runtime(pyproject: dict, extras: list[str]) -> list[str]:
-    """What the package needs to RUN: its dependencies, plus any named extras.
-
-    The extras are named by the caller rather than fixed here, because which
-    ones belong in the image is the Dockerfile's decision to make and to
-    explain — this only answers what they contain.
-    """
+    """What the package needs to run: its dependencies, plus the named extras.
+    Which extras belong in the image is the Dockerfile's decision."""
     project = pyproject["project"]
     available = project.get("optional-dependencies") or {}
     wanted = list(project.get("dependencies") or [])
@@ -52,13 +48,8 @@ def runtime(pyproject: dict, extras: list[str]) -> list[str]:
 
 
 def build(pyproject: dict, _extras: list[str]) -> list[str]:
-    """What BUILDS the wheel.
-
-    `[build-system].requires` already names and pins the backend — it is the
-    one list that has to be right for `pip install .` to work anywhere, so
-    there is nothing to add here. The `build` frontend that reads it is
-    deliberately not part of it, and the Dockerfile installs that by name.
-    """
+    """What builds the wheel: `[build-system].requires`. The `build` frontend
+    is not in it, and the Dockerfile installs that by name."""
     return list(pyproject["build-system"]["requires"])
 
 
