@@ -10,17 +10,13 @@ and Redis, with MCP and the admin API asked at the same time.
 Each endpoint is asked once, untimed, before the timed loop: branch runs on a
 loaded runner failed the first iteration, which paid for lazy imports and the
 first MCP session inside the budget.
-
-The timings are written to ``PROFILE_DIR`` when it is set, for the job summary.
 """
 
 import asyncio
 import json
-import os
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 import pytest
 from fastmcp import Client
@@ -69,24 +65,6 @@ async def _list_tools(server: str) -> float:
     return time.perf_counter() - started
 
 
-def _write_timings(busy: float, timings: dict[str, list[float]]) -> None:
-    directory = os.environ.get("PROFILE_DIR")
-    if not directory:
-        return
-    rows = "\n".join(
-        f"| {name} | {len(values)} | {max(values) * 1000:.0f} | "
-        f"{sorted(values)[len(values) // 2] * 1000:.0f} |"
-        for name, values in timings.items()
-    )
-    Path(directory).mkdir(parents=True, exist_ok=True)
-    Path(directory, "responsiveness.md").write_text(
-        f"### While one browser was busy for {busy:.1f}s\n\n"
-        "| Request | Count | Worst (ms) | Median (ms) |\n"
-        "|---|---|---|---|\n"
-        f"{rows}\n"
-    )
-
-
 async def test_the_server_answers_while_a_browser_is_busy(server):
     await asyncio.to_thread(_request, f"{server}/browser", "POST", {})
     try:
@@ -124,7 +102,6 @@ async def test_the_server_answers_while_a_browser_is_busy(server):
     finally:
         await asyncio.to_thread(_request, f"{server}/browser", "DELETE")
 
-    _write_timings(took, timings)
     assert took >= BUSY_SECONDS - 3, "the busy call was not busy; this proves nothing"
     assert timings["GET /health"], "nothing was asked while the browser was busy"
     worst = {name: max(values) for name, values in timings.items()}
