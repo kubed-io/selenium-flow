@@ -33,6 +33,7 @@ import anyio
 
 from ..core.capabilities import UNDER_CONTROL
 from ..faults import Controlled
+from .audit import duration
 
 PERSON = "a person"
 ANONYMOUS = ("admin", "open")
@@ -395,18 +396,6 @@ class Controls:
 # ---- await_control ---------------------------------------------------------------
 
 
-def _lasted(seconds: float) -> str:
-    """A duration as the hand-back says it: 12s, 5m12s, 1h05m."""
-    seconds = max(int(seconds), 0)
-    hours, rest = divmod(seconds, 3600)
-    minutes, seconds = divmod(rest, 60)
-    if hours:
-        return f"{hours}h{minutes:02d}m"
-    if minutes:
-        return f"{minutes}m{seconds:02d}s"
-    return f"{seconds}s"
-
-
 def handed(episode: Episode) -> dict:
     """What a released episode tells `Workspaces.handed_back`: plain values, so
     the workspace layer never holds the episode. The pages are as heard."""
@@ -480,7 +469,7 @@ def _message(episode: Episode | None, summary: dict) -> str:
     return BACK.format(
         who=who,
         at=_hhmm(until),
-        held=_lasted(until - episode.granted),
+        held=duration(max(until - episode.granted, 0)),
         pages=_reached(episode, summary),
     )
 
