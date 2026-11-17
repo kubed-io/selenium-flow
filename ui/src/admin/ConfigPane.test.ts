@@ -72,6 +72,32 @@ test("how long an unkept workspace lasts is the server's workspace.ttl (UI-74)",
   expect(container.querySelector('#paneConfig')).toHaveTextContent('expires 3 hours after its last use')
 })
 
+test('an empty filter reads as no global flow (UI-72)', async () => {
+  const { container } = setup({ ...SET, config: { 'flows.global': { value: [], source: 'workspace' } } })
+  const setting = await found(container, '#paneConfig .setting[data-key="flows.global"]')
+  expect(setting).toHaveTextContent('no global flow')
+})
+
+test('a config is removed from the tab after a confirm, and the workspace expires again (WS-65)', async () => {
+  const { container, calls } = setup(SET, 'config', { 'DELETE /admin/workspaces/k/config': { body: UNSET } })
+  await fireEvent.click(await screen.findByRole('button', { name: 'Remove config' }))
+  const modal = await found(container, '.modal')
+  expect(modal).toHaveTextContent('k/workspace.yaml')
+  expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+  const flowLoads = calls.filter((c) => c.path === '/admin/workspaces/k/flows').length
+  await fireEvent.click(within(modal).getByRole('button', { name: 'Remove' }))
+  await vi.waitFor(() => expect(container.querySelector('.modal')).toBeNull())
+  expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/admin/workspaces/k/config'])
+  expect(container.querySelector('#paneConfig')).toHaveTextContent('expires a day after its last use')
+  await vi.waitFor(() => expect(calls.filter((c) => c.path === '/admin/workspaces/k/flows').length).toBe(flowLoads + 1))
+})
+
+test('with no config there is nothing to remove', async () => {
+  const { container } = setup(UNSET)
+  await found(container, '#paneConfig .setting')
+  expect(screen.queryByRole('button', { name: 'Remove config' })).toBeNull()
+})
+
 test('a save writes the YAML and shows what it now is (UI-71)', async () => {
   const { container, calls } = setup(UNSET, 'config', { 'PUT /admin/workspaces/k/config': { body: SET } })
   await fireEvent.click(await screen.findByRole('button', { name: 'Edit YAML' }))

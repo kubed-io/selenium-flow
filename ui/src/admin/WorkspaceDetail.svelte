@@ -248,6 +248,19 @@
     })
   }
 
+  /* The file goes, so the workspace is offered every global flow and expires
+     again. */
+  function removeConfig() {
+    ask({
+      title: 'Remove this config?', body: removeConfigBody, data: key + '/workspace.yaml', confirm: 'Remove', danger: true,
+      onconfirm: async () => {
+        refuseIfGone()
+        m.showConfig(await api(workspacePath(key, '/config'), 'DELETE'))
+        if (!destroyed) void reloadFlows()
+      },
+    })
+  }
+
   /* Ending drops the browser, not the workspace: its next open carries on. */
   async function endBrowser() {
     if (!confirm('End this browser? The workspace and its context are kept — whatever the browser was holding is lost.')) return
@@ -315,6 +328,11 @@
   <div class="small muted mono">{key}/workspace.yaml</div>
   <textarea class="yaml" spellcheck="false" bind:value={configDraft}></textarea>
   {#if configRefusal}<p class="small error refusal">{configRefusal}</p>{/if}
+{/snippet}
+
+{#snippet removeConfigBody(file: string)}
+  <p>The workspace is offered every global flow again, and expires after its last use.</p>
+  <ul class="names"><li>{file}</li></ul>
 {/snippet}
 
 {#snippet deleteBody(name: string)}
@@ -395,7 +413,7 @@
   </div>
   <SiteDataPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} {site} hidden={tab !== 'site-data'} />
   <HistoryPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} hidden={tab !== 'history'} />
-  <ConfigPane {m} hidden={tab !== 'config'} onedit={editConfig} />
+  <ConfigPane {m} hidden={tab !== 'config'} onedit={editConfig} onremove={removeConfig} />
   <!-- Not kept mounted: leaving the tab is what closes a live stream. -->
   {#if tab === 'live'}
     <div id="paneLive">

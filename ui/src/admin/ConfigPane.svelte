@@ -2,7 +2,7 @@
   import { span } from '../lib/format'
   import type { WorkspaceModel } from './workspace.svelte'
 
-  let { m, hidden, onedit }: { m: WorkspaceModel; hidden: boolean; onedit: () => void } = $props()
+  let { m, hidden, onedit, onremove }: { m: WorkspaceModel; hidden: boolean; onedit: () => void; onremove: () => void } = $props()
 
   // Weakest first, as on Settings: the order is the legend.
   const SOURCES = ['default', 'workspace'] as const
@@ -33,6 +33,7 @@
         <span class="grow small muted">{m.config.kept ? 'This workspace has a config, so it never expires.' : m.config.ttl ? `No config: this workspace expires ${span(m.config.ttl)} after its last use.` : 'No config: this workspace expires when unused.'}</span>
         <span class="legend">{#each SOURCES as s, i (s)}{#if i}<span class="small muted">&lt;</span>{/if}<span class={['pill', 'src', s]}>{s}</span>{/each}</span>
         <button type="button" onclick={onedit}>Edit YAML</button>
+        {#if m.config.kept}<button type="button" class="danger" onclick={onremove}>Remove config</button>{/if}
       </div>
       {#each sections as section (section.name)}
         <strong class="section-name">{section.name}</strong>
@@ -45,6 +46,8 @@
             <span class="value">
               {#if path === 'flows.global' && row.value === null}
                 every global flow
+              {:else if path === 'flows.global' && rows?.length === 0}
+                no global flow
               {:else if rows}
                 {#each rows as tags, i (i)}
                   {#if i}<span class="small muted or">or</span>{/if}
