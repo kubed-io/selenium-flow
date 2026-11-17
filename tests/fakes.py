@@ -972,7 +972,8 @@ class FakeConnection:
 
     ``refuse`` makes every open raise ConnectionError, ``hang_on_subscribe``
     makes every subscribe and ``hang_on_open`` every open wait until ``gate``
-    is set (forever without one); all are reset per test (`reset`)."""
+    is set (forever without one); conftest's `fresh_connections` resets them
+    around every test."""
 
     made: ClassVar[list] = []
     refuse: ClassVar[bool] = False

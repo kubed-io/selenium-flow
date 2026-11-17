@@ -34,7 +34,12 @@ from .bidi_fakes import (
     FakeBrowser,
     browser_in_thread,  # noqa: F401 - a fixture, offered here
 )
-from .fakes import FakeGrid, FakePeer, ScriptedDriver  # noqa: F401 - FakePeer is offered here
+from .fakes import (  # noqa: F401 - FakePeer is offered here
+    FakeConnection,
+    FakeGrid,
+    FakePeer,
+    ScriptedDriver,
+)
 
 TOKEN = "test-token-abc123"
 
@@ -260,6 +265,15 @@ def mcp_log():
     directly."""
     with log_lines(FASTMCP_LOGGER) as lines:
         yield lines
+
+
+@pytest.fixture(autouse=True)
+def fresh_connections():
+    """`FakeConnection` keeps the connections it made, and the switches a test
+    flips, on the class: every test starts and ends with them cleared."""
+    FakeConnection.reset()
+    yield
+    FakeConnection.reset()
 
 
 # ---- the built UI ----------------------------------------------------------
