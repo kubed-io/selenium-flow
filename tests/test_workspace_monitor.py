@@ -6,7 +6,9 @@ from dataclasses import replace
 import pytest
 
 from kubed.selenium_flow.workspace.store import Workspace
-from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
+from kubed.selenium_flow.workspace.workspaces import Workspaces
+
+from .fakes import WorkspaceActions, caller
 
 pytestmark = pytest.mark.unit
 
@@ -27,56 +29,8 @@ class Announced:
         return True
 
 
-class Grid:
-    def __init__(self):
-        self.alive = set()
-        self.timeouts = {}
-        self.timeout_fails = False
-
-    def is_alive(self, sid):
-        return sid in self.alive
-
-    def session_timeout(self, sid):
-        if self.timeout_fails:
-            raise ConnectionError("status unavailable")
-        return self.timeouts.get(sid)
-
-    def reconnect(self, sid):
-        raise ConnectionError("not in this test")
-
-
-class Actions:
-    def __init__(self):
-        self.grid = Grid()
-        self.n = 0
-        self.quit_fails = False
-
-    def open_session(self, *, on_created=None, **kwargs):
-        self.n += 1
-        sid = f"grid{self.n:04d}"
-        self.grid.alive.add(sid)
-        self.grid.timeouts.setdefault(sid, 300)
-        return {
-            "session_id": sid,
-            "browser": kwargs.get("browser") or "chrome",
-            "url": "about:blank",
-            "title": "",
-            "width": 1280,
-            "height": 900,
-        }
-
-    def end_browser(self, sid):
-        if self.quit_fails:
-            raise ConnectionError("grid unreachable")
-        self.grid.alive.discard(sid)
-
-
 def manager(monitor=None):
-    return Workspaces(Actions(), monitor=monitor)
-
-
-def caller(name="bot"):
-    return Caller(name, "query")
+    return Workspaces(WorkspaceActions(), monitor=monitor)
 
 
 def test_an_open_keeps_the_grids_timeout_and_announces_the_browser():

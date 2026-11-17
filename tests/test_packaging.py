@@ -437,7 +437,7 @@ def test_the_plugin_manifest_names_the_skill_and_declares_nothing_else():  # Rul
 
 
 def test_the_built_ui_ships_by_glob_so_an_unbuilt_install_still_works():
-    """§F4.15/§F4.17: collected when it exists, and never a mapped package —
+    """Collected when it exists, and never a mapped package —
     a mapped directory that is missing fails `pip install`."""
     data = tomllib.loads(PYPROJECT.read_text())
     setuptools = data["tool"]["setuptools"]
@@ -452,9 +452,9 @@ def test_the_ui_is_built_in_its_own_stage_and_reaches_the_package():
     # Built on the runner's own platform: the output is platform-independent, and
     # a multi-arch build would otherwise run it again under emulation. Any Node:
     # Dependabot moves the tag, and pinning it here would fail every bump.
-    assert re.search(r"^FROM --platform=\$BUILDPLATFORM node:\S+ AS ui$", text, re.M)
+    assert re.search(r"^FROM --platform=\$BUILDPLATFORM node:\S+ AS ui$", text, re.MULTILINE)
     assert "npm ci" in text and "npm run build" in text
-    assert re.search(r"^COPY --from=ui \S+ kubed/selenium_flow/http/static$", text, re.M)
+    assert re.search(r"^COPY --from=ui \S+ kubed/selenium_flow/http/static$", text, re.MULTILINE)
     # before the project install, so the wheel the venv gets has the UI in it
     assert text.index("COPY --from=ui") < text.index("pip install --no-cache-dir .[redis]")
 

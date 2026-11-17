@@ -1,9 +1,7 @@
-"""The MCP server itself: wiring, and nothing else.
+"""The MCP server: builds the FastMCP instance from the settings and runs it.
 
-Assembles a FastMCP instance from a Grid — the tools, the HTTP routes, the
-auth — and runs it. The Grid lives in ``browser.py``, the behaviour in
-``actions.py``, the two surfaces in ``tools.py`` and ``routes.py``; this module
-only connects them, so a new capability never means editing the server.
+Only wiring. The behaviour is in ``core/actions.py``, the two surfaces in
+``mcp/tools.py`` and ``routes.py``, so a new capability needs no change here.
 """
 
 from __future__ import annotations
@@ -41,6 +39,7 @@ from .mcp import (
     completions,
     control,
     failures,
+    instructions,
     mirror,
     prompts,
     resources,
@@ -66,15 +65,13 @@ log = logging.getLogger(__name__)
 class SeleniumMCP:
     """A browser-automation MCP server backed by Selenium Grid.
 
-    Every capability is exposed twice: as an MCP tool for agents, and as a JSON
-    HTTP endpoint under ``/browser`` for everything else. Both call the same
-    functions, so the surfaces cannot drift.
+    Every capability is an MCP tool and a JSON endpoint under ``/browser``, and
+    both call the same functions.
 
-    The server holds no browser state — a browser lives on the Grid and the
-    caller's workspace name leads back to it. What it *does* hold is the MCP
-    transport session, in this process's memory, and it relies on it: that is
-    where a client's `initialize` — who it is, what it can do — is remembered.
-    So it runs as one replica.
+    A browser lives on the Grid and the caller's workspace name leads back to
+    it. The MCP transport session lives in this process's memory, and it holds
+    what a client's `initialize` said (who it is, what it can do), so the server
+    runs as one replica.
     """
 
     def __init__(
@@ -87,71 +84,56 @@ class SeleniumMCP:
     ):
         settings = settings if settings is not None else Settings()
         self.settings = settings
-        # Where each value came from, for the Settings tab. Built from the
-        # settings themselves when a caller constructed them in code.
+        # Where each value came from, for the Settings tab.
         self.sources = (
             dict(sources) if sources is not None else config.sources_for(settings)
         )
         self.grid = Grid(settings.grid.url)
-        # Redis or memory per workspace.store. The store is only ever a
-        # key -> workspace record map; the browser is on the Grid either way.
-        # Resolved before the actions, because the pointer store is derived
-        # from it.
+        # Before the actions: the pointer store is derived from it.
         self.store = (
-            store if store is not None
+            store
+            if store is not None
             else store_module.from_settings(settings.workspace, settings.redis)
         )
-        # Where the pointer is in each browser, on the same backend as the
-        # workspace record (§F2.3) - built FROM that store rather than from a
-        # second reading of the environment, which is the only way the two are
-        # guaranteed to agree. An injected Redis store with a memory
-        # environment would otherwise share workspace records and keep pointers
-        # process-local, so a glide on another replica silently started as a
-        # jump (Copilot, #31). Still injectable, for a caller that wants a
-        # third thing.
+        # The pointers live on the workspace store's backend, derived from the
+        # store itself: an injected Redis store beside a memory environment
+        # would otherwise keep pointers process-local, and a glide on another
+        # replica would start as a jump.
         self.actions = Actions(
             self.grid,
             pointers=pointers if pointers is not None else pointer.matching(self.store),
         )
-        # Under every open's own capabilities, at the next open after a change.
+        # Applied under every open's own capabilities.
         self.actions.config_capabilities = dict(settings.session.capabilities)
         auth_token = (
             settings.auth.token.get_secret_value() if settings.auth.token else None
         )
         self.auth_token = auth_token
-        # Where this whole server hangs: "" for root. Every tree below is fixed
-        # relative to it, which is the inversion §F1.11 asked for.
+        # Where this whole server is mounted: "" for root.
         self.prefix = routes.mount(settings.route_prefix)
         self.mcp_path = f"{self.prefix}/mcp"
-        # Loaded before anything is told about it: the instructions and the
-        # workspace status both name the skill, and neither may name a resource
-        # this server is not serving (Copilot, #36).
+        # Loaded first: the instructions and the workspace status name the
+        # skill only when it is served.
         self.skill = skill.load() if settings.mcp.skill else None
 
-        # Saved flows, or None when no data directory was named — which is the
-        # default, and is the feature being off rather than a degraded mode.
-        # Built before the workspaces: the recordings are filed into it. A
-        # recording.dir nothing collects from is no inbox, and must not hide an
-        # old workspace from the move the boot asks for (Copilot, #59).
+        # Saved flows, or None when no data directory was named (the default).
+        # Built before the workspaces: recordings are filed into it. A
+        # recording.dir nothing collects from is passed as no inbox, so it
+        # cannot hide an old workspace from the move the boot asks for.
         self.flows = flowstore.from_settings(
             settings.data,
             config.recording_dir(settings) if settings.recording.enabled else None,
         )
 
-        # Which sessions are open, ended and owed (session monitor spec): one
-        # bus, one monitor, in this process. The monitor watches by the Grid's
-        # status listing and holds a BiDi socket only for a reason that needs
-        # its events. It keeps a browser alive for `session.keep_alive` after
-        # its last call. Built before the collector and the
-        # workspaces, which tell it what they open, end and owe.
+        # One bus and one monitor in this process. The monitor watches the
+        # Grid's status listing, holds a BiDi socket only for a reason that
+        # needs its events, and keeps a browser alive for `session.keep_alive`
+        # after its last call. Built before the collector and the workspaces,
+        # which tell it what they open, end and owe.
         self.bus = LocalBus()
-        # Console and network capture (capture spec): the monitor holds a
-        # connection for a browser opened with `capture` and hands its events
-        # to this, which keeps them. Built first: the monitor's sink.
+        # The monitor's two sinks, built before it: captured console and
+        # network events, and the pages a person reaches in the live view.
         self.capture = Capture(ttl=settings.capture.ttl)
-        # The pages a person reaches in the live view's Control, heard on the
-        # same connection for the monitor's `control` reason (live control
-        # spec, R7). Built before the monitor too: its other sink.
         self.pages = Pages()
         self.monitor = Monitor(
             self.bus,
@@ -167,20 +149,17 @@ class SeleniumMCP:
             keep_alive=settings.session.keep_alive,
         )
         self.pages.connection = self.monitor.connection
-        # Who has control of which browser (live control spec): requested while
-        # an agent's call runs, granted once the calls before the request have
-        # had their turn on the session's lock, which it polls rather than waits
-        # on, and once the pages the person reaches are followed.
+        # Control is granted once the calls before the request have had their
+        # turn on the session's lock (polled, never waited on) and the pages
+        # the person reaches are followed.
         self.controls = Controls(
             behind=locks.behind, monitor=self.monitor, pages=self.pages
         )
-        # The live view's open tunnels: a browser ending closes its viewers and
-        # releases its control, and the server stopping closes them all.
+        # A browser ending closes its live viewers and releases its control.
         self.tunnels = Tunnels(self.controls)
         self.bus.subscribe("session.ended", self.tunnels.ended, name="live")
-        # How a BiDi channel to a session's browser is opened: site data's save
-        # and restore speak through it, reusing the connection the monitor holds
-        # when there is one.
+        # Site data's save and restore speak BiDi, reusing the monitor's
+        # connection when it holds one.
         self.actions.channels = Channels(
             self.grid.bidi_url,
             held=self.monitor.connection,
@@ -188,13 +167,12 @@ class SeleniumMCP:
         )
         # A save's spare tab never reaches a caller's console or network log.
         self.actions.hide = self.capture.hidden
-        # The capture resources read it (`show`, `network_body`).
         self.actions.capture = self.capture
         self.actions.control = self.controls
 
-        # Recordings (recordings spec): the Grid films, the operator delivers to
-        # the inbox, the collector files. Built before the workspaces, which tell
-        # it about every recorded browser; None when recording is off.
+        # The Grid films, the operator delivers to the inbox, the collector
+        # files. Built before the workspaces, which tell it about every
+        # recorded browser; None when recording is off.
         self.collector = None
         problem = config.recording_problem(settings)
         if problem:
@@ -210,7 +188,6 @@ class SeleniumMCP:
             self.collector = recording_collector.Collector(
                 self.flows,
                 inbox,
-                # Says when each owed session ends, as `session.ended` below.
                 monitor=self.monitor,
                 wait=settings.recording.wait,
                 polling=mounts.polling(settings.recording.watch, inbox),
@@ -219,7 +196,8 @@ class SeleniumMCP:
             )
             log.info(
                 "recordings: on, inbox %s, %s",
-                inbox, "polling" if self.collector.polling else "events",
+                inbox,
+                "polling" if self.collector.polling else "events",
             )
             collector_ended = self.collector.ended
             self.bus.subscribe(
@@ -228,10 +206,9 @@ class SeleniumMCP:
                 name="recordings",
             )
 
-        # The secrets an agent may bind, or None when none were configured.
-        # Read-only and value-free: this holds a catalogue, never a credential.
-        # Built before the workspaces, whose every answer is checked for the
-        # secrets in scope where it ran (spec 2026-11-14-secret-scope).
+        # The catalogue of secrets an agent may bind (names, never values), or
+        # None. Built before the workspaces, whose every answer is checked for
+        # the secrets in scope where it ran.
         self.secrets = secrets.from_settings(settings.secrets, settings.config_file)
 
         self.workspaces = Workspaces(
@@ -244,22 +221,16 @@ class SeleniumMCP:
             keep_alive=settings.session.keep_alive,
             capture=self.capture,
             channels=self.actions.channels,
-            # A person's control in the live view refuses the calls that
-            # would change the browser (live control spec).
             control=self.controls,
-            # A result that lands on a new page names the saved flows that
-            # say they apply there (spec 2026-11-12-flow-sites-paths).
             hints=self.flows.flows_here if self.flows is not None else None,
             catalogue=self.secrets,
         )
-        # Capture is the origin's second source, and holds a page's events
-        # until the secrets in scope there are in its masker (secret-scope
-        # spec, rulings 8 and 9). With secrets off it holds nothing.
+        # Capture holds a page's events until the secrets in scope there are
+        # in its masker. With secrets off it holds nothing.
         if self.secrets is not None:
             self.capture.heard = self.workspaces.capture_heard
-        # A browser that ended however it ended - quit here, reaped by the
-        # Grid, found gone by a call - takes its origin and the secret forms
-        # held for it with it.
+        # A browser that ended (quit, reaped, or found gone) takes its origin
+        # and its secret forms with it.
         browser_ended = self.workspaces.browser_ended
         self.bus.subscribe(
             "session.ended",
@@ -267,18 +238,14 @@ class SeleniumMCP:
             name="secret-scope",
         )
 
-        # The token turns on auth for both surfaces; `oidc` adds a JWT beside it
-        # on /mcp. Absent, the server is open — correct for a local
-        # `docker compose up`, and the reason the deployment always sets one.
-        # Both doors from one verifier: /mcp's, and the admin API's, which
-        # also admits an admin-UI JWT when `oidc.client_id` is set.
+        # The token turns on auth for both surfaces; without one the server is
+        # open. `oidc` adds a JWT beside it on /mcp, and the admin door also
+        # admits an admin-UI JWT when `oidc.client_id` is set.
         self.doors = http_auth.doors(settings)
 
-        # The bus, the monitor and the collector live on the server's event
-        # loop, so they start and stop with it: the bus first, so nothing is
-        # announced to a loop that is not there, and the monitor before the
-        # collector, which asks it to watch what its notes still owe. The two
-        # tasks run only while something is owed.
+        # These live on the server's event loop: the bus starts first, so
+        # nothing is announced to a loop that is not there, and the monitor
+        # before the collector, which asks it to watch what is still owed.
         collector, monitor, bus = self.collector, self.monitor, self.bus
         tunnels, controls = self.tunnels, self.controls
         scrubber = self.workspaces.scrubber
@@ -293,58 +260,49 @@ class SeleniumMCP:
             try:
                 yield {}
             finally:
-                # First: every pending grant goes and everything waiting for a
-                # hand-back returns, before anything it might wait on stops.
-                # The tasks extension has done it already, before its worker
-                # stopped (`waiting.Tasks`); again here, it finds nothing.
+                # First, every waiter is let go before anything it waits on
+                # stops. `waiting.Tasks` has already done it; again here is a
+                # no-op.
                 controls.stop()
                 if collector is not None:
                     await collector.stop()
                 tunnels.stop()
                 await monitor.stop()
                 await bus.stop()
-                # Last: nothing is left to ask it for a read.
                 scrubber.close()
 
         self.mcp = FastMCP(
             "Selenium",
-            instructions=tools.first_instructions(self.skill is not None),
+            instructions=instructions.first_instructions(self.skill is not None),
             auth=self.doors.mcp,
             lifespan=lifespan,
         )
-        # `await_control` runs as an MCP task for a client that can (live
-        # control spec, ruling 8): Docket in memory, stopped only once the
-        # controls have let every waiter go, since its worker waits for the
-        # tasks it runs when it stops.
+        # Docket's worker waits for its tasks when it stops, so the controls
+        # let every waiter go first.
         self.mcp.add_extension(waiting.Tasks(first=controls.stop))
         tools.register(
             self.mcp, self.actions, self.workspaces, self.secrets, live=settings.live
         )
 
-        # Everything to read is a resource. A client that cannot read them gets
-        # `mirror`'s two tools, which read the same URIs (§F3.6).
-        # Templates a person picks, rather than instructions the model reads.
-        # A failed run's hint names one, which is how an agent that cannot
-        # invoke a prompt still points somebody at the right one (§F2.6).
+        # Templates a person picks, rather than instructions the model reads. A
+        # failed run's hint names one, so an agent that cannot invoke a prompt
+        # still points somebody at the right one.
         self.prompts = prompts.register(self.mcp)
 
+        # Everything to read is a resource.
         resources.register(self.mcp, self.workspaces)
         if self.skill is not None:
             skill.register(self.mcp, self.skill)
-            # An agent's first step is to read the skill, so they are served
-            # together and only together (spec 2026-11-12-plugin-agents,
-            # Rulings 6 and 7): declared even when there are none.
+            # An agent's first step is to read the skill, so agents are served
+            # only with it, and declared even when there are none.
             agents.register(self.mcp, agents.load(skills={self.skill.skill_info.name}))
+        # A client that cannot read resources gets `mirror`'s two tools, which
+        # read the same URIs.
         mirror.register(self.mcp)
         completions.register(self.mcp)
 
-        # A workspace's files are resources; `show` draws them, and any other
-        # showable resource, for a host that renders MCP Apps — and is listed
-        # for no other client.
-        # Where the server's own root is publicly reachable, or "" when nobody
-        # said — never the bare mount, which made a relative path look absolute
-        # (Copilot, #35). Links carry the mount themselves, signed over the
-        # unprefixed path; a base that names it too is forgiven, not doubled.
+        # The server's public root, or "" when unset. Links carry the mount
+        # themselves, so a base that ends in it has it cut, not doubled.
         base = (settings.public_base_url or "").strip().rstrip("/")
         if self.prefix and base.endswith(self.prefix):
             base = base[: -len(self.prefix)]
@@ -353,7 +311,6 @@ class SeleniumMCP:
                 "The admin UI is not built, so its URL shows a placeholder: "
                 "run `npm --prefix ui run build`."
             )
-        # An app is a view of the built shell; without the shell there is none.
         apps_enabled = settings.mcp.apps and apps.available()
         app_config = apps.config_for(base) if apps_enabled else None
         app_tools = files.register(
@@ -367,29 +324,31 @@ class SeleniumMCP:
             ttl=settings.link_ttl,
         )
         app_tools |= show.register(self.mcp, app_config)
-        # These three are called from inside an action, below every edge, so
-        # they ask the edge's own reader who is calling (`clients.caller`).
-        #
-        # How an action keeps a file it made. Wired here because this is where
-        # the store, the token and the public base all exist; the behaviour
-        # layer takes the function and never the key (§F2.9). No default for
-        # `folder`: only `Actions._kept` calls this, and it always names one —
-        # a default here would let some future two-argument call silently land
+        # These three are called from inside an action, which cannot see the
+        # caller, so they ask `clients.caller`. Wired here, where the store,
+        # the token and the public base exist; the behaviour layer never holds
+        # the key. `folder` has no default: a call that forgot it would land
         # in Files.
         self.actions.keep = lambda name, data, folder: files.keep_made(
-            clients.caller().name, self.flows, name, data, auth_token, base,
-            self.prefix, folder, ttl=settings.link_ttl,
+            clients.caller().name,
+            self.flows,
+            name,
+            data,
+            auth_token,
+            base,
+            self.prefix,
+            folder,
+            ttl=settings.link_ttl,
         )
-        # And how it reads one back, for `upload_file(file=...)`. Wired here for
-        # the same reason: which workspace owns a file is a question about
-        # the caller, which the behaviour layer deliberately cannot see.
+        # For `upload_file(file=...)`.
         self.actions.read_file = lambda uri, workspace=None: files.read_file(
-            self.actions, self.workspaces, self.flows, uri,
+            self.actions,
+            self.workspaces,
+            self.flows,
+            uri,
             workspace or clients.caller().name,
         )
-        # And where the caller's workspace has been, so one save reads every
-        # site's storage. Wired here for the same reason: which workspace is
-        # calling is a question about the caller.
+        # So one save reads every site's storage.
         self.actions.visited = lambda: self.workspaces.visited(clients.caller().name)
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
@@ -397,13 +356,9 @@ class SeleniumMCP:
             else set()
         )
         app_tools |= self.apps
-        # Saved flows. Registered whether or not there is a store, so a client
-        # that asks is told flows are not enabled here rather than finding the
-        # tool absent — a missing capability and a disabled one look identical
-        # from the outside, and only one of them is fixable.
-        # One step-schema cache, shared by both flow surfaces. The admin's YAML
-        # editor validates a document against exactly what `save_flow` does,
-        # rather than against a second copy that could drift from it.
+        # Registered with no store too, so a caller is told flows are off
+        # rather than finding the tools absent. One step-schema cache serves
+        # `save_flow` and the admin's YAML editor alike.
         schemas = flowapi.Schemas(self.mcp)
         flowapi.register(
             self.mcp,
@@ -414,27 +369,22 @@ class SeleniumMCP:
             prefix=self.prefix,
             secrets_catalogue=self.secrets,
             schemas=schemas,
-            # A failed run points at a skill reference, and with `--mcp-skill false`
-            # there is nothing registered to point at.
+            # A failed run's hint points at a skill page only when one is served.
             skill_available=self.skill is not None,
         )
         secrets.register(self.mcp, self.secrets, auth_token, prefix=self.prefix)
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
-        self.mcp.add_middleware(tools.InstructionsFor(self.skill is not None))
-        # Before `Notices`, outermost of the two: a call that may become a
-        # task carries its workspace in a header its worker reads (ruling 31).
+        self.mcp.add_middleware(instructions.InstructionsFor(self.skill is not None))
+        # Outside `Notices`: a call that may become a task carries its
+        # workspace in a header its worker reads.
         self.mcp.add_middleware(clients.Carry())
-        # Before `failures`: the first added is outermost, so a failed call's
-        # notice follows the sentence `Explained` has already written.
+        # The first added is outermost, so a failed call's notice follows the
+        # sentence `Explained` has already written.
         self.mcp.add_middleware(control.Notices(self.controls))
         failures.install(self.mcp)
-        # Inside `failures`: a read that cannot be scrubbed answers the fixed
-        # sentence, which `Explained` passes on as it is (spec
-        # 2026-11-14-secret-scope, ruling 16). `show` and `read_resource` read
-        # through it too.
+        # Inside `failures`, so a read that cannot be scrubbed answers the
+        # fixed sentence and `Explained` passes it on as it is.
         scrubbed.install(self.mcp, self.workspaces)
-        # The same workspaces the MCP surface uses: one contract, one resolver,
-        # and the HTTP surface inherits the reopen-after-reap it never had.
         routes.register(
             self.mcp,
             self.actions,
@@ -445,9 +395,8 @@ class SeleniumMCP:
             live=settings.live,
         )
 
-        # The admin pages and the signed file route. Always on: they are how a
-        # person sees what the agents have been doing, and the file route is the
-        # only way an image reaches somewhere that cannot send a token.
+        # Always on: the signed file route is the only way an image reaches
+        # somewhere that cannot send a token.
         broadcast = admin.register(
             self.mcp,
             self.actions,
@@ -468,11 +417,10 @@ class SeleniumMCP:
             tunnels=self.tunnels,
             monitor=self.monitor,
         )
-        # A filed recording shows on every open admin page now, not a tick on.
+        # Open admin pages refresh at once on a filed recording, an opened or
+        # an ended session; their poll covers the rest.
         if self.collector is not None:
             self.collector.on_filed = broadcast.poke
-        # So does a session opening or ending; the page's poll stays for
-        # everything else.
         self.bus.subscribe(
             ("session.opened", "session.ended"),
             lambda _event: broadcast.poke(),
@@ -483,21 +431,19 @@ class SeleniumMCP:
         self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000
     ) -> None:
         """Serve on ``transport``, blocking until the process is stopped."""
-        # No banner: it is 25 lines of box art in every pod's log, and printing
-        # it is what makes FastMCP ask pypi.org for a newer release on every
-        # start (`check_for_updates`). `main` logs the configuration instead.
+        # No banner: printing it makes FastMCP ask pypi.org for a newer
+        # release on every start.
         if transport == "stdio":
             self.mcp.run(transport="stdio", show_banner=False)
         else:
-            # Built from the same routes the app it serves is, so the access
-            # log names each request by its template, never by its path.
+            # The access log names each request by its route template, never
+            # by its path.
             access_log.quiet(self.mcp.http_app(path=self.mcp_path))
             self.mcp.run(
                 transport="http",
                 host=host,
                 port=port,
-                # The MCP endpoint moves with everything else, `/openapi.*`
-                # included. Only the four probes also answer at the root.
+                # Only the four probes also answer at the root.
                 path=self.mcp_path,
                 show_banner=False,
                 middleware=http_middleware(),

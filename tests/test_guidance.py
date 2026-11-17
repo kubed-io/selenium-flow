@@ -59,7 +59,7 @@ def test_the_instructions_name_the_skill():
     manual after it had already gone wrong. The skill is published correctly and
     a client listing resources can see it; nothing told it to read it.
     """
-    from kubed.selenium_flow.mcp.tools import instructions
+    from kubed.selenium_flow.mcp.instructions import instructions
 
     assert "skill://selenium-flow/SKILL.md" in instructions(True)
 
@@ -71,7 +71,7 @@ def test_the_instructions_do_not_name_a_skill_that_is_not_served():
     which is the same failure as naming a reference the skill does not ship —
     it teaches an agent the manual is broken (Copilot, #36).
     """
-    from kubed.selenium_flow.mcp.tools import instructions
+    from kubed.selenium_flow.mcp.instructions import instructions
 
     assert "skill://" not in instructions(False)
 
@@ -165,7 +165,7 @@ def test_a_run_out_of_time_points_at_the_budget_whatever_step_was_next(tool):
 async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode):
     """The instructions name skill:// and every hint names a URI. VS Code's
     model cannot read one, so its instructions say read_resource — on the
-    handshake of either protocol generation (§F3.2)."""
+    handshake of either protocol generation."""
     from fastmcp import Client
     from mcp.types import Implementation
 
@@ -186,7 +186,7 @@ async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode)
 
 
 # What earlier chapters removed. Each was once the name an agent was told to
-# use, and every one of them turned up again in text after it was gone (§F3.3).
+# use, and every one of them turned up again in text after it was gone.
 REMOVED = (
     "current_session",
     "selenium_flow_skill",

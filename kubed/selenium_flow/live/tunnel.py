@@ -5,20 +5,14 @@ bytes go to the viewer as they come, and the viewer's go through the gate, which
 in Watch lets only requests for pictures through. Text frames from the viewer
 are the control channel: presence, and a request to change mode. Presence and
 input in Control are what keep the tunnel alive; with none for `grace` seconds
-nobody is watching and it ends (spec 2026-10-27, "Presence and teardown").
+nobody is watching and it ends.
 
-Control is asked for, not taken: `on_ask` answers ``control`` or
-``requested``, and a requested viewer is Watch at the gate until `grant`
-(spec 2026-10-27-live-control, ruling 13). `live.control` decides.
+Control is asked for: `on_ask` answers ``control`` or ``requested``, and a
+requested viewer is Watch at the gate until `grant`. `live.control` decides.
 
 Every way the tunnel can end is an `Ending`, the first one wins, and `end` only
 records it, so it is safe from a timer, the event bus or the registry. A
 tunnel closes both sockets and awaits its own tasks before `run` returns.
-
-A viewer leaving or the hub closing may be the browser's node dying: the page
-unmounts its pane as soon as one listing misses the browser, before the
-monitor's `session.ended` can arrive. So those two endings ask the Grid once
-(`listed`) before the close, and one it no longer lists is `BROWSER_ENDED`.
 """
 
 from __future__ import annotations
@@ -42,9 +36,8 @@ HANDSHAKE_TIMEOUT = 15.0
 # How long closing the viewer may take: a stalled peer can hold uvicorn's
 # send, and nothing waits on the close but the audit line.
 CLOSE_TIMEOUT = 5.0
-# How long the Grid's listing may take at the close: a slow `/status` must not
-# hold the close for long, and a listing that does not answer in time says
-# nothing.
+# How long the Grid's listing may take at the close; a slower one says nothing,
+# so a slow /status never holds the close.
 LISTED_TIMEOUT = 3.0
 CONTROL_CAP = 1024
 REASON_CAP = 123  # a WebSocket close reason is 123 bytes at most

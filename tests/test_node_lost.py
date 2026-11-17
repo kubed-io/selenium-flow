@@ -127,29 +127,6 @@ def test_an_ordinary_driver_failure_is_raised_as_it_was(actions, monkeypatch):
 # ---- over MCP --------------------------------------------------------------------
 
 
-class Capture(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.records: list[tuple[int, str, bool]] = []
-
-    def emit(self, record):
-        self.records.append(
-            (record.levelno, self.format(record), record.exc_info is not None)
-        )
-
-
-@pytest.fixture
-def mcp_log():
-    from kubed.selenium_flow.mcp.failures import FASTMCP_LOGGER
-
-    handler = Capture()
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger = logging.getLogger(FASTMCP_LOGGER)
-    logger.addHandler(handler)
-    yield handler.records
-    logger.removeHandler(handler)
-
-
 async def test_over_mcp_the_caller_and_the_log_read_the_sentence_only(
     tmp_path, monkeypatch, mcp_log
 ):

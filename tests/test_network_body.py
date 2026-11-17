@@ -1,5 +1,5 @@
 """`network_body`: one response body, fetched from the browser that made the
-request and only from it (spec §7, ruling 11; plan rulings 1, 16, 19)."""
+request and only from it."""
 
 import base64
 

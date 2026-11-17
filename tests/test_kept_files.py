@@ -21,19 +21,17 @@ import requests
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors, faults
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.http.admin import signed as admin
 from kubed.selenium_flow.names import FILES_DIR, GLOBAL_WORKSPACE, InvalidName
-from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.workspace.store import Workspace
 
-from .conftest import NAMED, TOKEN
-from .fakes import FakeActions, FakeGrid
+from .conftest import TOKEN
+from .fakes import FakeActions, FakeGrid, FakeWorkspaces
 
 pytestmark = pytest.mark.unit
 
@@ -55,51 +53,20 @@ def store(tmp_path):
 
 
 @pytest.fixture
-def kept_server(tmp_path):
-    """A server with somewhere to keep files."""
-    return SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
-
-
-@pytest.fixture
-def client(kept_server):
-    """Every request names its workspace, the way this surface says to (§F2.13)."""
+def client(data_server):
+    """Every request names its workspace, the way this surface says to."""
     return TestClient(
-        kept_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
+        data_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
     )
 
 
 @pytest.fixture
-def live(kept_server):
+def live(data_server):
     """A workspace holding a browser, which is what the admin API addresses."""
-    kept_server.workspaces.store.set(
+    data_server.workspaces.store.set(
         KEY, Workspace(session_id="abc").visited("https://x/")
     )
-    return kept_server
-
-
-class FakeWorkspaces:
-    """A workspace manager double: only what `listing` actually reads.
-
-    `browser` is what a listing asks for — the Grid id of a LIVE browser, or ""
-    — because a listing must keep answering after the browser is gone, which is
-    the whole point of keeping a file.
-    """
-
-    def __init__(self, **status):
-        self.status = status
-
-    def describe(self, name=None):
-        return dict(self.status)
-
-    def browser(self, name):
-        return self.status.get("session_id", "") if self.status.get("live") else ""
-
-    def name(self):
-        return NAMED
+    return data_server
 
 
 # ---- the store ---------------------------------------------------------------
@@ -112,8 +79,8 @@ def test_a_kept_file_round_trips(store):
 
 
 def test_a_kept_entry_is_shaped_like_the_grids(store):
-    """Files and Screenshots are read separately from Downloads, never merged
-    (§F4.6, §F4.7), but the shapes still have to agree on the key names AND
+    """Files and Screenshots are read separately from Downloads, never merged,
+    but the shapes still have to agree on the key names AND
     the units. Milliseconds, because that is what the Grid reports — a
     seconds-based timestamp beside it sorts every kept file to 1970 while
     nothing looks wrong."""
@@ -259,7 +226,7 @@ def test_a_grid_failure_is_not_hidden(store):
 
     with pytest.raises(RuntimeError):
         files.sections(
-            FakeActions(Broken()), FakeWorkspaces(session_id="abc", live=True), store, TOKEN, WORKSPACE
+            FakeActions(Broken()), FakeWorkspaces("abc"), store, TOKEN, WORKSPACE
         )
 
 
@@ -275,7 +242,7 @@ def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
             raise AssertionError(f"dialled the Grid for reaped {session_id!r}")
 
     got = files.sections(
-        FakeActions(Reaped()), FakeWorkspaces(session_id="dead", live=False), store, TOKEN, WORKSPACE
+        FakeActions(Reaped()), FakeWorkspaces(browser=""), store, TOKEN, WORKSPACE
     )
     assert [f["name"] for f in got["files"]] == ["kept.pdf"]
     assert got["downloads"] == []
@@ -284,7 +251,7 @@ def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
 def test_the_listing_still_uses_a_browser_that_is_live(store):
     got = files.sections(
         FakeActions(FakeGrid(DOWNLOADS)),
-        FakeWorkspaces(session_id="abc", live=True),
+        FakeWorkspaces("abc"),
         store,
         TOKEN,
         WORKSPACE,
@@ -295,7 +262,7 @@ def test_the_listing_still_uses_a_browser_that_is_live(store):
 def test_with_no_store_only_downloads_are_listed():
     got = files.sections(
         FakeActions(FakeGrid(DOWNLOADS)),
-        FakeWorkspaces(session_id="abc", live=True),
+        FakeWorkspaces("abc"),
         None,
         TOKEN,
         WORKSPACE,
@@ -321,7 +288,7 @@ def test_deleting_refuses_when_keeping_is_off():
 # ---- the two surfaces --------------------------------------------------------
 
 # What answers each endpoint over MCP: a resource for a read, a tool for an
-# action (§F3.6). Written out rather than derived, so a typo in either table
+# action. Written out rather than derived, so a typo in either table
 # cannot make the parity test agree with itself.
 MCP_FOR = {
     "list": ("resource", files.ROOT_URI),
@@ -333,7 +300,7 @@ MCP_FOR = {
 
 
 async def test_every_file_action_is_reachable_from_both_surfaces(
-    kept_server, client, monkeypatch
+    data_server, client, monkeypatch
 ):
     """The promise `test_surfaces.py` makes for browser actions, kept for these.
 
@@ -348,8 +315,8 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
     assert set(MCP_FOR) == set(files.FILE_ENDPOINTS), (
         "an endpoint has nothing named for it over MCP, or the other way round"
     )
-    names = {t.name for t in await kept_server.mcp.list_tools()}
-    uris = {str(r.uri) for r in await kept_server.mcp.list_resources()}
+    names = {t.name for t in await data_server.mcp.list_tools()}
+    uris = {str(r.uri) for r in await data_server.mcp.list_resources()}
     for path, (kind, target) in MCP_FOR.items():
         method, template = files.FILE_ROUTES[path]
         route = (
@@ -363,29 +330,29 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
         assert getattr(client, method)(route).status_code == 401, f"{target} has no route"
 
 
-async def test_the_file_actions_are_not_counted_as_browser_actions(kept_server):
+async def test_the_file_actions_are_not_counted_as_browser_actions(data_server):
     """They are a layer above /browser, like flows: about a workspace's files
     rather than about driving a page. The browser route table must not grow."""
     assert files.KEEP_TOOL not in ENDPOINTS.values()
 
 
-async def test_the_keep_tool_declares_honest_annotations(kept_server):
-    """A download keep REPLACES a same-named file in Files (§F4.7), so the
+async def test_the_keep_tool_declares_honest_annotations(data_server):
+    """A download keep REPLACES a same-named file in Files, so the
     honest hint is destructive — the ruling from the final review: a missing
     or wrong annotation is worse than the confirmation prompt it costs a
     client that honours it."""
-    tools = {t.name: t for t in await kept_server.mcp.list_tools()}
+    tools = {t.name: t for t in await data_server.mcp.list_tools()}
     keep = tools[files.KEEP_TOOL].annotations
     assert keep.title and keep.read_only_hint is False
     assert keep.destructive_hint is True, "a download keep replaces a same-named file"
     # False: a screenshot move is refused the second time (there is no longer a
     # screenshot to move) and a download kept twice replaces the same bytes —
-    # neither is "repeat me and nothing further happens" (§F4.7).
+    # neither is "repeat me and nothing further happens".
     assert keep.idempotent_hint is False
 
 
 async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
-    kept_server, monkeypatch
+    data_server, monkeypatch
 ):
     """Keeping is one-way on purpose. An agent is not the thing that runs out of
     disk, and a one-way verb is a simpler promise than a reversible one whose
@@ -393,9 +360,9 @@ async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
     an operator action on the admin surface — which is also why there is no
     endpoint: one without a tool is the half-a-capability this project forbids.
     """
-    names = {t.name for t in await kept_server.mcp.list_tools()}
+    names = {t.name for t in await data_server.mcp.list_tools()}
     assert "delete_file" not in names
-    assert await kept_server.mcp.get_tool("delete_file") is None
+    assert await data_server.mcp.get_tool("delete_file") is None
     assert "delete" not in files.FILE_ENDPOINTS
 
 
@@ -427,7 +394,7 @@ def test_keep_then_list_over_http(client, live):
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
     assert body["workspace"] == WORKSPACE
     # The Grid still reports both — keeping a download is a copy, so the
-    # original stays exactly where it was until the browser ends (§F1.10).
+    # original stays exactly where it was until the browser ends.
     assert downloads["folder"] == "downloads" and downloads["count"] == 2
 
 
@@ -503,33 +470,10 @@ def test_the_grids_own_status_decides_what_its_refusal_means(status, expected):
 # ---- the name a caller needs in order to keep anything ----------------------
 
 
-async def test_a_saved_screenshot_tells_the_caller_what_it_was_called(
-    live, named_caller
-):
-    """`keep_file` takes a name, and this is the tool that most often makes one.
-
-    Chrome deduplicates, so `shot.png` can land as `shot (1).png` and no caller
-    can derive it. Returning the image alone left the one thing you have to know
-    obtainable only by listing the files and guessing which entry was yours —
-    while the HTTP endpoint had been returning it all along (§F1.37).
-    """
-    entry = {"name": "shot (1).png", "size": 3, "creationTime": 1}
-    tool = await live.mcp.get_tool("screenshot")
-    with patch.object(
-        live.actions,
-        "screenshot",
-        return_value={"image": "", "url": "https://x/", "file": entry},
-    ):
-        result = tool.fn(save=True)
-    assert result.structured_content == {"file": entry}
-    # And still an image: the point is to add the name, not to stop showing it.
-    assert result.content and result.content[0].type == "image"
-
-
 async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
     """Nothing was stored, so there is no name to carry and no reason to wrap
     the result in anything. Storing is now the default, so this is the caller
-    that asked not to (§F2.9)."""
+    that asked not to."""
     tool = await live.mcp.get_tool("screenshot")
     with patch.object(
         live.actions,
@@ -541,7 +485,9 @@ async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
 
 
 async def test_the_tool_saves_by_default_too(live, named_caller):
-    """Through the tool, not the action: the default has to travel."""
+    """Through the tool, not the action: the default has to travel. The result
+    names the kept file, which Chrome may have renamed (`shot (1).png`), and
+    is still an image."""
     entry = {"name": "screenshot.png", "size": 3, "creationTime": 1}
     asked = {}
 
@@ -652,29 +598,29 @@ def test_a_grid_refusal_over_the_admin_surface_does_not_echo_the_grid_url(
 BAD_KEY = "my bot"
 
 
-def test_a_workspace_whose_name_is_not_a_directory_keeps_nothing(client, kept_server):
+def test_a_workspace_whose_name_is_not_a_directory_keeps_nothing(client, data_server):
     """`library_of` hands such a caller nothing to write into rather than the
     shared one — the same mistake E6 fixed for flows, arriving on the file side
     through the admin surface. Every write path here refuses through
     `library(key)`, so nothing can land in `global` for a key that cannot own a
     directory of its own."""
-    kept_server.workspaces.store.set(BAD_KEY, Workspace(session_id="abc"))
+    data_server.workspaces.store.set(BAD_KEY, Workspace(session_id="abc"))
     response = client.delete(
         f"/admin/workspaces/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
     )
     assert response.status_code == 400
     assert "cannot keep files" in response.json()["error"]
-    assert kept_server.flows.files(GLOBAL_WORKSPACE) == [], "it leaked to global"
+    assert data_server.flows.files(GLOBAL_WORKSPACE) == [], "it leaked to global"
 
 
 def test_such_a_workspace_shows_unknown_counts_not_the_shared_librarys(
-    client, kept_server
+    client, data_server
 ):
     """Borrowing `global`'s numbers would tell an operator this workspace has a
     file and a flow it has no way to reach."""
-    kept_server.flows.write_file(GLOBAL_WORKSPACE, "shared.pdf", b"x")
-    kept_server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
-    kept_server.workspaces.store.set(BAD_KEY, Workspace(session_id=""))
+    data_server.flows.write_file(GLOBAL_WORKSPACE, "shared.pdf", b"x")
+    data_server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
+    data_server.workspaces.store.set(BAD_KEY, Workspace(session_id=""))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/workspaces", headers=AUTH).json()
     row = next(r for r in body["workspaces"] if r["key"] == BAD_KEY)
@@ -767,8 +713,8 @@ def test_a_broken_kept_store_is_a_5xx_not_a_404(client, live):
 
 
 @pytest.fixture
-async def spec(kept_server):
-    return await build_spec(kept_server.mcp, ENDPOINTS, "", authenticated=True)
+async def spec(data_server):
+    return await build_spec(data_server.mcp, ENDPOINTS, "", authenticated=True)
 
 
 async def test_every_file_endpoint_is_in_the_published_contract(spec):
@@ -915,7 +861,7 @@ def _stage_upload(server, monkeypatch):
 
 
 def test_a_workspace_field_on_the_upload_body_never_reaches_the_action(
-    kept_server, client, monkeypatch
+    data_server, client, monkeypatch
 ):
     """`workspace` is `LIBRARY_ARG`'s injection point — a flow run's own way of
     saying which library a step reads from — and `routes._add` used to derive
@@ -925,14 +871,14 @@ def test_a_workspace_field_on_the_upload_body_never_reaches_the_action(
     #41). It is now excluded from `accepted` the same way `session_id` always
     was, so it is dropped like any other field the route does not know, never
     forwarded to the action."""
-    _stage_upload(kept_server, monkeypatch)
+    _stage_upload(data_server, monkeypatch)
     asked = {}
 
     def reader(uri, workspace=None):
         asked["workspace"] = workspace
         return "export.csv", b"x"
 
-    monkeypatch.setattr(kept_server.actions, "read_file", reader)
+    monkeypatch.setattr(data_server.actions, "read_file", reader)
 
     response = client.post(
         "/browser/upload",
@@ -950,16 +896,16 @@ def test_a_workspace_field_on_the_upload_body_never_reaches_the_action(
 
 
 def test_upload_over_http_reads_the_file_from_the_callers_own_workspace(
-    kept_server, client, monkeypatch
+    data_server, client, monkeypatch
 ):
     """The vulnerability closed above, proved end to end with the real store
     rather than a stub: two workspaces keep a file of the same name, the request
     names a third in its body, and the bytes that land on the page must be the
     caller's own — the ones its header actually names — never the other
     workspace's (Copilot, #41)."""
-    kept_server.flows.write_file(WORKSPACE, "export.csv", b"mine")
-    kept_server.flows.write_file("victim", "export.csv", b"not-mine")
-    sent = _stage_upload(kept_server, monkeypatch)
+    data_server.flows.write_file(WORKSPACE, "export.csv", b"mine")
+    data_server.flows.write_file("victim", "export.csv", b"not-mine")
+    sent = _stage_upload(data_server, monkeypatch)
 
     response = client.post(
         "/browser/upload",
@@ -975,14 +921,14 @@ def test_upload_over_http_reads_the_file_from_the_callers_own_workspace(
 
 
 def test_a_workspace_naming_nobody_in_the_upload_body_does_not_400(
-    kept_server, client, monkeypatch
+    data_server, client, monkeypatch
 ):
     """If `workspace` reached the action, a value naming no library at all would
     fail to find the file and 400. A successful upload with a nonsense value
     there is proof the field was dropped outright, not merely resolved kindly
     (Copilot, #41)."""
-    kept_server.flows.write_file(WORKSPACE, "export.csv", b"mine")
-    _stage_upload(kept_server, monkeypatch)
+    data_server.flows.write_file(WORKSPACE, "export.csv", b"mine")
+    _stage_upload(data_server, monkeypatch)
 
     response = client.post(
         "/browser/upload",

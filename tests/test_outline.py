@@ -4,7 +4,7 @@ The first pilot report spent three hand-written `execute_script` DOM dumps
 finding one sidebar link — enumerate the links, walk each parent chain for
 `display: none`, find the toggle — and then clicked it and failed anyway. Both
 halves of that are this tool: the selector, and whether the element can actually
-be used. See saga §F2.8.
+be used.
 """
 
 import pytest
@@ -125,7 +125,7 @@ def test_the_limit_defaults_to_something_a_page_map_can_afford(actions, monkeypa
 
 async def test_a_flow_cannot_outline_anything(server):
     """It is for working out what a flow should do, not for doing it — a saved
-    flow already knows its selectors (saga §F2.8)."""
+    flow already knows its selectors."""
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):
         tools[name] = (await server.mcp.get_tool(name)).parameters or {}

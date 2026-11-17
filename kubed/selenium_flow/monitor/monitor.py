@@ -1,78 +1,72 @@
 """The session monitor: which sessions this server opened, which ended and
 why, and which it still owes something.
 
-A *session* is the live browser a workspace holds, and it holds the Grid's
-session, whose id is its ``session_id``. **Every session is announced, and
-watched while something is owed on it.** `opened` and `ended` publish
+A session is the live browser a workspace holds, and it holds the Grid's
+session, whose id is its ``session_id``. Every session is announced, and
+watched while something is owed on it. `opened` and `ended` publish
 ``session.opened`` and ``session.ended`` for every session the workspaces open
 or end. What is owed is a recording (``"recording"``), capture, a person's
 control, or the keep-alive (``KEEPALIVE``). With the keep-alive on, it is owed
 at every open and every call, so every open session is watched. Its watch
 outlives the window: past it nothing is sent, and the watch goes on listing
-until the Grid lists the session gone or it ends (spec rulings 3, 18, 19).
-Only watched sessions cost anything: one task, which runs while a watch exists
-and ends with the last (AGENTS.md: a bounded wait for something this server
-was told to expect).
+until the Grid lists the session gone or it ends. Only watched sessions cost
+anything: one task, which runs while a watch exists and ends with the last.
 
-**Whether a watched session still runs is read off the Grid's status, never
-asked of the browser.** Each look takes one ``GET /status`` listing
-(``listing``, in a worker thread), shared by every watch. A WebDriver command
-is activity, and the Grid would never reap a browser asked after it; that is
-why liveness comes from the listing. The keep-alive's ping is the one such
-command sent on purpose, and only inside a session's window. A session
-is **gone** when two listings in a row, each showing at least one node and
-taken after its watch began, do not list it — or one, after its connection
+Whether a watched session still runs is read off the Grid's status, never asked
+of the browser: a WebDriver command is activity, and the Grid would never reap
+a browser asked after it. Each look takes one ``GET /status`` listing
+(``listing``, in a worker thread), shared by every watch. The keep-alive's ping
+is the one such command sent on purpose, and only inside a session's window. A
+session is gone when two listings in a row, each showing at least one node and
+taken after its watch began, do not list it, or one, after its connection
 dropped. A listing that failed says nothing, and so does one that shows no
-nodes (a hub restarting before its nodes register again) — until listings with
+nodes (a hub restarting before its nodes register again), until listings with
 no nodes have run unbroken for the watch's idle timeout plus a tick, from the
 run's first or the watch's start, whichever is later: then each is a miss.
 Every WebDriver command and BiDi frame reaches a node through the hub, so a
 node unlisted that long received no activity and has reaped the session, or is
 gone itself (KEDA at zero, an evicted node, a Grid redeployed).
 
-**A connection is a channel** (`bidi.Connection`): held only for a reason
-that names BiDi events (``events_for``), until the watch's deadline — its last
-activity plus its node's ``sessionTimeout`` — and then closed, so a busy page's
-events cannot keep the browser alive past the Grid's own timer (programme R3).
-The keep-alive (``KEEPALIVE``) is the one session command this monitor sends,
-``ping``, and only inside a session's window: ``keep_alive`` seconds after its
-last activity, every `ping_interval` of its node's timeout. Past the window it
-sends nothing, and the Grid reaps (spec 2026-11-14-reopen-notice-keep-alive).
-A ping is not a touch: it extends neither the window nor a connection's
-deadline. The keep-alive has no events and no sink, so it never holds a
-connection. A connection outlives its session (measured), so the monitor
-closes it when the watch ends, and closes it clean: `Connection.close`
-unsubscribes and removes the data collectors it added first (capture spec,
-ruling 7).
+A connection is a channel (`bidi.Connection`): held only for a reason that names
+BiDi events (``events_for``), until the watch's deadline (its last activity plus
+its node's ``sessionTimeout``), and then closed, so a busy page's events cannot
+keep the browser alive past the Grid's own timer. The keep-alive
+(``KEEPALIVE``) is the one session command this monitor sends, ``ping``, and
+only inside a session's window: ``keep_alive`` seconds after its last activity,
+every `ping_interval` of its node's timeout. Past the window it sends nothing,
+and the Grid reaps. A ping is not a touch: it extends neither the window nor a
+connection's deadline. The keep-alive has no events and no sink, so it never
+holds a connection. A connection outlives its session, so the monitor closes it
+when the watch ends, and closes it clean: `Connection.close` unsubscribes and
+removes the data collectors it added first.
 
-**The deadline never closes a connection under a call.** A call is
-`calling` from its start and `called` at its end (`workspace.calls`), each a
-touch; while any call on a session is in flight its connection is kept, and
-the deadline counts again from the last one's end. A call borrows the held
-connection (a save's spare tab, a body's fetch, the call's own flush), and a
-close in the middle would take those with it.
+The deadline never closes a connection under a call. A call is `calling` from
+its start and `called` at its end (`workspace.calls`), each a touch; while any
+call on a session is in flight its connection is kept, and the deadline counts
+again from the last one's end. A call borrows the held connection (a save's
+spare tab, a body's fetch, the call's own flush), and a close in the middle
+would take those with it.
 
-**Capture attaches before the first page** (capture spec, ruling 6). `attach`
-holds the connection now — open, subscribe, add the data collector — and
-returns only then, so the open path can navigate knowing nothing is missed; a
-failure is `BidiUnavailable`, a 503. `attach_here` is the same from the loop:
-a person's Control follows the pages that way (live control spec, ruling 27).
-A hold that fails is tried again on a back-off of 1, 2, 4 … 30 seconds.
+Capture attaches before the first page. `attach` holds the connection now
+(open, subscribe, add the data collector) and returns only then, so the open
+path can navigate knowing nothing is missed; a failure is `BidiUnavailable`, a
+503. `attach_here` is the same from the loop: a person's Control follows the
+pages that way. A hold that fails is tried again on a back-off of 1, 2, 4 … 30
+seconds.
 
-**A sink per reason** (live control spec, R7). ``sinks`` maps a reason to its
-`Sink` — ``capture`` to `capture.Capture`, ``control`` to `live.pages.Pages`
-— and each hears only its own: ``attached`` when a hold opens with its reason
-owed, or when `_extend` adds the reason to a hold already open (``again``
-false, the top context the hold learned); then each event of its
-``events_for``, ``replayed`` (``again``: Chrome replays what it already sent)
-and ``lost``; and ``detached`` when the hold ends, or when its reason is let go
-while the connection stays for another. One connection serves them all: two
-reasons owed at once share one socket, and an event both asked for reaches
-both.
+A sink per reason. ``sinks`` maps a reason to its `Sink` (``capture`` to
+`capture.Capture`, ``control`` to `live.pages.Pages`), and each hears only its
+own: ``attached`` when a hold opens with its reason owed, or when `_extend` adds
+the reason to a hold already open (``again`` false, the top context the hold
+learned); then each event of its ``events_for``, ``replayed`` (``again``: Chrome
+replays what it already sent) and ``lost``; and ``detached`` when the hold
+ends, or when its reason is let go while the connection stays for another. One
+connection serves them all: two reasons owed at once share one socket, and an
+event both asked for reaches both.
 
 Calls come from worker threads (FastMCP's sync tools, Starlette's routes) and
 are handed to the loop, as the recordings collector's are. Nothing here logs a
-``session_id`` (AGENTS.md).
+``session_id``.
 """
 
 from __future__ import annotations
@@ -154,7 +148,7 @@ class Sink(Protocol):
 def ping_interval(timeout: int | None) -> float:
     """Seconds between keep-alive pings for a node whose idle timeout is
     ``timeout``: a share of it with a margin, never under ``PING_FLOOR``, and
-    ``PING_FALLBACK`` when the node did not say (spec ruling 25)."""
+    ``PING_FALLBACK`` when the node did not say."""
     if not timeout:
         return PING_FALLBACK
     return max(PING_FLOOR, min(PING_SHARE * timeout, timeout - PING_MARGIN))
@@ -226,8 +220,8 @@ class Monitor:
     ):
         for given in (events_for, collectors_for, sinks):
             if given and KEEPALIVE in given:
-                # The keep-alive holds no connection (spec ruling 18): events,
-                # a collector or a sink for it would open one.
+                # The keep-alive holds no connection: events, a collector or a
+                # sink for it would open one.
                 raise ValueError(f"{KEEPALIVE!r} takes no events, collector or sink")
         self.bus = bus
         self.listing = listing
@@ -423,7 +417,7 @@ class Monitor:
         The count drops on the loop, after the touch, in one step: dropped
         here first, a look that ran before the touch reached the loop would
         find a call longer than the timeout neither counted nor touched, and
-        close the connection under its flush (PR review, round 2)."""
+        close the connection under its flush."""
         at = self.clock()
 
         def apply() -> None:
@@ -447,8 +441,7 @@ class Monitor:
     def capturing(self, session_id: str) -> bool:
         """Whether capture's connection to this session's browser is held right
         now: held, and capture among the reasons it is held for. A connection
-        held only for a person's control is not capture (live control spec,
-        ruling 28)."""
+        held only for a person's control is not capture."""
         w = self.watches.get(session_id)
         return bool(
             w and w.connection and w.connection.is_open and "capture" in w.heard
@@ -551,7 +544,7 @@ class Monitor:
     def _ping_due(self, w: Watch, now: float) -> float | None:
         """When this watch's next keep-alive ping falls due, or None while it
         is owed none: not kept, its pings over, past its window, or under a
-        call, which is activity of its own (spec ruling 20)."""
+        call, which is activity of its own."""
         if (
             self.ping is None
             or KEEPALIVE not in w.owed
@@ -659,8 +652,8 @@ class Monitor:
 
         A failure backs the watch off, and so does a cancellation ``expired``
         explains: the caller's ``ATTACH_TIMEOUT`` ran out on a route that
-        hangs. Any other cancellation — a person's Control released while its
-        attach was under way, the monitor stopping — is no failure: it is not
+        hangs. Any other cancellation (a person's Control released while its
+        attach was under way, the monitor stopping) is no failure: it is not
         logged and holds no later call back."""
         task = asyncio.current_task()
         self._attaching.add(task)
@@ -821,10 +814,9 @@ class Monitor:
         """Tell each of ``reasons`` whose sink asks (an optional
         ``subscribed``: `live.pages.Pages`) that what the subscribe re-sent is
         behind it. Subscribing ``browsingContext.contextCreated`` re-sends it
-        for every context already open, on both browsers (capture spec,
-        measured), on a first hold as on a hold again; flushed first, unless
-        the hold already was or nothing new was subscribed. Capture does not
-        ask, and costs nothing here."""
+        for every context already open, on both browsers, on a first hold as on
+        a hold again; flushed first, unless the hold already was or nothing new
+        was subscribed. Capture does not ask, and costs nothing here."""
         told = [
             r for r in reasons if callable(getattr(self.sinks[r], "subscribed", None))
         ]

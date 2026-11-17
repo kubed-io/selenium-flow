@@ -30,14 +30,14 @@ Span = tuple[int, int, frozenset]
 MASK = "•••"
 
 # A form this short is masked only where it stands alone, or a 3-character
-# secret would turn every word containing it into noise (ruling 4).
+# secret would turn every word containing it into noise.
 SHORT = 4
 # A base64 core shorter than this turns up in data URIs and scripts by chance:
 # about once a megabyte at 4 characters.
 B64_CORE_MIN = 6
 
 # Case folding is ASCII-only: `lower()` or `casefold()` change the length of
-# `İ` and `ß`, which would shift every later span (ruling 18).
+# `İ` and `ß`, which would shift every later span.
 ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
 # Go's encoding/json escapes these as \u00XX (lowercase), to be safe in HTML.
@@ -94,23 +94,19 @@ def _ids_in(found: str) -> frozenset:
 def escapes(text: str) -> set[str]:
     """Every spelling a value can come back in through a page, but not its encodings.
 
-    A submitting write lands the browser on `?q=<what was typed>`, and the
-    browser percent-encodes it on the way — so `a/b` comes back as `a%2Fb` and a
-    literal replacement misses it entirely. Both quoting styles are covered
-    because a form submission uses `+` for spaces and a path does not.
+    A submitting write lands the browser on `?q=<what was typed>`,
+    percent-encoded: `a/b` comes back as `a%2Fb`, with `+` for a space from a
+    form and `%20` in a path.
 
     A page echoes it too, and capture keeps what the page said: a JSON body
     escapes `"` and `\\`, maybe `/`, and maybe every non-ASCII letter; an HTML
-    one escapes `&`, `<`, `>` and maybe the quotes, the apostrophe as `&#x27;`
-    or `&#39;`. Other servers spell them their own ways: Go's encoding/json
-    writes `<` `>` `&` as `\\u003c` and so on, a JSON encoder may write its hex
-    in capitals, PHP the apostrophe as `&#039;`, HTML5 as `&apos;`, and Go's
-    html/template `"` as `&#34;` and `+` as `&#43;`. The browser serialising
-    the page (`extract`'s `html`) writes `"` as `&quot;` in an attribute and
-    `'` never, NBSP as `&nbsp;`, and before 2025 `<` and `>` bare in an
-    attribute. Each of those spellings is a form, or a body or a console line
-    would hand the value to whoever reads it — a fixed few per value, so the
-    sweep's cost does not grow with it.
+    one escapes `&`, `<`, `>` and maybe the quotes. Servers spell them their own
+    ways: Go's encoding/json writes `<` `>` `&` as `\\u003c` and so on, a JSON
+    encoder may write its hex in capitals, and `HTML_QUOTES` lists the quote
+    spellings. The browser serialising the page (`extract`'s `html`) writes `"`
+    as `&quot;` in an attribute and `'` never, NBSP as `&nbsp;`, and before 2025
+    `<` and `>` bare in an attribute. The forms are a fixed few per value, so
+    the sweep's cost does not grow with it.
     """
     forms = {text, quote(text, safe=""), quote_plus(text)}
     for ascii_only in (True, False):
@@ -266,8 +262,8 @@ class Scanner:
         """Every place a form is in ``text``: `(start, end, ids)`, unmerged.
 
         ``sheltered`` lets a match inside a marker of this scanner's own ids
-        stand aside (ruling 20), which is right for not scrubbing twice and
-        wrong for asking whether a value is present.
+        stand aside, which is right for not scrubbing twice and wrong for
+        asking whether a value is present.
         """
         if not text or not (self._exact or self._folded):
             return []
@@ -298,8 +294,8 @@ class Scanner:
     def _outside_markers(self, text: str, found: list[Span]) -> list[Span]:
         """Drop a match lying wholly inside a marker of this scanner's own ids.
 
-        Opaque only to its own secrets (ruling 20): a page that writes a marker
-        around a value with other ids gains nothing.
+        Opaque only to its own secrets: a page that writes a marker around a
+        value with other ids gains nothing.
         """
         if "[secret:" not in text:
             return found
@@ -440,11 +436,9 @@ def _rebuilt(obj, items: list, base: type):
 def taints(text, forms: Forms) -> bool:
     """Whether any value in ``forms`` is actually present in ``text``.
 
-    Asked directly rather than inferred by comparing a string with its scrubbed
-    form: a marker is evidence of nothing, the question is whether the value is
-    in the text. So the marker shelter of ruling 20, which is about not
-    scrubbing twice, does not apply: a secret whose value is its own marker is
-    still present where the marker is.
+    Asked of the text, never by comparing it with its scrubbed form, and
+    without the marker shelter, which is about not scrubbing twice: a secret
+    whose value is its own marker is still present where the marker is.
     """
     if not forms or not isinstance(text, str) or not text:
         return False

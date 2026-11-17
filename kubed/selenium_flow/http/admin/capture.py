@@ -1,10 +1,10 @@
 """The Captured tab's API: what a workspace's browsers logged and fetched.
 
-Console and network are read through ``Workspaces.captured`` — the same view the
-``workspace://console`` and ``workspace://network`` resources serve — so the tab
-and the model cannot disagree. A response body is asked of the live browser and
-never reopens one (plan ruling 10). The live tail is a signed-link stream, the
-same door as ``/admin/events``, because ``EventSource`` cannot send a header.
+Console and network are read through ``Workspaces.captured``, the view the
+``workspace://console`` and ``workspace://network`` resources serve. A response
+body is asked of the live browser and never reopens one. The live tail is a
+signed-link stream, like ``/admin/events``, because ``EventSource`` cannot send
+a header.
 """
 
 from __future__ import annotations
@@ -37,12 +37,11 @@ def tail_path(key: str) -> str:
 
 
 class _Stream(EventSourceResponse):
-    """The tail, subscribed for exactly as long as the response runs.
+    """The tail, subscribed for as long as the response runs.
 
-    Around the ASGI call rather than inside the generator, for the same reason
-    as the workspace list's: a client that goes away leaves the generator paused
-    at its ``yield``, which nothing closes until the garbage collector does.
-    The waiter is cancelled by the response's task group; ``close`` only
+    Closed around the ASGI call, not in the generator: a client that goes away
+    leaves the generator paused at its ``yield`` until garbage collection. The
+    waiter is cancelled by the response's task group; ``close`` only
     unregisters.
     """
 
@@ -122,8 +121,8 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
         """One captured request's response body, asked of the live browser.
 
         Never reopens a browser: a body lives only as long as the browser that
-        fetched it. Not scrubbed (ruling 17), but cut at the cap as an agent's
-        is (`cut_body`): the action returns it whole.
+        fetched it. Not scrubbed, but cut at the cap as an agent's is
+        (`cut_body`): the action returns it whole.
         """
         try:
             session_id = await run_in_threadpool(

@@ -5,8 +5,7 @@ The server serves definitions; the host runs them. Agents are package data in
 ``plugin/agents/``, read once when the server is built, since package data
 cannot change under a running process.
 
-``io.kubed/agent`` in a detail's ``_meta`` is the shape both servers share (spec
-2026-11-12-plugin-agents, Ruling 2).
+``io.kubed/agent`` in a detail's ``_meta`` is the shape both servers share.
 """
 
 from __future__ import annotations
@@ -20,20 +19,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from fastmcp.server.extensions import MethodBinding, ServerExtension
-from fastmcp.server.middleware import Middleware
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS, PaginatedRequestParams, RequestParams
 from pydantic import Field
 
 from . import frontmatter
+from .extensions import AdvertiseLegacyExtensions, complete
+from .skill import plugin_folder
 
 log = logging.getLogger(__name__)
 
 EXTENSION_ID = "io.modelcontextprotocol/agents"
-PLUGIN_DIR = "plugin"
 AGENTS_DIR = "agents"
 META_KEY = "io.kubed/agent"
-AGENTS_SETTINGS = {"listChanged": False}
+# No notifications/agents/list_changed is ever sent.
+SETTINGS = {"listChanged": False}
+AGENT_NOT_FOUND = {"reason": "agent_not_found"}
 
 _HINTS = {"opus": "large", "sonnet": "medium", "haiku": "small"}
 _BAD_CATEGORIES = {"Cc", "Cf", "Co", "Cs", "Cn"}
@@ -49,18 +50,11 @@ class Agent:
 def agents_path() -> Path:
     """The agents directory, installed or in a source checkout.
 
-    ``plugin/`` lives at the repo root; pyproject maps it into the package at
-    build time, so an installed wheel finds it beside this module, and a source
-    checkout falls back to the root. It may not exist: no agents is a valid state.
-    The test is for ``plugin/``, not ``agents/``: an installed wheel may ship
-    ``plugin/`` without ``agents/``, and must not then fall back to a
-    ``plugin/agents`` in site-packages that another distribution could own.
+    It may not exist: no agents is a valid state. The test is for ``plugin/``,
+    not ``agents/``, so a wheel that ships ``plugin/`` without ``agents/`` never
+    falls back to a ``plugin/agents`` another distribution could own.
     """
-    packaged = Path(__file__).parent / PLUGIN_DIR
-    if packaged.is_dir():
-        return packaged / AGENTS_DIR
-    # parents[3] because this module lives in mcp/: package, kubed, repo root.
-    return Path(__file__).parents[3] / PLUGIN_DIR / AGENTS_DIR
+    return plugin_folder(__file__) / AGENTS_DIR
 
 
 def routing_hint(model: object) -> dict | None:
@@ -88,7 +82,7 @@ def _strings(value: object) -> list[str]:
     return []
 
 
-def _build(text: str, skills: Collection[str]) -> Agent | str:
+def parse_agent(text: str, skills: Collection[str]) -> Agent | str:
     """The agent, or the sentence saying why the file is skipped."""
     parsed = frontmatter.split(text)
     if parsed is None:
@@ -150,7 +144,7 @@ def load(base: Path | None = None, skills: Collection[str] = ()) -> list[Agent]:
         except (OSError, UnicodeDecodeError) as exc:
             log.warning("agent file %s is skipped: %s", path.name, exc)
             continue
-        built = _build(text, skills)
+        built = parse_agent(text, skills)
         if isinstance(built, str):
             log.warning("agent file %s is skipped: %s", path.name, built)
         elif built.name in found:
@@ -169,11 +163,6 @@ class GetAgentParams(RequestParams):
     name: str = Field(min_length=1)
 
 
-def _result(**fields: object) -> dict:
-    # The same as the Skills extension's, written out so neither module needs the other.
-    return {"resultType": "complete", "ttlMs": 0, "cacheScope": "private", **fields}
-
-
 class AgentsExtension(ServerExtension):
     """``agents/list`` and ``agents/get`` over the loaded agents."""
 
@@ -183,7 +172,7 @@ class AgentsExtension(ServerExtension):
         self._agents = list(agents)
 
     def settings(self) -> dict:
-        return dict(AGENTS_SETTINGS)
+        return dict(SETTINGS)
 
     def methods(self) -> Sequence[MethodBinding]:
         return (
@@ -193,40 +182,22 @@ class AgentsExtension(ServerExtension):
 
     async def list_agents(self, ctx, params: PaginatedRequestParams) -> dict:
         if params.cursor is not None:
-            # One page; any cursor is one this server never issued.
+            # One page, so no cursor was ever issued.
             raise MCPError(code=INVALID_PARAMS, message="Invalid agents cursor")
-        return _result(agents=[copy.deepcopy(a.card) for a in self._agents])
+        return complete(agents=[copy.deepcopy(a.card) for a in self._agents])
 
     async def get_agent(self, ctx, params: GetAgentParams) -> dict:
         for agent in self._agents:
             if agent.name == params.name:
-                return _result(**copy.deepcopy(agent.detail))
+                return complete(**copy.deepcopy(agent.detail))
         raise MCPError(
             code=INVALID_PARAMS,
             message="Agent not found",
-            data={"reason": "agent_not_found"},
+            data=dict(AGENT_NOT_FOUND),
         )
-
-
-class AdvertiseAgents(Middleware):
-    """Declare the extension in a legacy ``initialize`` reply too.
-
-    FastMCP declares registered extensions in ``server/discover`` only, so a
-    handshake-era client would never learn the agents methods exist, as with
-    AdvertiseSkills.
-    """
-
-    async def on_initialize(self, context, call_next):
-        result = await call_next(context)
-        if result is not None:
-            result.capabilities.extensions = {
-                **(result.capabilities.extensions or {}),
-                EXTENSION_ID: dict(AGENTS_SETTINGS),
-            }
-        return result
 
 
 def register(mcp, agents: Sequence[Agent]) -> None:
     """Serve the agents, declared even when there are none."""
     mcp.add_extension(AgentsExtension(agents))
-    mcp.add_middleware(AdvertiseAgents())
+    mcp.add_middleware(AdvertiseLegacyExtensions({EXTENSION_ID: SETTINGS}))

@@ -1,6 +1,6 @@
 """The admin surface over a workspace's three file sections.
 
-Downloads, Screenshots and Files never merge into one list (§F4.6): each has
+Downloads, Screenshots and Files never merge into one list: each has
 its own address, its own listing, and — for Screenshots and Downloads — its
 own clear. This module is the HTTP-level proof of the routes `admin.py`
 builds on top of `files.sections`, `files.keep`, `files.delete_one` and
@@ -18,12 +18,10 @@ import pytest
 import requests
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import links
 from kubed.selenium_flow.names import RECORDINGS_DIR, SCREENSHOTS_DIR
-from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
@@ -37,30 +35,20 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 @pytest.fixture
-def kept_server(tmp_path):
-    """A server with somewhere to keep files."""
-    return SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
-
-
-@pytest.fixture
-def client(kept_server):
-    """Every request names its workspace, the way this surface says to (§F2.13)."""
+def client(data_server):
+    """Every request names its workspace, the way this surface says to."""
     return TestClient(
-        kept_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
+        data_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
     )
 
 
 @pytest.fixture
-def live(kept_server):
+def live(data_server):
     """A workspace holding a browser, which is what the admin API addresses."""
-    kept_server.workspaces.store.set(
+    data_server.workspaces.store.set(
         KEY, Workspace(session_id="abc").visited("https://x/")
     )
-    return kept_server
+    return data_server
 
 
 # ---- the listing --------------------------------------------------------
@@ -104,17 +92,17 @@ def test_clearing_downloads_empties_the_grid_store(client, live):
     assert response.status_code == 200, response.text
     clear.assert_called_once_with("abc")
     # Screenshots are ours and elsewhere, so clearing the Grid's store leaves
-    # them exactly where they were (§F1.10).
+    # them exactly where they were.
     assert [f["name"] for f in live.flows.files(WORKSPACE, SCREENSHOTS_DIR)] == [
         "shot.png"
     ]
 
 
-def test_a_reaped_browser_has_no_downloads_to_clear(client, kept_server):
+def test_a_reaped_browser_has_no_downloads_to_clear(client, data_server):
     """The record still names a browser; the Grid no longer has it. Dialling
     `clear_files` for an id the Grid has reaped would be a call for nothing,
     so this is success without ever making it."""
-    kept_server.workspaces.store.set(KEY, Workspace(session_id="abc"))
+    data_server.workspaces.store.set(KEY, Workspace(session_id="abc"))
     with (
         patch.object(browser.Grid, "is_alive", return_value=False),
         patch.object(browser.Grid, "clear_files") as clear,
@@ -206,12 +194,12 @@ def test_the_admin_keeps_only_out_of_a_folder_a_file_leaves(client, live, folder
     assert response.status_code == 400
 
 
-def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, kept_server, tmp_path):
+def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, data_server, tmp_path):
     """The keep route resolves the key through `library(key)`, as the delete and
     clear handlers do, so a stored key that cannot be a directory is refused
     with that reason rather than reaching the store as a raw name."""
     stale = "named:desktop"
-    kept_server.workspaces.store.set(stale, Workspace(session_id="").visited("https://x/"))
+    data_server.workspaces.store.set(stale, Workspace(session_id="").visited("https://x/"))
     response = client.post(
         f"/admin/workspaces/{stale}/files/screenshots/shot.png/keep", headers=AUTH
     )

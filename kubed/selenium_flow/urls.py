@@ -13,14 +13,13 @@ import re
 from urllib.parse import urlsplit, urlunsplit
 
 # The userinfo of a URL. `GRID_URL` may carry credentials, and an exception's
-# text is quoted into logs and into the error a caller reads — so it is stripped
-# from every message, not only from the one failure known to print a URL
-# (Copilot, #36). every scrubber imports this rather than keeping a copy.
+# text is quoted into logs and into the error a caller reads, so it is stripped
+# from every message. Every scrubber imports this, with no copies.
 #
-# Anchored to a scheme, and blind to brackets. Unanchored, `//` then `@` is also
-# an XPath attribute test: `//input[@name='q']` came out as `//name='q']` in
-# every timeout that quoted one, which is most of them. A URL's userinfo can
-# contain neither `[` nor `]`, and an XPath has no `scheme:` before its `//`.
+# Anchored to a scheme, and blind to brackets: unanchored, `//` then `@` is also
+# an XPath attribute test, and `//input[@name='q']` would come out as
+# `//name='q']`. A URL's userinfo can contain neither `[` nor `]`, and an XPath
+# has no `scheme:` before its `//`.
 USERINFO = re.compile(
     r"(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*:)//(?P<userinfo>[^/@\s\[\]]*)@"
 )
@@ -55,16 +54,15 @@ def origin_of(url: str) -> str:
 def scope_origin(url) -> str:
     """``url``'s origin as a secret's leash compares it, or "" when it has none.
 
-    Scheme, host and port, spelt as `secrets.origin` spells them: the host
-    lowercased and unbracketed, a port kept exactly when written, userinfo
-    never. "" is an opaque page (`about:blank`, `data:`, `javascript:`, a
-    file), which no `_allowed_urls` line can name, so no secret is in scope
-    there (spec 2026-11-14-secret-scope, ruling 13). Never raises: a URL that
-    will not parse has no origin either.
+    Scheme, host and port: the host lowercased and unbracketed, a port kept
+    exactly when written, userinfo never. "" is an opaque page (`about:blank`,
+    `data:`, `javascript:`, a file), which no `_allowed_urls` line can name, so
+    no secret is in scope there. Never raises: a URL that will not parse has no
+    origin either.
 
-    This is the leash's one rule: `secrets.origin` is this function, so what a
-    secret may be typed on and what the scrub keys its values on cannot drift
-    apart. It lives here because `workspace/` cannot import `secrets`.
+    `secrets.origin` is this function, so what a secret may be typed on and
+    what the scrub keys its values on cannot drift apart. It lives here because
+    `workspace/` cannot import `secrets`.
     """
     try:
         parts = urlsplit(url.strip())
@@ -78,13 +76,10 @@ def scope_origin(url) -> str:
 def scope_origin_of(parts) -> str:
     """Scheme, host and port from an already-split URL, or "" without a host.
 
-    Built from `hostname` and `port`, never `netloc`: netloc includes
-    **userinfo**, so `https://user:pass@example.com/` would put a password into
-    the audit log and every refusal message, and compare unequal to the same
-    site without credentials. `port` *parses*, and raises for anything out of
-    range, so `https://host:99999` is no origin rather than an exception; and
-    it is tested with `is not None`, since port 0 is an explicit port and
-    dropping it would make two origins one at the exact-origin boundary.
+    Built from `hostname` and `port`, never `netloc`, which includes userinfo
+    and would put a password into the audit log and every refusal. `port`
+    raises for anything out of range, so `https://host:99999` is no origin; and
+    port 0 is an explicit port, so it is tested with `is not None`.
     """
     host = (parts.hostname or "").lower()
     if not host:
@@ -204,22 +199,21 @@ def same_page(a: str, b: str) -> bool:
 def public_url(url: str) -> str:
     """``url`` with any credentials removed, for anything that leaves this process.
 
-    ``GRID_URL`` may carry userinfo — ``http://user:pass@grid:4444`` — and the
-    probes and the admin page both name the Grid. Printing it whole puts the
-    Grid's credential in an unauthenticated response and in whatever scrapes it.
+    ``GRID_URL`` may carry userinfo (``http://user:pass@grid:4444``), and the
+    probes, which answer anyone, and the admin page both name the Grid.
     """
     try:
         parts = urlsplit(url)
         host = parts.hostname or ""
-        if ":" in host:  # IPv6 — `hostname` drops the brackets the authority wants
+        if ":" in host:  # IPv6: `hostname` drops the brackets the authority wants
             host = f"[{host}]"
         if parts.port:  # parses, and raises when it is not a port
             host = f"{host}:{parts.port}"
         return urlunsplit((parts.scheme, host, parts.path.rstrip("/"), "", ""))
     except ValueError:
-        # A malformed GRID_URL — a bad port, an unclosed IPv6 literal — reaches
-        # the probes like any other, and a probe answers rather than raises. The
-        # credentials still have to go, so they go by pattern (Copilot, #35).
+        # A malformed GRID_URL (a bad port, an unclosed IPv6 literal) reaches
+        # the probes too, which answer rather than raise, so the credentials go
+        # by pattern.
         return without_userinfo(url.split("?", 1)[0])
 
 
@@ -241,7 +235,7 @@ def scrub(text: str, url: str) -> str:
     return text
 
 
-# What a caller may send the browser to (Ruling 4). `about:blank` reaches nothing
+# What a caller may send the browser to. `about:blank` reaches nothing
 # and is how an agent clears the page; everything else that is not the web names
 # the Grid node's disk (`file:`), the browser's own pages (`chrome:`,
 # `view-source:`) or runs in whatever page is open (`javascript:`, `data:`).

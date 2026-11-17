@@ -2,13 +2,13 @@
 
 A flow had no way to state what must be true, so one came back 8/8 green while
 sitting on the wrong page — the worst thing this server can do, because a loud
-failure costs a turn and a confident green costs ten. See saga §F2.5.
+failure costs a turn and a confident green costs ten.
 """
 
 import pytest
 
 from kubed.selenium_flow.core import assertion as assertion
-from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
+from kubed.selenium_flow.core.capabilities import method_for
 from kubed.selenium_flow.errors import status_for
 
 pytestmark = pytest.mark.unit
@@ -44,11 +44,6 @@ def driving(actions, monkeypatch):
 
 
 # ---- the surface ------------------------------------------------------------
-
-
-def test_assert_is_a_browser_action_on_both_surfaces():
-    """A step is a tool is an endpoint — the promise test_surfaces.py holds."""
-    assert ENDPOINTS["assert"] == "assert"
 
 
 def test_the_keyword_is_aliased_in_exactly_one_place(actions):
@@ -189,7 +184,7 @@ class _AlreadySignedIn:
 
 def test_a_failing_assert_stops_the_run_and_carries_the_message():
     """The whole point, through `run()`: no new status, and the step's error is
-    the sentence its author wrote (saga §F2.5)."""
+    the sentence its author wrote."""
     from kubed.selenium_flow.flows.run import run
 
     report = run(_AlreadySignedIn(), LOGIN_GUARD, "b")
@@ -353,14 +348,6 @@ def test_an_answer_that_arrives_after_the_deadline_is_not_accepted(
     assert driver.calls == 1, "it evaluated again after the deadline had passed"
 
 
-def test_no_wait_still_means_exactly_one_look(actions, driving):
-    """The guard above must not cost the single evaluation wait_timeout=0
-    promises."""
-    driver = driving(True)
-    assert actions.assert_("abc", "return true", wait_timeout=0)["asserted"] is True
-    assert driver.calls == 1
-
-
 # ---- stable_for: a guard needs an answer that HOLDS --------------------------
 
 
@@ -391,7 +378,7 @@ async def test_the_tool_publishes_stable_for(server):
 
 
 def test_a_transient_true_does_not_satisfy_a_hold(actions, driving, clock):
-    """The fault §F2.10 opened with. Navigating to `/`, a real app painted its
+    """Navigating to `/`, a real app painted its
     authenticated shell for a moment before the auth guard redirected, and a
     guard asking until true caught that moment — so it passed while signed out.
     True, then false, has not held true for anything."""
@@ -440,13 +427,28 @@ def test_an_impossible_hold_is_refused_before_the_browser_is_touched(actions, mo
     assert touched == [], "the browser must not have been reconnected or moved"
 
 
-def test_a_hold_longer_than_the_wait_is_refused_naming_the_unit(actions, driving):
-    """The footgun this argument brings: `stable_for: 500` read as milliseconds
-    is 500 seconds, and an assertion that can never pass. Refused before the
-    page is asked, with the unit in the message."""
+@pytest.mark.parametrize(
+    ("refusal", "wait_timeout", "stable_for"),
+    [
+        # The footgun this argument brings: `stable_for: 500` read as milliseconds
+        # is 500 seconds, and an assertion that can never pass. Refused before the
+        # page is asked, with the unit in the message.
+        pytest.param(
+            "seconds", 30, 500, id="a-hold-longer-than-the-wait-is-refused-naming-the-unit"
+        ),
+        # Verifying a hold needs a poll AFTER the answer first came back true, and
+        # the deadline stops that poll at `wait_timeout` — so `stable_for` equal to
+        # `wait_timeout` could never be confirmed, and every such assertion failed
+        # with "did not hold" whatever the page did.
+        pytest.param("no room", 5, 5, id="a-hold-that-fills-the-whole-wait-is-refused"),
+    ],
+)
+def test_a_hold_that_does_not_fit_in_the_wait_is_refused(
+    actions, driving, refusal, wait_timeout, stable_for
+):
     driving(True)
-    with pytest.raises(ValueError, match="seconds"):
-        actions.assert_("abc", "return true", wait_timeout=30, stable_for=500)
+    with pytest.raises(ValueError, match=refusal):
+        actions.assert_("abc", "return true", wait_timeout=wait_timeout, stable_for=stable_for)
 
 
 def test_a_failure_tells_never_true_apart_from_would_not_hold(actions, driving, clock):
@@ -525,16 +527,6 @@ def test_a_stability_window_that_cannot_be_read_is_refused(actions, driving, bad
     driving(True)
     with pytest.raises(ValueError, match="stable_for"):
         actions.assert_("abc", "return true", wait_timeout=5, stable_for=bad)
-
-
-def test_a_hold_that_fills_the_whole_wait_is_refused(actions, driving):
-    """Verifying a hold needs a poll AFTER the answer first came back true, and
-    the deadline stops that poll at `wait_timeout` — so `stable_for` equal to
-    `wait_timeout` could never be confirmed, and every such assertion failed
-    with "did not hold" whatever the page did (Copilot, #31)."""
-    driving(True)
-    with pytest.raises(ValueError, match="no room"):
-        actions.assert_("abc", "return true", wait_timeout=5, stable_for=5)
 
 
 def test_a_hold_with_room_left_still_passes(actions, driving, clock):

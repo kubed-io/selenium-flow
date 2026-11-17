@@ -1,16 +1,12 @@
 """Starlette's trailing-slash redirect, made relative.
 
-A path that only matches with its slash added or taken away is answered with a
-307 to an *absolute* URL that Starlette builds from the request as this server
-sees it. Behind the ingress that is the wrong URL twice over: the ingress
-strips the public prefix (`/flow`) before the request arrives and ends TLS, so
-`https://host/flow/admin/` was sent to `http://host/admin`, a 404 on another
-scheme. A relative Location resolves against the URL the browser actually
-asked for, so it is right behind any prefix and on either scheme - the same
-reasoning as the admin page's own `./` redirect.
+Starlette answers a path that matches only with a slash added or removed with a
+307 to an absolute URL built from the request as this server sees it. Behind
+an ingress that strips a prefix and ends TLS, that is the wrong path on the
+wrong scheme; a relative Location resolves against what the browser asked for.
 
 Only that redirect is rewritten: a 307 whose Location is the request's own path
-with one slash added or taken away. Every other redirect passes untouched.
+with one slash added or taken away.
 """
 
 from __future__ import annotations
@@ -31,8 +27,7 @@ def relative(path: str, location: str) -> str | None:
         return None
     toggled = path[:-1] if path.endswith("/") else path + "/"
     found = urlsplit(location)
-    # The scope's path is decoded and the Location is not: `Q3 summary.csv`
-    # against `Q3%20summary.csv` (Copilot, #53).
+    # The scope's path is decoded and the Location is not.
     if unquote(found.path) != toggled:
         return None
     query = found.query

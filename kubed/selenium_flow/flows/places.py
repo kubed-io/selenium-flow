@@ -1,15 +1,16 @@
 """Where a flow applies: the sites and paths it declares, and the matcher.
 
-A hint for finding a flow, never a restriction on running one (ruling 8). A
-site is a host with an optional port; without a port it matches any (ruling 2),
-which is right for finding a flow and wrong for a password's leash, so this is
-not `secrets.origin` and shares no code with it (ruling 8). The scheme is
-ignored and a site is never a URL (ruling 9). A path is exact, with `*` for one segment
-and `**` for any depth, matched with case and without the query (ruling 10). A path
-entry may name a hash route after `#`, which is matched as a second path (spec
-2026-11-13-hash-routes).
+A hint for finding a flow, never a restriction on running one.
+
+A site is a host with an optional port, and without one matches any port:
+right for finding a flow and wrong for a password's leash, so this shares no
+code with `secrets.origin`. The scheme is ignored, and a site is never a URL.
 Hosts are IDNA-encoded and a port is explicit or the scheme's default, as the
-browser reports them (ruling 23). Plain Python: no selenium, no `secrets`.
+browser reports them.
+
+A path is exact, with `*` for one segment and `**` for any depth, matched with
+case and without the query. A path entry may name a hash route after `#`,
+matched as a second path.
 """
 
 from __future__ import annotations
@@ -270,9 +271,8 @@ class PathGlob:
 
     A unit is one segment's glob, where `*` is any run of characters, or
     `ANY_DEPTH` for `**`. A regex of the same meaning backtracks polynomially
-    (`/*a*a*a*a*b` against a long segment took seconds), and a shared flow's
-    paths are matched on every workspace's page change, so the matcher is a
-    pass over segments and, within one, the greedy star match: O(n·m) each.
+    (`/*a*a*a*a*b` on a long segment takes seconds), and paths are matched on
+    every page change, so this is the greedy star match: O(n·m) per segment.
     """
 
     units: tuple[str | None, ...]

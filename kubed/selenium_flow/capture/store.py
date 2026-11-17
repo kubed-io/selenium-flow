@@ -6,52 +6,47 @@ navigation, and the index from our request ids to the browser's. Every event
 that lands re-assigns the workspace's entry, which is what slides its TTL; a
 read never does.
 
-What belongs to the browser rather than to what it logged — its Grid id, its
+What belongs to the browser rather than to what it logged (its Grid id, its
 top-level context, the secrets bound in it, and what Chrome's replay is aligned
-against — is a `Held` session, kept beside the buffer: it outlives an expired
-buffer, so a page that logs again after hours of quiet is captured again, with
-its secrets still masked. A new session in a workspace (``attached`` with
-``again=False``) is a new `Held`, holding the secrets the one it replaces
-held — a value typed before a reap can be echoed after it; the buffer goes on.
+against) is a `Held` session beside the buffer. It outlives an expired buffer,
+so a page that logs again after hours of quiet is captured again with its
+secrets still masked. A new session in a workspace (``attached`` with
+``again=False``) is a new `Held` holding the secrets of the one it replaces,
+since a value typed before a reap can be echoed after it; the buffer goes on.
 
 Threading: ``attached``, ``ingest``, ``replayed``, ``detached`` and ``tail``
 run on the event loop; the reads run on worker threads. One `threading.Lock`
 covers everything, and nothing slow happens under it.
 
-**The secrets in scope** (spec 2026-11-14-secret-scope, rulings 8, 9 and 22).
-With ``heard`` set (`Workspaces.capture_heard`, only while secrets are
-configured), capture is the origin's second source: a context's navigation —
-``navigationStarted``, ``navigationCommitted``, or a navigation request, a
-redirect included, in whichever order they come — gives it a new origin, and
-an origin whose forms are not yet in the masker is asked for, once. Until
-every origin a context's events need has landed, its events wait raw in a
-`Pending`, and nothing is built from them, masked, stored or tailed. A context
-nothing navigated is ``""`` after a first attach, and ``"*"`` (every leashed
-secret) after a hold again or a lost event, since a navigation may have gone
-unheard. ``""`` is known-empty only for the top page (ruling 13); any other
-context's ``""`` inherits, as the browser's does, so it waits with its parent
-(a popup's opener; every leashed secret for a tab with neither). The ask
-carries a URL on the origin, and is made after the lock is
-released, because a build already done calls back at once; its ``done`` runs
-on a scrubber thread, so when ``ingest`` ran on a loop the landing is handed to
-that loop with ``call_soon_threadsafe`` (the tails are asyncio queues), and
-with none it lands at once. `_landed` replays the raw events through the same
-handlers, so Chrome's replay hold and ``_started``'s marks behave as if they
-had just arrived. Bounds (ruling 22): `PENDING_EVENTS` per context and
-`QUEUE_BYTES` (estimated) per session, the oldest going first, and an event
-older than `PENDING_SECONDS` dropped when the next arrives — checked on
-arrival, since nothing here runs a timer; a failed read drops what waited, and
-``detached`` a replay still waiting, as it drops one held; all of it is
-counted in ``dropped``, none kept raw.
-With ``heard`` None nothing is held or asked.
+The secrets in scope. With ``heard`` set (`Workspaces.capture_heard`, only
+while secrets are configured), a context's navigation (``navigationStarted``,
+``navigationCommitted``, or a navigation request, a redirect included, in
+whichever order they come) gives it a new origin, and an origin whose forms
+are not yet in the masker is asked for, once. Until every origin a context's
+events need has landed, its events wait raw in a `Pending`, and nothing is
+built from them, masked, stored or tailed. A context nothing navigated is
+``""`` after a first attach, and ``"*"`` (every leashed secret) after a hold
+again or a lost event, since a navigation may have gone unheard. ``""`` is
+known-empty only for the top page; any other context's ``""`` inherits, as
+the browser's does, so it waits with its parent (a popup's opener; every
+leashed secret for a tab with neither).
 
-Bounded memory is the rule throughout, because a page decides how much it
-logs, fetches and frames: two buffers of 1 000, requests in flight capped at
-1 000, the index dropped with its row, the contexts remembered for a replay
-capped at `CONTEXTS`, what a replay holds capped at what was remembered, every
-string capped, and the sessions remembered capped at `WORKSPACES` — past it
-the oldest not held go, never one still held (whose events would then go
-unheard): those are bounded by the monitor's holds.
+`_ask` and `_deliver` say how an ask is made and lands. `_landed` replays the
+raw events through the same handlers, so Chrome's replay hold and
+``_started``'s marks behave as if they had just arrived. What waits is bounded
+by `PENDING_EVENTS` per context and `QUEUE_BYTES` (estimated) per session,
+the oldest going first, and an event older than `PENDING_SECONDS` is dropped
+when the next arrives, since nothing here runs a timer. A failed read drops
+what waited, and ``detached`` drops a replay still waiting; every drop is
+counted in ``dropped``, none kept raw. With ``heard`` None nothing is held or
+asked.
+
+Memory is bounded throughout, because a page decides how much it logs,
+fetches and frames: requests in flight are capped at 1000, the index goes
+with its row, the contexts remembered for a replay are capped at `CONTEXTS`,
+and the sessions remembered at `WORKSPACES`. Past that the oldest not held
+go, never one still held (whose events would then go unheard): those are
+bounded by the monitor's holds.
 """
 
 from __future__ import annotations
@@ -303,12 +298,12 @@ class Capture:
     def attached(self, workspace, session_id, browser, top, *, again: bool) -> None:
         """A hold started. A new session (or the first) gets the secrets of the
         workspace's session it replaces and nothing to align; a hold again
-        keeps all of it, and for Chrome holds
-        back what it replays until `replayed` (plan ruling 18). A hold again of
-        a session capture no longer knows — discarded, or replaced by a newer
-        browser in its workspace — is not heard: it must not take the
-        workspace back from the browser that replaced it. One evicted while
-        it was paused is: it is held again whole, secrets and all."""
+        keeps all of it, and for Chrome holds back what it replays until
+        `replayed`. A hold again of a session capture no longer knows
+        (discarded, or replaced by a newer browser in its workspace) is not
+        heard: it must not take the workspace back from the browser that
+        replaced it. One evicted while it was paused is held again whole,
+        secrets and all."""
         if again:
             heard, asks = self.heard, []
             with self._lock:
@@ -365,16 +360,12 @@ class Capture:
     def ingest(self, workspace, session_id, method, params) -> None:
         heard, asks = self.heard, []
         with self._lock:
-            held = self._sessions.get(session_id)
-            if (
-                held is None
-                or held.workspace != workspace
-                or not isinstance(params, dict)
-            ):
+            held = self._held(workspace, session_id)
+            if held is None or not isinstance(params, dict):
                 return
             context = _context(method, params)
             if context is not None and context in self._hidden.get(session_id, ()):
-                return  # the spare tab (ruling 15)
+                return  # the spare tab
             if method == "browsingContext.contextCreated":
                 if params.get("parent") is None and held.top is None:
                     held.top = context
@@ -395,8 +386,8 @@ class Capture:
     def replayed(self, workspace, session_id) -> None:
         """Chrome's replay is over: what is still held lands, past its overlap."""
         with self._lock:
-            held = self._sessions.get(session_id)
-            if held is None or held.workspace != workspace or held.holding is None:
+            held = self._held(workspace, session_id)
+            if held is None or held.holding is None:
                 return
             buffer = self._cache.get(workspace) or Buffer()
             landed = False
@@ -412,21 +403,19 @@ class Capture:
     def lost(self, workspace, session_id) -> None:
         """An event the browser sent was dropped before it landed: counted."""
         with self._lock:
-            held = self._sessions.get(session_id)
-            if held is None or held.workspace != workspace:
+            held = self._held(workspace, session_id)
+            if held is None:
                 return
             if self.heard is not None:  # it may have been a navigation
                 self._unheard(held, [], again=False)
-            buffer = self._cache.get(workspace) or Buffer()
-            buffer.dropped += 1
-            self._cache[workspace] = buffer
+            self._dropped(held, 1)
 
     def detached(self, workspace, session_id) -> None:
         """A hold ended, or failed before it began: anything held is dropped,
         since nothing is left to align it against."""
         with self._lock:
-            held = self._sessions.get(session_id)
-            if held is not None and held.workspace == workspace:
+            held = self._held(workspace, session_id)
+            if held is not None:
                 # A replay still waiting for its read is held too: dropped and
                 # counted, all but what waited from before the hold again.
                 for ctx in held.holding or ():
@@ -438,10 +427,15 @@ class Capture:
                 held.live = False
                 self._evict()
 
+    def _held(self, workspace, session_id) -> Held | None:
+        """``session_id``'s `Held`, when it is ``workspace``'s."""
+        held = self._sessions.get(session_id)
+        return held if held is not None and held.workspace == workspace else None
+
     # ---- the workspace -------------------------------------------------------
 
     def discard(self, workspace: str) -> None:
-        """Forget the workspace's capture and its session (programme R9)."""
+        """Forget the workspace's capture and its session."""
         with self._lock:
             self._cache.pop(workspace, None)
             self._parked.pop(workspace, None)
@@ -480,14 +474,14 @@ class Capture:
 
     # ---- the readers ---------------------------------------------------------
 
-    def mark(self, workspace: str) -> Mark | None:
+    def _read(self, workspace: str, view: Callable[..., object], *args):
+        """``view(buffer, *args)`` under the lock; None with no buffer."""
         with self._lock:
             buffer = self._cache.get(workspace)
-            return (
-                None
-                if buffer is None
-                else Mark(buffer.errors_total, buffer.failed_total)
-            )
+            return None if buffer is None else view(buffer, *args)
+
+    def mark(self, workspace: str) -> Mark | None:
+        return self._read(workspace, lambda b: Mark(b.errors_total, b.failed_total))
 
     def caused(self, workspace: str, since: Mark) -> dict:
         """What landed since ``since``: page errors and hinted failures."""
@@ -505,22 +499,16 @@ class Capture:
         self, workspace: str, *, level: str = "all", pages: int = 1
     ) -> dict | None:
         level, pages = views.check_level(level), views.check_pages(pages)
-        with self._lock:
-            buffer = self._cache.get(workspace)
-            return None if buffer is None else views.console(buffer, level, pages)
+        return self._read(workspace, views.console, level, pages)
 
     def network(
         self, workspace: str, *, filter: str = "all", pages: int = 1
     ) -> dict | None:
         filter, pages = views.check_filter(filter), views.check_pages(pages)
-        with self._lock:
-            buffer = self._cache.get(workspace)
-            return None if buffer is None else views.network(buffer, filter, pages)
+        return self._read(workspace, views.network, filter, pages)
 
     def request(self, workspace: str, id: str) -> dict | None:
-        with self._lock:
-            buffer = self._cache.get(workspace)
-            return None if buffer is None else views.request(buffer, id)
+        return self._read(workspace, views.request, id)
 
     def known(self, workspace: str, id: str) -> bool:
         """Whether request ``id`` is kept in ``workspace``'s capture, whatever
@@ -530,9 +518,7 @@ class Capture:
             return buffer is not None and id in buffer.index
 
     def counts(self, workspace: str) -> dict | None:
-        with self._lock:
-            buffer = self._cache.get(workspace)
-            return None if buffer is None else views.counts(buffer)
+        return self._read(workspace, views.counts)
 
     def request_for(self, session_id: str, id: str) -> Located | None:
         """Where request ``id`` of the workspace ``session_id`` is open in
@@ -578,10 +564,7 @@ class Capture:
         in ``asks``. False: it lands now."""
         navigated = _navigated(method, params)
         if navigated is not None:
-            held.origins[context] = navigated
-            held.origins.move_to_end(context)
-            while len(held.origins) > CONTEXTS:
-                _, (gone, _url) = held.origins.popitem(last=False)
+            for _, (gone, _url) in _remember(held.origins, context, navigated):
                 if not _is_ready(held, gone):  # forgotten unread: none is known
                     held.unknown = EVERY
         elif context in held.origins:
@@ -627,12 +610,11 @@ class Capture:
 
     def _needs(self, held: Held, context) -> dict[str, str | None]:
         """What ``context``'s events wait on: its origin while that is not
-        ready. A top page's "" is known-empty (ruling 13); any other context's
-        "" inherits (an `about:blank` or `about:srcdoc` frame, a child that
-        never navigated, a popup), so it waits on what its parent - a popup's
-        opener, the top for a context never heard created - waits on and is,
-        and on every leashed secret for a tab with neither (controller ruling,
-        review round 1). Empty: it lands now."""
+        ready. A top page's "" is known-empty; any other context's "" inherits
+        (an `about:blank` or `about:srcdoc` frame, a child that never
+        navigated, a popup), so it waits on what its parent (a popup's opener,
+        the top for a context never heard created) waits on and is, and on
+        every leashed secret for a tab with neither. Empty: it lands now."""
         needs: dict[str, str | None] = {}
         seen: set = set()
         while True:
@@ -672,7 +654,7 @@ class Capture:
         return pending
 
     def _shed(self, held: Held, pending: Pending) -> None:
-        """``pending``'s oldest event goes, counted (ruling 22)."""
+        """``pending``'s oldest event goes, counted."""
         event = pending.events.popleft()
         held.weight -= event.weight
         pending.before = max(0, pending.before - 1)
@@ -707,9 +689,8 @@ class Capture:
     def _ask(self, heard: Heard | None, asks: list) -> None:
         """Ask for each origin's forms, after the lock: a build already done
         calls ``done`` at once, and `_landed` takes the lock. The ask carries a
-        URL on the origin, never the origin itself, which for an IPv6 literal
-        is no URL (`https://::1:8443`): `Workspaces` reads the origin from it
-        by the same rule (review, round 1)."""
+        URL on the origin, since an IPv6 origin is no URL (`https://::1:8443`);
+        `Workspaces` reads the origin from it by the same rule."""
         if heard is None or not asks:
             return
         try:
@@ -761,11 +742,8 @@ class Capture:
                 return
             if forms:
                 held.masker.add(forms)
-            if origin != "":
-                held.ready[origin] = None
-                held.ready.move_to_end(origin)
-                while len(held.ready) > CONTEXTS:  # asked again when next needed
-                    held.ready.popitem(last=False)
+            if origin != "":  # past CONTEXTS, asked again when next needed
+                _remember(held.ready, origin, None)
             buffer = self._cache.get(held.workspace) or Buffer()
             landed = False
             for context, pending in list(held.waiting.items()):
@@ -890,7 +868,7 @@ class Capture:
         nav = buffer.nav
         buffer.seq += 1
         row = {**entry, "seq": buffer.seq, "nav": nav}
-        if row["level"] == "debug":  # counted, not kept (ruling 4); tailed
+        if row["level"] == "debug":  # counted, not kept; tailed
             _bump(buffer.debug, nav)
             self._tail(held.workspace, "console", row, kept=False)
             return
@@ -963,7 +941,7 @@ class Capture:
             return False
         row = flight.row
         response = params.get("response") or {}
-        mask = held.masker.text  # every text a server or page chose (ruling 13)
+        mask = held.masker.text  # every text a server or page chose
         status = response.get("status")
         size = response.get("bodySize")
         if not number(size):  # never content.size
@@ -1029,7 +1007,7 @@ class Capture:
         buffer.index[row["id"]] = located
 
     def _started(self, buffer: Buffer, held: Held, params: dict, context) -> bool:
-        """A navigation of the top-level context (plan ruling 17): a new page.
+        """A navigation of the top-level context: a new page.
         What the old one holds keeps no query from here on."""
         if context is None or context != held.top:
             return False
@@ -1130,10 +1108,14 @@ def _inherits(held: Held, context, params: dict) -> None:
     if parent is None:
         opener = params.get("originalOpener")
         parent = opener if isinstance(opener, str) and opener else EVERY
-    held.parents[context] = parent
-    held.parents.move_to_end(context)
-    while len(held.parents) > CONTEXTS:
-        held.parents.popitem(last=False)
+    _remember(held.parents, context, parent)
+
+
+def _remember(recent: OrderedDict, key, value) -> list[tuple]:
+    """Set ``key`` as the newest; the oldest past CONTEXTS go, returned."""
+    recent[key] = value
+    recent.move_to_end(key)
+    return [recent.popitem(last=False) for _ in range(len(recent) - CONTEXTS)]
 
 
 def _weight(params) -> int:

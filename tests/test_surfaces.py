@@ -6,7 +6,6 @@ other breaks that quietly, so it is asserted here rather than trusted.
 """
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -21,6 +20,8 @@ from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import mirror
 
+from .fakes import KeyDriver
+
 pytestmark = pytest.mark.unit
 
 # Named separately from ENDPOINTS so a typo in the route table cannot make this
@@ -33,8 +34,8 @@ pytestmark = pytest.mark.unit
 # Saved flows are a layer ABOVE the browser actions, not more of them: they are
 # about documents that contain actions, they live under /flows rather than
 # /browser, and they have their own route table. So they are subtracted from
-# every assertion below rather than added to EXPECTED — see saga §F1.7 and
-# tests/test_flowapi.py, which holds them to their own contract.
+# every assertion below rather than added to EXPECTED; tests/test_flowapi.py
+# holds them to their own contract.
 FLOW_TOOLS = {
     flowapi.RUN_TOOL,
     flowapi.SAVE_TOOL,
@@ -62,7 +63,7 @@ def browser_tools(tools) -> set[str]:
 
 # `open_session` and `end_browser` are actions on the browser RESOURCE rather
 # than commands under it: POST and DELETE on /browser itself, because which
-# browser is a question about who is asking (§F2.13). They are still on both
+# browser is a question about who is asking. They are still on both
 # surfaces, and `test_the_browser_resource_is_on_both_surfaces` below holds them
 # to it — this set is the commands, which is what ENDPOINTS lists.
 RESOURCE_ACTIONS = {"open_session", "end_browser"}
@@ -153,7 +154,7 @@ async def test_tools_declare_real_parameter_schemas(server):
     click = await server.mcp.get_tool("interact")
     props = click.parameters["properties"]
     assert {"selector", "url", "wait_timeout"} <= set(props)
-    assert "session_id" not in props, "the Grid's id is never a parameter (§F2.12)"
+    assert "session_id" not in props, "the Grid's id is never a parameter"
     # Only `action` is required. The element is addressed by EITHER xpath OR
     # css, which a JSON schema cannot say without oneOf, so it is enforced at
     # the boundary by `browser.locator` and asserted in test_coercion.py.
@@ -265,10 +266,10 @@ async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypa
 def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypatch):
     """The names used to be listed in press_key's description — sixty of them,
     read on every call by a model that needed none. They are in the refusal
-    instead, which is where a model that guessed wrong is looking (§F3.5)."""
+    instead, which is where a model that guessed wrong is looking."""
     from kubed.selenium_flow.core.keys import KEY_NAMES
 
-    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: KeyDriver())
     with pytest.raises(ValueError) as refused:
         actions.press_key("abc", "Enterr")
     assert all(name in str(refused.value) for name in KEY_NAMES)
@@ -277,24 +278,6 @@ def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypa
 def test_actions_reject_a_missing_session_id(actions):
     with pytest.raises(ValueError, match="session_id is required"):
         actions._at("", None)
-
-
-class _Driver:
-    """Just enough driver to send a key at something."""
-
-    current_url = "https://example.test/"
-    title = "t"
-
-    @property
-    def switch_to(self):
-        # What has focus: press_key with no selector sends there (#135).
-        return SimpleNamespace(active_element=self)
-
-    def send_keys(self, *_):
-        pass
-
-    def execute_script(self, *_):
-        return False
 
 
 @pytest.mark.parametrize(
@@ -325,7 +308,7 @@ def test_only_a_key_that_can_submit_waits_for_a_navigation(
 
     called = []
     monkeypatch.setattr(actions_module.browser, "settled", lambda *a, **k: called.append(a))
-    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: KeyDriver())
 
     actions.press_key("abc", key)
     assert bool(called) is waits

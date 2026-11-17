@@ -5,12 +5,11 @@ the description, but the schema said `action` was any string — and a model pla
 against types, so it reached for `execute_script` instead and built a flaky
 workaround. These tests hold the surface to the rule that came out of it: a
 closed set of values is an enum in the schema, and an open one says what it
-accepts. See saga §F2.1 and §F2.2.
+accepts.
 """
 
 import re
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from selenium.webdriver.common.keys import Keys
@@ -24,6 +23,8 @@ from kubed.selenium_flow.core.actions import (
 )
 from kubed.selenium_flow.core.defaults import BROWSERS
 from kubed.selenium_flow.core.keys import KEY_NAMES, KEYS, resolve_key
+
+from .fakes import KeyDriver
 
 pytestmark = pytest.mark.unit
 
@@ -131,29 +132,10 @@ def test_the_names_offered_are_one_per_key():
     assert not {"left", "back_space", "command", "left_meta"} & set(KEY_NAMES)
 
 
-class _Driver:
-    current_url = "https://example.test/"
-    title = "t"
-
-    def __init__(self):
-        self.sent = []
-
-    @property
-    def switch_to(self):
-        # What has focus: press_key with no selector sends there (#135).
-        return SimpleNamespace(active_element=self)
-
-    def send_keys(self, *keys):
-        self.sent.append("".join(keys))
-
-    def execute_script(self, *_):
-        return False
-
-
 def test_press_key_sends_the_resolved_combination(actions, monkeypatch):
     """Through the action, not just the resolver: a combination reaches the
     browser as one send, which WebDriver releases the modifiers after."""
-    driver = _Driver()
+    driver = KeyDriver()
     monkeypatch.setattr(actions, "_at", lambda *a, **k: driver)
     monkeypatch.setattr(actions_module.browser, "settled", lambda *a, **k: None)
 

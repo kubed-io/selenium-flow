@@ -1,4 +1,4 @@
-"""Serving the built UI, and serving without one (§F4.15, §F4.17)."""
+"""Serving the built UI, and serving without one."""
 
 import html
 import json
@@ -174,7 +174,7 @@ def test_every_runnable_action_has_a_glyph_and_no_glyph_is_stale():
     knows is a rename that only half happened."""
     from kubed.selenium_flow.flows.api import RUNNABLE
 
-    body = re.search(r"export const TOOL_ICON[^=]*=\s*\{(.*?)\n\}", FLOW_TS.read_text(), re.S)
+    body = re.search(r"export const TOOL_ICON[^=]*=\s*\{(.*?)\n\}", FLOW_TS.read_text(), re.DOTALL)
     assert body, "TOOL_ICON is no longer an object literal in flow.ts"
     keys = set(re.findall(r"(?:^|[\s,{])([A-Za-z_]\w*)\s*:", body.group(1)))
     assert keys, "no keys parsed out of TOOL_ICON"

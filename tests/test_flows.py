@@ -72,16 +72,28 @@ def test_a_name_that_cannot_be_a_path_segment_is_refused(name):
         valid_name(name)
 
 
-def test_a_bad_name_is_refused_rather_than_slugged():
-    """The failure mode of sanitising is a flow saved where nobody will look
-    for it, silently. A 400 is fixed in one try."""
-    with pytest.raises(InvalidName, match="not a usable"):
-        valid_name("../etc/passwd", "flow name")
-
-
-def test_the_error_names_which_kind_of_name_was_wrong():
-    with pytest.raises(InvalidName, match="workspace name"):
-        valid_name("../x", "workspace name")
+@pytest.mark.parametrize(
+    ("refusal", "name", "kind"),
+    [
+        # The failure mode of sanitising is a flow saved where nobody will look
+        # for it, silently. A 400 is fixed in one try.
+        pytest.param(
+            "not a usable",
+            "../etc/passwd",
+            "flow name",
+            id="a-bad-name-is-refused-rather-than-slugged",
+        ),
+        pytest.param(
+            "workspace name",
+            "../x",
+            "workspace name",
+            id="the-error-names-which-kind-of-name-was-wrong",
+        ),
+    ],
+)
+def test_a_bad_name_is_refused_naming_its_kind(refusal, name, kind):
+    with pytest.raises(InvalidName, match=refusal):
+        valid_name(name, kind)
 
 
 # ---- which workspace owns a caller's flows ------------------------------------
@@ -89,7 +101,7 @@ def test_the_error_names_which_kind_of_name_was_wrong():
 
 def test_a_workspace_owns_the_library_of_its_own_name():
     """One answer now, where there were three. A workspace name IS a directory
-    name — validated where it arrives (§F2.12) — so there is no longer a lenient
+    name — validated where it arrives — so there is no longer a lenient
     resolver for browsers, a strict one for storage, and a third answering None
     for the admin list."""
     assert library_of("research-bot") == "research-bot"
@@ -227,7 +239,31 @@ def test_a_yaml_file_that_is_not_a_mapping_reads_as_missing(store, tmp_path):
     assert store.get("bot", "list") is None
 
 
-# ---- parsing, which every listing pays for per flow (§F4.19) -----------------
+@pytest.mark.skipif(os.scandir not in os.supports_fd, reason="lists by path, checking each entry")
+def test_a_listing_resolves_no_path_per_entry(store, monkeypatch):
+    """Files, Screenshots and the flow revision list a folder in one scandir
+    pass, reusing each entry's stat. A realpath per file to refuse a link was
+    67 ms of the 100 ms 142 screenshots took."""
+    resolved, real = [], Path.resolve
+
+    def resolve(self, *args, **kwargs):
+        resolved.append(self)
+        return real(self, *args, **kwargs)
+
+    def listing(n):
+        for i in range(n):
+            store.write_file("bot", f"report-{i:03d}.pdf", b"x")
+            store.save("bot", f"flow-{i:03d}", {"steps": []})
+        resolved.clear()
+        assert len(store.files("bot")) == n
+        store.revision("bot")
+        return len(resolved)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    assert listing(2) == listing(40)
+
+
+# ---- parsing, which every listing pays for per flow --------------------------
 
 
 def test_a_hand_edit_is_read_at_once_not_from_a_cache(store, tmp_path):
@@ -418,7 +454,7 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
 
 
 def test_a_blank_explicit_directory_means_off_just_as_a_blank_env_does():
-    """`DataSettings` normalises "   " to None (see `_blank_is_off`), so a
+    """`DataSettings` normalises "   " to None (see `OptionalPath`), so a
     caller building `Settings` by hand cannot end up with a directory named
     three spaces."""
     from kubed.selenium_flow.config import Settings
@@ -468,8 +504,8 @@ def test_a_symlink_to_another_workspace_is_refused_even_though_it_stays_inside(
 def test_the_root_itself_may_be_a_link_because_that_is_the_installer_s_business(
     tmp_path,
 ):
-    """DATA_DIR pointing at a mount is exactly the case §F1.12 leaves open,
-    so only the parts we join on have to be honest."""
+    """DATA_DIR may point at a mount, so only the parts we join on have to be
+    honest."""
     real = tmp_path / "real"
     real.mkdir()
     link = tmp_path / "link"
@@ -679,15 +715,31 @@ def _drag_problems(args):
     return ""
 
 
-def test_a_drag_with_no_element_is_refused_at_save():
-    """It is a registered action now, so it has to be in the set the validator
-    checks — otherwise the step saves cleanly and fails at run time, which is
-    the whole thing save-time validation exists to prevent (Copilot, #31)."""
-    assert "needs an element" in _drag_problems({"to": {"css": "#done"}})
-
-
-def test_a_drag_with_no_destination_is_refused_at_save():
-    assert "needs a destination" in _drag_problems({"selector": {"css": "#card"}})
+@pytest.mark.parametrize(
+    ("problem", "args"),
+    [
+        # It is a registered action now, so it has to be in the set the validator
+        # checks — otherwise the step saves cleanly and fails at run time, which is
+        # the whole thing save-time validation exists to prevent.
+        pytest.param(
+            "needs an element",
+            {"to": {"css": "#done"}},
+            id="a-drag-with-no-element-is-refused-at-save",
+        ),
+        pytest.param(
+            "needs a destination",
+            {"selector": {"css": "#card"}},
+            id="a-drag-with-no-destination-is-refused-at-save",
+        ),
+        pytest.param(
+            "already is",
+            {"selector": {"css": "#card"}, "by_x": 0, "by_y": 0},
+            id="a-drag-to-where-it-already-is-is-refused-at-save",
+        ),
+    ],
+)
+def test_a_drag_that_cannot_run_is_refused_at_save(problem, args):
+    assert problem in _drag_problems(args)
 
 
 def test_a_drag_with_two_kinds_of_destination_is_refused_at_save():
@@ -695,10 +747,6 @@ def test_a_drag_with_two_kinds_of_destination_is_refused_at_save():
         {"selector": {"css": "#card"}, "to": {"css": "#done"}, "by_x": 10}
     )
     assert "not both" in problems
-
-
-def test_a_drag_to_where_it_already_is_is_refused_at_save():
-    assert "already is" in _drag_problems({"selector": {"css": "#card"}, "by_x": 0, "by_y": 0})
 
 
 @pytest.mark.parametrize(
@@ -822,9 +870,35 @@ def _touch(path):
     path.write_bytes(b"x")
 
 
-def test_an_old_workspace_named_workspaces_is_refused(tmp_path):
-    _touch(tmp_path / "workspaces" / "flows" / "a.yaml")
-    with pytest.raises(ConfigError, match=r"`workspaces`.*reserved.*workspaces-old"):
+@pytest.mark.parametrize(
+    ("first", "second", "name", "refusal"),
+    [
+        pytest.param(
+            "workspaces",
+            "flows",
+            "a.yaml",
+            r"`workspaces`.*reserved.*workspaces-old",
+            id="an-old-workspace-named-workspaces-is-refused",
+        ),
+        pytest.param(
+            "recordings",
+            "flows",
+            "a.yaml",
+            r"`recordings`.*reserved",
+            id="an-old-workspace-named-recordings-is-refused",
+        ),
+        pytest.param(
+            "recordings",
+            "screenshots",
+            "SHOT.PNG",
+            r"`recordings`",
+            id="an-image-under-recordings-screenshots-is-an-old-workspace",
+        ),
+    ],
+)
+def test_an_old_layout_stops_the_boot_naming_the_move(tmp_path, first, second, name, refusal):
+    _touch(tmp_path / first / second / name)
+    with pytest.raises(ConfigError, match=refusal):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
@@ -833,21 +907,16 @@ def test_a_new_workspace_named_flows_boots(tmp_path):
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
-def test_an_old_workspace_named_recordings_is_refused(tmp_path):
-    _touch(tmp_path / "recordings" / "flows" / "a.yaml")
-    with pytest.raises(ConfigError, match=r"`recordings`.*reserved"):
-        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
-
-
-def test_a_video_under_recordings_screenshots_boots(tmp_path):
-    _touch(tmp_path / "recordings" / "screenshots" / "x.mp4")
+@pytest.mark.parametrize(
+    "folder",
+    [
+        pytest.param("screenshots", id="a-video-under-recordings-screenshots-boots"),
+        pytest.param("files", id="an-inbox-with-a-transport-prefix-boots"),
+    ],
+)
+def test_a_layout_that_is_not_an_old_workspace_boots(tmp_path, folder):
+    _touch(tmp_path / "recordings" / folder / "x.mp4")
     assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
-
-
-def test_an_image_under_recordings_screenshots_is_an_old_workspace(tmp_path):
-    _touch(tmp_path / "recordings" / "screenshots" / "SHOT.PNG")
-    with pytest.raises(ConfigError, match=r"`recordings`"):
-        flowstore.from_settings(DataSettings(dir=str(tmp_path)))
 
 
 @pytest.mark.parametrize("folder", ["files", "screenshots"])
@@ -872,11 +941,6 @@ def test_a_fault_reading_a_reserved_folder_stops_the_boot(tmp_path, monkeypatch,
     _stat_eio_on(monkeypatch, fn_names, "flows")
     with pytest.raises(ConfigError, match="OSError"):
         flowstore.from_settings(DataSettings(dir=str(tmp_path)))
-
-
-def test_an_inbox_with_a_transport_prefix_boots(tmp_path):
-    _touch(tmp_path / "recordings" / "files" / "x.mp4")
-    assert flowstore.from_settings(DataSettings(dir=str(tmp_path))) is not None
 
 
 def _stat_eio_on(monkeypatch, fn_names, needle):

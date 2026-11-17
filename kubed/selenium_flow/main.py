@@ -12,11 +12,7 @@ log = logging.getLogger(__name__)
 
 
 def _secrets_summary(catalogue) -> str:
-    """"off", or how many directories and how many config entries feed it.
-
-    "secrets=0" used to mean either off or entries-only, which read as a
-    contradiction next to a config that plainly turned secrets on.
-    """
+    """"off", or how many directories and how many config entries feed it."""
     if catalogue is None:
         return "off"
     dirs = len(catalogue.sources)
@@ -32,31 +28,29 @@ WIRE_LOGGERS = (
 )
 
 
-def quiet_the_wire() -> None:
-    """Hold Selenium's wire loggers at INFO or above, whatever LOG_LEVEL is."""
-    level = max(logging.INFO, logging.getLogger().getEffectiveLevel())
-    for name in WIRE_LOGGERS:
-        logging.getLogger(name).setLevel(level)
-
-
-def plain_fastmcp_logs() -> None:
-    """Send FastMCP's log lines through the root handler like every other line.
+def configure_logging(level: str) -> None:
+    """The root handler at ``level``, with FastMCP's and Selenium's wire
+    loggers held at the higher of INFO and the root's level.
 
     FastMCP configures its own logger at import: Rich handlers on stderr and no
     propagation. In a pod there is no TTY, so Rich wraps at 80 columns, and Loki
-    stores each physical line as its own entry, so only the first fragment of an
-    error matches its text. Dropping the handlers and propagating gives one
-    format. The level is INFO or the root's, whichever is higher, never lower:
-    FastMCP logs every tool's arguments at DEBUG (scripts, typed text, upload
-    content), so LOG_LEVEL=DEBUG must not open it, while WARNING still quiets
-    it. Filters on its child loggers stay, as they belong to the logger and not
-    to a handler.
+    stores each physical line as its own entry, so its handlers go and it
+    propagates. It logs every tool's arguments at DEBUG (scripts, typed text,
+    upload content), so DEBUG never opens it, while WARNING still quiets it.
+    Filters on its child loggers stay, as they belong to the logger and not to
+    a handler.
     """
-    logger = logging.getLogger("fastmcp")
-    for handler in list(logger.handlers):
-        logger.removeHandler(handler)
-    logger.propagate = True
-    logger.setLevel(max(logging.INFO, logging.getLogger().getEffectiveLevel()))
+    logging.basicConfig(level=level)
+    # The root's level, not ``level``: basicConfig does nothing when the root
+    # already has a handler.
+    floor = max(logging.INFO, logging.getLogger().getEffectiveLevel())
+    for name in WIRE_LOGGERS:
+        logging.getLogger(name).setLevel(floor)
+    fastmcp = logging.getLogger("fastmcp")
+    for handler in list(fastmcp.handlers):
+        fastmcp.removeHandler(handler)
+    fastmcp.propagate = True
+    fastmcp.setLevel(floor)
 
 
 def _loopback(host: str) -> bool:
@@ -67,17 +61,11 @@ def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``selenium-flow`` console script."""
     try:
         loaded = config.load(argv)
-    except config.ConfigError as exc:
-        # A config this server cannot run on stops the boot with the reason:
-        # restarted until fixed beats started on something misread (§F4.12).
-        raise SystemExit(f"selenium-flow: {exc}") from None
-    settings = loaded.settings
-    logging.basicConfig(level=settings.log_level)
-    quiet_the_wire()
-    plain_fastmcp_logs()
-    try:
+        settings = loaded.settings
+        configure_logging(settings.log_level)
         server = SeleniumMCP(settings, sources=loaded.sources)
     except config.ConfigError as exc:
+        # Restarted until fixed beats started on something misread.
         raise SystemExit(f"selenium-flow: {exc}") from None
     log.info(
         "config=%s grid=%s auth=%s oidc=%s workspaces=%s skill=%s flows=%s secrets=%s "

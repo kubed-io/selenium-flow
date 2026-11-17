@@ -1,22 +1,11 @@
 """Signed URLs for workspace files.
 
-A file in a workspace's store is often wanted somewhere that cannot present a
-bearer token: an ``<img>`` tag in the admin UI, a markdown image in a chat
-transcript, a link handed to someone who is not the caller. Browsers do not
-attach an ``Authorization`` header to an image request, and putting the MCP
-token in the query string would hand out the key to everything.
-
-So the token stops being the credential for these URLs and becomes the *signing
-key* for them. Each URL carries the path it is good for and the moment it stops
-working, plus an HMAC over both. That yields a link which:
-
-- grants exactly one file, not the API,
-- expires on its own,
-- is revoked in bulk by rotating the token that is already rotated,
-- and needs no server-side state, which matters because there may be several
-  replicas and no shared store between them.
-
-``exp`` is inside the signature, so a recipient cannot extend their own link.
+For a place that cannot send a bearer token: an ``<img>`` in the admin UI, a
+markdown image in a chat transcript, a link handed to someone else. The token
+is the signing key. Each URL carries its path and expiry and an HMAC over both,
+so it grants one file, expires on its own, dies when the token rotates, and
+needs no state shared between replicas. ``exp`` is signed, so a recipient
+cannot extend a link.
 """
 
 from __future__ import annotations
@@ -30,10 +19,8 @@ from urllib.parse import quote
 # leaked URL is not a lasting grant.
 DEFAULT_TTL = 3600
 
-# Expiries round UP to this, so every link to a file signed within one window
-# is the same URL. With ``now + ttl`` to the second no URL ever repeated, the
-# browser cache never hit, and each repaint of the admin page re-downloaded
-# every screenshot on it — a Keep in the lightbox waited 25s behind them.
+# Expiries round up to this, so every link to a file signed within one window
+# is the same URL and the browser cache can hit.
 EXPIRY_STEP = 600
 
 
@@ -79,17 +66,12 @@ def refusal(
     *,
     by: str | None = None,
 ) -> str | None:
-    """Why a request's ``exp``/``sig`` do not authorise ``path`` — ``"invalid"``
-    or ``"expired"`` — or None when they do.
+    """Why a request's ``exp``/``sig`` do not authorise ``path``, ``"invalid"``
+    or ``"expired"``, or None when they do.
 
-    The signature is checked before the expiry, so "expired" is only ever said
-    of a link this server really minted: a person holding one is told to ask
-    for a fresh link, not that theirs was mangled.
-
-    Compared with :func:`hmac.compare_digest` rather than ``==``: this runs on
-    an unauthenticated route, so a timing side channel here would be a way to
-    forge a signature one byte at a time. As bytes, because it raises on a
-    ``str`` that is not ASCII, and ``sig`` is whatever the caller typed.
+    The signature is checked first, so "expired" is only said of a link this
+    server minted. Compared in constant time, as bytes: ``compare_digest``
+    raises on a non-ASCII ``str``, and ``sig`` is whatever the caller typed.
     """
     try:
         expires = int(expires)
@@ -116,10 +98,8 @@ def file_path(session_id: str, name: str) -> str:
 def kept_path(workspace: str, name: str) -> str:
     """The unsigned path of one file kept beyond the browser that made it.
 
-    A separate route rather than a flag on the one above, because it is keyed by
-    a different thing: a download belongs to a *browser id*, and a kept file to
-    a *workspace name* that outlives it (§F1.10). One route taking either would
-    have to guess which it was handed, and the two namespaces can collide.
+    Keyed by workspace name where a download is keyed by browser id; the two
+    namespaces can collide, so they are separate routes.
     """
     return f"/kept/{quote(workspace, safe='')}/{quote(name, safe='')}"
 
@@ -127,12 +107,8 @@ def kept_path(workspace: str, name: str) -> str:
 def _url(path: str, token: str | None, base: str, ttl: int) -> str:
     """One path, signed when the server has a token to sign with.
 
-    With authentication off there is nothing to sign and nothing to protect, so
-    the plain path is already the answer.
-
-    Both file routes come through here rather than each signing for itself: a
-    second signing implementation is how one of them ends up unsigned, or signed
-    over a path it does not serve.
+    Every file route signs here, so none ends up unsigned or signed over a path
+    it does not serve.
     """
     return base.rstrip("/") + (sign(path, token, ttl) if token else path)
 

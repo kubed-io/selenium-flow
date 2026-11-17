@@ -15,7 +15,7 @@ from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
 from kubed.selenium_flow.flows.template import FlowError
 
-from .fakes import FakeActions, FakeClock
+from .fakes import FakeActions, FakeClock, Vault
 
 pytestmark = pytest.mark.unit
 
@@ -29,28 +29,6 @@ SIMPLE = [
     {"tool": "write", "args": {"selector": {"css": "#email"}, "text": "a@b.c"}},
     {"tool": "interact", "args": {"action": "click", "selector": {"css": "button"}}},
 ]
-
-
-class Vault:
-    """Just enough catalogue to hand `secrets.bind` one value.
-
-    The guarded-value tests below used to reach this state through a `writeOnly`
-    parameter. There is no such thing now — a parameter is text and non-secret
-    by definition (§F1.38) — so the thing that must not leak is a secret, which
-    is what these were always really about.
-    """
-
-    def __init__(self, value="hunter2"):
-        self.secret = value
-
-    def entry(self, name):
-        return {"name": name, "keys": ["password"], "allowed_urls": [], "restricted": True}
-
-    def allows(self, name, url):
-        return True
-
-    def value(self, name, key):
-        return self.secret
 
 
 SECRET_STEP = {"name": "nextcloud", "key": "password"}
@@ -240,20 +218,46 @@ def test_an_explicit_zero_budget_is_not_read_as_unset(monkeypatch):
 # ---- parameters, structurally ------------------------------------------------
 
 
-def test_a_parameter_reaches_the_step_that_names_it():
-    steps = [
-        {
-            "tool": "write",
-            "args": {"selector": {"css": "#email"}, "text": "${email}"},
-        }
-    ]
-    document = flow(
-        steps,
-        parameters={"type": "object", "properties": {"email": {"type": "string"}}},
-    )
+@pytest.mark.parametrize(
+    ("steps", "parameters", "params", "argument", "expected"),
+    [
+        pytest.param(
+            [{"tool": "write", "args": {"selector": {"css": "#email"}, "text": "${email}"}}],
+            {"type": "object", "properties": {"email": {"type": "string"}}},
+            {"email": "someone@example.test"},
+            "text",
+            "someone@example.test",
+            id="a-parameter-reaches-the-step-that-names-it",
+        ),
+        # Single pass, and the rule that keeps "a payload cannot collide with a
+        # reference" true now that strings are scanned at all. A caller passing
+        # something that looks like a reference gets that text typed, not resolved.
+        pytest.param(
+            [{"tool": "write", "args": {"selector": {"css": "#a"}, "text": "${note}"}}],
+            {"type": "object", "properties": {"note": {}, "admin": {}}},
+            {"note": "${admin}", "admin": "s3cret"},
+            "text",
+            "${admin}",
+            id="a-callers-value-is-never-rescanned",
+        ),
+        # `wait_timeout` wants an integer. Interpolating would hand it "30".
+        pytest.param(
+            [{"tool": "extract", "args": {"selector": {"css": "#a"}, "wait_timeout": "${secs}"}}],
+            {"type": "object", "properties": {"secs": {}}},
+            {"secs": 30},
+            "wait_timeout",
+            30,
+            id="a-string-that-is-exactly-one-reference-keeps-the-value-s-type",
+        ),
+    ],
+)
+def test_a_parameter_reaches_its_step_as_the_caller_gave_it(
+    steps, parameters, params, argument, expected
+):
+    document = flow(steps, parameters=parameters)
     actions = FakeActions()
-    run(actions, document, "b", params={"email": "someone@example.test"})
-    assert actions.calls[0][2]["text"] == "someone@example.test"
+    run(actions, document, "b", params=params)
+    assert actions.calls[0][2][argument] == expected
 
 
 def test_a_missing_required_parameter_is_refused_before_step_one():
@@ -277,34 +281,11 @@ def test_a_parameter_the_flow_does_not_take_is_refused():
         run(FakeActions(), document, "b", params={"nonsense": 1})
 
 
-def test_a_callers_value_is_never_rescanned():
-    """Single pass, and the rule that keeps "a payload cannot collide with a
-    reference" true now that strings are scanned at all. A caller passing
-    something that looks like a reference gets that text typed, not resolved."""
-    steps = [{"tool": "write", "args": {"selector": {"css": "#a"}, "text": "${note}"}}]
-    document = flow(
-        steps,
-        parameters={"type": "object", "properties": {"note": {}, "admin": {}}},
-    )
-    actions = FakeActions()
-    run(actions, document, "b", params={"note": "${admin}", "admin": "s3cret"})
-    assert actions.calls[0][2]["text"] == "${admin}"
-
-
 def test_an_escaped_sigil_arrives_as_one():
     steps = [{"tool": "write", "args": {"selector": {"css": "#a"}, "text": "cost: $${total}"}}]
     actions = FakeActions()
     run(actions, flow(steps), "b")
     assert actions.calls[0][2]["text"] == "cost: ${total}"
-
-
-def test_a_string_that_is_exactly_one_reference_keeps_the_value_s_type():
-    """`wait_timeout` wants an integer. Interpolating would hand it "30"."""
-    steps = [{"tool": "extract", "args": {"selector": {"css": "#a"}, "wait_timeout": "${secs}"}}]
-    document = flow(steps, parameters={"type": "object", "properties": {"secs": {}}})
-    actions = FakeActions()
-    run(actions, document, "b", params={"secs": 30})
-    assert actions.calls[0][2]["wait_timeout"] == 30
 
 
 def test_a_script_containing_a_javascript_template_is_left_alone():
@@ -377,20 +358,48 @@ def test_the_value_still_reaches_the_browser():
 # ---- sources that are not built yet ------------------------------------------
 
 
-def test_a_flow_binding_a_secret_refuses_rather_than_typing_nothing():
-    """A login flow that silently typed nothing into the password field would
-    report success and leave someone staring at a login page."""
-    steps = [
-        {
-            "tool": "write",
-            "args": {"selector": {"css": "#password"}, "secret": {"name": "nextcloud", "key": "password"}},
-            "id": "fill-password",
-        }
-    ]
+@pytest.mark.parametrize(
+    ("steps", "said"),
+    [
+        # A login flow that silently typed nothing into the password field would
+        # report success and leave someone staring at a login page.
+        pytest.param(
+            [
+                {
+                    "tool": "write",
+                    "args": {
+                        "selector": {"css": "#password"},
+                        "secret": {"name": "nextcloud", "key": "password"},
+                    },
+                    "id": "fill-password",
+                }
+            ],
+            "secrets are not enabled",
+            id="a-flow-binding-a-secret-refuses-rather-than-typing-nothing",
+        ),
+        # Saving refuses this, and saving is not the only way a document gets
+        # here: the store reads YAML somebody may have written by hand.
+        pytest.param(
+            [
+                {
+                    "tool": "write",
+                    "args": {
+                        "selector": {"css": "#p"},
+                        "url": "https://evil.test/",
+                        "secret": {"name": "n", "key": "password"},
+                    },
+                }
+            ],
+            "may not also navigate",
+            id="a-stored-step-binding-a-secret-and-a-url-is-refused-at-run-time",
+        ),
+    ],
+)
+def test_a_secret_step_that_cannot_run_fails_before_any_action(steps, said):
     actions = FakeActions()
     report = run(actions, flow(steps), "b")
     assert report["status"] == "failed"
-    assert "secrets are not enabled" in report["steps"][0]["error"]
+    assert said in report["steps"][0]["error"]
     assert actions.calls == []
 
 
@@ -692,26 +701,6 @@ def test_a_flow_saved_in_the_old_format_is_refused_with_the_fix():
     assert actions.calls == []
 
 
-def test_a_stored_step_binding_a_secret_and_a_url_is_refused_at_run_time():
-    """Saving refuses this, and saving is not the only way a document gets
-    here: the store reads YAML somebody may have written by hand."""
-    steps = [
-        {
-            "tool": "write",
-            "args": {
-                "selector": {"css": "#p"},
-                "url": "https://evil.test/",
-                "secret": {"name": "n", "key": "password"},
-            },
-        }
-    ]
-    actions = FakeActions()
-    report = run(actions, flow(steps), "b")
-    assert report["status"] == "failed"
-    assert "may not also navigate" in report["steps"][0]["error"]
-    assert actions.calls == []
-
-
 def test_a_bound_write_in_a_flow_does_not_read_the_field_back():
     """The direct tool and the HTTP endpoint both turned the read-back off and
     the flow path — the main one — did not. The end-to-end test missed it
@@ -846,43 +835,47 @@ def test_a_value_a_later_script_returns_as_a_key_is_hidden_too(return_, verbose)
     assert "hunter2" not in json.dumps(report)
 
 
-def test_an_empty_binding_is_malformed_rather_than_absent():
-    """Save-time validation rejects `secret: {}`, and the store reads YAML
-    that never passed through it — treating it as absent let a literal `text`
-    beside it run instead, which is quietly doing the wrong thing."""
-    steps = [
-        {"tool": "write", "args": {"selector": {"css": "#p"}, "text": "literal", "secret": {}}}
-    ]
+@pytest.mark.parametrize(
+    ("steps", "said"),
+    [
+        # Save-time validation rejects `secret: {}`, and the store reads YAML
+        # that never passed through it — treating it as absent let a literal `text`
+        # beside it run instead, which is quietly doing the wrong thing.
+        pytest.param(
+            [
+                {
+                    "tool": "write",
+                    "args": {"selector": {"css": "#p"}, "text": "literal", "secret": {}},
+                }
+            ],
+            "one value, one place",
+            id="an-empty-binding-is-malformed-rather-than-absent",
+        ),
+        # Saving refuses it, and saving is not the only way a document gets here.
+        # Without this the literal was silently discarded and the credential typed in
+        # its place — a step saying two things quietly becoming a step saying one.
+        pytest.param(
+            [
+                {
+                    "tool": "write",
+                    "args": {"selector": {"css": "#p"}, "text": "literal", "secret": SECRET_STEP},
+                }
+            ],
+            "one value, one place",
+            id="a-literal-beside-a-secret-is-refused-at-run-time-too",
+        ),
+        pytest.param(
+            [{"tool": "write", "args": {"selector": {"css": "#p"}, "secret": {}}}],
+            "needs a name",
+            id="a-malformed-secret-on-its-own-says-what-is-missing",
+        ),
+    ],
+)
+def test_a_malformed_binding_fails_the_step_before_any_action(steps, said):
     actions = FakeActions()
     report = run(actions, flow(steps), "b", catalogue=Vault())
     assert report["status"] == "failed"
-    assert "one value, one place" in report["steps"][0]["error"]
-    assert actions.calls == []
-
-
-def test_a_literal_beside_a_secret_is_refused_at_run_time_too():
-    """Saving refuses it, and saving is not the only way a document gets here.
-    Without this the literal was silently discarded and the credential typed in
-    its place — a step saying two things quietly becoming a step saying one."""
-    steps = [
-        {
-            "tool": "write",
-            "args": {"selector": {"css": "#p"}, "text": "literal", "secret": SECRET_STEP},
-        }
-    ]
-    actions = FakeActions()
-    report = run(actions, flow(steps), "b", catalogue=Vault())
-    assert report["status"] == "failed"
-    assert "one value, one place" in report["steps"][0]["error"]
-    assert actions.calls == []
-
-
-def test_a_malformed_secret_on_its_own_says_what_is_missing():
-    steps = [{"tool": "write", "args": {"selector": {"css": "#p"}, "secret": {}}}]
-    actions = FakeActions()
-    report = run(actions, flow(steps), "b", catalogue=Vault())
-    assert report["status"] == "failed"
-    assert "needs a name" in report["steps"][0]["error"]
+    assert said in report["steps"][0]["error"]
     assert actions.calls == []
 
 
@@ -1069,7 +1062,7 @@ def test_a_stored_flow_that_still_marks_a_parameter_write_only_is_refused():
     been saved through the validator — which is exactly where a marker survives
     a migration. `writeOnly` used to hide a parameter from the report and now
     hides nothing, so an author who trusted it would have the value echoed back
-    by any `return: true` step (§F1.38)."""
+    by any `return: true` step."""
     steps = [
         {"tool": "write", "args": {"selector": {"css": "#p"}, "text": "${password}"}, "return": True}
     ]
@@ -1151,35 +1144,46 @@ def test_a_stored_step_whose_tool_is_not_a_name_is_refused_not_a_crash(tool):
 # ---- declared defaults -------------------------------------------------------
 
 
-def test_a_declared_default_is_supplied_when_the_caller_omits_it():
-    """It was accepted at save, shown in the admin panel as "Default", and then
-    ignored — so `lang: {default: en}` run without `lang` sent the browser to
-    `https://${lang}.wikipedia.org` LITERALLY and died on a DNS error naming
-    nothing to do with the cause."""
-    document = {
-        "name": "wiki",
-        "parameters": {"properties": {"lang": {"type": "string", "default": "en"}}},
-    }
-    assert template.with_defaults(document, {}) == {"lang": "en"}
-
-
-def test_a_value_the_caller_passed_beats_the_default():
-    document = {"parameters": {"properties": {"lang": {"default": "en"}}}}
-    assert template.with_defaults(document, {"lang": "de"}) == {"lang": "de"}
-
-
-def test_an_explicit_none_is_a_value_the_caller_chose():
-    """Overriding it would make `lang: null` mean something different from
-    every other value the caller can pass."""
-    document = {"parameters": {"properties": {"lang": {"default": "en"}}}}
-    assert template.with_defaults(document, {"lang": None}) == {"lang": None}
-
-
-def test_a_parameter_with_no_default_is_left_absent():
-    """Absent and `None` are different answers, and `substitute` leaves an
-    unsupplied reference as written on purpose."""
-    document = {"parameters": {"properties": {"term": {"type": "string"}}}}
-    assert template.with_defaults(document, {}) == {}
+@pytest.mark.parametrize(
+    ("document", "given", "expected"),
+    [
+        # Without it, `lang: {default: en}` run without `lang` sends the browser to
+        # `https://${lang}.wikipedia.org` as written and dies on a DNS error.
+        pytest.param(
+            {
+                "name": "wiki",
+                "parameters": {"properties": {"lang": {"type": "string", "default": "en"}}},
+            },
+            {},
+            {"lang": "en"},
+            id="a-declared-default-is-supplied-when-the-caller-omits-it",
+        ),
+        pytest.param(
+            {"parameters": {"properties": {"lang": {"default": "en"}}}},
+            {"lang": "de"},
+            {"lang": "de"},
+            id="a-value-the-caller-passed-beats-the-default",
+        ),
+        # Overriding it would make `lang: null` mean something different from
+        # every other value the caller can pass.
+        pytest.param(
+            {"parameters": {"properties": {"lang": {"default": "en"}}}},
+            {"lang": None},
+            {"lang": None},
+            id="an-explicit-none-is-a-value-the-caller-chose",
+        ),
+        # Absent and `None` are different answers, and `substitute` leaves an
+        # unsupplied reference as written on purpose.
+        pytest.param(
+            {"parameters": {"properties": {"term": {"type": "string"}}}},
+            {},
+            {},
+            id="a-parameter-with-no-default-is-left-absent",
+        ),
+    ],
+)
+def test_with_defaults_fills_only_what_the_caller_left_out(document, given, expected):
+    assert template.with_defaults(document, given) == expected
 
 
 def test_a_required_parameter_is_not_satisfied_by_its_own_default():
@@ -1265,7 +1269,7 @@ class _Stepping:
 
 
 def test_a_step_says_where_it_went_when_it_went_somewhere():
-    """§F2.7: the cheapest defence left when an author forgets an assert — a
+    """The cheapest defence left when an author forgets an assert — a
     navigation that did not happen becomes visible in a report nobody asked to
     be verbose."""
     actions = _Stepping(
@@ -1721,7 +1725,7 @@ def test_a_run_scrubs_each_step_with_the_origins_it_began_and_ended_on(monkeypat
     from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
     from .conftest import RecordingActions
-    from .test_secret_scope import FakeCatalogue
+    from .fakes import FakeCatalogue
 
     a, b = "https://a.test", "https://b.test"
     catalogue = FakeCatalogue({a: {IN_SCOPE_ID: IN_SCOPE}, b: {}})
@@ -1802,7 +1806,7 @@ def _progress_run(monkeypatch, broken=False):
     from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
     from .conftest import RecordingActions
-    from .test_secret_scope import FakeCatalogue
+    from .fakes import FakeCatalogue
 
     catalogue = FakeCatalogue({"https://a.test": {IN_SCOPE_ID: IN_SCOPE}})
     workspaces = Workspaces(RecordingActions(), MemoryStore(), catalogue=catalogue)

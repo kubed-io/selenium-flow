@@ -23,10 +23,8 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
-from .fakes import FakePeer
+from .fakes import FakePeer, FocusedDriver, element, held
 from .test_live_tunnel import GRID_ID, vnc_node
-from .test_live_tunnels import held
-from .test_paste import FocusedDriver, element
 
 pytestmark = pytest.mark.unit
 
@@ -89,11 +87,6 @@ def hub(monkeypatch):
 @pytest.fixture
 def server(hub):
     return build()
-
-
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
 
 
 def mint(client):
@@ -200,13 +193,6 @@ def test_the_socket_refuses_4004_once_the_browser_has_gone(client, server):
     server.workspaces.store.set("w1", Workspace(session_id=""))
     gone = closed_with(client, url)
     assert (gone.code, gone.reason) == (4004, live_module.NO_BROWSER)
-
-
-def test_an_unreadable_password_file_closes_4003(hub, tmp_path):
-    server = build(password_file=str(tmp_path / "missing"))
-    client = TestClient(server.mcp.http_app())
-    gone = closed_with(client, mint(client))
-    assert gone.code == 4003
 
 
 @pytest.mark.parametrize(

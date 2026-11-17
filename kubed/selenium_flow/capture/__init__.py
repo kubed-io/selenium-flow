@@ -2,18 +2,17 @@
 
 The monitor holds a connection for a session opened with ``capture`` and hands
 every event to `store.Capture` (its `Sink`). Capture keeps two bounded buffers
-per workspace — the console and the requests — masked once, at capture, for
-the buffer and the live tail alike (capture spec §4, ruling 13), and reads them
-back for the resources, the admin's Captured view and a call's hint.
+per workspace, the console and the requests, masked once at capture for the
+buffer and the live tail alike, and reads them back for the resources, the
+admin's Captured view and a call's hint.
 
-The package is kernel: plain Python and `cachetools`, nothing of the protocol
-layers and no Selenium (`tests/test_boundaries.py`). This module is the
-constants, verbatim from the spec.
+The package imports no protocol layer and no Selenium
+(`tests/test_boundaries.py`). This module holds the constants the spec names.
 """
 
 from __future__ import annotations
 
-# The capture subscription and the data collector it adds (spec §2).
+# The capture subscription and the data collector it adds.
 EVENTS = (
     "log.entryAdded",
     "network.beforeRequestSent",
@@ -32,54 +31,48 @@ COLLECTOR = {
     "collectorType": "blob",
 }
 
-# Buffer sizes and expiry (ruling 10).
 CONSOLE_LIMIT = 1000
 REQUEST_LIMIT = 1000
 NAVIGATIONS = 5
 DEFAULT_TTL = 10_800
 
-# Caps on what one entry may hold (spec §4), the tail's queue (ruling 2) and a
-# fetched body (ruling 11).
+# Caps on what one entry may hold, the tail's queue and a fetched body.
 TEXT_CAP = 4096
 HEADER_LIMIT = 32
 HEADER_VALUE_CAP = 4096
 # A header's name, and the bytes of names and values one side of a request may
 # keep: a hostile page and its server choose how many large headers there are,
-# and 32 of 4 kB a side, 1 000 rows a workspace, is half a gigabyte.
+# and 32 of 4 kB a side, 1000 rows a workspace, is half a gigabyte.
 HEADER_NAME_CAP = 256
 HEADER_BYTES = 16_384
 TAIL_QUEUE = 500
 BODY_CAP = 100_000
 
 REPLAY_DEPTH = 100  # Chrome replays the last 100 per browsing context (measured)
-WORKSPACES = 256  # plan ruling 15
+WORKSPACES = 256
 
 # While the secrets in scope on a context's new origin are read, its events
-# wait, raw, and are masked once they land (secret-scope spec, rulings 9 and
-# 22): at most PENDING_EVENTS per context, and none older than PENDING_SECONDS
-# when the next arrives. What either bound drops is counted, never kept raw.
+# wait raw and are masked once they land: at most PENDING_EVENTS per context,
+# and none older than PENDING_SECONDS when the next arrives. What either bound
+# drops is counted, never kept raw.
 PENDING_EVENTS = 200
 PENDING_SECONDS = 10
 
-# Masking (ruling 13).
 MASK = "•••"
 MASKED_HEADERS = frozenset(
     {"authorization", "proxy-authorization", "cookie", "set-cookie"}
 )
 # A value one of those headers (or a request cookie) carried is masked wherever
-# else it appears — a page can echo it. Each is kept with every spelling an echo
-# gives it (its forms), and every form costs every masked text a scan, so what a
-# session learns is a budget of forms and of their characters, in two tiers: an
-# Authorization token's, which cookies cannot evict, the least recently seen
-# going first; and the cookies', which past the budget holds the cookies that
-# rank highest (`masking._Ranked`), one not sent for COOKIE_STALE events
-# ranking below every one that was, each cookie domain sure of 1/COOKIE_SHARE
-# of it against the others. A value is learned only when it can be a secret:
-# an Authorization token of CREDENTIAL_MIN or more, a cookie of COOKIE_MIN or
-# more, neither only letters nor only digits ("accepted", "undefined", a
-# timestamp), none holding a NUL, and none over CREDENTIAL_MAX — a token spelt
-# as RFC 6750's b64token, AUTH_MAX — which is counted as ``unmasked`` instead,
-# once per value.
+# else it appears, since a page can echo it, in every spelling an echo gives it
+# (its forms). Every form costs every masked text a scan, so what a session
+# learns is a budget of forms and of their characters, in two tiers: the
+# Authorization tokens', which cookies cannot evict, least recently seen going
+# first; and the cookies', which holds the highest ranked (`masking._Ranked`).
+# A value is learned only when it can be a secret: a token of CREDENTIAL_MIN or
+# more, a cookie of COOKIE_MIN or more, neither only letters nor only digits
+# ("accepted", "undefined", a timestamp), with no NUL, and none over
+# CREDENTIAL_MAX (AUTH_MAX for a token spelt as RFC 6750's b64token); one too
+# long is counted once as ``unmasked``.
 AUTH_FORMS = 16
 COOKIE_FORMS = 48
 FORM_CHARS = 32_768  # per tier, past the one value it may be over by
@@ -91,8 +84,8 @@ COOKIE_STALE = 64  # events: a request is two or three (cookies, headers, respon
 COOKIE_SHARE = 2  # each cookie domain is sure of 1/2 of the cookie tier
 COOKIE_TAKES = 8  # new cookies an event learns at most, the highest-ranked
 
-# Counted, not kept, when they succeed (ruling 3); counted in the hint when they
-# fail (ruling 12).
+# Counted, not kept, when they succeed. HINTED_TYPES count in the hint when
+# they fail.
 STATIC_TYPES = frozenset({"stylesheet", "image", "font", "script", "media"})
 HINTED_TYPES = frozenset({"document", "fetch", "xhr"})
 
@@ -104,6 +97,5 @@ MAX_PAGES = NAVIGATIONS
 CONSOLE_URI = "workspace://console"
 NETWORK_URI = "workspace://network"
 
-# A capture resource of a workspace that does not capture says so; it is not an
-# error (spec §7).
+# What every capture resource of a workspace that does not capture answers.
 OFF = {"capture": False, "how": "open_session(capture=true)"}

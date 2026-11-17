@@ -1,22 +1,15 @@
 """Tell the agent, on its own results, that a person has control of its browser.
 
-`Controls.notice` knows (live view, ruling 35; live control, ruling 5). This is
-the MCP half: a middleware that adds the notice to a tool's result, as text and
-as a ``control`` field in its structured content, or to its error. Claude Code
-shows a model only the structured content of a result that has some, so a
-notice in text alone is never seen on a success. The HTTP surface carries
-none, by design (ruling 18). The name is read the way `clients.caller()` reads
-it, never from `ctx.session_id`, and a caller that names no workspace hears
-nothing and keeps its own answer.
+A middleware adds `Controls.notice` to a tool's result, as text and as a
+``control`` field in its structured content, or to its error. Claude Code shows
+a model only the structured content of a result that has some, so a notice in
+text alone is never seen on a success. The HTTP surface carries none. A caller
+that names no workspace hears nothing.
 
-A refusal (`faults.Controlled`) already says it, so it is answered as it is.
-A call that became a task returns its stub (`CreateTaskResult`), which has no
-text to add to: it passes untouched, and an unsaid hand-back stays unsaid for
-the next result (R1).
-
-`await_control` is passed through whole: its answer says control itself, and
-the notice would replace its ``control`` (the summary's, or null) with the
-episode's and spend a hand-back it did not say.
+Passed through untouched: a refusal (`faults.Controlled`), which says it
+already; a task's stub (`CreateTaskResult`), which has no text to add to, so an
+unsaid hand-back waits for the next result; and `await_control`, whose
+``control`` the notice would replace, spending a hand-back it did not say.
 """
 
 from __future__ import annotations
@@ -40,8 +33,7 @@ class Notices(Middleware):
 
     def _notice(self) -> dict | None:
         # Read at the call's end, so a call in flight when a person asked
-        # carries it. Whatever stops the name being read is no reason to
-        # change the call's answer.
+        # carries it. A name that cannot be read leaves the answer alone.
         caller = clients.caller()
         if caller.refusal is not None or not caller.named:
             return None
@@ -60,7 +52,7 @@ class Notices(Middleware):
                 raise
             raise ToolError(f"{exc}\n\n{notice['hint']}") from exc.__cause__
         if not isinstance(result, ToolResult):
-            return result  # a task's stub: nothing to say it on (R1)
+            return result  # a task's stub: nothing to say it on
         notice = self._notice()
         if notice is None:
             return result

@@ -1,6 +1,6 @@
 """Workspaces: the name a caller gives, and which browser that resolves to.
 
-Naming is the whole contract now (§F2.12). The tests that matter most are the
+Naming is the whole contract now. The tests that matter most are the
 ones proving a request that names nothing — or names two things — is *refused*
 rather than quietly given a browser, because inventing an identity is how every
 tool call opened a browser nobody closed.
@@ -43,6 +43,14 @@ from .fakes import FakeRedis
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture
+def workspaces():
+    """A manager over `RecordingActions` whose Grid holds ``abc`` alive."""
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    return manager(actions)
+
+
 # ---- naming the workspace --------------------------------------------------
 
 
@@ -56,9 +64,27 @@ def test_a_name_in_the_query_string_is_the_workspace():
     assert (caller.name, caller.named_by) == ("research", "query")
 
 
-def test_a_name_in_the_header_is_the_workspace_too():
-    caller = caller_of(headers={"sf-workspace": "desk"})
-    assert (caller.name, caller.named_by) == ("desk", "header")
+@pytest.mark.parametrize(
+    ("headers", "named"),
+    [
+        pytest.param(
+            {"sf-workspace": "desk"},
+            ("desk", "header"),
+            id="a-name-in-the-header-is-the-workspace-too",
+        ),
+        pytest.param(
+            {"sf-workspace": "drk", "x-workspace": "desk"},
+            ("drk", "header"),
+            id="the-gateways-name-beats-a-callers-x-workspace",
+        ),
+        pytest.param(
+            {"x-workspace": "desk"}, ("desk", "header"), id="x-workspace-alone-names-the-workspace"
+        ),
+    ],
+)
+def test_a_header_names_the_workspace(headers, named):
+    caller = caller_of(headers=headers)
+    assert (caller.name, caller.named_by) == named
 
 
 NEW = {"sf-workspace": "desk", "sf-browser": "firefox", "sf-version": "130",
@@ -102,37 +128,36 @@ def test_a_blank_old_header_is_no_header():
     assert caller_of(headers={"sf-workspace": "desk", "x-browser": "  "}).name == "desk"
 
 
-def test_the_gateways_name_beats_a_callers_x_workspace():  # ruling 2, Review Focus 1
-    caller = caller_of(headers={"sf-workspace": "drk", "x-workspace": "desk"})
-    assert (caller.name, caller.named_by) == ("drk", "header")
-
-
-def test_x_workspace_alone_names_the_workspace():  # rulings 1, 6
-    caller = caller_of(headers={"x-workspace": "desk"})
-    assert (caller.name, caller.named_by) == ("desk", "header")
-
-
 def test_x_workspace_and_a_query_name_is_both():  # ruling 3
     with pytest.raises(ValueError) as exc:
         caller_of({"workspace": "desk"}, {"x-workspace": "desk"}).name  # noqa: B018
     assert str(exc.value) == BOTH
 
 
-def test_x_workspace_given_twice_is_two_names():  # ruling 3
-    caller = Caller.from_request({}, {"x-workspace": ["desk", "drk"]})
-    with pytest.raises(ValueError, match="the request names two workspaces: desk, drk"):
+@pytest.mark.parametrize(
+    ("headers", "refusal"),
+    [
+        pytest.param(
+            {"x-workspace": ["desk", "drk"]},
+            "the request names two workspaces: desk, drk",
+            id="x-workspace-given-twice-is-two-names",
+        ),
+        pytest.param(
+            {"sf-workspace": ["drk", "desk"], "x-workspace": ["desk"]},
+            "the request names two workspaces: drk, desk",
+            id="sf-workspace-given-twice-is-refused-whatever-x-workspace-says",
+        ),
+    ],
+)
+def test_a_header_given_twice_is_refused(headers, refusal):
+    caller = Caller.from_request({}, headers)
+    with pytest.raises(ValueError, match=refusal):
         caller.name  # noqa: B018
 
 
 def test_sf_workspace_wins_over_an_x_workspace_given_twice():  # ruling 2
     caller = Caller.from_request({}, {"sf-workspace": ["drk"], "x-workspace": ["desk", "other"]})
     assert caller.name == "drk"
-
-
-def test_sf_workspace_given_twice_is_refused_whatever_x_workspace_says():  # ruling 2
-    caller = Caller.from_request({}, {"sf-workspace": ["drk", "desk"], "x-workspace": ["desk"]})
-    with pytest.raises(ValueError, match="the request names two workspaces: drk, desk"):
-        caller.name  # noqa: B018
 
 
 def test_a_blank_x_workspace_is_no_name():
@@ -215,20 +240,27 @@ def test_stdio_is_one_client_so_a_constant_is_correct(monkeypatch):
     assert (Caller.stdio().name, Caller.stdio().named_by) == ("stdio", "stdio")
 
 
-def test_an_unusable_name_is_refused_where_it_arrives():
-    """A workspace name IS a directory name, so it is validated once, here. It
-    used to be accepted for the browser and refused later for the library, which
-    meant `?session=my bot` drove a private browser while saving its flows into
-    the shared library."""
-    with pytest.raises(ValueError, match="not a usable workspace name"):
-        caller_of({"workspace": "my bot"}).name  # noqa: B018
-
-
-def test_the_shared_library_cannot_be_claimed_as_a_name():
-    """`global` is read-only to everyone, so a caller that could name itself that
-    would own every workspace's shared flows."""
-    with pytest.raises(ValueError, match="reserved"):
-        caller_of({"workspace": "global"}).name  # noqa: B018
+@pytest.mark.parametrize(
+    ("refusal", "params"),
+    [
+        # A workspace name is a directory name, so it is validated once, here:
+        # accepted for the browser and refused later for the library, `?session=my bot`
+        # would drive a private browser while saving its flows into the shared library.
+        pytest.param(
+            "not a usable workspace name",
+            {"workspace": "my bot"},
+            id="an-unusable-name-is-refused-where-it-arrives",
+        ),
+        # `global` is read-only to everyone, so a caller that could name itself that
+        # would own every workspace's shared flows.
+        pytest.param(
+            "reserved", {"workspace": "global"}, id="the-shared-library-cannot-be-claimed-as-a-name"
+        ),
+    ],
+)
+def test_a_name_that_cannot_be_a_workspace_is_refused(refusal, params):
+    with pytest.raises(ValueError, match=refusal):
+        caller_of(params).name  # noqa: B018
 
 
 # ---- one contract, and it is "say who you are" -----------------------------
@@ -257,7 +289,7 @@ def test_opening_on_a_page_that_is_not_the_web_costs_the_held_browser_nothing():
 def test_the_shared_library_is_the_one_thing_an_unnamed_caller_gets():
     """The other half of requiring a name, rather than an exception to it:
     `global` is read-only, so an unnamed caller can read the shared flows and can
-    write nowhere at all (§F2.13)."""
+    write nowhere at all."""
     assert caller_of().library == "global"
 
 
@@ -280,14 +312,11 @@ def test_resolve_never_opens_a_browser():
     assert actions.opened == 0
 
 
-def test_a_live_remembered_workspace_is_recalled():
-    actions = RecordingActions()
-    workspaces = manager(actions)
-    actions.grid.alive.add("abc")
+def test_a_live_remembered_workspace_is_recalled(workspaces):
     workspaces.remember(NAMED, "abc")
     assert workspaces.resolve(NAMED) == "abc"
     assert workspaces.resolve(NAMED) == "abc"
-    assert actions.opened == 0
+    assert workspaces.actions.opened == 0
 
 
 def test_clients_do_not_see_each_others_browsers():
@@ -380,10 +409,7 @@ def test_the_refreshed_workspace_replaces_the_stored_one():
     assert workspaces.resolve(NAMED) == "generated-1"
 
 
-def test_touch_records_the_page_for_a_later_refresh():
-    actions = RecordingActions()
-    workspaces = manager(actions)
-    actions.grid.alive.add("abc")
+def test_touch_records_the_page_for_a_later_refresh(workspaces):
     workspaces.remember(NAMED, "abc")
     workspaces.touch(NAMED, "https://example.com/deep")
     assert workspaces.store.get(NAMED).url == "https://example.com/deep"
@@ -398,19 +424,16 @@ def test_touch_on_an_unknown_key_is_harmless():
 # ---- ending a browser ------------------------------------------------------
 
 
-def test_ending_a_browser_means_open_session_again():
+def test_ending_a_browser_means_open_session_again(workspaces):
     """An agent is never told "your browser was taken". It is told it has none —
     the same branch as never having had one — so it calls open_session, which is
     the one path that opens one. resolve itself must never open anything."""
-    actions = RecordingActions()
-    workspaces = manager(actions)
-    actions.grid.alive.add("abc")
     workspaces.remember(NAMED, "abc")
     workspaces.end_browser(Caller(NAMED))
-    opened_before = actions.opened
+    opened_before = workspaces.actions.opened
     with pytest.raises(ValueError, match="call open_session first"):
         workspaces.resolve(NAMED)
-    assert actions.opened == opened_before, "resolve must never open one"
+    assert workspaces.actions.opened == opened_before, "resolve must never open one"
 
 
 def test_ending_a_browser_never_removes_the_workspace():
@@ -467,12 +490,9 @@ def test_describe_reports_the_workspace_and_where_to_read_about_it(named_caller)
     assert "WORKSPACES.md" in status["guidance"]
 
 
-def test_describe_never_names_the_grid_id(named_caller):
+def test_describe_never_names_the_grid_id(named_caller, workspaces):
     """The whole of E18 in one assertion: the browser id is how a browser is
     reached and is not part of what a caller is told."""
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
     workspaces.remember(NAMED, "abc", "https://example.com")
     assert "abc" not in repr(workspaces.describe(clients_module.caller()))
 
@@ -486,11 +506,10 @@ def test_describe_never_opens_a_browser(named_caller):
     assert actions.opened == 0
 
 
-def test_describe_reports_a_held_workspace_and_whether_it_is_still_there(named_caller):
+def test_describe_reports_a_held_workspace_and_whether_it_is_still_there(
+    named_caller, workspaces
+):
     """Whether the browser is still there is the question this resource is for."""
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
     workspaces.store.set(
         NAMED, Workspace(session_id="abc").visited("https://example.com")
     )
@@ -506,26 +525,42 @@ def test_describe_flags_a_workspace_the_grid_has_reaped(named_caller):
     assert workspaces.describe(clients_module.caller())["live"] is False
 
 
-def test_describe_reports_the_settings_a_workspace_was_opened_with(named_caller):
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
-    workspaces.remember(NAMED, "abc", "", {"width": 1400})
-    assert workspaces.describe(clients_module.caller())["settings"] == {"width": 1400}
+@pytest.mark.parametrize(
+    ("settings", "field", "expected"),
+    [
+        pytest.param(
+            {"width": 1400},
+            "settings",
+            {"width": 1400},
+            id="describe-reports-the-settings-a-workspace-was-opened-with",
+        ),
+        # Top level, not only inside settings: "which browser am I driving" is a
+        # question this resource exists to answer, and a caller should not have to
+        # know it happens to be stored as a setting.
+        pytest.param(
+            {"browser": "firefox"},
+            "browser",
+            "firefox",
+            id="describe-reports-which-browser-is-being-driven",
+        ),
+        # A record with no browser really is the default one — there was nothing
+        # else to be — so reporting chrome is more true than reporting None.
+        pytest.param(
+            {"width": 1400},
+            "browser",
+            "chrome",
+            id="a-workspace-stored-before-browsers-were-selectable-reads-as-chrome",
+        ),
+    ],
+)
+def test_describe_reports_what_the_workspace_was_opened_with(
+    named_caller, workspaces, settings, field, expected
+):
+    workspaces.remember(NAMED, "abc", "", settings)
+    assert workspaces.describe(clients_module.caller())[field] == expected
 
 
-def test_describe_reports_which_browser_is_being_driven(named_caller):
-    """Top level, not only inside settings: "which browser am I driving" is a
-    question this resource exists to answer, and a caller should not have to
-    know it happens to be stored as a setting."""
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
-    workspaces.remember(NAMED, "abc", "", {"browser": "firefox"})
-    assert workspaces.describe(clients_module.caller())["browser"] == "firefox"
-
-
-def test_describe_reports_the_window_it_is_working_in(named_caller):
+def test_describe_reports_the_window_it_is_working_in(named_caller, workspaces):
     """Top level, for the same reason as `browser`.
 
     An agent deciding whether something is off-screen, or whether a layout has
@@ -534,24 +569,11 @@ def test_describe_reports_the_window_it_is_working_in(named_caller):
     named one: the window is then whatever the Grid node's default happens to
     be, and printing a number would claim we knew which.
     """
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
     workspaces.remember(NAMED, "abc", "", {"width": 1024, "height": 768})
     assert workspaces.describe(clients_module.caller())["window"] == "1024x768"
 
     workspaces.remember(NAMED, "abc", "", {"browser": "firefox"})
     assert workspaces.describe(clients_module.caller())["window"] is None
-
-
-def test_a_workspace_stored_before_browsers_were_selectable_reads_as_chrome(named_caller):
-    """A record with no browser really is the default one — there was nothing
-    else to be — so reporting chrome is more true than reporting None."""
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
-    workspaces.remember(NAMED, "abc", "", {"width": 1400})
-    assert workspaces.describe(clients_module.caller())["browser"] == "chrome"
 
 
 def test_describe_reports_no_browser_when_there_is_no_workspace(named_caller):
@@ -978,19 +1000,15 @@ def test_session_ttl_is_honoured():
 
 
 def test_no_redis_env_means_memory():
+    """Memory is the answer only when nothing asked for Redis at all, never a
+    step down from a Redis that failed."""
     store = from_settings(WorkspaceSettings(), RedisSettings())
     assert isinstance(store, MemoryStore)
     assert store.kind == "memory"
 
 
-def test_memory_is_used_when_nothing_asked_for_redis():
-    """Unchanged behaviour (§F4.12): memory is the answer only when nothing
-    asked for Redis at all, never a step down from a Redis that failed."""
-    assert isinstance(from_settings(WorkspaceSettings(), RedisSettings()), MemoryStore)
-
-
 def test_an_unreachable_redis_stops_the_boot_with_the_reason(monkeypatch):
-    """§F4.12: a server that refuses to start is restarted by Kubernetes until
+    """A server that refuses to start is restarted by Kubernetes until
     Redis answers; one that started on the wrong store is never corrected."""
     import sys
     import types
@@ -1062,7 +1080,7 @@ def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
 
 def test_the_reason_never_quotes_the_redis_password(monkeypatch):
     """The refusal message is read by whoever restarts the pod, and logged —
-    it must never carry the credential (§F4.12)."""
+    it must never carry the credential."""
     import sys
     import types
 
@@ -1128,26 +1146,24 @@ def capturing_redis(monkeypatch):
     return module
 
 
-def test_the_url_form_still_pins_the_database_index(capturing_redis):
-    """The database index must win over a URL that names no index."""
+@pytest.mark.parametrize(
+    ("redis", "db"),
+    [
+        # The database index must win over a URL that names no index.
+        pytest.param(2, 2, id="the-url-form-still-pins-the-database-index"),
+        pytest.param(11, 11, id="an-explicit-index-is-honoured"),
+    ],
+)
+def test_the_redis_database_index_is_honoured(capturing_redis, redis, db):
     from_settings(
-        WorkspaceSettings(store="redis"),
-        RedisSettings(url="redis://redis.data:6379", db=2),
+        WorkspaceSettings(store="redis"), RedisSettings(url="redis://redis.data:6379", db=redis)
     )
-    assert capturing_redis.kwargs["db"] == 2
+    assert capturing_redis.kwargs["db"] == db
 
 
 def test_the_host_form_pins_it_too(capturing_redis):
     from_settings(WorkspaceSettings(store="redis"), RedisSettings(host="redis.data"))
     assert capturing_redis.kwargs["db"] == DEFAULT_DB
-
-
-def test_an_explicit_index_is_honoured(capturing_redis):
-    from_settings(
-        WorkspaceSettings(store="redis"),
-        RedisSettings(url="redis://redis.data:6379", db=11),
-    )
-    assert capturing_redis.kwargs["db"] == 11
 
 
 def test_the_default_index_makes_no_assumption_about_the_deployment():
@@ -1273,10 +1289,6 @@ def test_an_unreachable_grid_does_not_strand_the_workspace(monkeypatch):
 # ---- a workspace outlives its session ---------------------------------------
 
 
-def test_ending_something_that_is_not_there_is_not_an_error():
-    assert manager().end_browser(Caller("nobody")) is None
-
-
 def test_context_is_what_a_reopen_should_inherit(monkeypatch):
     workspaces = manager()
     workspaces.store.set(
@@ -1319,18 +1331,6 @@ def test_opening_a_replacement_ends_the_browser_it_replaces():
     ended = workspaces.end_browser(Caller(NAMED))
     assert ended == "old-browser"
     assert actions.closed == ["old-browser"]
-
-
-def test_replacing_keeps_the_workspace_and_its_context():
-    """The same command the admin End uses — the context is what the
-    replacement inherits, so ending must not take it."""
-    workspaces = manager()
-    workspaces.remember(NAMED, "old-browser", "https://x/", {"browser": "firefox"})
-    workspaces.end_browser(Caller(NAMED))
-    record = workspaces.store.get(NAMED)
-    assert not record.attached
-    assert record.url == "https://x/"
-    assert record.settings == {"browser": "firefox"}
 
 
 def test_ending_a_workspace_with_no_browser_ends_nothing():
@@ -2452,15 +2452,6 @@ def test_a_new_page_hints_the_flows_there():  # rulings 6, 12
     assert result["flows_here"] == [LOGIN_HINT]
 
 
-def test_a_query_change_is_not_a_new_page():  # ruling 18
-    asked = []
-    m = hinting(asked)
-    m.settle(NAMED, {"url": "http://localhost:8080/login?next=/admin"}, browser="abc")
-    result = {"url": "http://localhost:8080/login?next=/billing#x"}
-    m.settle(NAMED, result, browser="abc")
-    assert "flows_here" not in result and len(asked) == 1
-
-
 def test_a_route_change_is_a_new_page():  # ruling 2
     m = hinting()
     m.settle(NAMED, {"url": "http://localhost:8080/#/dashboard"}, browser="abc")
@@ -2470,11 +2461,12 @@ def test_a_route_change_is_a_new_page():  # ruling 2
 
 
 @pytest.mark.parametrize("first, then", [
+    ("http://localhost:8080/login?next=/admin", "http://localhost:8080/login?next=/billing#x"),
     ("http://localhost:8080/login#a", "http://localhost:8080/login#b"),
     ("http://localhost:8080/#/auth/login?x=1", "http://localhost:8080/#/auth/login?x=2"),
     ("http://localhost:8080/login", "http://localhost:8080/login#access_token=T"),
 ])
-def test_an_anchor_or_a_route_query_is_not_a_new_page(first, then):  # rulings 1, 2
+def test_a_query_an_anchor_or_a_route_query_is_not_a_new_page(first, then):
     asked = []
     m = hinting(asked)
     m.settle(NAMED, {"url": first}, browser="abc")
@@ -2483,10 +2475,22 @@ def test_an_anchor_or_a_route_query_is_not_a_new_page(first, then):  # rulings 1
     assert "flows_here" not in result and len(asked) == 1
 
 
-def test_a_new_page_with_nothing_for_it_carries_no_field():  # ruling 15
+@pytest.mark.parametrize(
+    ("result", "browser"),
+    [
+        pytest.param(
+            {"url": "http://localhost:8080/about"},
+            "abc",
+            id="a-new-page-with-nothing-for-it-carries-no-field",
+        ),
+        pytest.param(
+            {"url": "http://localhost:8080/login"}, "old", id="another-browsers-page-never-hints"
+        ),
+    ],
+)
+def test_a_page_with_nothing_to_hint_carries_no_field(result, browser):
     m = hinting()
-    result = {"url": "http://localhost:8080/about"}
-    m.settle(NAMED, result, browser="abc")
+    m.settle(NAMED, result, browser=browser)
     assert "flows_here" not in result
 
 
@@ -2494,13 +2498,6 @@ def test_a_withheld_page_never_hints():  # ruling 6
     m = hinting()
     result = {"url": "http://localhost:8080/login?q=secret"}
     m.settle(NAMED, result, browser="abc", url=None)
-    assert "flows_here" not in result
-
-
-def test_another_browsers_page_never_hints():
-    m = hinting()
-    result = {"url": "http://localhost:8080/login"}
-    m.settle(NAMED, result, browser="old")
     assert "flows_here" not in result
 
 

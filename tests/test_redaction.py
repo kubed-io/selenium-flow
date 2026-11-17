@@ -84,8 +84,26 @@ def test_a_short_value_is_masked_only_where_it_stands_alone():            # ruli
     assert scrub("abc, labcd", forms) == "[secret:s/k], labcd"
 
 
-def test_folding_keeps_spans_aligned_after_a_wider_lowercase():          # ruling 18
-    assert scrub("İ HUNTER22", Forms.of("hunter22", ID)) == f"İ {M}"
+@pytest.mark.parametrize(
+    ("text", "value", "expected"),
+    [
+        pytest.param(
+            "İ HUNTER22",
+            "hunter22",
+            f"İ {M}",
+            id="folding-keeps-spans-aligned-after-a-wider-lowercase",
+        ),
+        # An env or inline value may hold CRLF; a page's HTML and `<pre>` text hold LF.
+        pytest.param(
+            "<pre>a1b2\nc3d4\ne5</pre>",
+            "a1b2\r\nc3d4\re5",
+            f"<pre>{M}</pre>",
+            id="a-crlf-value-read-back-as-the-html-parser-makes-it-is-masked",
+        ),
+    ],
+)
+def test_a_value_the_page_reshapes_is_still_masked(text, value, expected):
+    assert scrub(text, Forms.of(value, ID)) == expected
 
 
 def test_base64_is_matched_exactly():
@@ -109,11 +127,6 @@ PEM = "-----BEGIN KEY-----\nMIIEabc123\n-----END KEY-----"
 def test_a_value_read_with_its_whitespace_runs_as_one_space_is_masked(value, read):
     """WebDriver's element text and `js/helpers.textOf` read a page that way."""
     assert scrub(f"<p>{read}</p>", Forms.of(value, ID)) == f"<p>{M}</p>"
-
-
-def test_a_crlf_value_read_back_as_the_html_parser_makes_it_is_masked():
-    """An env or inline value may hold CRLF; a page's HTML and `<pre>` text hold LF."""
-    assert scrub("<pre>a1b2\nc3d4\ne5</pre>", Forms.of("a1b2\r\nc3d4\re5", ID)) == f"<pre>{M}</pre>"
 
 
 def test_a_value_read_with_its_line_breaks_removed_is_still_masked():
@@ -259,8 +272,20 @@ def test_clip_leaves_a_short_text_alone():
     assert clip("é" * 3, 6, unit="bytes") == ("é" * 3, False)
 
 
-def test_clip_cuts_characters():
-    assert clip("abcdef", 4) == ("abcd", True)
+@pytest.mark.parametrize(
+    ("text", "limit", "expected"),
+    [
+        pytest.param("abcdef", 4, ("abcd", True), id="clip-cuts-characters"),
+        pytest.param(
+            "ab[secret:open ended",
+            6,
+            ("ab[sec", True),
+            id="clip-keeps-text-that-only-looks-like-a-marker-start",
+        ),
+    ],
+)
+def test_clip_cuts_by_characters(text, limit, expected):
+    assert clip(text, limit) == expected
 
 
 def test_clip_cuts_bytes_on_a_character():
@@ -288,5 +313,3 @@ def test_clip_lands_before_a_marker_whose_start_it_would_split():
     assert clip(text, 4) == ("ab", True)  # `[s` of `[secret:` would be left
 
 
-def test_clip_keeps_text_that_only_looks_like_a_marker_start():
-    assert clip("ab[secret:open ended", 6) == ("ab[sec", True)

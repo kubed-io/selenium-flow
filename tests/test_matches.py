@@ -10,7 +10,6 @@ from selenium.webdriver.common.by import By
 from kubed.selenium_flow.core import browser, probe
 
 from .fakes import ScriptedElement
-from .test_actions_contract import pointer_lands  # noqa: F401
 
 pytestmark = pytest.mark.unit
 
@@ -127,12 +126,12 @@ def two_matches(driver):
     lambda a: a.write("abc", "hi", selector={"css": "#x"}),
     lambda a: a.press_key("abc", "Tab", selector={"css": "#x"}),
 ])
-def test_an_action_says_which_match_it_used(actions, scripted, pointer_lands, call):  # noqa: F811
+def test_an_action_says_which_match_it_used(actions, scripted, pointer_lands, call):
     two_matches(scripted())
     result = call(actions)
     assert (result["matched"], result["index"]) == (2, 1)
 
 
-def test_one_match_adds_nothing_to_the_result(actions, scripted, pointer_lands):  # noqa: F811
+def test_one_match_adds_nothing_to_the_result(actions, scripted, pointer_lands):
     scripted()
     assert "matched" not in actions.interact("abc", "click", selector={"css": "#x"})

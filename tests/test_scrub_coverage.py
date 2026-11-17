@@ -561,7 +561,7 @@ async def test_the_value_reached_every_surface_it_was_checked_on(server, leaky, 
     the value - shown as its marker - so the check above looked at something."""
     answers = dict(await every_answer(server, leaky, monkeypatch))
     for row in CAPABILITIES:
-        if row.name in ("end_browser",):
+        if row.name == "end_browser":
             continue
         for where in (f"mcp {row.name} ok", f"http {row.name} ok"):
             assert MARKED in answers[where], where
@@ -598,7 +598,7 @@ def _scrubbed_server(monkeypatch, scopes, *, name=NAMED):
     from kubed.selenium_flow.workspace.workspaces import Workspaces
 
     from .conftest import RecordingActions, calling_as
-    from .test_secret_scope import FakeCatalogue
+    from .fakes import FakeCatalogue
 
     catalogue = FakeCatalogue(scopes) if scopes is not None else None
     workspaces = Workspaces(RecordingActions(), MemoryStore(), catalogue=catalogue)

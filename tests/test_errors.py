@@ -42,14 +42,21 @@ def test_a_connection_failure_does_not_quote_the_url_either():
     assert "Max retries" in said, "the diagnosis has to survive the scrub"
 
 
-def test_the_scrub_keeps_a_message_that_carries_no_url():
-    """Nothing to strip, nothing changed."""
-    assert faults.message(ValueError("no such flow")) == "no such flow"
-
-
-def test_an_error_with_no_text_still_says_something():
-    """An empty message is worse than a class name."""
-    assert faults.message(ValueError("")) == "ValueError"
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        # Nothing to strip, nothing changed.
+        pytest.param(
+            "no such flow",
+            "no such flow",
+            id="the-scrub-keeps-a-message-that-carries-no-url",
+        ),
+        # An empty message is worse than a class name.
+        pytest.param("", "ValueError", id="an-error-with-no-text-still-says-something"),
+    ],
+)
+def test_the_message_says_something_true(error, expected):
+    assert faults.message(ValueError(error)) == expected
 
 
 @pytest.mark.parametrize(

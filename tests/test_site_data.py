@@ -11,17 +11,11 @@ from kubed.selenium_flow.site_data import snapshot as sd
 from kubed.selenium_flow.site_data import transfer
 from kubed.selenium_flow.workspace.store import Workspace
 
+from .site_data_fakes import cookie
+
 pytestmark = pytest.mark.unit
 
 NOW = 1_790_800_000.0
-
-
-def cookie(name, domain, value="v", http_only=False, expiry=None, secure=True):
-    return {
-        "name": name, "value": value, "value_type": "string", "domain": domain,
-        "path": "/", "http_only": http_only, "secure": secure,
-        "same_site": "lax", "expiry": expiry,
-    }
 
 
 def test_origin_of_matches_location_origin():

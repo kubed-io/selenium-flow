@@ -3,8 +3,7 @@
 Tools and routes run on worker threads; a `Connection` lives on an event loop.
 A `Channel` hands each command to that loop and blocks only the worker that
 asked. `Channels.open_channel` lends the monitor's held connection for a
-session when there is one, and otherwise opens one for the block (capture
-spec §1).
+session when there is one, and otherwise opens one for the block.
 """
 
 from __future__ import annotations
@@ -230,7 +229,7 @@ class Channels:
     ) -> Iterator[Channel]:
         """A channel to ``session_id``'s browser for the block: the held
         connection, lent and left open, or one opened for the block and closed
-        after — always the latter when ``private``, for a command whose reply
+        after. Always the latter when ``private``, for a command whose reply
         may be too large for a socket and so close it. BidiUnavailable when
         none can be opened."""
         loop = self.loop()

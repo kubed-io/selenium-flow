@@ -2,26 +2,23 @@
 
 Three places apply this rule: saving a flow (`flows.document`), running one
 (`flows.engine.resolve_step`), and a single bound write
-(`secrets.perform_write`, behind both the MCP tool and the HTTP route). Each
-used to state it for itself, so a fix in one was a hole in the other two.
+(`secrets.perform_write`, behind both the MCP tool and the HTTP route).
 
 The rule, in the order it is applied:
 
-* **The pair.** A secret supplies `text`, so a call that also gives `text` says
-  two things, and one that also gives `url` would navigate *before* it types —
-  the leash would be checked against the page being left, and a redirect would
+* The pair. A secret supplies `text`, so a call that also gives `text` says two
+  things, and one that also gives `url` would navigate before it types: the
+  leash would be checked against the page being left, and a redirect would
   defeat even checking the URL that was asked for. Navigation is its own call.
-* **The bind.** The secret is lifted out of the arguments, the page the browser
-  is actually on is read, and `secrets.bind` — the only function that returns a
-  value — puts it into `text`. The field is then not read back at all, rather
-  than read and hidden.
-* **After.** What an argument's value comes back under is nulled, and every
-  string in the result is swept of every spelling the value can take.
+* The bind. The secret is lifted out of the arguments, the page the browser is
+  on is read, and `secrets.bind`, the only function that returns a value, puts
+  it into `text`. The field is then not read back at all.
+* After. What an argument's value comes back under is nulled, and every string
+  in the result is swept of every spelling the value can take.
 
-Each surface raises its own exception type — `InvalidFlow`, `FlowError`,
-`secrets.Refused`, all `ValueError`s and so all 400 — in the words it has always
-used. The words are published, so they are held here as data rather than
-rewritten into one sentence.
+Each surface raises its own exception type (`InvalidFlow`, `FlowError`,
+`secrets.Refused`, all `ValueError`s and so all 400) in the words it has always
+used. The words are published, so they are held here as data.
 """
 
 from __future__ import annotations
@@ -35,7 +32,7 @@ from .redaction import Forms, Id, scrub_values, taints
 
 # The argument through which a secret reaches the page. Not a table of tools:
 # `write` is the only action with a `secret` parameter, so the tool schemas
-# refuse it everywhere else without a second list that could disagree (§F1.38).
+# refuse it everywhere else without a second list that could disagree.
 SECRET_ARG = "secret"
 
 # The argument a secret supplies.
@@ -124,7 +121,7 @@ def receiving(page: dict) -> tuple[str, ...]:
 
     The top page's url, and the origin of the document the keystroke reaches,
     which in a frame is the frame's: an allowed page can frame anyone, and
-    checking the page alone typed into the frame (§F2). Both, never the frame
+    checking the page alone typed into the frame. Both, never the frame
     instead: a tightening, so nothing the top-page check refused can pass. Out
     of a frame the two are the same origin, so the common case refuses nothing
     new. A page with no ``frame_origin`` (a double) is checked by its url.
@@ -165,8 +162,7 @@ def bind_into(
     here = page() if callable(page) else page
     kwargs[SUPPLIES] = secrets.bind(catalogue, reference, here, tool=tool)
     if tool in READ_BACK_OFF:
-        # The read must not HAPPEN for a bound value, not merely be redacted
-        # afterwards.
+        # A bound value is never read back, so there is nothing to redact.
         kwargs["read_back"] = False
     return kwargs, {SUPPLIES: (reference["name"], reference["key"])}
 
@@ -183,9 +179,9 @@ def after(result: dict, guarded: dict[str, Id], hidden: Forms) -> dict:
     """``result`` as it may be shown.
 
     The fields a guarded argument's value comes back under are nulled where
-    present, and every string is swept of ``hidden`` — however deep it sits and
-    whatever it is called, because the named-field map is a list somebody has
-    to remember to extend.
+    present, and every string is swept of ``hidden``, however deep it sits and
+    whatever it is called: the named-field map is a list somebody has to
+    remember to extend.
     """
     nulled = redacted_fields(guarded)
     shown = {k: (None if k in nulled else v) for k, v in result.items()}

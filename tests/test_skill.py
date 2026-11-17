@@ -113,7 +113,7 @@ def test_every_reference_is_reachable_from_the_index():
 
 def test_the_one_session_contract_has_a_reference():
     """There is one contract now — name yourself — where there were two modes,
-    so there is one reference rather than a branch to take first (§F2.12)."""
+    so there is one reference rather than a branch to take first."""
     assert (SKILL_DIR / "references/WORKSPACES.md").is_file()
     for gone in ("STATELESS.md", "SAVED_SESSIONS.md"):
         assert not (SKILL_DIR / "references" / gone).is_file(), gone
@@ -193,7 +193,7 @@ async def test_every_tool_and_resource_has_a_row_on_the_page_it_always_reads(bui
     The first agent to fly a real app read FLOWS.md and never opened
     INTERACTION.md, because it thought it had a "this menu won't open" problem
     rather than an interaction question — so it never learned `hover` existed.
-    One row per tool and per resource, on the page it always reads (§F2.2).
+    One row per tool and per resource, on the page it always reads.
 
     Taken from the live server, with the two reading tools left out: they are
     how a client reads the resource rows, and the page says so in prose.
@@ -202,14 +202,14 @@ async def test_every_tool_and_resource_has_a_row_on_the_page_it_always_reads(bui
 
     body = (SKILL_DIR / ENTRY).read_text()
     tools = {t.name for t in await server.mcp.list_tools()} - set(mirror.MIRROR_TOOLS)
-    missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.M))
+    missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.MULTILINE))
     assert not missing, f"SKILL.md's tool table has no row for {missing}"
 
     reads = {str(r.uri) for r in await server.mcp.list_resources()} | {
         t.uri_template for t in await server.mcp.list_resource_templates()
     }
     reads = {u for u in reads if not u.startswith(("ui://", "skill://"))}
-    missing = sorted(u for u in reads if not re.search(rf"^\| `{re.escape(u)}` \|", body, re.M))
+    missing = sorted(u for u in reads if not re.search(rf"^\| `{re.escape(u)}` \|", body, re.MULTILINE))
     assert not missing, f"SKILL.md's resource table has no row for {missing}"
 
 

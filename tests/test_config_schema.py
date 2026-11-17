@@ -104,14 +104,19 @@ def test_allowed_urls_must_be_bare_origins_and_the_error_never_echoes_credential
     assert "hunter2" not in str(caught.value)
 
 
-def test_a_secret_name_follows_the_directory_rule():
+@pytest.mark.parametrize(
+    "secrets",
+    [
+        pytest.param({"entries": {"../up": {}}}, id="a-secret-name-follows-the-directory-rule"),
+        pytest.param(
+            {"entries": {"d": {"keys": {"_allowed_urls": {"env": "X"}}}}},
+            id="a-key-name-cannot-be-reserved",
+        ),
+    ],
+)
+def test_a_secret_entry_with_an_unusable_name_is_refused(secrets):
     with pytest.raises(ValidationError):
-        Settings(secrets={"entries": {"../up": {}}})
-
-
-def test_a_key_name_cannot_be_reserved():
-    with pytest.raises(ValidationError):
-        Settings(secrets={"entries": {"d": {"keys": {"_allowed_urls": {"env": "X"}}}}})
+        Settings(secrets=secrets)
 
 
 def test_an_inline_value_never_reaches_a_repr():

@@ -1,11 +1,9 @@
 """Suggestions for a name a person is filling in.
 
-VS Code asks a server for completions when a person opens a resource template
-or picks a prompt, and shows them in the quick pick (saga §F3.4). Two names are
-worth suggesting — a flow's and a file's — and both are already listed by a
-resource, so the suggestions are those listings read back for the caller who
-asked. Answered from the same place, they cannot suggest a flow the caller
-could not read, or disagree with what `flow://flows` would have shown.
+VS Code asks for completions when a person opens a resource template or picks a
+prompt. Flow and file names are suggested from the resources that list them,
+read for the caller who asked, so a suggestion is always one that caller could
+read.
 """
 
 from __future__ import annotations

@@ -1,29 +1,15 @@
-"""What a failure means, decided in one place.
+"""What a failure means: the HTTP status for every surface.
 
-An HTTP status is a contract with a *machine*, not a mood. ``4xx`` says "your
-request is wrong and sending it again will not help"; ``5xx`` says "we are
-broken and retrying might work". Getting that backwards is not cosmetic: an n8n
-node with Retry-On-Fail will dutifully replay a mistyped XPath three times, and
-an alert on the 5xx rate counts somebody's typo as an outage.
+A 4xx tells a client the same request fails again; a 5xx tells it a retry may
+work. An n8n node with Retry-On-Fail replays whatever answers 5xx, and an
+alert on the 5xx rate counts it as an outage. The default is 500: calling an
+unrecognised failure the caller's would stop a client retrying something that
+may be the server's.
 
-Everything below the auth check used to be a 500. A wait that timed out because
-the element was never there, a malformed XPath, a window sized ``-5``, a
-``session_id`` naming a browser that ended an hour ago — all of them reported as
-"this server failed", which is the one thing none of them are.
-
-Selenium raises nearly everything as a subclass of ``WebDriverException``, so
-the mapping has to be explicit. **The default stays 500**, deliberately: for a
-failure we do not recognise, "it is the caller's fault" is the dangerous guess,
-because it tells a client to stop retrying something that may well be ours.
-
-Both surfaces ask this module. HTTP answers with the status. Over MCP, where a
-failed tool call is an error result with no status, `mcp/failures.py` logs a
-4xx as one warning line and keeps the traceback for the rest, and answers a
-failed resource read with invalid params (a 4xx) or resource not found (a 404).
-
-What a failure *says* (`message`, `formatted`) and the package's own exception
-types live in `faults.py`, which imports no driver: this module is the half
-that has to know Selenium's classes.
+Over MCP, where a failed call has no status, `mcp/failures.py` uses this to
+choose the log level and a resource read's error code. What a failure says,
+and the package's own exception types, are in `faults.py`, which imports no
+driver.
 """
 
 from __future__ import annotations
@@ -64,25 +50,14 @@ from .faults import (
     Untrusted,
 )
 
-# The caller asked for something that cannot happen as asked. Retrying the
-# identical request is guaranteed to fail again, so say 400 and let a workflow
-# stop rather than burn its retries.
-#
-# TimeoutException is the one worth justifying, because "it timed out" sounds
-# transient. Here it is not: every wait in this package is for an element, a
-# frame or a dialog that the *caller named*, and `browser._waited` re-raises it
-# saying which locator and which URL. A page that never contained `//nope` will
-# still not contain it on the retry. A slow Grid surfaces as a connection error
-# instead, which is below.
+# The same request fails again, so 400 lets a workflow stop instead of burning
+# its retries. A TimeoutException belongs here: every wait in this package is
+# for an element, frame or dialog the caller named, and a page without
+# `//nope` still lacks it on the retry. A slow Grid is a connection error.
 CALLER = (
     AssertionFailed,
-    # A page whose host has no address (`faults.unresolved`): the same request
-    # fails the same way, wherever the lookup that failed was.
     Unresolved,
-    # A certificate the browser does not trust: the fix is `insecure=true`.
     Untrusted,
-    # A script past the session's script timeout: the same script times out
-    # again, and the caller can shorten it or raise the timeout.
     ScriptTimedOut,
     InsecureCertificateException,
     TimeoutException,
@@ -98,38 +73,18 @@ CALLER = (
     StaleElementReferenceException,
 )
 
-# The browser named in the request is not on the Grid — ended, reaped, or never
-# real. Its own status because the fix is specific and a workflow can automate
-# it: call /browser/open and carry on. Lumped into 400 it is indistinguishable
-# from a bad XPath, which needs a human.
-#
-# `Ended` is the same browser seen a moment earlier: `end_browser` ran while
-# this call was driving it, and the call let go rather than wait for the quit
-# to fail its next command. Which of the two it hits is timing, so both are 404.
-#
-# `NodeLost` is a browser whose Grid node stopped answering mid-call. The fix is
-# `open_session`, the same as a reaped browser. It is classified from the error
-# and not from a probe, because `Grid.is_alive` right after a crash can still say
-# alive: the hub answers 500, not `invalid session id`.
+# The browser is not on the Grid: a 404, whose fix a workflow can automate
+# (open_session). `Ended` is `end_browser` running during this call, and
+# `NodeLost` a node that stopped answering mid-call; it is read from the
+# driver's error because `Grid.is_alive` just after a crash can still say alive.
 GONE = (InvalidSessionIdException, NoSuchDriverException, Ended, NodeLost)
 
-# The Grid cannot serve this right now: unreachable, or out of free slots. Both
-# are worth retrying after a wait, which is exactly what 503 means, and neither
-# is a fault in the request. `/ready` already answers 503 for the same reason.
-#
-# Two transport libraries, because this package talks to the Grid two ways and
-# they fail differently — measured, not assumed: the Selenium driver surfaces an
-# unreachable Grid as a bare `urllib3.exceptions.MaxRetryError`, while the plain
-# HTTP calls (`quit`, `files`, `status`) raise `requests.ConnectionError`. Only
-# the second was classified at first, so the same unreachable Grid answered 503
-# on two endpoints and 500 on the other twelve.
-#
-# `SessionNotCreatedException` stays here for the Grid's own failures (spec
-# 2026-10-26-session-capabilities, ruling 24); `open_session` turns a queue
-# timeout into `NoNodeTook` and a node's refusal into `NodeRefused`, below.
-#
-# `SocketClosed` is a socket to the Grid that closed or would not open (the
-# live view's tunnel to the hub): the Grid's side, like a BiDi socket's.
+# The Grid cannot serve this now: worth a retry after a wait. Both transport
+# libraries are listed: the Selenium driver reports an unreachable Grid as a
+# `urllib3` error, and the plain HTTP calls (`quit`, `files`, `status`) as a
+# `requests` one. `open_session` turns the Grid's queue timeout and a node's
+# refusal into `NoNodeTook` and `NodeRefused`, so `SessionNotCreatedException`
+# here is the Grid's own failure.
 UNAVAILABLE = (
     BidiUnavailable,
     NoNodeTook,
@@ -144,30 +99,18 @@ UNAVAILABLE = (
 def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
     if isinstance(exc, Controlled):
-        # A person holds the browser in the live view: the request is fine and
-        # the workspace's state forbids it now. Not a 400, which says never
-        # send it again, and not a 5xx a retry loop would hammer: the caller
-        # calls `await_control` and then the same request succeeds.
+        # The request is fine and succeeds after `await_control`.
         return 409
     if isinstance(exc, (GONE, NotFound)):
         return 404
     if isinstance(exc, TooLarge):
         return 413
     if isinstance(exc, NodeRefused):
-        # The caller's when it asked for a raw capability or a version, the
-        # node's when it did not (ruling 16).
         return 400 if exc.blamed else 503
     if isinstance(exc, requests.HTTPError):
-        # The Grid answered, and its answer was no. Every plain HTTP call to it
-        # — `files`, `read_file`, `status` — reports that through
-        # `raise_for_status`, and this is NOT a connection failure: it must not
-        # fall into UNAVAILABLE below and be called a 503.
-        #
-        # A 404 from the Grid means the browser or the file is gone, which is
-        # the same diagnosis `GONE` carries and has the same fix. Its own 5xx is
-        # worth retrying. Anything else it refuses is the request's problem.
-        # Without this branch a reaped browser answered 500 while the published
-        # /files contract promised 404.
+        # The Grid answered no, which is not a connection failure: a 404 means
+        # the browser or file is gone, a 5xx is worth retrying, anything else
+        # is the request's.
         status = getattr(getattr(exc, "response", None), "status_code", None)
         if status is None or status >= 500:
             return 503

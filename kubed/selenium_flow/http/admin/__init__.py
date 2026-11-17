@@ -1,29 +1,14 @@
-"""A small web UI for the workspaces and the sessions open in them, and their files.
+"""The admin UI: the page, its JSON API under ``/admin``, and the signed file links.
 
-Two audiences, one set of routes. ``/admin`` is the page itself and
-``/admin/<thing>`` is its data, for a person holding the token or an admin
-sign-in: live browsers, and what each has downloaded.
-
-``/files/*`` is for anything that renders a URL — an ``<img>`` on that page, a
-markdown image in a chat transcript, a link sent to someone else — and is
-authorised by signature rather than by header, because none of those can set one.
-
-There is no user database. The way in is the token, or an admin-UI sign-in
-holding an admin role; neither is a session cookie, and of the two only the
-token drives browsers. The sign-in box asks for the token: you have it or you
-do not. That is weak as an identity system and exactly right as an access
-check, since anyone holding it can already drive every browser through the
-API. When `oidc.client_id` is set the page can sign in with the issuer
-instead, and the admin API admits that JWT (spec 2026-10-09-admin-oidc); the
-REST routes that drive browsers stay token-only.
-
-The files themselves are the Grid's, not ours — see ``Grid.files``.
+The API admits the server token or, when `oidc.client_id` is set, an admin-UI
+JWT holding an admin role; there is no user database or session cookie. The
+REST routes that drive browsers stay token-only. The signed links serve
+whatever renders a URL and cannot send a header.
 
 One module per tab: ``page`` (the shell), ``workspaces`` (the list and its live
-stream), ``site_data`` (history and saved site data), ``files``, ``flows``, and
+stream), ``site_data`` (history and saved site data), ``files``, ``flows``,
 ``capture`` (console, network and the live tail), ``live`` (the live view's
-signed socket onto a browser's VNC stream), and ``signed`` (the links that
-carry their own authority).
+socket onto a browser's VNC stream), and ``signed`` (the file links).
 """
 
 from __future__ import annotations
@@ -68,14 +53,10 @@ def register(
     Returns the workspace list's ``Broadcast``, so the server can tell open pages
     a recording was filed.
 
-    ``flow_store`` is the *documents and kept files* store — what
-    ``DATA_DIR`` points at — and is deliberately not spelled ``store``:
-    ``Workspaces.store`` is a different thing entirely, holding workspace records,
-    and the two sat one scope apart with the same name until one shadowed the
-    other and a listing died on ``MemoryStore.files``.
+    ``flow_store`` is the flows and files store under ``DATA_DIR``, named apart
+    from ``Workspaces.store``, which holds workspace records.
     """
-    # Built from the token when not given, so a caller passing only a token
-    # keeps today's behaviour; the server passes the one `auth.doors` built.
+    # The server passes the door `auth.doors` built; without one, the token's.
     door = door or auth.AdminDoor(token)
     guarded = answer.guarded(door)
 
@@ -84,10 +65,7 @@ def register(
     @mcp.custom_route(f"{prefix}/admin/secrets", methods=["GET"], name="admin_secrets")
     @guarded
     async def admin_secrets(_request: Request) -> JSONResponse:
-        """The catalogue: every secret this server knows, never a value.
-
-        Never a value: the catalogue has none to give.
-        """
+        """The catalogue: every secret this server knows, never a value."""
         if catalogue is None:
             return JSONResponse({"enabled": False, "count": 0, "secrets": []})
         try:

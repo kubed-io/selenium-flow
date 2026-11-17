@@ -2,7 +2,7 @@
 
 The first agent to fly a real app lost a stretch of its sortie to a link inside
 a `display: none` menu: the wait said "no clickable element matched" and timed
-out, which is true and is not the diagnosis. The page knew. See saga §F2.8.
+out, which is true and is not the diagnosis. The page knew.
 """
 
 import pytest
@@ -231,7 +231,7 @@ def test_the_failure_and_the_map_read_the_same_answer():
     """The error and `outline` must never disagree about one element, and the
     way to guarantee that is not to test two copies against each other — it is
     to have one copy. Both scripts are built from `_HELPERS`; if someone
-    inlines a second `reasonFor`, this fails (saga §F2.8)."""
+    inlines a second `reasonFor`, this fails."""
     from kubed.selenium_flow.core import js
 
     helpers = js.read(probe._HELPERS_FILE)
@@ -310,8 +310,19 @@ def test_the_target_itself_is_reported_without_a_warning():
         "received_by": {"element": "button#go", "depth": 0, "painted": True}}
 
 
-def test_a_shallow_painted_hit_is_no_warning():                     # Review Focus 5
-    assert "warning" not in probe.receiver_report({**HIT, "depth": 1, "painted": True})
+@pytest.mark.parametrize(
+    "hit",
+    [
+        pytest.param(
+            {**HIT, "depth": 1, "painted": True}, id="a-shallow-painted-hit-is-no-warning"
+        ),
+        pytest.param(
+            {**HIT, "depth": 10, "interactive": True}, id="a-control-in-between-is-no-warning"
+        ),
+    ],
+)
+def test_a_hit_that_needs_no_warning_has_none(hit):
+    assert "warning" not in probe.receiver_report(hit)
 
 
 def test_an_unpainted_hit_warns():                                  # ruling 13
@@ -325,10 +336,6 @@ def test_an_unpainted_hit_warns():                                  # ruling 13
 def test_a_deep_hit_warns():                                        # brief 3
     warning = probe.receiver_report({**HIT, "element": "rect.frame-background", "depth": 10, "painted": True})["warning"]
     assert warning.startswith("The click landed on rect.frame-background, 10 levels inside the element you selected, and nothing")
-
-
-def test_a_control_in_between_is_no_warning():
-    assert "warning" not in probe.receiver_report({**HIT, "depth": 10, "interactive": True})
 
 
 def test_received_never_fails_a_gesture():

@@ -52,8 +52,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
             return JSONResponse({"key": key, "sites": [], "clears": []})
         joined = site_data.history_view(record.history, record.site_data, secrets)
         # What Clear would take, by origin: rows are by host, so a second port
-        # of the current host is no row of its own and would otherwise leave
-        # Clear hidden with something still to clear (Copilot, #51).
+        # of the current host has no row and would otherwise hide Clear.
         clears = [v["origin"] for v in record.history[1:]]
         return JSONResponse({"key": key, **joined, "clears": clears})
 

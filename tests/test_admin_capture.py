@@ -8,10 +8,8 @@ from contextlib import asynccontextmanager
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import BODY_CAP
 from kubed.selenium_flow.http.admin import capture as admin_capture
-from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .capture_events import done, log, nav_started, req
@@ -38,15 +36,10 @@ def feed(capture, *events, workspace="ws"):
 
 
 @pytest.fixture
-def server(tmp_path):
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
-    server.workspaces.actions.grid = SilentGrid()
-    server.actions.grid = server.workspaces.actions.grid
-    return server
+def server(data_server):
+    data_server.workspaces.actions.grid = SilentGrid()
+    data_server.actions.grid = data_server.workspaces.actions.grid
+    return data_server
 
 
 @pytest.fixture
@@ -173,9 +166,8 @@ BODY_CLOSED = "no session is open in this workspace; a body lives only as long a
 
 
 def test_a_known_body_after_end_browser_is_404_over_http(admin_client, fed):
-    """Spec §7 and ruling 11: a body for a browser that has ended is a 404
-    naming why, never the "call open_session first" 400 — opening one cannot
-    bring the body back."""
+    """A body for a browser that has ended is a 404 naming why, never the
+    "call open_session first" 400 — opening one cannot bring the body back."""
     r = admin_client.post("/browser/network-body", json={"id": "1.1"},
                           headers={**AUTH, "Sf-Workspace": "ws"})
     assert r.status_code == 404 and r.json()["error"] == BODY_CLOSED

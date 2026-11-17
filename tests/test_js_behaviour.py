@@ -113,34 +113,30 @@ def test_an_ancestor_that_controls_something_else_is_not_the_opener():
     assert answer["trigger"] is None
 
 
-def test_the_centre_is_that_of_the_part_of_the_element_in_view():
-    """Stubbed: a 100x100 box hanging off the left of a 1024x768 viewport. The
-    centre is of the visible half, [25, 50], not of the box, [0, 50]."""
-    setup = (
-        "document.getElementById('box').getBoundingClientRect = () => "
-        "({left: -50, right: 50, top: 0, bottom: 100, width: 100, height: 100});"
-    )
-    answer = run(
-        "center.js", '<div id="box"></div>', [{"$css": "#box"}, False], setup
-    )
+@pytest.mark.parametrize(
+    ("setup", "expected"),
+    [
+        # Stubbed: a 100x100 box hanging off the left of a 1024x768 viewport. The
+        # centre is of the visible half, [25, 50], not of the box, [0, 50].
+        pytest.param(
+            "document.getElementById('box').getBoundingClientRect = () => "
+            "({left: -50, right: 50, top: 0, bottom: 100, width: 100, height: 100});",
+            {"at": [25, 50], "scrolled": False, "outside": False, "viewport": [1024, 768]},
+            id="the-centre-is-that-of-the-part-of-the-element-in-view",
+        ),
+        pytest.param(
+            "document.getElementById('box').getBoundingClientRect = () => "
+            "({left: 2000, right: 2100, top: 0, bottom: 100, width: 100, height: 100});",
+            {"at": [2050, 50], "scrolled": False, "outside": True, "viewport": [1024, 768]},
+            id="an-element-wholly-outside-the-viewport-reports-outside-and-its-own-centre",
+        ),
+    ],
+)
+def test_the_centre_is_that_of_the_part_in_view_or_the_whole_outside(setup, expected):
+    answer = run("center.js", '<div id="box"></div>', [{"$css": "#box"}, False], setup)
     # jsdom's window is 1024x768, and the size comes back with the centre so a
     # pointer move asks the page once, not twice.
-    assert answer == {
-        "at": [25, 50], "scrolled": False, "outside": False, "viewport": [1024, 768],
-    }
-
-
-def test_an_element_wholly_outside_the_viewport_reports_outside_and_its_own_centre():
-    setup = (
-        "document.getElementById('box').getBoundingClientRect = () => "
-        "({left: 2000, right: 2100, top: 0, bottom: 100, width: 100, height: 100});"
-    )
-    answer = run(
-        "center.js", '<div id="box"></div>', [{"$css": "#box"}, False], setup
-    )
-    assert answer == {
-        "at": [2050, 50], "scrolled": False, "outside": True, "viewport": [1024, 768],
-    }
+    assert answer == expected
 
 
 def test_explain_for_a_covered_element_names_what_covers_it():
@@ -242,7 +238,7 @@ def test_every_outline_selector_matches_exactly_the_element_it_describes():
 # textContent, so a toolbar read "SaveCancel" and a container read as
 # everything in it (#138). A control is still named from its content,
 # descendants included, as ARIA names a link or a button; anything else is
-# named only from text it owns, as for the text selector (saga §F2.10).
+# named only from text it owns, as for the text selector.
 def names(page, interactive=True, text=""):
     answer = outline(page, text=text, interactive=interactive)
     return [(e["role"], e["name"]) for e in answer["elements"]]
@@ -388,26 +384,54 @@ def test_the_focused_script_answers_null_when_focus_is_on_the_body():
     assert run("focused.js", "<p>nothing here</p>") is None
 
 
-def test_a_target_that_paints_nothing_at_its_centre_is_unpainted():   # ruling 10, brief 2
-    html = ('<svg><g id="board"><rect id="bg" style="fill:#fff"></rect>'
-            '<g id="target"><rect id="own" style="fill:none"></rect><text id="dots">…</text></g></g></svg>')
-    assert usable(html, "#target", GEOMETRY + stack("bg")) == {"reason": "unpainted", "detail": "rect#bg"}
+@pytest.mark.parametrize(
+    ("html", "top", "expected"),
+    [
+        pytest.param(
+            '<svg><g id="board"><rect id="bg" style="fill:#fff"></rect>'
+            '<g id="target"><rect id="own" style="fill:none"></rect><text id="dots">…</text></g></g></svg>',
+            "bg",
+            {"reason": "unpainted", "detail": "rect#bg"},
+            id="a-target-that-paints-nothing-at-its-centre-is-unpainted",
+        ),
+        pytest.param(
+            '<div id="card"><span id="target"></span></div>',
+            "card",
+            {"reason": "unpainted", "detail": "div#card"},
+            id="an-ancestor-on-top-is-unpainted-not-usable",
+        ),
+    ],
+)
+def test_a_target_hidden_by_what_paints_over_it_is_unpainted(html, top, expected):
+    assert usable(html, "#target", GEOMETRY + stack(top)) == expected
 
-def test_an_ancestor_on_top_is_unpainted_not_usable():
-    html = '<div id="card"><span id="target"></span></div>'
-    assert usable(html, "#target", GEOMETRY + stack("card")) == {"reason": "unpainted", "detail": "div#card"}
 
-def test_a_transparent_shape_on_top_is_an_invisible_cover():          # brief 2, the hotspot
-    html = ('<svg><g id="target"><text id="t">Go</text></g>'
-            '<rect id="hot" style="fill-opacity:0"></rect></svg>')
-    assert usable(html, "#target", GEOMETRY + stack("hot", "t")) == {
-        "reason": "invisible_cover", "detail": "rect#hot", "selector": {"css": "#hot"}}
+@pytest.mark.parametrize(
+    ("html", "selector", "top", "under", "expected"),
+    [
+        pytest.param(
+            '<svg><g id="target"><text id="t">Go</text></g>'
+            '<rect id="hot" style="fill-opacity:0"></rect></svg>',
+            "#target",
+            "hot",
+            "t",
+            {"reason": "invisible_cover", "detail": "rect#hot", "selector": {"css": "#hot"}},
+            id="a-transparent-shape-on-top-is-an-invisible-cover",
+        ),
+        pytest.param(
+            '<button id="go">Go</button>'
+            '<div id="banner" style="position:fixed;background:#000">cookies</div>',
+            "#go",
+            "banner",
+            "go",
+            {"reason": "covered", "detail": "div#banner", "overlay": True},
+            id="a-fixed-painted-cover-is-an-overlay",
+        ),
+    ],
+)
+def test_a_cover_on_top_is_named_with_its_reason(html, selector, top, under, expected):
+    assert usable(html, selector, GEOMETRY + stack(top, under)) == expected
 
-def test_a_fixed_painted_cover_is_an_overlay():
-    html = ('<button id="go">Go</button>'
-            '<div id="banner" style="position:fixed;background:#000">cookies</div>')
-    assert usable(html, "#go", GEOMETRY + stack("banner", "go")) == {
-        "reason": "covered", "detail": "div#banner", "overlay": True}
 
 def test_the_click_point_is_the_first_client_rect():
     setup = ("const go = document.getElementById('go');"

@@ -1,62 +1,57 @@
 """The collector: files each owed recording into its workspace as it finishes.
 
-**The queue is the notes on disk** (``workspaces/<name>/recordings/.pending/
-<gridId>.json``), written when a recorded browser opens; **the engine is one
-task per process**, which runs only while a recording is owed and ends when
-none is — the shape the admin broadcast has (AGENTS.md: a bounded wait for
-something this server was told to expect is allowed; a loop that tidies is
-not). The notes survive a restart, so ``start`` picks up where the last
-process left off.
+The queue is the notes on disk (``workspaces/<name>/recordings/.pending/
+<gridId>.json``), written when a recorded browser opens. The engine is one
+task per process, which runs only while a recording is owed and ends when none
+is. The notes survive a restart, so ``start`` picks up where the last process
+left off.
 
 It wakes on a change in the inbox (``watchfiles``: events, or polling on a
-network filesystem) and on a timer, and each time sweeps: an ``.mp4`` whose path
-below the inbox holds an owed Grid id and ends in ``mfro`` is moved into the
-workspace's recordings and its note deleted once it has also sat unchanged for
-``settle`` seconds (its transport may not be done with it: rclone checks an
-upload after writing it, and uploads one that vanished again); one with no
-``mfro`` is moved as it is once it has been quiet for a minute **and** the
-browser is gone (a live recording writes a keyframe at least every ~17 s, so
-this never files one early); an owed browser not yet known to have ended is
-looked for, so a file that never comes has a deadline to miss. A note marked
-``discard`` is a recorded browser no workspace holds: every recorded browser is
-noted so the moment it exists, and noted again without the mark once its
-workspace holds it, so one whose open failed or lost a race to bind keeps it. Its
-file is found the same way and deleted rather than filed, and a deadline it
-misses is no one's loss. The timer is a tick, or ``settle`` when that is
-shorter, so a finished file in a quiet inbox is not left a tick past settling.
+network filesystem) and on a timer, and each time sweeps:
 
-**Whether a session is gone is the monitor's to say** (`monitor/`). Every
-owed session is watched for ``"recording"`` — when it is expected, and at
-``start`` for each note still owed and not ended — and released once its note
-is gone from disk. The monitor reads the Grid's status, never the browser, and
+- an ``.mp4`` whose path below the inbox holds an owed Grid id and ends in
+  ``mfro`` is moved into the workspace's recordings, and its note deleted,
+  once it has also sat unchanged for ``settle`` seconds (rclone checks an
+  upload after writing it, and uploads one that vanished again);
+- one with no ``mfro`` is moved as it is once it has been quiet for a minute
+  and the browser is gone (a live recording writes a keyframe at least every
+  ~17 s, so this never files one early);
+- an owed browser not yet known to have ended is looked for, so a file that
+  never comes has a deadline to miss.
+
+A note marked ``discard`` is a recorded browser no workspace holds. Every
+recorded browser is noted the moment it exists, and noted again without the
+mark once its workspace holds it, so one whose open failed or lost a race to
+bind keeps it. Its file is found the same way and deleted, and a deadline it
+misses is no one's loss. The timer is a tick, or ``settle`` when that is
+shorter.
+
+Whether a session is gone is the monitor's to say (`monitor/`). Every owed
+session is watched for ``"recording"`` (when it is expected, and at ``start``
+for each note still owed and not ended) and released once its note is gone
+from disk. The monitor reads the Grid's status, never the browser, and
 announces an end as ``session.ended``, which the server hands to ``ended``.
 
 It owns no browser and takes no session lock. ``expect`` and ``ended`` are
-called from worker threads (FastMCP's sync tools, Starlette's routes).
-``expect`` writes its note there, in the caller's thread; ``ended`` hands the
-change to the loop, and the loop writes every note it changes in a worker
-thread, never on itself: ``DATA_DIR`` can be NFS, and a write that stalls on
-the loop stalls every request. Writes and deletes of notes take one lock, so a
-note filed meanwhile is never written back.
+called from worker threads. ``expect`` writes its note in the caller's thread;
+``ended`` hands the change to the loop, and the loop writes every note it
+changes in a worker thread, never on itself: ``DATA_DIR`` can be NFS, and a
+write that stalls on the loop stalls every request. Writes and deletes of
+notes take one lock, so a note filed meanwhile is never written back.
 
-**A note leaves the queue only once it is gone from disk.** Filing a recording
-(or giving up on one at its deadline) first rewrites its note to say so
+A note leaves the queue only once it is gone from disk. Filing a recording (or
+giving up on one at its deadline) first rewrites its note to say so
 (``filed``, ``dropped``), then deletes it. A delete that fails leaves the
-recording owed but *done*: every sweep retries the delete and nothing else, so
-it is never matched, filed or timed out again — an inbox copy that could not be
-removed is not filed a second time — and a restart that finds the note reads
-the same mark. A filing, once its move has begun, runs to its mark and delete
-as one task that ``stop`` waits for, so a graceful shutdown mid-copy (a rolling
-deploy) leaves nothing half done. What remains: a hard crash between the move
-and the mark, or the mark's own write failing as well as the delete, leaves an
-unmarked note, which the next process can file again.
+recording owed but done: every sweep retries the delete and nothing else, so
+it is never matched, filed or timed out again, and a restart that finds the
+note reads the same mark. A filing, once its move has begun, runs to its mark
+and delete as one task that ``stop`` waits for, so a graceful shutdown
+mid-copy leaves nothing half done. A hard crash between the move and the mark,
+or the mark's write failing as well as the delete, leaves an unmarked note,
+which the next process can file again.
 
-**The notes are read at ``start`` and again each tick until every workspace's
-are read.** A storage fault reading one workspace's stops neither the boot nor
-another workspace's recordings: what could be read is owed at once, the fault is
-logged once a streak (the workspaces and the error's type), and the task runs
-while any read is owed. The read and the merge hold the notes lock, so a read
-that began before a sweep filed and deleted a note cannot put it back.
+The notes are read at ``start`` and again each tick until every workspace's
+are read (`_load`).
 """
 
 from __future__ import annotations
@@ -118,15 +113,11 @@ def _millis(value) -> int:
     finite or not between 1970 and the year 3000 is refused here, so the note
     is skipped, rather than stopping the boot (``1e999``) or every later sweep
     (``1e20``, which ``name_for`` cannot format)."""
-    if isinstance(value, bool):
-        raise ValueError("not a timestamp")
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ValueError("not a timestamp")
+    if isinstance(value, float) and math.isfinite(value):
         value = int(value)
     elif isinstance(value, str) and value.strip().isdigit():
         value = int(value.strip())
-    elif not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError("not a timestamp")
     if not 0 <= value < LATEST_MS:
         raise ValueError("not a timestamp")
@@ -165,8 +156,7 @@ class Collector:
     ):
         self.store = store
         self.inbox = Path(inbox)
-        # Watches each owed session and says when it ends (`monitor.Monitor`:
-        # `watch`, `release`); None watches nothing, for a test.
+        # `monitor.Monitor` (`watch`, `release`); None watches nothing.
         self.monitor = monitor
         self.wait = wait
         self.polling = polling
@@ -248,10 +238,9 @@ class Collector:
     def _post(self, fn) -> None:
         loop = self._loop
         if loop is None:
-            # Not started: nothing runs yet, so there is no task to wake and no
-            # thread to cross. Apply it here; `start` re-reads the notes anyway.
-            # Safe only because the server's lifespan starts the collector
-            # before any request is served, so no worker thread races this.
+            # Not started: no task to wake and no thread to cross, and `start`
+            # re-reads the notes anyway. Safe only because the server's
+            # lifespan starts the collector before any request is served.
             fn()
             return
         try:
@@ -474,7 +463,7 @@ class Collector:
         except Exception as exc:  # noqa: BLE001 - the notes keep the queue; retried
             if not self._failing:
                 # Once per streak, and no traceback: a path in one names a
-                # Grid id, which the operator's log never does.
+                # Grid id, which the operator's log never shows.
                 workspaces = sorted({o.workspace for o in self.owed.values()})
                 log.warning(
                     "recordings: a sweep failed (%s) with %s; retrying every %ss",
@@ -635,9 +624,9 @@ class Collector:
         more than one owed id is ambiguous: it matches none, and is logged once
         without the ids.
 
-        Every slice of the path as long as some owed id, looked up in the set:
-        the same "anywhere in the path" as ``g in below`` for each id, at a cost
-        that grows with the path rather than with the ids owed."""
+        Every slice of the path as long as some owed id is looked up in the
+        set: ``g in below`` for each id, at a cost that grows with the path
+        and not with the ids owed."""
         if path.suffix.lower() != ".mp4":
             return []
         try:
@@ -699,12 +688,10 @@ class Collector:
         thread: on a network filesystem a stat can hang."""
         # os.walk swallows a directory it cannot read, which scans as empty and
         # lets an owed recording age past `wait` and be dropped. The inbox root
-        # unreadable is a storage fault: raise, so _run logs it once per streak
-        # and retries with every expectation kept. A NESTED directory raising
-        # too would let one bad subfolder starve every other recording for
-        # good, so that one is skipped instead -- but while any subtree is
-        # unreadable, sweep() will not drop a late note, since the file could
-        # be in there.
+        # unreadable raises, so _run logs it once per streak and retries with
+        # every expectation kept. A nested one is skipped, so one bad subfolder
+        # cannot starve every other recording, but while any subtree is
+        # unreadable, sweep() drops no late note: the file could be in there.
         unreadable = []
 
         def onerror(exc: OSError) -> None:

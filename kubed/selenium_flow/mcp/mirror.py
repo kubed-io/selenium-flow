@@ -1,22 +1,15 @@
 """Two tools that read resources, for the clients that cannot.
 
-Everything this server publishes to read — the workspace status, the skill, the
-flow library, the kept files, the secrets catalogue — is a resource with a URI,
-and the text an agent reads refers to it by that URI: a hint, an error, a
-prompt, the skill itself. A client that reads resources already knows what to
-do with one. A client that cannot — VS Code Copilot's model has no way to — is
-given these two tools and nothing else, so the same URI works there too:
+Everything this server publishes to read is a resource, and every hint, error,
+prompt and skill page names it by URI. A client whose model cannot read
+resources (VS Code's) gets these two tools, the same pair mcp-kb serves, so the
+same URIs work there too:
 
     list_resources()                        every URI there is to read
     read_resource("flow://flows/login")     one of them
 
-It used to be seven tools, one per resource, each with a name the text had to
-use instead of the URI. Seven names to keep in step with the resources, and a
-second vocabulary for the one act (saga §F3.6). This is the vocabulary
-`mcp-kb` uses too, so an agent learns it once.
-
-Both are hidden from a client that reads resources, and stay callable; see
-`HideMirrors`. What decides "reads resources" is `clients.reads_resources`.
+`HideMirrors` hides both from a client that reads resources
+(`clients.reads_resources`); they stay callable.
 """
 
 from __future__ import annotations
@@ -43,14 +36,11 @@ MIRROR_TOOLS = frozenset({LIST_TOOL, READ_TOOL})
 # The MCP Apps shell: HTML a host draws in an iframe, not something to read.
 NOT_FOR_READING = ("ui://",)
 
-# Images a model can look at, returned as images. Anything else that is binary
-# is described instead of dumped: base64 of a downloaded PDF is megabytes of
-# text a model can do nothing with, and it would spend the context doing it.
+# Images a model can look at, returned as images. Other binary is described:
+# base64 of a downloaded PDF is megabytes of text a model can do nothing with.
 VIEWABLE = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
 
-# Served as bytes and readable as text. SVG is an image to a browser and XML to
-# a model, which cannot view one as a picture, so it is returned as the text it
-# is rather than described as a file it cannot open (Copilot, #39).
+# Served as bytes and readable as text: a model cannot view SVG as a picture.
 TEXTUAL = frozenset({"image/svg+xml"})
 
 
@@ -88,21 +78,21 @@ async def _rows(server) -> list[dict]:
                     "mime_type": resource.mime_type,
                 }
             )
-    for template in await server.list_resource_templates():
-        if _listed(template.uri_template):
-            rows.append(
-                {
-                    "uri_template": template.uri_template,
-                    "name": template.title or template.name,
-                    "description": template.description or "",
-                }
-            )
+    rows.extend(
+        {
+            "uri_template": template.uri_template,
+            "name": template.title or template.name,
+            "description": template.description or "",
+        }
+        for template in await server.list_resource_templates()
+        if _listed(template.uri_template)
+    )
     return rows
 
 
 def _media_type(uri: str, declared: str | None) -> str:
     """A content's real type. A template declares one type for everything it
-    serves, so `application/octet-stream` is a shrug, and the name knows more."""
+    serves, so for `application/octet-stream` the name knows more."""
     if declared and declared != "application/octet-stream":
         return declared
     guessed, _ = mimetypes.guess_type(uri)
@@ -110,8 +100,10 @@ def _media_type(uri: str, declared: str | None) -> str:
 
 
 # Where a binary file's link is listed, by the prefix of its URI.
-LINKED_FROM = (("workspace://files/", "workspace://files"),
-               ("session://downloads/", "session://downloads"))
+LINKED_FROM = (
+    ("workspace://files/", "workspace://files"),
+    ("session://downloads/", "session://downloads"),
+)
 
 
 def _where_to_read(uri: str) -> str:
@@ -175,9 +167,8 @@ def register(mcp) -> frozenset[str]:
             "Images come back as images; other binary files are described, not "
             "returned."
         ),
-        # Open world: workspace://current asks the Grid whether the browser is
-        # still alive. One tool reads every resource, so it is annotated for the
-        # widest of them.
+        # Open world, for the widest resource it reads: workspace://current
+        # asks the Grid whether the browser is alive.
         annotations=reads("Read a resource"),
     )
     async def read_resource(uri: str) -> ToolResult:
@@ -212,12 +203,9 @@ def register(mcp) -> frozenset[str]:
 class HideMirrors(Middleware):
     """Keep tools that only exist for other clients out of this one's listing.
 
-    Filtering the listing rather than registering conditionally is what keeps
-    one server object correct for every client at once: the decision depends on
-    who is asking, so it is made per request. Hidden tools stay callable.
-
-    ``app_tools`` draw something for a host that renders MCP Apps, which is the
-    only reason they exist, so they are listed exactly when the host can draw.
+    One server object serves every client, so the listing is filtered per
+    request. Hidden tools stay callable. ``app_tools`` are listed only to a host
+    that renders MCP Apps.
     """
 
     def __init__(self, app_tools=(), apps_enabled: bool = True):
@@ -227,7 +215,8 @@ class HideMirrors(Middleware):
     async def on_list_tools(self, context, call_next):
         tools = await call_next(context)
         hidden = (
-            set() if not clients.reads_resources(clients.caller())
+            set()
+            if not clients.reads_resources(clients.caller())
             else set(MIRROR_TOOLS)
         )
         if not (self.apps_enabled and apps.supported()):

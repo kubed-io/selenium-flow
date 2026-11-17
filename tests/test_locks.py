@@ -1,9 +1,8 @@
 """One browser-driving call at a time per session, and `end_browser` still cuts in.
 
-Ruling (2), saga Chapter 4 open question 2. Two of our action sequences
-interleaved on one browser is unsafe, so a session's calls take turns — but
-`end_browser` is the call that exists to stop a long `assert`, so it never
-waits for one. Every test here goes through the real `Actions` on a scripted
+Two of our action sequences interleaved on one browser is unsafe, so a
+session's calls take turns — but `end_browser` is the call that exists to stop a
+long `assert`, so it never waits for one. Every test here goes through the real `Actions` on a scripted
 driver: the lock lives in `Recipe.run`, and a double of an action would skip it.
 """
 

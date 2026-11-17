@@ -1,23 +1,12 @@
-"""One tolerant view of a flow document.
+"""One tolerant view of a flow document, which may be YAML written by hand.
 
-A flow is YAML that a person may have written by hand, and the store hands back
-whatever mapping the file held. Five readers used to each decide for themselves
-what to do when `steps` was a string, `required` a bare word or a step a list —
-the validator, the run's preflight, the parameter helpers, the admin's `_uses`
-and the library's step count — and each guarded a different subset, so the
-shapes that slipped through became a TypeError in a message or a 500 on a run.
-
-`Shape` is the only place that question is answered. Every property is total:
-whatever the document holds, it returns something of the type its name says, and
-`problems` says in a sentence what was not as expected. A reader that wants the
-well-formed case reads the property; one that must refuse a bad document asks
-for the problems and uses the same sentences, so saving and running agree.
+Every property is total: whatever the document holds, it returns something of
+the type its name says. `problems` says in a sentence what was not as expected,
+and saving and running refuse with the same sentences.
 """
 
 from __future__ import annotations
 
-# Said by the validator for a step and by the run for the same step, so the two
-# surfaces refuse it in the same words.
 NOT_A_STEP = "must be an object with a tool and its params"
 NAMES_NO_TOOL = "names no tool"
 NOT_STEPS = "steps must be a non-empty list"
@@ -40,8 +29,7 @@ class Shape:
     def steps(self) -> list:
         """The steps as written, or none when `steps` is not a list.
 
-        The items are not vetted: a step that is not an object is still here,
-        so each reader can keep its numbering and say which one it was.
+        The items are not vetted, so each reader keeps its numbering.
         """
         steps = self.document.get("steps")
         return steps if isinstance(steps, list) else []
@@ -75,8 +63,8 @@ class Shape:
     def parameter_problems(self) -> list[str]:
         """What is wrong with the `parameters` block, one sentence per fault.
 
-        A falsy value is "no parameters", as it always was, so `parameters: []`
-        and `properties: {}` are accepted and `parameters: [email]` is not.
+        A falsy value is no parameters: `parameters: []` and `properties: {}` are
+        accepted, and `parameters: [email]` is not.
         """
         parameters = self._parameters
         if not parameters:
@@ -99,8 +87,8 @@ class Shape:
     def steps_problem(self, empty_ok: bool = False) -> str | None:
         """The sentence for `steps` not being a list, or None.
 
-        A save wants at least one step; a run of a stored document has always
-        let an absent or empty one through, so it passes ``empty_ok``.
+        A save wants at least one step; a run lets an absent or empty one
+        through, with ``empty_ok``.
         """
         steps = self.document.get("steps")
         if isinstance(steps, list):
@@ -110,9 +98,8 @@ class Shape:
     def step_problems(self) -> list[str]:
         """Steps that are not objects, or name no tool, numbered from 1.
 
-        A `tool` that is not a name is refused here because the run looks it up
-        in a set before any step's error handling: `tool: [navigate]` was a
-        TypeError there, and a number a lookup that could only miss.
+        The run looks `tool` up in a set before any step's error handling, where
+        a list would raise TypeError.
         """
         problems = []
         for number, step in enumerate(self.steps, start=1):
@@ -121,7 +108,6 @@ class Shape:
                 continue
             tool = step.get("tool")
             if not tool or not isinstance(tool, str):
-                # Named as the validator names it, so both say the same thing.
                 where = f"step {number}"
                 if step.get("id"):
                     where = f"step {number} ({step['id']})"

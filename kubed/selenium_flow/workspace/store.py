@@ -1,27 +1,25 @@
 """Where a workspace is kept: a caller key to workspace-record map.
 
 Backs the workspace manager in ``workspaces.py``, and nothing else. It stores a
-small record per caller — never a browser, which lives on the Grid.
+small record per caller, never a browser, which lives on the Grid.
 
-**A workspace is the thing, and a browser is something it may or may not
-have.** The record outlives the browser deliberately: a workspace whose browser
-was reaped, or ended from the admin UI, keeps the browser choice and the page it
-was on, so the next ``open_session`` can pick up where it left off instead of
-starting from the server's defaults. ``session_id`` is empty when detached.
+A workspace is the thing, and a browser is something it may or may not have.
+The record outlives the browser: a workspace whose browser was reaped, or ended
+from the admin UI, keeps the browser choice and the page it was on, so the next
+``open_session`` picks up where it left off. ``session_id`` is empty when
+detached.
 
-Nothing here expires a *browser*. Selenium Grid already does that: a session
-idle past ``SE_NODE_SESSION_TIMEOUT`` is reaped by the node that owns it, so an
-abandoned browser cleans itself up with no scheduler on this side. What these
-backends expire is the *mapping*, which is a cache and is allowed to be wrong —
-``workspaces.py`` validates a record against the Grid before trusting it.
+Nothing here expires a browser: a Grid node reaps a session idle past
+``SE_NODE_SESSION_TIMEOUT``. What these backends expire is the mapping, which is
+a cache and is allowed to be wrong: ``workspaces.py`` checks a record against
+the Grid before trusting it.
 
-Both backends honour ``ttl`` so that swapping one for the other cannot change
+Both backends honour ``ttl``, so swapping one for the other cannot change
 behaviour. Redis does it natively with ``EX``; memory keeps an expiry stamp and
 treats a lapsed entry as absent.
 
 Selection is explicit via ``workspace.store`` in the config. Left unset it infers
-redis from ``redis.host`` or ``redis.url`` being set, so an existing deployment
-keeps working.
+redis from ``redis.host`` or ``redis.url`` being set.
 """
 
 from __future__ import annotations
@@ -51,21 +49,18 @@ log = logging.getLogger(__name__)
 # with other applications safe.
 DEFAULT_PREFIX = "selenium-flow:workspace:"
 # The pointer store writes under the workspace prefix too, in this sub-namespace.
-# No caller key has this shape, so it is never a workspace — but a SCAN of the
-# prefix finds it, and `records()` reading one as a record emptied the admin
-# list the moment any browser had been hovered.
+# No caller key has this shape, but a SCAN of the prefix finds it, so
+# `records()` skips it.
 POINTER_NAMESPACE = "pointer:"
-# Redis's own default. Deliberately not a guess about the deployment: an install
-# with an index convention passes REDIS_DB, and the prefix keeps it safe if not.
+# Redis's own default: an install with an index convention passes REDIS_DB,
+# and the prefix keeps it safe if not.
 DEFAULT_DB = 0
-# How long a workspace is kept after it was last used. A day, because these
-# are now the history the admin view shows rather than a short-lived cache: a
-# named workspace in daily use never expires, one abandoned yesterday is gone.
-# The browser it names is still reaped on the Grid's schedule, not this one.
+# How long a workspace is kept after it was last used: a day, since records are
+# the history the admin view shows. The browser it names is still reaped on the
+# Grid's schedule.
 DEFAULT_TTL_SECONDS = 86400
 # How many times a Redis update re-reads after another writer got there first.
-# Each retry is one round trip, and a key rewritten this often in the time one
-# takes is something wrong rather than something to wait out.
+# A key rewritten this often within one round trip is a fault, not contention.
 UPDATE_RETRIES = 10
 # How many origins a workspace's history keeps; the oldest goes first.
 HISTORY_CAP = 100
@@ -80,16 +75,13 @@ Noted = Callable[["Workspace | None"], "tuple[Workspace | None, Any]"]
 
 
 class StoreUnavailable(RuntimeError):
-    """Redis was asked for and cannot be used (§F4.12).
+    """Redis was asked for and cannot be used.
 
     Raised by ``redis_client`` and left to propagate out of ``from_settings``,
-    rather than caught and downgraded to :class:`MemoryStore`. A pod that
-    refuses to start is restarted by Kubernetes until Redis answers; a pod
-    that started anyway, on the wrong store, is never corrected — the live
-    server once ran three days on an in-memory store because Redis was
-    refusing connections at boot, with nothing but a log line saying so.
-    Memory is the answer only when nothing asked for Redis in the first
-    place.
+    never downgraded to :class:`MemoryStore`: a pod that refuses to start is
+    restarted by Kubernetes until Redis answers, while one that started on the
+    wrong store is never corrected. Memory is the answer only when nothing
+    asked for Redis.
     """
 
 
@@ -101,21 +93,17 @@ class StoreConflict(RuntimeError):
 class Workspace:
     """One workspace: its context, and the browser it currently holds.
 
-    ``history`` and ``settings`` are the point of storing a record rather than
-    a bare id. They are what makes a browser replaceable: reopening and
-    navigating back to the last known page — the top of the history — in the
-    browser it was using makes a refresh invisible, and makes
-    ``open_session`` with no arguments do the obvious thing after the browser
-    has gone.
+    ``history`` and ``settings`` make a browser replaceable: reopening the same
+    browser on the top of the history makes a refresh invisible, and makes
+    ``open_session`` with no arguments carry on after the browser has gone.
 
-    ``session_id`` is empty when no browser is attached, which is an ordinary
-    state rather than a broken one: the Grid reaped it, or an admin ended it.
+    ``session_id`` is empty when no browser is attached, an ordinary state: the
+    Grid reaped it, or an admin ended it.
     """
 
     session_id: str = ""
     opened_at: float = 0.0
-    # What the workspace was opened with, so a reopen uses the same browser
-    # rather than a default one.
+    # What the workspace was opened with, so a reopen uses the same browser.
     settings: dict = field(default_factory=dict)
     # Who set each of those settings: "config", "client" or "caller", one per
     # key. A record whose sources are missing or do not match its settings is
@@ -130,18 +118,17 @@ class Workspace:
     site_data: dict = field(default_factory=dict)
     # A silent reopen's notice, held until the first result from that browser
     # says it: {"browser": id, "cause": "reaped" | "lost", "report": {...} |
-    # None}, or {}. Held for every silent reopen, whether or not site data came
-    # back.
+    # None}, or {}.
     reopened: dict = field(default_factory=dict)
     # When this workspace's last call ended, in wall time; 0.0 before any. It
     # is what tells a reap (idle past the window) from a lost browser.
     called_at: float = 0.0
-    # Who opened the browser this workspace holds — {"kind", "username"} — for
-    # the admin list. Shown, never consulted (spec 2026-10-09-admin-oidc).
+    # Who opened the browser this workspace holds, {"kind", "username"}, for
+    # the admin list. Shown, never consulted.
     opened_by: dict | None = None
     # Seconds the Grid lets this workspace's session sit idle before reaping
-    # it, read from its node at the last open (session monitor spec, ruling
-    # 10). Kept when the session ends; None when the Grid did not say.
+    # it, read from its node at the last open. Kept when the session ends;
+    # None when the Grid did not say.
     grid_timeout: int | None = None
     # The window the held browser has, as ``WxH``: measured when it opened (the
     # node's default when nothing was asked) and moved by a resize. What the
@@ -151,7 +138,7 @@ class Workspace:
     window_seen: str | None = None
     # What this session's open sent: [{"key", "value", "sources"}], written at
     # every open and reopen, for the admin's Capabilities section only. Never
-    # reused: the next open recomputes it (spec 2026-10-26, ruling 7).
+    # reused: the next open recomputes it.
     sent: list = field(default_factory=list)
     # What the Grid says ran: {"version", "node", "live_view"}, each None
     # when it did not say. Kept when the session ends, like `sent`.
@@ -193,11 +180,9 @@ class Workspace:
         """The window size this workspace is set to, as ``WxH``.
 
         Kept current by ``resize``, so it is both the size the browser is now
-        and the size it would come back as if the Grid reaped it.
-
-        None when the workspace never named one, which is a real answer rather
-        than a missing value: the window is whatever the Grid node's default
-        happens to be, and printing a number here would claim we knew which.
+        and the size it would come back as after a reap. None when the
+        workspace never named one: the window is the Grid node's default, and a
+        number here would claim to know it.
         """
         width, height = self.settings.get("width"), self.settings.get("height")
         return f"{width}x{height}" if width and height else None
@@ -210,8 +195,8 @@ class Workspace:
         try:
             data = json.loads(raw)
             if not isinstance(data, dict):
-                # Valid JSON that is not a record — a pointer's `[x, y]` — is
-                # a miss too. `.get` on it raised AttributeError, which the
+                # Valid JSON that is not a record (a pointer's `[x, y]`) is a
+                # miss too; `.get` on it would raise AttributeError, which the
                 # clause below does not catch.
                 return None
             settings = data.get("settings")
@@ -223,7 +208,7 @@ class Workspace:
             return cls(
                 # A record without valid sources keeps no settings and lets go
                 # of its browser, so the Grid reaps it and the next call opens
-                # afresh; the rest of it stays (spec 2026-10-27, ruling 14).
+                # afresh; the rest of it stays.
                 session_id=session_id,
                 opened_at=float(data.get("opened_at", 0.0)),
                 settings=settings if set_by is not None else {},
@@ -252,8 +237,8 @@ class Workspace:
         """The same record, having landed on ``urls`` in order, then pruned.
 
         Each one with an origin moves that origin to the top with its URL and
-        the time. One without — None for a URL withheld after a secret write
-        (§F1.24), ``about:blank``, ``data:`` — records nothing.
+        the time. One without (None for a URL withheld after a secret write,
+        ``about:blank``, ``data:``) records nothing.
         """
         now = time.time() if now is None else now
         history = list(self.history)
@@ -273,7 +258,7 @@ class Workspace:
         Only the top entry keeps its whole URL. Below it a URL keeps its origin,
         path and hash route (never the route's query): a query string or
         fragment carries OAuth codes and reset tokens, and nothing but a reopen
-        needs them (Copilot, #51).
+        needs them.
         """
         history = self.history
         kept = history[:1] + [
@@ -284,10 +269,9 @@ class Workspace:
     def reshaped(self, settings: dict) -> Workspace:
         """The same record, with some of its settings replaced.
 
-        A merge rather than a swap: the caller names only the settings it just
-        changed, and the ones it does not mention — the browser, the timeouts —
-        have to survive or a reopen would replay a browser nobody asked for.
-        What is handed in is the caller's, so those keys are marked so.
+        A merge: the caller names only the settings it just changed, and the
+        others (the browser, the timeouts) survive, or a reopen would replay a
+        browser nobody asked for. What is handed in is marked the caller's.
         """
         merged = {**self.settings, **settings}
         set_by = {**self.set_by, **dict.fromkeys(settings, CALLER)}
@@ -398,10 +382,9 @@ def _timeout(raw) -> int | None:
 
 
 def _visits(raw) -> list[dict]:
-    """The well-formed entries of a stored history. A record written before
-    there was one has none: it reads as a workspace that has been nowhere. A URL
-    that does not parse is no entry, or every later write would trip on it
-    (Copilot, #51)."""
+    """The well-formed entries of a stored history, none when there is none. A
+    URL that does not parse is no entry, or every later write would trip on
+    it."""
     if not isinstance(raw, list):
         return []
     return [
@@ -419,26 +402,23 @@ class WorkspaceStore(Protocol):
     the session (the live browser) it holds, if any."""
 
     kind: str
-    # How long an entry is kept. Part of the contract because things derived
-    # from a store have to keep its retention - `pointer.matching` is the one
-    # that does - and a store that answered a different question about how long
-    # anything lives would be two retention policies wearing one name.
+    # How long an entry is kept: things derived from a store keep its retention
+    # (`pointer.matching`).
     ttl: int
 
     def get(self, key: str) -> Workspace | None: ...
 
     def set(self, key: str, record: Workspace) -> None: ...
 
-    # A read-change-write that cannot revert a concurrent write. `set` stores
-    # a whole record, so a caller that read one, waited on the Grid, and set it
-    # back undid whatever opened, ended or saved in between. `fn` gets the
-    # record as it is at write time and returns the one to store, or None to
-    # store nothing; it may run more than once, so it must only compute. It is
-    # never called for an absent key. Returns what is stored afterwards.
+    # A read-change-write that cannot revert a concurrent write, as a read, a
+    # wait on the Grid and a `set` would. `fn` gets the record as it is at write
+    # time and returns the one to store, or None to store nothing; it may run
+    # more than once, so it must only compute. It is never called for an absent
+    # key. Returns what is stored afterwards.
     def update(self, key: str, fn: Change) -> Workspace | None: ...
 
     # `update`, and an absent key too: `fn` gets None, so a first write can
-    # never land between a read and a fallback `set` (Copilot, #50).
+    # never land between a read and a fallback `set`.
     def upsert(self, key: str, fn: Create) -> Workspace | None: ...
 
     # A write that answers: `fn` returns the record to store and a note on
@@ -452,22 +432,17 @@ class WorkspaceStore(Protocol):
 
     def delete(self, key: str) -> None: ...
 
-    # Optional, and only the admin view needs it: the MCP surface never lists
-    # workspaces, because a client may only ever see its own. A store that cannot
-    # enumerate cheaply may leave these out, and the admin view shows an empty
-    # list rather than failing.
+    # Optional, for the admin view only: the MCP surface never lists workspaces.
+    # A store that cannot enumerate cheaply may leave these out, and the admin
+    # view shows an empty list.
     def records(self) -> dict[str, Workspace]: ...
 
     def owners(self) -> dict[str, str]: ...
 
 
 class _Writes:
-    """`update` and `change`, built on the `upsert` each store implements.
-
-    Layered rather than side by side, so every write runs through the one a
-    store implements, retries included: `update` is `upsert` that never
-    creates, and `change` is either of them with a note handed back.
-    """
+    """`update` and `change`, built on the `upsert` each store implements, so
+    every write runs through it, retries included."""
 
     def upsert(self, key: str, fn: Create) -> Workspace | None:
         raise NotImplementedError
@@ -513,10 +488,8 @@ class MemoryStore(_Writes):
 
     @property
     def ttl(self) -> int:
-        """How long an entry is kept, so anything derived from this store keeps
-        the same retention. `RedisStore` exposes it for the same reason: without
-        it, `pointer.matching` fell back to its own default and held a pointer
-        for a day on a server configured for minutes (Copilot, #31)."""
+        """How long an entry is kept, so anything derived from this store
+        (`pointer.matching`) keeps the same retention."""
         return self._ttl
 
     def get(self, key: str) -> Workspace | None:
@@ -564,13 +537,8 @@ class MemoryStore(_Writes):
     def records(self) -> dict[str, Workspace]:
         """Every live workspace, keyed the way it is stored.
 
-        Purges as it goes, which is the only thing that ever collects an entry
-        nobody asks for again. ``get`` expires the one key it was handed, so a
-        caller that names a workspace once and never returns — a script run from a
-        shell, a workflow that builds a name per invocation — left a record here
-        until the process restarted. Redis has never had this problem: it
-        expires entries itself, which is why the leak was invisible in the
-        deployment that matters and real in the default one.
+        Purges as it goes: ``get`` expires only the key it was handed, so this
+        is what collects an entry nobody asks for again.
         """
         now = self._clock()
         live = {}
@@ -587,22 +555,17 @@ class MemoryStore(_Writes):
 
 
 class RedisStore(_Writes):
-    """Shared mapping, so any replica resolves the same key.
-
-    Entries expire natively: a mapping that outlives the browser it names is
-    worse than no mapping, and Redis is better at that bookkeeping than we are.
-    """
+    """Shared mapping, so any replica resolves the same key. Entries expire
+    natively."""
 
     kind = "redis"
 
     def __init__(
         self, client, prefix: str = DEFAULT_PREFIX, ttl: int = DEFAULT_TTL_SECONDS
     ):
-        # Readable, so anything that must share this backend can be built FROM
-        # this object rather than from a second reading of the environment.
-        # `pointer.matching` is the one that needs it: deriving it from the env
-        # a second time meant an injected store and the pointers could disagree
-        # about whether they were shared at all (Copilot, #31).
+        # Readable (`client`, `prefix`), so anything that shares this backend
+        # (`pointer.matching`) is built from this object, never from a second
+        # reading of the environment.
         self._redis = client
         self._prefix = prefix
         self._ttl = ttl
@@ -677,9 +640,8 @@ class RedisStore(_Writes):
                 keys.append(key)
         if not keys:
             return {}
-        # One MGET, not a GET per key: this runs on every poll of every open
-        # admin page, and each GET was its own round trip (§F4.19). A key that
-        # expired since the SCAN comes back None and is skipped.
+        # One MGET: this runs on every poll of every open admin page. A key
+        # that expired since the SCAN comes back None and is skipped.
         found: dict[str, Workspace] = {}
         for key, value in zip(keys, self._redis.mget(keys), strict=True):
             record = Workspace.from_json(value or b"")
@@ -696,8 +658,8 @@ def from_settings(workspace: WorkspaceSettings, conn: RedisSettings) -> Workspac
     """Build the workspace store the config asks for.
 
     Redis configured and unreachable, or missing its package, is a startup
-    error rather than a silent step down to memory (§F4.12). An unknown
-    backend no longer reaches here: the config refuses it at load.
+    error, never a silent step down to memory. The config refuses an unknown
+    backend at load.
     """
     if workspace.store == "memory":
         log.info("workspace store: memory, ttl %ss", workspace.ttl)
@@ -711,22 +673,12 @@ def from_settings(workspace: WorkspaceSettings, conn: RedisSettings) -> Workspac
 
 
 def redis_client(conn: RedisSettings):
-    """A connected Redis client, or raises ``StoreUnavailable``. See §F4.12.
+    """A connected Redis client, or raises ``StoreUnavailable``.
 
-    Separate from `from_settings` because the workspace record is no longer the
-    only thing worth sharing between replicas — `pointer.py` keeps the
-    pointer's position the same way. Two copies of this connection cascade is
-    two places to forget the database index, and the second one would be the
-    one nobody tests.
-
-    Raises rather than logging and returning None (§F4.12): a caller configured
-    for Redis that gets nothing back must not quietly keep going on a mapping
-    that resolves locally. ``where`` never carries the connection's password —
-    neither in this message nor in the underlying exception's, which is routed
-    through ``faults.message`` for the same scrubbing HTTP errors get. Both
-    raises are ``from None``: chaining the raw driver exception would put its
-    unscrubbed ``str()`` — URL, userinfo included — back into any traceback
-    printed for this one.
+    ``where`` never carries the connection's password, and the driver's
+    exception text goes through ``faults.message``. Both raises are ``from
+    None``: chaining the driver exception would put its unscrubbed ``str()``,
+    URL and userinfo included, back into any traceback printed for this one.
     """
     url = conn.url.get_secret_value() if conn.url else None
     where = (

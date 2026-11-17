@@ -1,22 +1,30 @@
 """The test doubles, one copy of each.
 
 Each class answers a named production seam and carries the union of what the
-modules that used to keep their own copy needed. Before this module two files
-could each hold a ``FakeRedis`` and the unit double could drift from the one the
-bench times; a module split now has one file to repoint.
+test modules using it need, so a module split has one file to repoint.
 """
 
 import asyncio
+import inspect
 import json
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
+from typing import ClassVar
 
+import yaml
+from mcp_types import Request, RequestParams
+from pydantic import ConfigDict, TypeAdapter
 from selenium.common.exceptions import UnexpectedAlertPresentException
 
 from kubed.selenium_flow.bidi import CHANNEL_DOWN, BidiError
+from kubed.selenium_flow.core import actions as actions_module
 from kubed.selenium_flow.faults import BidiUnavailable, SocketClosed
+from kubed.selenium_flow.live.tunnel import Tunnel
+from kubed.selenium_flow.redaction import Forms
 from kubed.selenium_flow.urls import origin_of
+from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 MAIN = "main-1"
 
@@ -193,6 +201,16 @@ class FakeClock:
 
     def monotonic(self):
         self.now += 1.0
+        return self.now
+
+
+class Clock:
+    """A ``clock`` argument a test moves by hand: calling it returns ``now``."""
+
+    def __init__(self, now=1_791_500_000.0):
+        self.now = now
+
+    def __call__(self):
         return self.now
 
 
@@ -679,3 +697,450 @@ class FakePeer:
 
     async def next_sent(self):
         return await asyncio.wait_for(self._outgoing.get(), 1)
+
+
+# ---- what `Workspaces` is built over -----------------------------------------
+
+
+def caller(name="bot"):
+    """A query-string caller naming ``name``."""
+    return Caller(name, "query")
+
+
+class SessionGrid:
+    """Answers the `Grid` questions `Workspaces` asks: liveness and idle timeout.
+
+    ``alive`` is the set of live ids and ``timeouts`` each one's idle timeout;
+    ``timeout_fails`` makes the timeout unreadable. Reattaching is refused.
+    """
+
+    def __init__(self):
+        self.alive = set()
+        self.timeouts = {}
+        self.timeout_fails = False
+
+    def is_alive(self, sid):
+        return sid in self.alive
+
+    def session_timeout(self, sid):
+        if self.timeout_fails:
+            raise ConnectionError("status unavailable")
+        return self.timeouts.get(sid)
+
+    def reconnect(self, sid):
+        raise ConnectionError("not in this test")
+
+
+class WorkspaceActions:
+    """Answers the open and end `Workspaces` asks of `Actions`: every browser is
+    ``grid0001``, ``grid0002``... with a 300 s idle timeout. ``quit_fails`` makes
+    ending one fail as an unreachable Grid does."""
+
+    def __init__(self):
+        self.grid = SessionGrid()
+        self.n = 0
+        self.quit_fails = False
+
+    def open_session(self, *, on_created=None, **kwargs):
+        self.n += 1
+        sid = f"grid{self.n:04d}"
+        self.grid.alive.add(sid)
+        self.grid.timeouts.setdefault(sid, 300)
+        return {
+            "session_id": sid,
+            "browser": kwargs.get("browser") or "chrome",
+            "url": "about:blank",
+            "title": "",
+            "width": 1280,
+            "height": 900,
+        }
+
+    def end_browser(self, sid):
+        if self.quit_fails:
+            raise ConnectionError("grid unreachable")
+        self.grid.alive.discard(sid)
+
+
+class PageActions(WorkspaceActions):
+    """`WorkspaceActions` whose browser stands on one page."""
+
+    def page(self, session_id):
+        return {"url": "https://a.test/", "title": "A"}
+
+
+class Bus:
+    def __init__(self, published):
+        self.published = published
+
+    def publish(self, event):
+        self.published.append(event)
+
+
+class FakeMonitor:
+    """Records `calling` / `called` and what the bus was handed; holds no connection unless
+    a test gives it one."""
+
+    def __init__(self):
+        self.touched, self.published = [], []
+        self.bus = Bus(self.published)
+        self.held = None
+        self.loop = None
+        self.owed: set[str] = set()  # sessions that owe capture
+        self.attached: list = []
+
+    def keep(self, *a, **k):
+        pass
+
+    def calling(self, session_id):
+        self.touched.append(("calling", session_id))
+
+    def called(self, session_id):
+        self.touched.append(("called", session_id))
+
+    def backing_off(self, session_id):
+        return False
+
+    def connection(self, session_id):
+        return self.held
+
+    def owes(self, session_id, reason):
+        return reason == "capture" and session_id in self.owed
+
+    def capturing(self, session_id):
+        return self.held is not None
+
+    def attach(self, workspace, session_id, reason, **kwargs):
+        self.attached.append((workspace, session_id, reason, kwargs.get("browser")))
+
+    def opened(self, *args, **kwargs):
+        pass
+
+    def ended(self, *args, **kwargs):
+        return True
+
+
+class Anywhere:
+    """A catalogue holding ``demo/password``, usable on any page."""
+
+    def entry(self, name):
+        return {"name": name, "keys": ["password"], "allowed_urls": []}
+
+    def allows(self, name, url):
+        return True
+
+    def value(self, name, key):
+        return "hunter2"
+
+
+def build(capture, monitor, actions=None):
+    """Workspaces over ``monitor`` and ``capture`` with a browser open in ``ws``
+    (attached to ``capture`` when there is one), and the monitor's record of
+    the open cleared."""
+    workspaces = Workspaces(actions or PageActions(), monitor=monitor, capture=capture)
+    workspaces.open_browser(Caller("ws", "query"))
+    if capture is not None:
+        sid = workspaces.store.get("ws").session_id
+        capture.attached("ws", sid, "chrome", "top-1", again=False)
+    monitor.touched.clear()
+    monitor.published.clear()
+    return workspaces
+
+
+class FakeWorkspaces:
+    """Answers what the file listings ask of `Workspaces`: ``browser`` is the
+    Grid id of the workspace's live browser, or "" when it has none."""
+
+    def __init__(self, browser="abc"):
+        self._browser = browser
+
+    def name(self):
+        return "desktop"
+
+    def browser(self, name):
+        return self._browser
+
+    def resolve(self, name):
+        return self._browser
+
+
+# ---- MCP extension methods -----------------------------------------------------
+
+
+class ExtensionParams(RequestParams):
+    model_config = ConfigDict(extra="allow")
+
+
+async def request(client, method, **params):
+    """Send ``method``, a method no MCP client knows, with ``params``."""
+    return await client.session.send_request(
+        Request(method=method, params=ExtensionParams(**params)), TypeAdapter(dict)
+    )
+
+
+def header(text: str) -> object:
+    """The YAML front matter of a Markdown document."""
+    lines = text.splitlines()
+    end = next(i for i, line in enumerate(lines[1:], start=1) if line.rstrip() == "---")
+    return yaml.safe_load("\n".join(lines[1:end]))
+
+
+# ---- secrets ----------------------------------------------------------------
+
+
+class FakeCatalogue:
+    """Answers `Forms.of` from ``{origin: {(name, key): value}}``, and counts.
+
+    ``calls`` holds the reads that can touch a value; ``revisions`` counts the
+    cheap `revision()` calls separately.
+    """
+
+    def __init__(self, scopes: dict, *, gate: threading.Event | None = None):
+        self.scopes = scopes
+        self.calls: dict = {"forms_for": [], "leashed": 0}
+        self.revisions = 0
+        self._revision = 1
+        self.gate = gate
+        self.fail_forms_for = False
+        self.fail_leashed = False
+
+    def rotate(self, scopes: dict) -> None:
+        self.scopes = scopes
+        self._revision += 1
+
+    def revision(self) -> int:
+        self.revisions += 1
+        return self._revision
+
+    def _forms(self, secrets_: dict) -> Forms:
+        forms = Forms()
+        for ident, value in secrets_.items():
+            forms = forms | Forms.of(value, ident)
+        return forms
+
+    def forms_for(self, origin: str) -> Forms:
+        self.calls["forms_for"].append(origin)
+        if self.gate is not None:
+            self.gate.wait(5)
+        if self.fail_forms_for:
+            raise OSError("cannot read alpha-11")
+        return self._forms(self.scopes.get(origin, {}))
+
+    def leashed(self) -> Forms:
+        self.calls["leashed"] += 1
+        if self.fail_leashed:
+            raise OSError("cannot read alpha-11 either")
+        every: dict = {}
+        for scoped in self.scopes.values():
+            every.update(scoped)
+        return self._forms(every)
+
+
+class Vault:
+    """Just enough catalogue to hand `secrets.bind` one restricted value."""
+
+    def __init__(self, value="hunter2"):
+        self.secret = value
+
+    def entry(self, name):
+        return {"name": name, "keys": ["password"], "allowed_urls": [], "restricted": True}
+
+    def allows(self, name, url):
+        return True
+
+    def value(self, name, key):
+        return self.secret
+
+
+# ---- the monitor's connections ------------------------------------------------
+
+
+class FakeSubscriber:
+    """What `FakeConnection.listen` returns: a handler for some events."""
+
+    def __init__(self, events, handler, on_drop=None):
+        self.events, self.handler, self.on_drop = frozenset(events), handler, on_drop
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+class FakeConnection:
+    """Stands in for `bidi.Connection`: records what the monitor asked of it.
+
+    ``refuse`` makes every open raise ConnectionError, ``hang_on_subscribe``
+    makes every subscribe and ``hang_on_open`` every open wait until ``gate``
+    is set (forever without one); conftest's `fresh_connections` resets them
+    around every test."""
+
+    made: ClassVar[list] = []
+    refuse: ClassVar[bool] = False
+    hang_on_subscribe: ClassVar[bool] = False
+    hang_on_open: ClassVar[bool] = False
+    gate: ClassVar[asyncio.Event | None] = None
+
+    def __init__(self, url, *, on_close=None):
+        self.url, self.on_close = url, on_close
+        self.is_open = False
+        self.dropped = False
+        self.subscribed = []
+        self.collectors = []
+        self.listeners = []
+        self.commands = []
+        self.flushed = 0
+        self.closed = 0
+        self.closed_clean = False
+        self._subscriptions = set()
+        self._collectors = set()
+        FakeConnection.made.append(self)
+
+    @classmethod
+    def reset(cls):
+        cls.made, cls.refuse, cls.hang_on_subscribe = [], False, False
+        cls.hang_on_open, cls.gate = False, None
+
+    async def open(self):
+        if FakeConnection.hang_on_open:
+            await (FakeConnection.gate or asyncio.Event()).wait()
+        if FakeConnection.refuse:
+            raise ConnectionError("refused")
+        self.is_open = True
+
+    async def command(self, method, params=None, *, timeout=5.0):
+        self.commands.append((method, params))
+        if method == "browsingContext.getTree":
+            return {"contexts": [{"context": "top-1"}]}
+        return {}
+
+    def listen(self, events, handler, *, name, limit=1000, on_drop=None):
+        subscriber = FakeSubscriber(events, handler, on_drop)
+        self.listeners.append(subscriber)
+        return subscriber
+
+    async def subscribe(self, events, contexts=None):
+        if FakeConnection.hang_on_subscribe:
+            await (FakeConnection.gate or asyncio.Event()).wait()
+        self.subscribed.append(list(events))
+        subscription = f"sub-{len(self.subscribed)}"
+        self._subscriptions.add(subscription)
+        return subscription
+
+    async def add_collector(self, params):
+        self.collectors.append(params)
+        self._collectors.add("col-1")
+        return "col-1"
+
+    async def flush(self):
+        self.flushed += 1
+
+    async def close(self):
+        if self.is_open and (self._subscriptions or self._collectors):
+            self._subscriptions.clear()  # what `Connection.close` unsubscribes
+            self._collectors.clear()  # and the collectors it removes
+            self.closed_clean = True
+        self.is_open = False
+        self.closed += 1
+
+    def drop(self):
+        self.is_open, self.dropped = False, True
+        self.on_close()
+
+    async def emit(self, method, params):
+        for subscriber in self.listeners:
+            if method in subscriber.events and not subscriber.cancelled:
+                result = subscriber.handler(method, params)
+                if inspect.isawaitable(result):
+                    await result
+
+
+class FakeSink:
+    """Stands in for `Capture`: records every call the monitor makes."""
+
+    def __init__(self):
+        self.calls = []
+
+    def attached(self, workspace, session_id, browser, top, *, again):
+        self.calls.append(("attached", workspace, session_id, browser, top, again))
+
+    def ingest(self, workspace, session_id, method, params):
+        self.calls.append(("ingest", workspace, session_id, method, params))
+
+    def replayed(self, workspace, session_id):
+        self.calls.append(("replayed", workspace, session_id))
+
+    def detached(self, workspace, session_id):
+        self.calls.append(("detached", workspace, session_id))
+
+    def lost(self, workspace, session_id):
+        self.calls.append(("lost", workspace, session_id))
+
+
+# ---- live view ----------------------------------------------------------------
+
+
+def held(tunnels, workspace, who, mode, grid_id="g1"):
+    """A viewer of ``workspace`` in ``mode``, asked through the registry as the
+    tunnel asks once it pipes. With no call running, Control is requested and
+    the grant lands once the pages are followed: run here to its
+    end on a loop of its own, since the callers are plain tests."""
+    tunnel = Tunnel(FakePeer(), who=who, workspace=workspace, session="s", grace=1)
+    tunnels.add(grid_id, tunnel)
+    if mode == "control":
+
+        async def granted():
+            tunnel.mode = tunnel.on_ask()
+            episode = tunnels.controls._episodes.get(workspace)
+            if episode is not None and episode.pending is not None:
+                await asyncio.wait({episode.pending})
+
+        asyncio.run(granted())
+    return tunnel
+
+
+# ---- drivers ------------------------------------------------------------------
+
+
+class FocusedDriver(ScriptedDriver):
+    """A driver whose focused element is answered in turn, one per context."""
+
+    def __init__(self, in_frame=False, **kw):
+        super().__init__(**kw)
+        self.__dict__["answers"] = []
+        self.__dict__["in_frame"] = in_frame
+
+    def execute_script(self, script, *args):
+        if script == actions_module.FOCUSED:
+            self.log.append(("focused",))
+            return self.answers.pop(0) if self.answers else None
+        if "window.top" in script:
+            self.log.append(("in_frame",))
+            return self.in_frame
+        return super().execute_script(script, *args)
+
+
+def element(log, tag="textarea"):
+    found = ScriptedElement(log)
+    found.tag = tag
+    return found
+
+
+class KeyDriver:
+    """A driver to send keys at: what has focus is the driver itself, and
+    ``sent`` is every combination it was sent."""
+
+    current_url = "https://example.test/"
+    title = "t"
+
+    def __init__(self):
+        self.sent = []
+
+    @property
+    def switch_to(self):
+        # press_key with no selector sends to what has focus.
+        return SimpleNamespace(active_element=self)
+
+    def send_keys(self, *keys):
+        self.sent.append("".join(keys))
+
+    def execute_script(self, *_):
+        return False

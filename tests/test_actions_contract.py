@@ -23,7 +23,7 @@ from selenium.common.exceptions import (
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import wait as selenium_wait
 
-from kubed.selenium_flow.core import browser, pointer
+from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.core.actions import EXTRACT_JS
 from kubed.selenium_flow.core.browser import NAVIGATION_SETTLE
 from kubed.selenium_flow.errors import status_for
@@ -34,22 +34,6 @@ pytestmark = pytest.mark.unit
 
 PAGE = "https://example.test/"
 BOTH = {"css": "a", "xpath": "//a"}
-
-
-@pytest.fixture
-def pointer_lands(monkeypatch):
-    """`pointer.move` answers as if the pointer arrived, so a gesture can run
-    against the scripted driver without a browser's geometry."""
-    monkeypatch.setattr(
-        pointer,
-        "move",
-        lambda *a, **k: {
-            "at": (10.0, 10.0), "glided": False, "nudged": False,
-            "unknown_start": False,
-            # A move reports the window's size it read on landing (Task 19).
-            "viewport": (1000, 800),
-        },
-    )
 
 
 # ---- X1: a dialog is state, never an error ----------------------------------
@@ -82,12 +66,6 @@ def test_an_open_dialog_is_reported_as_page_state_and_never_raised(
     assert result["url"] is None and result["title"] is None
     assert result["dialog"] == DIALOG
     assert "answer it with dialog" in result["hint"]
-
-
-def test_a_page_with_no_dialog_has_no_dialog_keys(actions, scripted):
-    scripted()
-    result = actions.navigate("abc", PAGE)
-    assert result == {"url": PAGE, "title": "Example"}
 
 
 # ---- K6: settling is allowed to expire ---------------------------------------

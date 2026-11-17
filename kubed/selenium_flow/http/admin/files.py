@@ -34,30 +34,16 @@ def mount(
     )
     @guarded
     async def admin_files(request: Request) -> JSONResponse:
-        """The three sections at once: Downloads, Screenshots and Files.
-
-        Clearing and deleting have their own route now — one per name, below —
-        because DELETE on this same path used to mean only one thing (clear the
-        Grid's store) and the admin now offers three different erasures that a
-        single boolean could not tell apart.
-        """
+        """Every section at once: Downloads, Screenshots, Recordings and Files."""
         key = request.path_params["key"]
-        # A workspace whose name cannot be a directory keeps nothing, so it has no
-        # kept files to list — and must not be shown the shared library's.
+        # A workspace whose name cannot be a directory keeps nothing, and must
+        # not be shown the shared library's files.
         workspace = library_of(key) or ""
         try:
-            # Whether there are downloads to list depends on whether the browser
-            # is still on the Grid. The record can name one the Grid already
-            # reaped — an ordinary state, not a broken one — and handing that
-            # dead id to `sections` would fail the whole view in exactly the
-            # case kept files exist to survive.
-            #
-            # `is_alive` is the right question, and the header's `live` is not:
-            # that comes from a best-effort bulk listing which reports
-            # `live: false` when the Grid could not be read *at all*, so an
-            # outage would quietly render an empty download list instead of an
-            # error. `is_alive` assumes alive when it cannot tell, so a Grid
-            # that is down still surfaces from the call below.
+            # The record can name a browser the Grid already reaped, and that
+            # dead id would fail the whole view. `is_alive`, not the header's
+            # `live`: it assumes alive when it cannot tell, so a Grid that is
+            # down still fails below instead of showing no downloads.
             attached = attached_id(workspaces, key)
             alive = attached and await run_in_threadpool(
                 actions.grid.is_alive, attached
@@ -67,10 +53,7 @@ def mount(
                 await run_in_threadpool(actions.grid.files, live_id) if live_id else []
             )
             if not live_id and flow_store is None:
-                # Genuinely nothing: no store configured, and no browser to ask.
-                # `files.sections` raises for this — the right answer for a
-                # caller asking "what do I have", and the wrong one for a page
-                # rendering an (empty) tab of its own.
+                # `files.sections` raises for this; the page wants an empty tab.
                 listing = {
                     "component": "fileSections",
                     "workspace": None,
@@ -112,9 +95,7 @@ def mount(
     @changes
     async def admin_keep_file(request: Request) -> JSONResponse:
         """Move a screenshot or a recording, or copy a download, into the
-        workspace's own Files
-        — so it outlives the browser. There is no matching unkeep: see
-        ``files.py``."""
+        workspace's Files."""
         key = request.path_params["key"]
         folder = request.path_params["folder"]
         name = request.path_params["name"]
@@ -130,8 +111,6 @@ def mount(
                 workspaces,
                 flow_store,
                 stored.uri_of(folder, name),
-                # The library this key owns, refused the same way the delete
-                # and clear handlers refuse it, not the raw key.
                 name=library(key),
                 session_id=attached_id(workspaces, key),
             )
@@ -147,17 +126,13 @@ def mount(
     @guarded
     @changes
     async def admin_delete_file(request: Request) -> JSONResponse:
-        """Clear a whole section, or delete one file from Files — the name in
-        the path decides which, since ``downloads`` and ``screenshots`` are
-        reserved names Files itself can never hold (§F4.6)."""
+        """Clear a whole section, or delete one file from Files: the section
+        names are reserved in Files, so the name decides which."""
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:
             if name == stored.DOWNLOADS:
-                # Clears the Grid's whole store, which is all it offers: no
-                # per-file delete. Screenshots and Files are ours and
-                # elsewhere, so they are untouched — which is exactly what
-                # makes this safe to put behind a button (§F1.10).
+                # The Grid's whole store: it has no per-file delete.
                 session_id = attached_id(workspaces, key)
                 alive = session_id and await run_in_threadpool(
                     actions.grid.is_alive, session_id

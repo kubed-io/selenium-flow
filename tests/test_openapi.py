@@ -56,7 +56,7 @@ async def test_every_endpoint_is_documented(spec):
 
 async def test_the_browser_resource_carries_its_three_methods(spec):
     """Opening, reading and ending are methods on the browser this caller
-    holds, not paths of their own (§F2.13)."""
+    holds, not paths of their own."""
     assert set(spec["paths"]["/browser"]) == {"post", "get", "delete"}
 
 
@@ -82,8 +82,8 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
     plain equality.
 
     There used to be three sanctioned transforms on the way through, all of them
-    consequences of the HTTP surface having no workspace of its own. §F2.12 and
-    §F2.13 removed the cause, so a request body here IS the tool's schema.
+    consequences of the HTTP surface having no workspace of its own. It has one
+    now, so a request body here IS the tool's schema.
 
     The only thing still applied is `_hoisted`, which is presentation rather
     than content: a nested model's definition moves from the schema's own
@@ -305,8 +305,8 @@ async def test_every_flow_response_schema_it_references_exists(spec):
 async def test_the_http_surface_has_a_workspace_to_be_fresh_from_now(spec, server):
     """`fresh` says "do not go back to the page my workspace was last on". It used
     to be dropped from this contract because `routes.py` never touched
-    `Workspaces` and there was no workspace to go back to — the difference
-    §F2.13 removed by giving both surfaces the same one."""
+    `Workspaces` and there was no workspace to go back to; both surfaces have
+    the same one now."""
     published = spec["components"]["schemas"]["OpenSessionRequest"]["properties"]
     assert "fresh" in published
     assert "fresh" in (await server.mcp.get_tool("open_session")).parameters["properties"]
@@ -346,8 +346,8 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
     """`upload_file(session=...)` existed because an HTTP caller had no other
     way to say which library a kept file came from. It names its workspace like
     everything else now, so the field is gone from both surfaces rather than
-    published on one (Copilot, #31; §F2.13). The action's own `workspace`
-    argument is a flow run's injection, and is published nowhere either."""
+    published on one. The action's own `workspace` argument is a flow run's
+    injection, and is published nowhere either."""
     upload = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     published = spec["components"]["schemas"]["UploadFileRequest"]["properties"]
     multipart = upload["multipart/form-data"]["schema"]["properties"]

@@ -1,9 +1,4 @@
-"""The admin page itself: the built UI's shell, and where it is found.
-
-The UI is built by ``npm --prefix ui run build`` into ``http/static`` — beside
-this package, not in it — so a checkout and an installed wheel look in the same
-place, and an install that skipped the build simply has none (§F4.17).
-"""
+"""The admin page itself: the built UI's shell, and where it is found."""
 
 from __future__ import annotations
 
@@ -18,8 +13,7 @@ from starlette.responses import HTMLResponse, RedirectResponse, Response
 
 STATIC_DIR = "static"
 
-# What the UI's URL answers when no UI was built (§F4.17): the server is whole
-# without it, and says only its name.
+# What the UI's URL answers when no UI was built.
 PLACEHOLDER = (
     "<!doctype html>\n"
     '<meta charset="utf-8">\n'
@@ -40,19 +34,13 @@ def security_headers(frame_ancestors: list[str] | None = None) -> dict[str, str]
     }
 
 
-# What the Grid console is reachable at *from a browser*. Behind the shared
-# ingress both halves sit on one host, so the console is simply the root; the
-# default says so, and an env var covers any other arrangement.
+# Where a browser reaches the Grid console: behind the shared ingress, the root.
 DEFAULT_CONSOLE_URL = "/"
 
 
 def static_path() -> Path:
-    """The built UI, beside this package.
-
-    `npm --prefix ui run build` writes it here — gitignored, never committed
-    (§F4.15) — so a checkout and an installed wheel look in the same place, and
-    an install that skipped the build simply has none (§F4.17).
-    """
+    """The built UI in ``http/static``, where `npm --prefix ui run build`
+    writes it, so a checkout and an installed wheel look in the same place."""
     return Path(__file__).parent.parent / STATIC_DIR
 
 
@@ -107,15 +95,11 @@ def page(name: str, **substitutions: str) -> str:
 def _build(name: str, **substitutions: str) -> str:
     """Surface ``name``'s shell with its bundle inlined and ``__NAME__`` filled.
 
-    Deliberately not a template engine. The shell's own comments go first:
-    they name the placeholders, and a comment filled with the bundle is a
-    second copy of it that any ``-->`` inside ends early. Everything else is
-    filled in a single pass over the shell — the bundle, and the
-    substitutions — so nothing inside the bundle is ever substituted, and a
-    substitution's own value (say a mount of ``/__JS__``) is never rescanned
-    as a placeholder and handed the bundle in its place. A literal
-    ``</script`` in the JS is escaped so it cannot end the inline script
-    early. The substitutions land in attribute values, so they are
+    The shell's comments go first: they name the placeholders, and a comment
+    filled with the bundle is ended early by any ``-->`` inside it. The rest is
+    one pass over the shell, so nothing inside the bundle is substituted and a
+    value such as a mount of ``/__JS__`` is never rescanned. A ``</script`` in
+    the JS is escaped. The substitutions land in attribute values, so they are
     HTML-escaped, quotes included.
     """
     html = re.sub(r"<!--.*?-->\n?", "", read(f"{name}.html"), flags=re.DOTALL)
@@ -158,12 +142,8 @@ def live_script() -> tuple[bytes, str] | None:
 
 
 def sign_in(oidc) -> str:
-    """What the page needs to offer Sign in with OIDC, or "" when it should not.
-
-    The issuer and the public client id, and nothing else: the audience, the
-    JWKS URI and the roles are the server's business (spec
-    2026-10-09-admin-oidc §3). Both values are public by nature.
-    """
+    """What the page needs to offer Sign in with OIDC, or "" when it should not:
+    the issuer and the public client id, both public."""
     if not oidc.client_id:
         return ""
     return json.dumps({"issuer": oidc.issuer, "client_id": oidc.client_id})
@@ -194,13 +174,8 @@ def mount(
     async def admin_ui(request: Request) -> Response:
         """The page itself, at the root of wherever this server is mounted.
 
-        The UI is what a person gets for visiting the server; `/admin/*` is the
-        API that page calls, which is a different thing wearing a similar name.
-        The root used to 404, so there was no landing page at all.
-
-        Unauthenticated on purpose — it is the sign-in form, and every byte of
-        data it shows is fetched separately with the token. Without a build it
-        is the placeholder (§F4.17).
+        Unauthenticated: it is the sign-in form, and fetches its data with the
+        credential. Without a build it is the placeholder.
         """
         if not ui_built("admin"):
             return HTMLResponse(PLACEHOLDER, headers=secure)
@@ -216,10 +191,6 @@ def mount(
 
     @mcp.custom_route(f"{prefix}/admin", methods=["GET"], name="admin_ui_moved")
     async def admin_ui_moved(_request: Request) -> Response:
-        """Where the page used to be. A redirect rather than a second copy, so
-        there is one URL for the UI and one answer to "where is it".
-
-        Relative, because `/flow/admin` may be `/base/flow/admin` to the browser
-        behind an ingress that stripped `/base`; `./` lands on the UI either way.
-        """
+        """Where the page used to be: a redirect, relative, because an ingress
+        may have stripped a prefix the browser still sees."""
         return RedirectResponse("./", status_code=301)

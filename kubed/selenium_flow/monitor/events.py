@@ -1,21 +1,20 @@
 """What the monitor says, and the bus that carries it.
 
-**Events carry no values** (programme R6). Every field is a scalar — a name,
-the session's ``session_id``, a kind, a time — never an argument, a URL, a
-header, a body or a secret, so any subscriber is safe by construction.
-`EVENTS` lists every type, and a test holds the rule over all of them.
+Events carry no values. Every field is a scalar (a name, the session's
+``session_id``, a kind, a time), never an argument, a URL, a header, a body or
+a secret, so any subscriber is safe by construction. `EVENTS` lists every type,
+and a test holds the rule over all of them.
 
-**Publishing never blocks a call.** `publish` is called from worker threads
+Publishing never blocks a call. `publish` is called from worker threads
 (FastMCP's sync tools, Starlette's routes) and hands the event to the event
 loop; each subscriber has a bounded queue, drained by a callback the loop
 schedules, and an event that does not fit is dropped and counted. A subscriber
 is a plain function run on the loop: it must not block, and one that needs to
 await starts its own task. No task waits on the bus, so nothing here runs when
-nothing is published (AGENTS.md, "Refresh, not cleanup").
+nothing is published.
 
 `Bus` is the interface; `LocalBus` is this process's. A Redis bus could stand
-behind the same two methods for a second replica (programme R5); it is not
-built.
+behind the same two methods for a second replica; it is not built.
 """
 
 from __future__ import annotations
@@ -76,8 +75,7 @@ class SessionEnded(Event):
 
 @dataclasses.dataclass(frozen=True)
 class CallFinished(Event):
-    """One call finished. Declared here, emitted by its first consumer (the
-    session monitor spec, ruling 8): once per call, at the recipe's host."""
+    """One call finished: once per call, at the recipe's host."""
 
     KIND: ClassVar[str] = "call.finished"
     workspace: str

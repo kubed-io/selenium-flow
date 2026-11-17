@@ -1,4 +1,4 @@
-"""What an agent and an HTTP caller can do with a workspace's files (§F4.6, §F4.7)."""
+"""What an agent and an HTTP caller can do with a workspace's files."""
 
 import asyncio
 import base64
@@ -7,9 +7,7 @@ import pytest
 from fastmcp import Client
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.names import SCREENSHOTS_DIR
-from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
 
@@ -19,26 +17,17 @@ AUTH = {"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": S}
 
 
 @pytest.fixture
-def srv(tmp_path):
-    return SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
-
-
-@pytest.fixture
-def http(srv):
-    return TestClient(srv.mcp.http_app(), headers=AUTH)
+def http(data_server):
+    return TestClient(data_server.mcp.http_app(), headers=AUTH)
 
 
 def _run(coro):
     return asyncio.run(coro)
 
 
-def test_the_resources_are_files_with_two_sub_folders_and_the_session_downloads(srv):
+def test_the_resources_are_files_with_two_sub_folders_and_the_session_downloads(data_server):
     async def go():
-        async with Client(srv.mcp) as c:
+        async with Client(data_server.mcp) as c:
             listed = {str(r.uri) for r in await c.list_resources()}
             templated = {t.uri_template for t in await c.list_resource_templates()}
             return listed, templated
@@ -55,34 +44,34 @@ def test_the_resources_are_files_with_two_sub_folders_and_the_session_downloads(
     } <= templated
 
 
-def test_keep_file_takes_a_uri_and_is_not_idempotent(srv):
+def test_keep_file_takes_a_uri_and_is_not_idempotent(data_server):
     async def go():
-        async with Client(srv.mcp) as c:
+        async with Client(data_server.mcp) as c:
             return {t.name: t for t in await c.list_tools()}["keep_file"]
     tool = _run(go())
     assert list(tool.input_schema["properties"]) == ["uri"]
     assert tool.input_schema["required"] == ["uri"]
     assert tool.annotations.idempotent_hint is False
-    # A download keep REPLACES a same-named file in Files (§F4.7) — honest
+    # A download keep REPLACES a same-named file in Files — honest
     # annotations means this one says so rather than leaning on MCP's own
     # default, which happens to be True for the wrong reason.
     assert tool.annotations.destructive_hint is True
 
 
-def test_the_rest_tree_mirrors_the_folders(http, srv, tmp_path):
-    srv.flows.create_file(S, "shot.png", b"p", SCREENSHOTS_DIR)
+def test_the_rest_tree_mirrors_the_folders(http, data_server, tmp_path):
+    data_server.flows.create_file(S, "shot.png", b"p", SCREENSHOTS_DIR)
     got = http.get("/files/screenshots").json()
     assert got["folder"] == "screenshots"
     assert [f["uri"] for f in got["files"]] == ["workspace://files/screenshots/shot.png"]
     assert http.get("/files").json()["folders"][0]["uri"] == "workspace://files/screenshots"
 
 
-def test_keeping_over_http_moves_a_screenshot(http, srv):
-    srv.flows.create_file(S, "shot.png", b"p", SCREENSHOTS_DIR)
+def test_keeping_over_http_moves_a_screenshot(http, data_server):
+    data_server.flows.create_file(S, "shot.png", b"p", SCREENSHOTS_DIR)
     got = http.put("/files/screenshots/shot.png/kept")
     assert got.status_code == 200, got.text
     assert got.json()["uri"] == "workspace://files/shot.png"
-    assert srv.flows.files(S, SCREENSHOTS_DIR) == []
+    assert data_server.flows.files(S, SCREENSHOTS_DIR) == []
 
 
 @pytest.mark.parametrize("folder", ["files", "flows", "kept"])
@@ -90,12 +79,12 @@ def test_keeping_over_http_names_only_the_two_keepable_folders(http, folder):
     assert http.put(f"/files/{folder}/x.png/kept").status_code == 400
 
 
-def test_reading_a_screenshot_resource_returns_its_bytes(srv):
+def test_reading_a_screenshot_resource_returns_its_bytes(data_server):
     from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
-    srv.flows.create_file(STDIO_NAME, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
+    data_server.flows.create_file(STDIO_NAME, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
 
     async def go():
-        async with Client(srv.mcp) as c:  # stdio-like: the workspace is `stdio`
+        async with Client(data_server.mcp) as c:  # stdio-like: the workspace is `stdio`
             return await c.read_resource("workspace://files/screenshots/shot.png")
     got = _run(go())
     assert got[0].blob or got[0].text
@@ -106,23 +95,23 @@ def test_reading_a_screenshot_resource_returns_its_bytes(srv):
     "name,expected",
     [("shot.png", "image/png"), ("dump.zzz", "application/octet-stream")],
 )
-def test_a_file_read_carries_its_own_media_type(srv, folder, name, expected):
+def test_a_file_read_carries_its_own_media_type(data_server, folder, name, expected):
     from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
 
     data = b"\x89PNG-ish"
     if folder == "files":
-        srv.flows.create_file(STDIO_NAME, name, data)
+        data_server.flows.create_file(STDIO_NAME, name, data)
         uri = f"workspace://files/{name}"
     elif folder == "screenshots":
-        srv.flows.create_file(STDIO_NAME, name, data, SCREENSHOTS_DIR)
+        data_server.flows.create_file(STDIO_NAME, name, data, SCREENSHOTS_DIR)
         uri = f"workspace://files/screenshots/{name}"
     else:
-        srv.workspaces.browser = lambda _: "abc"
-        srv.actions.grid.read_file = lambda _session, _leaf: data
+        data_server.workspaces.browser = lambda _: "abc"
+        data_server.actions.grid.read_file = lambda _session, _leaf: data
         uri = f"session://downloads/{name}"
 
     async def go():
-        async with Client(srv.mcp) as c:
+        async with Client(data_server.mcp) as c:
             return await c.read_resource(uri)
 
     got = _run(go())

@@ -7,27 +7,9 @@ author can fix while they are still looking at the thing they wrote.
 
 import pytest
 
-from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
+from kubed.selenium_flow.flows.document import InvalidFlow, validate
 
 pytestmark = pytest.mark.unit
-
-
-@pytest.fixture
-async def step_schema_map(server):
-    """The real tool schemas, built the way production builds them.
-
-    From ENDPOINTS rather than from a listing — a listing is shaped per request
-    and, since flows gained tools of their own, would have offered `save_flow`
-    as a valid step. `flowapi.RUNNABLE` refuses that at run time, so a looser
-    map here would have let validation and execution disagree.
-    """
-    from kubed.selenium_flow.core.capabilities import ENDPOINTS
-
-    tools = {}
-    for name in sorted(set(ENDPOINTS.values())):
-        full = await server.mcp.get_tool(name)
-        tools[name] = full.parameters or {}
-    return step_schemas(tools)
 
 
 def flow(**overrides):
@@ -78,11 +60,83 @@ async def test_lifecycle_tools_are_not_steps(step_schema_map):
 # ---- what a step may name ---------------------------------------------------
 
 
-async def test_a_flow_that_opens_its_own_browser_is_refused(step_schema_map):
-    """It would end the caller's browser, and it would bake the browser choice
-    into a document whose whole point is running on either."""
-    with pytest.raises(InvalidFlow, match="not a step"):
-        validate(flow(steps=[{"tool": "open_session", "args": {}}]), step_schema_map)
+@pytest.mark.parametrize(
+    ("refusal", "steps"),
+    [
+        # It would end the caller's browser, and it would bake the browser choice
+        # into a document whose whole point is running on either.
+        pytest.param(
+            "not a step", [{"tool": "open_session", "args": {}}], id="a-flow-that-opens-its-own-browser-is-refused"
+        ),
+        # `text` is not `required` in write's schema — it can arrive as a binding
+        # instead — so the validator has to know what the schema cannot say.
+        pytest.param(
+            "write needs 'text'",
+            [{"tool": "write", "args": {"selector": {"css": "#a"}}}],
+            id="a-missing-required-parameter-is-refused",
+        ),
+        # A schema cannot say "exactly one of xpath or css" without a oneOf, so
+        # this was saving cleanly and failing at run time.
+        pytest.param("needs an element", [{"tool": "extract", "args": {}}], id="a-step-with-no-element-is-refused-at-save"),
+        # One selector names one element. A flow is YAML somebody may have written
+        # by hand, so this is checked at save as well as by the model at run time —
+        # a document that saves cleanly and fails later is the split save-time
+        # validation exists to close.
+        pytest.param(
+            "not both",
+            [{"tool": "extract", "args": {"selector": {"css": "a", "xpath": "//a"}}}],
+            id="a-step-naming-both-selectors-is-refused-at-save",
+        ),
+        # A script is arbitrary code, and a bound secret inside one is an
+        # exfiltration API with extra steps.
+        pytest.param(
+            "execute_script has no parameter 'secret'",
+            [
+                {
+                    "tool": "execute_script",
+                    "args": {"script": "x", "secret": {"name": "n", "key": "k"}},
+                }
+            ],
+            id="a-secret-may-only-be-bound-into-write",
+        ),
+        # The leash is checked against the page the browser is on. A step that
+        # navigates first would be checked against the page it is leaving.
+        pytest.param(
+            "may not also navigate",
+            [
+                {
+                    "tool": "write",
+                    "args": {
+                        "selector": {"css": "#p"},
+                        "url": "https://x.test/login",
+                        "secret": {"name": "n", "key": "k"},
+                    },
+                }
+            ],
+            id="a-step-that-binds-a-secret-may-not-also-navigate",
+        ),
+        pytest.param(
+            "supplied by the run",
+            [{"tool": "navigate", "args": {"url": "x", "session_id": "s"}}],
+            id="a-step-naming-session-id-is-refused",
+        ),
+        pytest.param(
+            "wait_timeout should be integer",
+            [{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": "soon"}}],
+            id="a-wrong-type-is-caught-before-the-browser-sees-it",
+        ),
+        # In Python True is an int, so the obvious check accepts `clear: true`
+        # where a timeout belongs.
+        pytest.param(
+            "wait_timeout should be integer",
+            [{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": True}}],
+            id="a-boolean-does-not-pass-as-an-integer",
+        ),
+    ],
+)
+async def test_a_step_that_cannot_run_is_refused_at_save(step_schema_map, refusal, steps):
+    with pytest.raises(InvalidFlow, match=refusal):
+        validate(flow(steps=steps), step_schema_map)
 
 
 async def test_an_unknown_tool_names_the_ones_that_exist(step_schema_map):
@@ -100,54 +154,6 @@ async def test_an_unknown_parameter_names_the_ones_the_tool_takes(step_schema_ma
     assert "xpath" in str(caught.value)
 
 
-async def test_a_missing_required_parameter_is_refused(step_schema_map):
-    """`text` is not `required` in write's schema — it can arrive as a binding
-    instead — so the validator has to know what the schema cannot say."""
-    with pytest.raises(InvalidFlow, match="write needs 'text'"):
-        validate(
-            flow(steps=[{"tool": "write", "args": {"selector": {"css": "#a"}}}]), step_schema_map
-        )
-
-
-async def test_a_binding_satisfies_what_the_schema_cannot_demand(step_schema_map):
-    assert validate(
-        flow(
-            steps=[
-                {
-                    "tool": "write",
-                    "args": {"selector": {"css": "#p"}, "secret": {"name": "n", "key": "password"}},
-                }
-            ]
-        ),
-        step_schema_map,
-    )
-
-
-async def test_a_step_with_no_element_is_refused_at_save(step_schema_map):
-    """A schema cannot say "exactly one of xpath or css" without a oneOf, so
-    this was saving cleanly and failing at run time."""
-    with pytest.raises(InvalidFlow, match="needs an element"):
-        validate(
-            flow(steps=[{"tool": "extract", "args": {}}]), step_schema_map
-        )
-
-
-async def test_a_step_naming_both_selectors_is_refused_at_save(step_schema_map):
-    """One selector names one element. A flow is YAML somebody may have written
-    by hand, so this is checked at save as well as by the model at run time —
-    a document that saves cleanly and fails later is the split save-time
-    validation exists to close."""
-    with pytest.raises(InvalidFlow, match="not both"):
-        validate(
-            flow(
-                steps=[
-                    {"tool": "extract", "args": {"selector": {"css": "a", "xpath": "//a"}}}
-                ]
-            ),
-            step_schema_map,
-        )
-
-
 async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
     """press_key goes wherever focus is; screenshot captures the viewport."""
     assert validate(
@@ -157,102 +163,67 @@ async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
     assert validate(flow(steps=[{"tool": "screenshot", "args": {}}]), step_schema_map)
 
 
-async def test_a_secret_may_only_be_bound_into_write(step_schema_map):
-    """A script is arbitrary code, and a bound secret inside one is an
-    exfiltration API with extra steps (§F1.28)."""
-    # Enforced by the parameter simply not existing on other actions, which is
-    # stronger than a rule about it: there is nowhere to put one.
-    with pytest.raises(InvalidFlow, match="execute_script has no parameter 'secret'"):
-        validate(
-            flow(
-                steps=[
-                    {
-                        "tool": "execute_script",
-                        "args": {"script": "x", "secret": {"name": "n", "key": "k"}},
-                    }
-                ]
-            ),
-            step_schema_map,
-        )
-
-
-async def test_a_step_that_binds_a_secret_may_not_also_navigate(step_schema_map):
-    """The leash is checked against the page the browser is on. A step that
-    navigates first would be checked against the page it is leaving."""
-    with pytest.raises(InvalidFlow, match="may not also navigate"):
-        validate(
-            flow(
-                steps=[
-                    {
-                        "tool": "write",
-                        "args": {"selector": {"css": "#p"}, "url": "https://x.test/login", "secret": {"name": "n", "key": "k"}},
-                    }
-                ]
-            ),
-            step_schema_map,
-        )
-
-
-async def test_a_step_naming_session_id_is_refused(step_schema_map):
-    with pytest.raises(InvalidFlow, match="supplied by the run"):
-        validate(
-            flow(steps=[{"tool": "navigate", "args": {"url": "x", "session_id": "s"}}]),
-            step_schema_map,
-        )
-
-
-async def test_a_wrong_type_is_caught_before_the_browser_sees_it(step_schema_map):
-    with pytest.raises(InvalidFlow, match="wait_timeout should be integer"):
-        validate(
-            flow(
-                steps=[
-                    {"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": "soon"}}
-                ]
-            ),
-            step_schema_map,
-        )
-
-
-async def test_a_boolean_does_not_pass_as_an_integer(step_schema_map):
-    """In Python True is an int, so the obvious check accepts `clear: true`
-    where a timeout belongs."""
-    with pytest.raises(InvalidFlow, match="wait_timeout should be integer"):
-        validate(
-            flow(steps=[{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": True}}]),
-            step_schema_map,
-        )
-
-
 # ---- structural references, because there is no templating ------------------
 
 
-async def test_a_step_may_take_its_value_from_a_declared_parameter(step_schema_map):
-    assert validate(
-        flow(
-            parameters={"type": "object", "properties": {"email": {"type": "string"}}},
-            steps=[
+@pytest.mark.parametrize(
+    ("parameters", "steps"),
+    [
+        pytest.param(
+            {"type": "object", "properties": {"email": {"type": "string"}}},
+            [{"tool": "write", "args": {"selector": {"css": "#email"}, "text": "${email}"}}],
+            id="a-step-may-take-its-value-from-a-declared-parameter",
+        ),
+        # A step and a direct tool call are the same thing written twice: there is
+        # no step-level key for a value, so nothing has to be kept in step with the
+        # tool schemas. A parameter goes in the argument itself, and a secret is an
+        # argument `write` declares.
+        pytest.param(
+            {"type": "object", "properties": {"email": {}}},
+            [{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "${email}"}}],
+            id="a-steps-args-are-the-calls-arguments-with-no-exception",
+        ),
+        # A parameter is text, so a flow can vary where it goes as well as what it
+        # types.
+        pytest.param(
+            {"type": "object", "properties": {"site": {}, "who": {}}},
+            [
+                {"tool": "navigate", "args": {"url": "${site}/login"}},
+                {"tool": "write", "args": {"selector": {"css": "#u"}, "text": "${who}"}},
+                {"tool": "extract", "args": {"selector": {"css": "[data-user=${who}]"}}},
+            ],
+            id="a-parameter-reaches-any-argument-of-any-action",
+        ),
+    ],
+)
+async def test_a_declared_parameter_may_be_referenced(step_schema_map, parameters, steps):
+    assert validate(flow(parameters=parameters, steps=steps), step_schema_map)
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        # `$${` is a literal `${`. Without the escape there would be no way to
+        # type one, and a page that genuinely wants `${x}` in a field is not exotic —
+        # it is every templating tutorial on the internet.
+        pytest.param(
+            [{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "$${notaparam}"}}],
+            id="an-escaped-sigil-is-not-a-reference",
+        ),
+        # `write` requires text; supplying it from a secret is supplying it.
+        pytest.param(
+            [
                 {
                     "tool": "write",
-                    "args": {"selector": {"css": "#email"}, "text": "${email}"},
+                    "args": {"selector": {"css": "#p"}, "secret": {"name": "n", "key": "password"}},
                 }
             ],
+            id="a-reference-satisfies-a-required-parameter",
         ),
-        step_schema_map,
-    )
-
-
-async def test_a_step_may_take_its_value_from_a_secret(step_schema_map):
-    assert validate(
-        flow(
-            steps=[
-                {
-                    "tool": "write",
-                    "args": {"selector": {"css": "#password"}, "secret": {"name": "nextcloud", "key": "password"}},
-                }
-            ]
-        ),
-        step_schema_map,
-    )
+    ],
+)
+async def test_a_value_from_a_secret_or_a_literal_saves(step_schema_map, steps):
+    assert validate(flow(steps=steps), step_schema_map)
 
 
 async def test_a_reference_to_an_undeclared_parameter_is_caught_at_save(
@@ -291,22 +262,49 @@ async def test_a_reference_is_found_wherever_it_sits(step_schema_map):
         )
 
 
-async def test_an_escaped_sigil_is_not_a_reference(step_schema_map):
-    """`$${` is a literal `${`. Without the escape there would be no way to
-    type one, and a page that genuinely wants `${x}` in a field is not exotic —
-    it is every templating tutorial on the internet."""
-    assert validate(
-        flow(steps=[{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "$${notaparam}"}}]),
-        step_schema_map,
-    )
-
-
-async def test_an_empty_reference_says_what_to_write(step_schema_map):
-    with pytest.raises(InvalidFlow, match="names no parameter"):
-        validate(
-            flow(steps=[{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "${}"}}]),
-            step_schema_map,
-        )
+@pytest.mark.parametrize(
+    ("refusal", "steps"),
+    [
+        pytest.param(
+            "names no parameter",
+            [{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "${}"}}],
+            id="an-empty-reference-says-what-to-write",
+        ),
+        # Two fields, never one dotted string — a Kubernetes key is routinely
+        # `tls.crt`, so there is no split point to find.
+        pytest.param(
+            "needs a key",
+            [
+                {
+                    "tool": "write",
+                    "args": {"selector": {"css": "#p"}, "secret": {"name": "nextcloud"}},
+                }
+            ],
+            id="a-secret-reference-needs-a-name-and-a-key",
+        ),
+        pytest.param(
+            "unknown step key",
+            [{"tool": "navigate", "args": {"url": "x"}, "retries": 3}],
+            id="an-unknown-step-key-is-refused",
+        ),
+        pytest.param(
+            "already used",
+            [
+                {"tool": "navigate", "args": {"url": "a"}, "id": "go"},
+                {"tool": "navigate", "args": {"url": "b"}, "id": "go"},
+            ],
+            id="step-ids-must-be-unique-because-they-name-a-step",
+        ),
+        pytest.param(
+            r"step 1 \(sign-in\)",
+            [{"tool": "write", "args": {"selector": {"css": "#a"}}, "id": "sign-in"}],
+            id="an-id-puts-itself-in-the-error-so-you-can-find-the-step",
+        ),
+    ],
+)
+async def test_a_reference_or_step_key_that_cannot_work_is_refused(step_schema_map, refusal, steps):
+    with pytest.raises(InvalidFlow, match=refusal):
+        validate(flow(steps=steps), step_schema_map)
 
 
 async def test_a_secret_may_not_be_named_by_a_parameter(step_schema_map):
@@ -326,23 +324,6 @@ async def test_a_secret_may_not_be_named_by_a_parameter(step_schema_map):
                         },
                     }
                 ],
-            ),
-            step_schema_map,
-        )
-
-
-async def test_a_secret_reference_needs_a_name_and_a_key(step_schema_map):
-    """Two fields, never one dotted string — a Kubernetes key is routinely
-    `tls.crt`, so there is no split point to find."""
-    with pytest.raises(InvalidFlow, match="needs a key"):
-        validate(
-            flow(
-                steps=[
-                    {
-                        "tool": "write",
-                        "args": {"selector": {"css": "#p"}, "secret": {"name": "nextcloud"}},
-                    }
-                ]
             ),
             step_schema_map,
         )
@@ -370,69 +351,6 @@ async def test_a_value_given_twice_is_refused_rather_than_resolved(step_schema_m
         )
 
 
-async def test_a_reference_satisfies_a_required_parameter(step_schema_map):
-    """`write` requires text; supplying it from a secret is supplying it."""
-    assert validate(
-        flow(
-            steps=[
-                {
-                    "tool": "write",
-                    "args": {"selector": {"css": "#p"}, "secret": {"name": "n", "key": "password"}},
-                }
-            ]
-        ),
-        step_schema_map,
-    )
-
-
-async def test_a_steps_args_are_the_calls_arguments_with_no_exception(
-    step_schema_map,
-):
-    """A step and a direct tool call are the same thing written twice: there is
-    no step-level key for a value, so nothing has to be kept in step with the
-    tool schemas. A parameter goes in the argument itself, and a secret is an
-    argument `write` declares."""
-    assert validate(
-        flow(
-            parameters={"type": "object", "properties": {"email": {}}},
-            steps=[
-                {
-                    "tool": "write",
-                    "args": {"selector": {"css": "#e"}, "text": "${email}"},
-                }
-            ],
-        ),
-        step_schema_map,
-    )
-
-
-async def test_a_parameter_reaches_any_argument_of_any_action(step_schema_map):
-    """The point of making a parameter text. There used to be one bindable
-    argument per action, so a flow could vary what it typed and never where it
-    went — and widening it was a code change per argument."""
-    assert validate(
-        flow(
-            parameters={"type": "object", "properties": {"site": {}, "who": {}}},
-            steps=[
-                {"tool": "navigate", "args": {"url": "${site}/login"}},
-                {"tool": "write", "args": {"selector": {"css": "#u"}, "text": "${who}"}},
-                {"tool": "extract", "args": {"selector": {"css": "[data-user=${who}]"}}},
-            ],
-        ),
-        step_schema_map,
-    )
-
-
-
-
-async def test_an_unknown_step_key_is_refused(step_schema_map):
-    with pytest.raises(InvalidFlow, match="unknown step key"):
-        validate(
-            flow(steps=[{"tool": "navigate", "args": {"url": "x"}, "retries": 3}]),
-            step_schema_map,
-        )
-
-
 async def test_on_error_takes_two_values(step_schema_map):
     assert validate(
         flow(steps=[{"tool": "navigate", "args": {"url": "x"}, "onError": "continue"}]),
@@ -445,35 +363,43 @@ async def test_on_error_takes_two_values(step_schema_map):
         )
 
 
-async def test_step_ids_must_be_unique_because_they_name_a_step(step_schema_map):
-    with pytest.raises(InvalidFlow, match="already used"):
-        validate(
-            flow(
-                steps=[
-                    {"tool": "navigate", "args": {"url": "a"}, "id": "go"},
-                    {"tool": "navigate", "args": {"url": "b"}, "id": "go"},
-                ]
-            ),
-            step_schema_map,
-        )
-
-
-async def test_an_id_puts_itself_in_the_error_so_you_can_find_the_step(
-    step_schema_map,
-):
-    with pytest.raises(InvalidFlow, match=r"step 1 \(sign-in\)"):
-        validate(
-            flow(steps=[{"tool": "write", "args": {"selector": {"css": "#a"}}, "id": "sign-in"}]),
-            step_schema_map,
-        )
-
-
 # ---- the document ------------------------------------------------------------
 
 
-async def test_a_flow_with_no_steps_is_refused(step_schema_map):
-    with pytest.raises(InvalidFlow, match="non-empty"):
-        validate(flow(steps=[]), step_schema_map)
+@pytest.mark.parametrize(
+    ("refusal", "steps"),
+    [
+        pytest.param("non-empty", [], id="a-flow-with-no-steps-is-refused"),
+        # It was specified as a step key and nothing could honour it: a Selenium
+        # call blocks, and the actions that can be bounded already take wait_timeout
+        # in their own params. A key that parses and then does nothing is worse than
+        # one that is refused.
+        pytest.param(
+            "unknown step key timeout",
+            [{"tool": "navigate", "args": {"url": "x"}, "timeout": 5}],
+            id="a-step-timeout-is-refused-rather-than-ignored",
+        ),
+        # `frame` is not simply selector-optional: switch needs xpath, css or
+        # index, and `actions.frame` refuses that call at run time — so treating the
+        # whole action as optional put validation and execution back out of step.
+        pytest.param(
+            "needs an element",
+            [{"tool": "frame", "args": {"action": "switch"}}],
+            id="switching-to-a-frame-still-needs-a-target",
+        ),
+        # The schema permits null so a secret can supply the value instead, so
+        # "present" is not the question — `Actions.write` would type the string
+        # "None" into the field.
+        pytest.param(
+            "write needs 'text'",
+            [{"tool": "write", "args": {"selector": {"css": "#p"}, "text": None}}],
+            id="a-null-text-is-not-a-supplied-value",
+        ),
+    ],
+)
+async def test_a_document_that_cannot_run_is_refused(step_schema_map, refusal, steps):
+    with pytest.raises(InvalidFlow, match=refusal):
+        validate(flow(steps=steps), step_schema_map)
 
 
 async def test_a_required_parameter_must_be_declared(step_schema_map):
@@ -501,41 +427,20 @@ async def test_every_problem_is_reported_at_once(step_schema_map):
     assert len(caught.value.problems) >= 3
 
 
-async def test_a_step_timeout_is_refused_rather_than_ignored(step_schema_map):
-    """It was specified as a step key and nothing could honour it: a Selenium
-    call blocks, and the actions that can be bounded already take wait_timeout
-    in their own params. A key that parses and then does nothing is worse than
-    one that is refused."""
-    with pytest.raises(InvalidFlow, match="unknown step key timeout"):
-        validate(
-            flow(steps=[{"tool": "navigate", "args": {"url": "x"}, "timeout": 5}]),
-            step_schema_map,
-        )
-
-
-async def test_wait_timeout_is_the_per_step_bound_and_is_accepted(step_schema_map):
-    assert validate(
-        flow(steps=[{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": 5}}]),
-        step_schema_map,
-    )
-
-
-async def test_switching_to_a_frame_still_needs_a_target(step_schema_map):
-    """`frame` is not simply selector-optional: switch needs xpath, css or
-    index, and `actions.frame` refuses that call at run time — so treating the
-    whole action as optional put validation and execution back out of step."""
-    with pytest.raises(InvalidFlow, match="needs an element"):
-        validate(
-            flow(steps=[{"tool": "frame", "args": {"action": "switch"}}]),
-            step_schema_map,
-        )
-
-
-async def test_switching_by_index_needs_no_selector(step_schema_map):
-    assert validate(
-        flow(steps=[{"tool": "frame", "args": {"action": "switch", "index": 0}}]),
-        step_schema_map,
-    )
+@pytest.mark.parametrize(
+    "steps",
+    [
+        pytest.param(
+            [{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": 5}}],
+            id="wait-timeout-is-the-per-step-bound-and-is-accepted",
+        ),
+        pytest.param(
+            [{"tool": "frame", "args": {"action": "switch", "index": 0}}], id="switching-by-index-needs-no-selector"
+        ),
+    ],
+)
+async def test_a_step_the_tool_can_run_saves(step_schema_map, steps):
+    assert validate(flow(steps=steps), step_schema_map)
 
 
 @pytest.mark.parametrize("action", ["parent", "default"])
@@ -543,17 +448,6 @@ async def test_leaving_a_frame_needs_nothing(step_schema_map, action):
     assert validate(
         flow(steps=[{"tool": "frame", "args": {"action": action}}]), step_schema_map
     )
-
-
-async def test_a_null_text_is_not_a_supplied_value(step_schema_map):
-    """The schema permits null so a secret can supply the value instead, so
-    "present" is not the question — `Actions.write` would type the string
-    "None" into the field."""
-    with pytest.raises(InvalidFlow, match="write needs 'text'"):
-        validate(
-            flow(steps=[{"tool": "write", "args": {"selector": {"css": "#p"}, "text": None}}]),
-            step_schema_map,
-        )
 
 
 # ---- the skill's own examples ----------------------------------------------
@@ -574,7 +468,7 @@ def _documented():
     root = skill_module.skill_path()
     found = []
     for path in sorted(root.rglob("*.md")):
-        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.S):
+        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.DOTALL):
             data = json.loads(block)
             where = path.relative_to(root).as_posix()
             if "steps" in data and "status" not in data:
@@ -593,7 +487,7 @@ def test_every_json_example_in_the_skill_parses():
     from kubed.selenium_flow.mcp import skill as skill_module
 
     for path in skill_module.skill_path().rglob("*.md"):
-        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.S):
+        for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.DOTALL):
             json.loads(block)
 
 
@@ -655,7 +549,7 @@ async def test_a_write_only_parameter_is_refused_rather_than_ignored(
     """It used to mean "supplied but not returned" and nothing implements that
     now. Accepting a familiar JSON-Schema marker that silently does nothing is
     worse than not having it: an author marks a password `writeOnly`, believes
-    it is hidden, and reads it back out of the report (§F1.38)."""
+    it is hidden, and reads it back out of the report."""
     with pytest.raises(InvalidFlow, match="writeOnly") as caught:
         validate(
             flow(
@@ -732,7 +626,7 @@ async def test_the_escape_it_suggests_actually_saves(step_schema_map):
     assert validate(document, step_schema_map)
 
 
-# ---- a closed set is checked at save time (§F2.1) ----------------------------
+# ---- a closed set is checked at save time ------------------------------------
 
 
 async def test_an_action_outside_its_set_is_refused_at_save_time(step_schema_map):

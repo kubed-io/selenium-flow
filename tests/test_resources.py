@@ -2,8 +2,8 @@
 
 Everything to read is a resource, and the text an agent reads names it by URI.
 A client whose model cannot read resources — VS Code Copilot is the one
-measured — gets `list_resources` and `read_resource`, which take the same URIs
-(saga §F3.1, §F3.6). These go through the real MCP client wherever the property
+measured — gets `list_resources` and `read_resource`, which take the same URIs.
+These go through the real MCP client wherever the property
 is about what a client is shown or reads.
 """
 
@@ -15,26 +15,19 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from mcp.types import Implementation, ResourceTemplateReference
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import mirror
 from kubed.selenium_flow.mcp.resources import RESOURCE_URI
-from kubed.selenium_flow.server import SeleniumMCP
 
-from .conftest import NAMED, TOKEN, calling_as, http
+from .conftest import NAMED, calling_as, http
 
 pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def reader(tmp_path, monkeypatch):
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
+def reader(data_server, monkeypatch):
     calling_as(monkeypatch, NAMED)
-    return server
+    return data_server
 
 
 async def listed(server, name="a spec-complete client"):
@@ -77,7 +70,7 @@ def test_stdio_clients_are_assumed_to_read_resources(monkeypatch):
 
 async def test_vs_code_is_given_the_reading_tools_without_asking(reader):
     """Its model cannot list or read a resource, so the default is decided by
-    who is calling (§F3.1)."""
+    who is calling."""
     assert await listed(reader, "Visual Studio Code") >= mirror.MIRROR_TOOLS
     assert await listed(reader, "Visual Studio Code - Insiders") >= mirror.MIRROR_TOOLS
 
@@ -94,7 +87,7 @@ async def test_saying_so_beats_being_recognised(reader, monkeypatch):
 
 
 async def test_the_old_per_resource_tools_are_gone(reader, monkeypatch):
-    """Seven tools, one per resource, became two that take a URI (§F3.6)."""
+    """Seven tools, one per resource, became two that take a URI."""
     monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "off"}))
     names = await listed(reader)
     for gone in (
@@ -215,8 +208,8 @@ async def test_open_session_is_the_same_named_or_not(server, monkeypatch):
 
 
 async def test_a_person_picking_a_flow_is_offered_the_names_they_can_read(reader):
-    """VS Code asks for completions when a template or a prompt is picked
-    (§F3.4). They are the caller's listing read back, so they cannot offer a
+    """VS Code asks for completions when a template or a prompt is picked.
+    They are the caller's listing read back, so they cannot offer a
     flow the caller could not open."""
     from mcp.types import PromptReference, ResourceTemplateReference
 

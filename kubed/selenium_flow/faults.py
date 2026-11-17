@@ -1,10 +1,9 @@
 """The failures this package raises itself, and what any failure says.
 
-`errors.py` decides what a failure *means* — its HTTP status — and has to know
-Selenium's exception classes to do it. This is the half that does not: the
-package's own exception types, the one line a caller reads, and the traceback a
-log writes, each with any credential stripped out. So a module that only raises
-or reports a failure reaches neither the driver nor the classification.
+The exception types, the one line a caller reads and the traceback a log
+writes, each with any credential stripped out. `errors.py` holds the statuses
+and is the half that imports Selenium, so a module that only raises or reports
+a failure needs neither.
 """
 
 from __future__ import annotations
@@ -16,9 +15,8 @@ import requests
 
 from .urls import without_userinfo
 
-# How the one note a caller reads begins: what the page reported while a call
-# that failed was running (`workspace.calls`, plan ruling 7). Any other note on
-# an exception is a library's or a log's, and never reaches a caller.
+# How the note begins that says what the page reported while a failed call ran
+# (`workspace.calls`).
 PAGE_NOTE = "This call caused "
 
 # How the note begins that says a call's browser was replaced before it, and
@@ -51,13 +49,8 @@ def reopen_note(cause: str, restored: int) -> str:
 
 
 class AssertionFailed(Exception):
-    """An `assert` step's JavaScript came back false.
-
-    Its own type because it is not a browser fault and not a bad request: the
-    page is simply not what the flow said it must be. It carries the author's
-    message, which is the whole point of the tool — the flow's author knows why
-    the condition matters and this package does not.
-    """
+    """An `assert` step's JavaScript came back false: a 400 carrying the
+    flow author's message."""
 
 
 class NotFound(LookupError):
@@ -65,12 +58,10 @@ class NotFound(LookupError):
 
 
 class Controlled(Exception):
-    """A person holds this workspace's browser; a 409 (spec 2026-10-27-live-control).
+    """A person holds this workspace's browser: a 409.
 
-    Its message is the refusal sentence, which names who has control, since
-    when, and `await_control`: the request was well formed, and the
-    workspace's state forbids it now, so the same call succeeds after the
-    hand-back (ruling 12)."""
+    Its message names who has control, since when, and `await_control`, after
+    which the same call succeeds."""
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -91,10 +82,8 @@ class Unresolved(Exception):
     """A page the caller named, whose host has no address: a 400.
 
     It carries the host and a fixed reason, never the browser's own text, which
-    quotes the whole URL on Firefox (`unresolved` reads that text). The reason
-    is hedged because the browser does not say *which* lookup failed: a host
-    that resolves and redirects to one that does not fails in the same words,
-    and the caller must not be told their own host failed when it did not."""
+    quotes the whole URL on Firefox. The reason allows for a redirect because
+    the browser does not say which lookup failed."""
 
     def __init__(self, host: str | None):
         self.host = host
@@ -120,10 +109,9 @@ class Untrusted(Exception):
         super().__init__(UNTRUSTED)
 
 
-# How each browser reports a page whose host has no address in DNS: Chrome's
-# net error, and the error page Firefox says it reached. Only this one: a
-# refused connection, a timeout or a bad certificate can be the network's or
-# the site's, and a guess that it is the caller's is the dangerous one.
+# How each browser reports a host with no DNS address: Chrome's net error, and
+# the error page Firefox says it reached. No other connection failure is read
+# as the caller's: a refused connection or a timeout can be the network's.
 _DNS_NOT_FOUND = re.compile(
     r"\bnet::ERR_NAME_NOT_RESOLVED\b|\babout:neterror\?(?:\S*&)?e=dnsNotFound\b"
 )
@@ -142,9 +130,8 @@ def unresolved(exc: BaseException) -> bool:
 class ScriptTimedOut(Exception):
     """A script that ran past the session's script timeout: a 400.
 
-    Selenium raises that as a bare `TimeoutException`, which reads as a failed
-    wait for an element. The caller's fix is theirs and specific, so it is said:
-    ``seconds`` is the timeout in force, or None when it could not be read."""
+    Selenium raises a bare `TimeoutException`, which reads as a failed wait for
+    an element. ``seconds`` is the timeout in force, or None when unreadable."""
 
     def __init__(self, seconds: float | None):
         self.seconds = seconds
@@ -183,13 +170,11 @@ SCRUB_FAILED = (
 
 
 class ScrubFailed(Exception):
-    """A result or error could not be checked for secrets: a 500 (spec
-    2026-11-14-secret-scope, ruling 2).
+    """A result or error could not be checked for secrets: a 500.
 
-    The scrub fails closed, so the call answers this rather than what it
-    would have returned. A fixed sentence and no arguments: the failure it
-    stands for may carry a value, so it is raised from nothing and logged by
-    its type alone (`workspace.scrub`)."""
+    A fixed sentence and no arguments: the failure it stands for may carry a
+    value, so it is raised from nothing and logged by its type alone
+    (`workspace.scrub`)."""
 
     def __init__(self):
         super().__init__(SCRUB_FAILED)
@@ -217,9 +202,7 @@ def lost(exc: BaseException) -> bool:
 class BidiUnavailable(ConnectionError):
     """The browser answers WebDriver but its BiDi socket does not: a 503.
 
-    Selenium surfaces that as a closed websocket or a BiDi timeout, neither of
-    which says what to do; this carries a message that does, and never the
-    socket's URL."""
+    Its message says what to do, and never carries the socket's URL."""
 
 
 class SocketClosed(ConnectionError):
@@ -239,19 +222,17 @@ class SocketClosed(ConnectionError):
 class NoNodeTook(ConnectionError):
     """No Grid node took a new browser before the Grid's queue gave up: a 503.
 
-    Raised in place of the Grid's own ``SessionNotCreatedException``, which
-    says only that the request timed out; this says what was asked for and
-    where to look (spec 2026-10-26-session-capabilities, ruling 12). Worth
-    retrying: a node class scaled to zero may come up meanwhile."""
+    Raised in place of the Grid's ``SessionNotCreatedException``, which says
+    only that the request timed out; this says what was asked for and where to
+    look. A node class scaled to zero may come up before the retry."""
 
 
 class NodeRefused(Exception):
     """A Grid node took the request and could not start the browser.
 
-    ``blamed`` says the open asked for something the caller chose — a raw
-    capability or a version — which is then the usual cause, so the answer
-    is a 400. Without either, the node's own trouble (a starved node, a
-    browser that will not start) is a 503 a retry can act on (ruling 16)."""
+    ``blamed`` says the open asked for a raw capability or a version, the
+    usual cause then, so the answer is a 400. Otherwise it is the node's
+    trouble and a 503."""
 
     def __init__(self, text: str, *, blamed: bool):
         super().__init__(text)
@@ -261,10 +242,8 @@ class NodeRefused(Exception):
 def formatted(exc: BaseException) -> str:
     """The traceback, with any credential stripped out of it.
 
-    `log.exception` writes the frames verbatim, and a requests or urllib3
-    failure quotes the whole Grid URL — userinfo included — inside them. So the
-    sanitising that :func:`message` does for what a caller reads has to happen
-    for what the logger writes as well (Copilot, #36).
+    Write this, never `log.exception`: a requests or urllib3 failure quotes the
+    Grid URL, userinfo included, inside the frames.
     """
     text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     return without_userinfo(text)
@@ -274,27 +253,17 @@ def message(exc: BaseException) -> str:
     """One actionable line, without the driver's internals.
 
     Selenium's ``str()`` is ``"Message: <what happened>\\nStacktrace:\\n"``
-    followed by twenty lines of ``chrome://remote/...``. The first line is the
-    whole of the useful part, and the rest is noise in a JSON field a model or a
-    workflow has to read. The bare ``Message:`` prefix is the same artefact
-    ``AGENTS.md`` already calls out as useless on its own.
+    and twenty lines of ``chrome://remote/...``; everything before
+    ``Stacktrace:`` is kept, without its ``Message:``. A driver's lines are
+    joined into one, dropping Chrome's ``(Session info:`` line. Never returns
+    an empty string: with no text it is the class name.
 
-    Never returns an empty string: an error with no text at all is worse than a
-    class name, which at least says what kind of thing went wrong.
+    A Grid refusal is cut to its status and reason: ``raise_for_status`` ends
+    with ``for url: <the full URL>``, and ``GRID_URL`` may carry credentials.
 
-    A Grid refusal is cut short deliberately. ``raise_for_status`` formats its
-    message as ``"404 Client Error: Not Found for url: <the full URL>"``, and
-    ``GRID_URL`` may carry credentials in its userinfo — so that string would
-    hand the Grid's credential to whoever made the request, and write it to the
-    log besides. The status and reason are the whole of the useful part. Done
-    here rather than in each of the three handlers, for the reason this module
-    exists: one place decides what a failure says.
-
-    A failed call can carry two more sentences as notes: one beginning
-    `REOPEN_NOTE` (the browser was replaced before it, `Workspaces.failed`) and
-    one beginning `PAGE_NOTE` (what the page reported, `workspace.calls`). They
-    follow the line after a space, the reopen's first. No other note is ever
-    said.
+    Two notes may follow after a space, the reopen's first: one beginning
+    `REOPEN_NOTE` (`Workspaces.failed`) and one beginning `PAGE_NOTE`
+    (`workspace.calls`). No other note is ever said.
     """
     text = _said(exc)
     notes = [
@@ -318,14 +287,13 @@ def _said(exc: BaseException) -> str:
     if text.lower().startswith("message:"):
         text = text[len("message:") :].strip()
     if driver_said:
-        # A driver's message is one line plus its own furniture: Chrome adds
-        # "(Session info: chrome=…)" on a line of its own. Only the driver's -
-        # our own messages may be lists, like a flow that cannot be saved.
+        # Chrome adds "(Session info: chrome=…)" on a line of its own. Only a
+        # driver's message is joined: ours may be lists, like a flow that
+        # cannot be saved.
         text = " ".join(
             line.strip()
             for line in text.splitlines()
             if line.strip() and not line.strip().startswith("(Session info:")
         )
-    # A connection failure quotes the whole URL — `status_for` calls those 503
-    # and nothing truncated them, so the credential travelled with the message.
+    # A connection failure quotes the whole URL, credentials included.
     return without_userinfo(text) or type(exc).__name__

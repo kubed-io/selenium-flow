@@ -1,5 +1,5 @@
 """`workspace://console` and `workspace://network`: five forms, one rule - they
-read what capture kept, and never open or ask a browser (spec §7, plan ruling 12)."""
+read what capture kept, and never open or ask a browser."""
 
 import json
 
@@ -8,13 +8,11 @@ from fastmcp import Client
 from mcp.shared.exceptions import MCPError
 
 from kubed.selenium_flow.capture import OFF
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import resources
-from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .capture_events import done, log, nav_started, req
-from .conftest import NAMED, TOKEN, calling_as
+from .conftest import NAMED, calling_as
 
 pytestmark = pytest.mark.unit
 
@@ -37,15 +35,10 @@ class SilentGrid:
 
 
 @pytest.fixture
-def server(tmp_path, monkeypatch):
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
-    server.workspaces.actions.grid = SilentGrid()
+def server(data_server, monkeypatch):
+    data_server.workspaces.actions.grid = SilentGrid()
     calling_as(monkeypatch, NAMED)
-    return server
+    return data_server
 
 
 def capturing(server):

@@ -1,28 +1,16 @@
 """Where the mouse pointer is, per browser, and how it gets somewhere else.
 
-WebDriver has no "where is the pointer" command. It does not need one: nothing
-moves a WebDriver pointer except WebDriver, so whoever sends every move can
-remember where it ended up. This module is that memory, plus the two gestures
-that read it.
+WebDriver has no "where is the pointer" command, but nothing else moves its
+pointer, so the sender of every move remembers where it ended up.
 
-Two things depend on knowing the start.
+Two gestures need the start. A glide (many small moves) jumps when the start is
+unknown and says so: a path from a guessed origin crosses the wrong elements. A
+nudge (moving away before moving back) makes a hover fire on a target the
+pointer is already inside; otherwise Chrome and Firefox deliver no `mouseover`.
 
-**A glide** — many small moves instead of one — needs a line to walk, and a line
-needs both ends. Asked to glide from a position we do not have, it jumps and the
-result says so; a path plotted from a guessed origin crosses the wrong elements,
-which is worse than no path at all (saga §F2.3).
-
-**A nudge** — moving away before moving back — is what makes a hover onto a
-target the pointer is already inside actually fire. Measured on the live Grid,
-Chrome and Firefox alike: the second hover of the same element delivers no
-`mouseover` and the action still reports success, which cost one pilot the same
-menu twice (saga §F2.10).
-
-Keyed by the Grid's session id rather than by a workspace name, because the
-pointer belongs to the browser: a new session in the same workspace is a new
-browser, with a pointer of its own.
-Kept in Redis when Redis is configured, for the same reason the window size is:
-this process restarts and the browser does not.
+Keyed by the Grid's session id, because a new session is a new browser with a
+pointer of its own. Kept in Redis when Redis is configured, since this process
+restarts and the browser does not.
 """
 
 from __future__ import annotations
@@ -38,26 +26,21 @@ from . import js
 
 log = logging.getLogger(__name__)
 
-# Long enough to outlive any browser: the Grid reaps an idle session well
-# before this, and a stale entry costs one wrong glide origin rather than
-# anything durable.
+# Long enough to outlive any browser; a stale entry costs one wrong glide origin.
 DEFAULT_TTL_SECONDS = 86400
 DEFAULT_PREFIX = "selenium-flow:pointer:"
 
-# The path. About one step per 20px so a short move is not 60 events and a long
-# one is not a teleport, clamped at both ends, with a frame-length pause between
-# steps — all of it inside one `perform()`, which is one round trip.
+# The path: about one step per 20px, clamped at both ends, with a frame-length
+# pause between steps, all in one `perform()`.
 PIXELS_PER_STEP = 20
 MIN_STEPS = 6
 MAX_STEPS = 40
 STEP_MS = 16
 
-# How far a nudge moves before coming back. Far enough to leave the element,
-# near enough that the pointer does not cross the whole page to do it.
+# How far a nudge moves before coming back.
 NUDGE = 40
 
-# How long the pointer rests between pressing and moving in a drag. Several drag
-# libraries arm on a delay or a distance rather than on the press itself.
+# How long the pointer rests between pressing and moving in a drag (`drag_to`).
 HOLD_MS = 120
 
 
@@ -110,9 +93,7 @@ class RedisPointers:
                 return None
             point = json.loads(raw)
             return float(point[0]), float(point[1])
-        # A position is a convenience, never a reason to fail an action: an
-        # unreachable Redis means "we do not know where the pointer is", which
-        # is a state this module already handles.
+        # An unreachable Redis means the position is unknown, never a failure.
         except Exception:
             log.debug("could not read the pointer", exc_info=True)
             return None
@@ -133,49 +114,25 @@ class RedisPointers:
 def matching(store):
     """A pointer store on the same backend as the workspace ``store``.
 
-    Built from the store object rather than from the environment, which is the
-    only way the two can be guaranteed to agree: a caller that injects a shared
-    workspace store while the environment says memory would otherwise get shared
-    workspace records and process-local pointers, so a glide on another replica
-    silently starts as a jump (Copilot, #31).
-
-    Anything that is not the shared backend is process-local, which is exactly
-    what a `MemoryStore` is.
-
-    Reading ``kind`` and ``client`` directly rather than through
-    ``getattr(store, ..., default)``,
-    because that idiom swallows an AttributeError raised *inside* the property
-    and answers None — which is indistinguishable from "this store has no
-    client" and degrades silently to memory. It did exactly that here once,
-    through a one-word typo in the property. A store that says it is redis and
-    then cannot produce a client should raise.
+    Built from the store object, not the environment, so an injected shared
+    store never gets process-local pointers. ``kind`` and ``client`` are read
+    directly: ``getattr`` with a default would swallow an AttributeError raised
+    inside the property and degrade silently to memory.
     """
-    # `ttl` is in the `WorkspaceStore` protocol, and the fallback is for a store
-    # written before it was - `SeleniumMCP` takes an injected store, and a
-    # direct read turned a store that merely predates this into a server that
-    # will not start (Copilot, #32).
-    #
-    # This is NOT the swallowing getattr the client read below avoids. There
-    # the attribute must exist, so a missing one is a bug worth raising; here
-    # a store may legitimately not express a retention and the default is a
-    # real answer. The difference is whether absence means "broken".
+    # An injected store may predate `ttl` in the `WorkspaceStore` protocol;
+    # there the default is a real answer.
     ttl = getattr(store, "ttl", DEFAULT_TTL_SECONDS)
     if store.kind != "redis":
         return MemoryPointers(ttl=ttl)
     from ..workspace.store import POINTER_NAMESPACE
 
-    return RedisPointers(
-        store.client, prefix=store.prefix + POINTER_NAMESPACE, ttl=ttl
-    )
+    return RedisPointers(store.client, prefix=store.prefix + POINTER_NAMESPACE, ttl=ttl)
 
 
-# The **in-view center point**, which is WebDriver's own definition of where an
-# element-origin move lands: the center of the element's rectangle intersected
-# with the viewport, not the center of the rectangle. They are the same thing
-# for an ordinary element and very different for one taller than the window -
-# whose raw center can be hundreds of pixels below the fold while the pointer is
-# sitting comfortably inside it. Reporting the raw center made a later glide
-# plot a path to a coordinate outside the window (Copilot, #31).
+# The in-view center point, WebDriver's definition of where an element-origin
+# move lands: the center of the element's rectangle intersected with the
+# viewport. For an element taller than the window the raw center can be far
+# below the fold.
 CENTER_JS = js.read("center.js")
 
 
@@ -183,24 +140,17 @@ def aim(driver, element, bring_into_view: bool = False) -> dict:
     """Where a pointer move onto ``element`` lands, whether one can, and the
     window's size to keep the move inside.
 
-    The **in-view center**, not the rectangle's: see `CENTER_JS`. In viewport
-    coordinates, read at the moment of the move and never cached: scrolling
-    moves every element under a pointer that stays put, so a destination worked
-    out one call ago is a destination somewhere else (saga §F2.3).
+    The in-view center (`CENTER_JS`), in viewport coordinates, read at the
+    moment of the move: scrolling moves every element under the pointer.
 
     ``bring_into_view`` scrolls it to the middle of the window first if none of
-    it is in there. That is only needed for a **glide**, and it is needed
-    badly: a pointer move to a coordinate outside the viewport is an error, not
-    a scroll, so a path plotted to an element below the fold is a sequence
-    WebDriver rejects — taking the whole gesture's move with it, since the
-    intermediate points are sent before the element-origin move that would have
-    scrolled (Copilot, #31). A jump does not need it, because that move names
-    the element rather than a coordinate and scrolls on its own.
+    it is in there, which a glide needs: a move to a coordinate outside the
+    viewport is an error, not a scroll. A jump names the element and scrolls on
+    its own.
     """
     answer = driver.execute_script(CENTER_JS, element, bool(bring_into_view))
     at = answer.get("at") or [0, 0]
-    # Strict, as the separate read it replaced was: a guessed size would clamp
-    # a drop to the wrong place without a word.
+    # Strict: a guessed size would clamp a drop to the wrong place silently.
     size = answer["viewport"]
     return {
         "at": (float(at[0]), float(at[1])),
@@ -224,12 +174,7 @@ def _eased(fraction: float) -> float:
 
 
 def path(start: tuple[float, float], end: tuple[float, float]) -> list[tuple[int, int]]:
-    """A straight, eased line from ``start`` to ``end``, ending exactly on it.
-
-    Straight on purpose. Leaving a flyout diagonally can cross the sibling below
-    it, and the fix for that is a waypoint — not proposed until a real site needs
-    one, because hovering the parent and then the child already works.
-    """
+    """A straight, eased line from ``start`` to ``end``, ending exactly on it."""
     total = steps_between(start, end)
     points = []
     for step in range(1, total + 1):
@@ -243,8 +188,8 @@ def path(start: tuple[float, float], end: tuple[float, float]) -> list[tuple[int
     return points
 
 
-# One round trip for both questions a move has to ask about its destination: is
-# the pointer already inside it, and if so where is there to step to first.
+# One round trip: is the pointer already inside the destination, and if so
+# where to step to first.
 NUDGE_JS = js.read("nudge.js")
 
 
@@ -253,25 +198,21 @@ def _nudge_point(driver, element, start) -> tuple[bool, tuple[int, int] | None]:
     at = (None, None) if start is None else start
     try:
         answer = driver.execute_script(NUDGE_JS, element, at[0], at[1], NUDGE) or {}
-    # Best effort: not knowing costs one hover that does nothing, which is
-    # exactly what happened before any of this existed.
+    # Best effort: not knowing costs one hover that does nothing.
     except Exception:
         log.debug("could not work out a nudge point", exc_info=True)
         return False, None
     away = answer.get("away")
-    return bool(answer.get("inside")), (
-        (int(away[0]), int(away[1])) if away else None
-    )
+    return bool(answer.get("inside")), ((int(away[0]), int(away[1])) if away else None)
 
 
 def move(driver, element, start=None, glide=False) -> dict:
     """Put the pointer on ``element``, say how it got there, and the window's
     size as it was read on landing.
 
-    The last move is always WebDriver's element-origin move — the one this
-    package has always sent, which scrolls the element into view for us. A
-    glide adds intermediate points *before* it rather than replacing it, so an
-    off-screen destination still works and nothing that works today changes.
+    The last move is always WebDriver's element-origin move, which scrolls the
+    element into view. A glide adds intermediate points before it, so an
+    off-screen destination still works.
     """
     inside, away = _nudge_point(driver, element, start)
     builder = ActionBuilder(driver, duration=STEP_MS)
@@ -282,19 +223,15 @@ def move(driver, element, start=None, glide=False) -> dict:
 
     glided = False
     if glide and start is not None:
-        # Scrolled into view first when it is not there: every point on the path
-        # is a coordinate, and a coordinate outside the window is refused.
+        # Every point on the path is a coordinate, refused outside the window.
         aimed = aim(driver, element, bring_into_view=True)
         if aimed["outside"]:
-            # Still not reachable by coordinate after scrolling — an element
-            # taller than the window, or one a scroll container cannot center.
-            # A jump still works, because that move names the element.
+            # An element taller than the window, or one a scroll container
+            # cannot center. A jump still works: it names the element.
             unglideable = True
         else:
-            # The start is clamped rather than trusted. It is where we left the
-            # pointer, but the window may have been resized since — and a path
-            # between two points inside the viewport stays inside it, so this is
-            # the only end that can put one out of bounds.
+            # The window may have been resized since the pointer was left there;
+            # a path between two points inside the viewport stays inside it.
             begin = clamped(start, aimed["viewport"])
             for x, y in path(begin, aimed["at"])[:-1]:
                 builder.pointer_action.move_to_location(x, y)
@@ -302,8 +239,7 @@ def move(driver, element, start=None, glide=False) -> dict:
     builder.pointer_action.move_to(element)
     builder.perform()
 
-    # Read after the move, not before: the element-origin move may have
-    # scrolled the page, which moves every rect including this one.
+    # Read after the move, which may have scrolled the page.
     landed = aim(driver, element)
     return {
         "at": landed["at"],
@@ -318,9 +254,8 @@ def move(driver, element, start=None, glide=False) -> dict:
 def drag_to(driver, start, end, glide=True) -> None:
     """Press where the pointer is, travel to ``end``, release.
 
-    A short hold either side of the travel, because several drag libraries arm
-    on a delay or a distance rather than on the press itself, and a press and
-    release in the same frame reads as a click.
+    A short hold either side of the travel: several drag libraries arm on a
+    delay or a distance, and a press and release in one frame reads as a click.
     """
     builder = ActionBuilder(driver, duration=STEP_MS)
     builder.pointer_action.pointer_down(MouseButton.LEFT)
@@ -334,12 +269,8 @@ def drag_to(driver, start, end, glide=True) -> None:
 
 
 def clamped(point: tuple[float, float], size: tuple[int, int]) -> tuple[float, float]:
-    """``point`` pulled inside the viewport.
-
-    A pointer move to a coordinate outside it is an error, not a scroll: an
-    offset drag that would leave the window has to stop at the edge, which is
-    also what a hand does.
-    """
+    """``point`` pulled inside the viewport, where a pointer move outside it is
+    an error, not a scroll."""
     width, height = size
     return (
         min(max(point[0], 0.0), float(max(width - 1, 0))),

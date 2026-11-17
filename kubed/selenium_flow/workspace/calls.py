@@ -1,40 +1,38 @@
 """Every call, at the recipe's host: the touch, `call.finished`, and the hint.
 
-The seam the session monitor spec (ruling 8) declared and capture is the first
-to use (capture spec §6). A host — `Workspaces.act` for both surfaces, the
-bound write (`secrets.perform_write`), a flow step (`flows.api.run_for`) —
-calls `Calls.begin` as the call starts and `Calls.end` once it has its answer,
-and that is the whole of what it does here:
+A host (`Workspaces.act` for both surfaces, the bound write
+`secrets.perform_write`, a flow step `flows.api.run_for`) calls `Calls.begin`
+as the call starts and `Calls.end` once it has its answer, and that is the whole
+of what it does here:
 
 - while a person holds the browser in the live view, a call that would change
   it is refused (`faults.Controlled`) before anything else, so a refused call
-  is never begun: no in-flight count, no ``call.finished`` (live control spec,
-  ruling 32). Every host calls `begin` holding its turn on the session's lock,
-  so a call that queued before the person asked is refused when its turn comes
-  (rulings 14, 33);
+  is never begun: no in-flight count, no ``call.finished``. Every host calls
+  `begin` holding its turn on the session's lock, so a call that queued before
+  the person asked is refused when its turn comes;
 - the monitor is asked to keep the session alive (`Monitor.keep`), so a
   session opened before a restart is kept from its next call;
-- capture is held again when it is owed and was let go while the agent
-  paused (the deadline closes an idle connection), so the call that comes back
-  is captured too;
-- the monitor is told the call is under way and when it is over, each a
-  touch, so a held connection's deadline moves on and is never reached while
-  the call runs (a close would take its late events, its flush and any
-  borrowed channel with it);
-- `call.finished` is published, values-free (ruling 14): who, which tool on
-  which surface, how it came out, when and how long;
-- with capture on, what the page reported while the call ran is counted
-  (ruling 12) and comes back as the hint, ``"page": {...}``, which the host
-  puts on its result — or, for a call that raised, as one sentence on its error
-  (plan ruling 7), which `faults.message` reads.
+- capture is held again when it is owed and was let go while the agent paused
+  (the deadline closes an idle connection), so the call that comes back is
+  captured too;
+- the monitor is told the call is under way and when it is over, each a touch,
+  so a held connection's deadline moves on and is never reached while the call
+  runs (a close would take its late events, its flush and any borrowed channel
+  with it);
+- `call.finished` is published, values-free: who, which tool on which surface,
+  how it came out, when and how long;
+- with capture on, what the page reported while the call ran is counted and
+  comes back as the hint, ``"page": {...}``, which the host puts on its result,
+  or, for a call that raised, as one sentence on its error, which
+  `faults.message` reads.
 
-A call's window is bounded by the session's lock (`workspace.locks`): the host
-holds it from `begin` to `end`, so another call's events cannot land inside
-this one's (plan ruling 8). At the end, one round trip on
-the held connection lets the events the browser sent before it land first.
+The host holds the session's lock (`workspace.locks`) from `begin` to `end`, so
+another call's events cannot land inside this one's window. At the end, one
+round trip on the held connection lets the events the browser sent before it
+land first.
 
-**Nothing here fails a call.** `end` never raises and never waits longer than
-one bounded flush; a monitor or a flush that fails is logged by its type alone,
+Nothing here fails a call. `end` never raises and never waits longer than one
+bounded flush; a monitor or a flush that fails is logged by its type alone,
 because its arguments name a Grid id.
 """
 
@@ -56,7 +54,7 @@ from ..redaction import Forms
 log = logging.getLogger(__name__)
 
 # Where a hint sends its reader: the console when the page threw, else the
-# requests that failed (plan ruling 6).
+# requests that failed.
 SEE_ERRORS = f"{CONSOLE_URI}?level=error"
 SEE_FAILED = f"{NETWORK_URI}?filter=failed"
 
@@ -72,8 +70,8 @@ class Begun(NamedTuple):
 
 
 def told(monitor, what: str, *args, **kwargs):
-    """Tell ``monitor`` ``what``, when there is one. **Never fails the caller**:
-    a monitor that raises is logged by its type (the arguments name a Grid id)
+    """Tell ``monitor`` ``what``, when there is one. Never fails the caller: a
+    monitor that raises is logged by its type (the arguments name a Grid id)
     and the call carries on."""
     if monitor is None:
         return None

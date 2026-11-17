@@ -2,8 +2,7 @@
 
 A skill is read by the model; a prompt is picked by a person. An agent cannot
 invoke one — so when a run fails, the report names the prompt that repairs it and
-the reference that explains the failure, and somebody can act on either. See
-saga §F2.6.
+the reference that explains the failure, and somebody can act on either.
 """
 
 import pytest
@@ -58,22 +57,25 @@ def _write(tmp_path, body: str, name: str = "example.md"):
     return path
 
 
-def test_a_placeholder_with_no_argument_is_refused(tmp_path):
-    """Rendered blank it reads perfectly well and asks for the wrong thing."""
-    path = _write(
-        tmp_path,
-        "---\ndescription: x\narguments:\n- name: flow\n---\nRepair {{ flow }} at {{ stp }}.\n",
-    )
-    with pytest.raises(ValueError, match="stp"):
-        prompts_module.load_prompt(path)
-
-
-def test_a_required_argument_cannot_have_a_default(tmp_path):
-    path = _write(
-        tmp_path,
-        "---\ndescription: x\narguments:\n- name: flow\n  required: true\n  default: y\n---\n{{ flow }}\n",
-    )
-    with pytest.raises(ValueError, match="cannot have a default"):
+@pytest.mark.parametrize(
+    ("text", "refusal"),
+    [
+        # Rendered blank it reads perfectly well and asks for the wrong thing.
+        pytest.param(
+            "---\ndescription: x\narguments:\n- name: flow\n---\nRepair {{ flow }} at {{ stp }}.\n",
+            "stp",
+            id="a-placeholder-with-no-argument-is-refused",
+        ),
+        pytest.param(
+            "---\ndescription: x\narguments:\n- name: flow\n  required: true\n  default: y\n---\n{{ flow }}\n",
+            "cannot have a default",
+            id="a-required-argument-cannot-have-a-default",
+        ),
+    ],
+)
+def test_a_prompt_whose_arguments_do_not_fit_is_refused(tmp_path, text, refusal):
+    path = _write(tmp_path, text)
+    with pytest.raises(ValueError, match=refusal):
         prompts_module.load_prompt(path)
 
 

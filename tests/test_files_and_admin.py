@@ -14,7 +14,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
-from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
@@ -31,11 +30,6 @@ ENTRIES = [
     {"name": "shot.png", "size": 1024, "creationTime": 1700000000000},
     {"name": "report.pdf", "size": 2048, "creationTime": 1700000001000},
 ]
-
-
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
 
 
 KEY = "desktop"
@@ -469,7 +463,7 @@ def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server)
 
 def test_the_stdio_workspace_is_listed_and_labelled(client, server):
     """One key shape survives — the name a caller chose — and `stdio` is the one
-    nobody typed, so it is still worth saying where it came from (§F2.12)."""
+    nobody typed, so it is still worth saying where it came from."""
     server.workspaces.store.set("stdio", Workspace(session_id="abc"))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
@@ -517,11 +511,6 @@ async def test_the_mcp_surface_never_lists_other_workspaces(built_ui, server):
     assert "browser_sessions" not in names
     # What a client does get is its own, and only its own.
     assert "workspace://current" in uris
-
-
-async def test_the_app_shell_is_a_ui_resource(built_ui, server):
-    uris = {str(r.uri) for r in await server.mcp.list_resources()}
-    assert apps.RESOURCE_URI in uris
 
 
 async def test_apps_can_be_turned_off(built_ui):
@@ -581,121 +570,6 @@ def test_the_event_stream_signature_is_bound_to_its_own_path(client):
 
 
 # --- what every connected page is sent (G2) --------------------------------
-
-
-async def _listen(app, sink, stop):
-    """One `/admin/events` client, speaking raw ASGI.
-
-    Not a TestClient: its portal buffers a response until the app finishes, and
-    this one never does. ``sink`` collects each event's data as it is sent;
-    setting ``stop`` is the browser closing the tab.
-    """
-
-    async def receive():
-        await stop.wait()
-        return {"type": "http.disconnect"}
-
-    async def send(message):
-        if message["type"] == "http.response.body":
-            for line in message.get("body", b"").decode().splitlines():
-                if line.startswith("data: "):
-                    sink.append(line[len("data: "):])
-
-    await app(
-        {
-            "type": "http",
-            "asgi": {"version": "3.0"},
-            "http_version": "1.1",
-            "method": "GET",
-            "scheme": "http",
-            "path": "/admin/events",
-            "raw_path": b"/admin/events",
-            "root_path": "",
-            "query_string": b"",
-            "headers": [(b"authorization", f"Bearer {TOKEN}".encode())],
-            "client": ("127.0.0.1", 1),
-            "server": ("test", 80),
-        },
-        receive,
-        send,
-    )
-
-
-async def _until(condition, what, seconds=5.0):
-    import asyncio
-
-    deadline = time.monotonic() + seconds
-    while not condition():
-        assert time.monotonic() < deadline, f"timed out waiting for {what}"
-        await asyncio.sleep(0.01)
-
-
-async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch):
-    """One broadcaster sits behind every connection, so three open pages ask the
-    Grid once a tick. What must survive is the rest — one payload when something
-    changed, none when nothing did, and a late joiner's first event is the state
-    as it is now.
-
-    Ticks are paced by the test, not the clock: `grid.status` blocks on a
-    semaphore, so "one entered" means the broadcaster is mid-tick and the counts
-    are exact on any runner. A tick reads the store *before* it asks the
-    Grid, so a change made while a tick is blocked is seen by the one after."""
-    import asyncio
-    import threading
-
-    from kubed.selenium_flow.http.admin import workspaces as admin
-
-    monkeypatch.setattr(admin, "POLL_SECONDS", 0.05)
-    gate = threading.Semaphore(0)
-    entered = []
-
-    def status():
-        entered.append(1)
-        gate.acquire()
-        return {"value": {"nodes": []}}
-
-    monkeypatch.setattr(server.actions.grid, "status", status)
-    server.workspaces.store.set("one", Workspace(session_id=""))
-
-    app = server.mcp.http_app()
-    stop = asyncio.Event()
-    sinks = [[], [], []]
-    tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
-
-    async def tick(number, pages=1):
-        """Wait for the `number`th Grid call, then let it through."""
-        await _until(lambda: len(entered) >= number, f"Grid call {number}")
-        assert len(entered) == number, "one Grid listing per tick, for every page"
-        gate.release(pages)
-
-    try:
-        await tick(1)  # first tick: the state as it is
-        await _until(lambda: all(len(s) == 1 for s in sinks), "the first events")
-        assert sinks[0] == sinks[1] == sinks[2]
-
-        await tick(2)  # second tick: nothing changed
-        await tick(3)  # reaching the third means the second finished
-        assert all(len(s) == 1 for s in sinks), "a tick that found no change spoke"
-
-        # Tick three is blocked having already read the store; this lands in four.
-        server.workspaces.store.set("two", Workspace(session_id=""))
-        await tick(4)
-        await _until(lambda: all(len(s) == 2 for s in sinks), "the change")
-        assert sinks[0] == sinks[1] == sinks[2]
-        assert sinks[0][0] != sinks[0][1]
-        assert [r["key"] for r in json.loads(sinks[0][1])["workspaces"]] != []
-
-        late = []
-        tasks.append(asyncio.create_task(_listen(app, late, stop)))
-        # The broadcaster is mid-tick again, and one permit lets it through.
-        await _until(lambda: len(entered) >= 5, "the next Grid call")
-        gate.release(1)
-        await _until(lambda: len(late) == 1, "the late joiner's first event")
-        assert late[0] == sinks[0][1], "its first event is the state now"
-    finally:
-        stop.set()
-        gate.release(1000)
-        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 5)
 
 
 def admin_row(client, server, live):

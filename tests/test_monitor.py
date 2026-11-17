@@ -1,9 +1,7 @@
 """The monitor: watches by the Grid's listing, holds connections to a deadline."""
 
 import asyncio
-import inspect
 import logging
-from typing import ClassVar
 
 import pytest
 
@@ -18,18 +16,12 @@ from kubed.selenium_flow.monitor.monitor import (
 )
 from kubed.selenium_flow.workspace.calls import Calls
 
+from .fakes import Clock, FakeConnection, FakeSink
+
 pytestmark = pytest.mark.unit
 
 GID = "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d"
 OTHER = "0123456789abcdef0123456789abcdef"
-
-
-class Clock:
-    def __init__(self, now=1_791_500_000.0):
-        self.now = now
-
-    def __call__(self):
-        return self.now
 
 
 class Listing:
@@ -48,129 +40,8 @@ class Listing:
         return self.nodes, dict(self.running)
 
 
-class FakeSubscriber:
-    """What `FakeConnection.listen` returns: a handler for some events."""
-
-    def __init__(self, events, handler, on_drop=None):
-        self.events, self.handler, self.on_drop = frozenset(events), handler, on_drop
-        self.cancelled = False
-
-    def cancel(self):
-        self.cancelled = True
-
-
-class FakeConnection:
-    """Stands in for `bidi.Connection`: records what the monitor asked of it.
-
-    ``refuse`` makes every open raise ConnectionError, ``hang_on_subscribe``
-    makes every subscribe and ``hang_on_open`` every open wait until ``gate``
-    is set (forever without one); all are reset per test (`reset`)."""
-
-    made: ClassVar[list] = []
-    refuse: ClassVar[bool] = False
-    hang_on_subscribe: ClassVar[bool] = False
-    hang_on_open: ClassVar[bool] = False
-    gate: ClassVar[asyncio.Event | None] = None
-
-    def __init__(self, url, *, on_close=None):
-        self.url, self.on_close = url, on_close
-        self.is_open = False
-        self.dropped = False
-        self.subscribed = []
-        self.collectors = []
-        self.listeners = []
-        self.commands = []
-        self.flushed = 0
-        self.closed = 0
-        self.closed_clean = False
-        self._subscriptions = set()
-        self._collectors = set()
-        FakeConnection.made.append(self)
-
-    @classmethod
-    def reset(cls):
-        cls.made, cls.refuse, cls.hang_on_subscribe = [], False, False
-        cls.hang_on_open, cls.gate = False, None
-
-    async def open(self):
-        if FakeConnection.hang_on_open:
-            await (FakeConnection.gate or asyncio.Event()).wait()
-        if FakeConnection.refuse:
-            raise ConnectionError("refused")
-        self.is_open = True
-
-    async def command(self, method, params=None, *, timeout=5.0):
-        self.commands.append((method, params))
-        if method == "browsingContext.getTree":
-            return {"contexts": [{"context": "top-1"}]}
-        return {}
-
-    def listen(self, events, handler, *, name, limit=1000, on_drop=None):
-        subscriber = FakeSubscriber(events, handler, on_drop)
-        self.listeners.append(subscriber)
-        return subscriber
-
-    async def subscribe(self, events, contexts=None):
-        if FakeConnection.hang_on_subscribe:
-            await (FakeConnection.gate or asyncio.Event()).wait()
-        self.subscribed.append(list(events))
-        subscription = f"sub-{len(self.subscribed)}"
-        self._subscriptions.add(subscription)
-        return subscription
-
-    async def add_collector(self, params):
-        self.collectors.append(params)
-        self._collectors.add("col-1")
-        return "col-1"
-
-    async def flush(self):
-        self.flushed += 1
-
-    async def close(self):
-        if self.is_open and (self._subscriptions or self._collectors):
-            self._subscriptions.clear()  # what `Connection.close` unsubscribes
-            self._collectors.clear()  # and the collectors it removes
-            self.closed_clean = True
-        self.is_open = False
-        self.closed += 1
-
-    def drop(self):
-        self.is_open, self.dropped = False, True
-        self.on_close()
-
-    async def emit(self, method, params):
-        for subscriber in self.listeners:
-            if method in subscriber.events and not subscriber.cancelled:
-                result = subscriber.handler(method, params)
-                if inspect.isawaitable(result):
-                    await result
-
-
-class FakeSink:
-    """Stands in for `Capture`: records every call the monitor makes."""
-
-    def __init__(self):
-        self.calls = []
-
-    def attached(self, workspace, session_id, browser, top, *, again):
-        self.calls.append(("attached", workspace, session_id, browser, top, again))
-
-    def ingest(self, workspace, session_id, method, params):
-        self.calls.append(("ingest", workspace, session_id, method, params))
-
-    def replayed(self, workspace, session_id):
-        self.calls.append(("replayed", workspace, session_id))
-
-    def detached(self, workspace, session_id):
-        self.calls.append(("detached", workspace, session_id))
-
-    def lost(self, workspace, session_id):
-        self.calls.append(("lost", workspace, session_id))
-
-
 @pytest.fixture
 def parts():
-    FakeConnection.reset()
     bus, heard = LocalBus(), []
     bus.subscribe(("session.opened", "session.ended"), heard.append, name="t")
     listing, clock = Listing({GID: 300}), Clock()
@@ -665,7 +536,6 @@ async def test_a_call_on_an_unwatched_session_starts_its_keep_alive():  # Review
 
 
 async def test_the_keep_alive_alone_holds_no_connection():  # Dr K, plan review (11-14)
-    FakeConnection.reset()
     clock, pings = Clock(), Pings()
     monitor = Monitor(
         LocalBus(), listing=Listing({GID: 300}), ping=pings, keep_alive=900,
@@ -681,7 +551,6 @@ async def test_the_keep_alive_alone_holds_no_connection():  # Dr K, plan review 
 
 
 async def test_capture_beside_the_keep_alive_lets_go_at_the_nodes_timeout():  # Dr K, rulings 9, 20
-    FakeConnection.reset()
     clock, pings, sink = Clock(), Pings(), FakeSink()
     monitor = Monitor(
         LocalBus(), listing=Listing({GID: 300}), ping=pings, keep_alive=900,

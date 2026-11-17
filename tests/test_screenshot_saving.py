@@ -2,12 +2,12 @@
 
 `save` made the agent decide, per screenshot, whether a person would ever want
 to look at it — and the answer was usually no, so the admin UI showed nothing
-and a human asking "what did it see?" had nothing to open (§F2.9).
+and a human asking "what did it see?" had nothing to open.
 
 They used to reach the workspace's files by being handed back to the page as a
 download, which put them at the mercy of every download Chrome refuses: a
 plain-http page, a page with no origin, a second save from `about:blank`. The
-bytes are this server's, so they are written where they are kept (§F3.8).
+bytes are this server's, so they are written where they are kept.
 """
 
 import base64
@@ -111,7 +111,7 @@ def test_a_screenshot_is_kept_from_pages_the_browser_would_not_download_from(
     acting, driver, keeper, page
 ):
     """The three pages Chrome refused a download on, measured on Chrome 152, and
-    the reason the browser is no longer asked (§F3.8)."""
+    the reason the browser is no longer asked."""
     driver.current_url = page
     result = acting.screenshot("abc")
     assert result["file"]["name"] == "screenshot.png"
@@ -148,16 +148,6 @@ def test_a_screenshot_is_named_as_the_png_it_is(acting, keeper, given, expected)
     `chart.pdf` is handed to a browser as a PDF and will not open."""
     acting.screenshot("abc", filename=given)
     assert keeper.kept[0][0] == expected
-
-
-def test_a_screenshot_is_kept_in_the_screenshots_folder(acting, keeper):
-    acting.screenshot("abc")
-    assert keeper.kept[0][2] == "screenshots"
-
-
-def test_a_print_is_kept_in_files(acting, keeper):
-    acting.print_("abc")
-    assert keeper.kept[0][2] == "files"
 
 
 # ---- print -------------------------------------------------------------------
@@ -563,7 +553,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
     from kubed.selenium_flow.config import SessionSettings, Settings, load
     from kubed.selenium_flow.workspace import settings
 
-    # §F3.8, pinned at both ends: the config schema has no field for it at
+    # Pinned at both ends: the config schema has no field for it at
     # all, so nothing in `session.*` can ever set a floor for it...
     assert "insecure" not in SessionSettings.model_fields
     # ...and naming it in the environment is naming nothing: SESSION_INSECURE

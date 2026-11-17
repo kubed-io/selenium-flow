@@ -10,16 +10,15 @@ from mcp.shared.exceptions import MCPError
 from mcp_types import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
-    Request,
-    RequestParams,
 )
-from pydantic import ConfigDict, TypeAdapter
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import agents, skill_extension
 from kubed.selenium_flow.mcp.agents import EXTENSION_ID
 from kubed.selenium_flow.mcp.frontmatter import split
 from kubed.selenium_flow.server import SeleniumMCP
+
+from .fakes import header, request
 
 pytestmark = pytest.mark.unit
 
@@ -229,22 +228,6 @@ def test_split_returns_the_header_and_the_body():
     assert split("no header") is None
     assert split("---\na: 1\n") is None
     assert split("---\na: [\n---\n") is None
-
-
-class ExtensionParams(RequestParams):
-    model_config = ConfigDict(extra="allow")
-
-
-async def request(client, method, **params):
-    return await client.session.send_request(
-        Request(method=method, params=ExtensionParams(**params)), TypeAdapter(dict)
-    )
-
-
-def header(text: str) -> object:
-    lines = text.splitlines()
-    end = next(i for i, line in enumerate(lines[1:], start=1) if line.rstrip() == "---")
-    return yaml.safe_load("\n".join(lines[1:end]))
 
 
 FRESH = {"resultType": "complete", "ttlMs": 0, "cacheScope": "private"}

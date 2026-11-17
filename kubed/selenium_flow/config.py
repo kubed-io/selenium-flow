@@ -4,9 +4,8 @@ A setting's path is its name, and the other two spellings are derived from it:
 `redis.host` is `REDIS_HOST` in the environment and `--redis-host` on the
 command line. Precedence is default < config < env < args.
 
-The models here read nothing. `Settings()` is the defaults, which is what a
-test wants. `load()`, below, is what reads the file, the environment and the
-command line.
+The models read nothing: `Settings()` is the defaults. `load()` reads the
+file, the environment and the command line.
 """
 
 from __future__ import annotations
@@ -22,7 +21,9 @@ from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import (
+    AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     JsonValue,
@@ -42,12 +43,40 @@ from .urls import without_userinfo
 FILE_ONLY = "file_only"
 
 
+def _parts(value, sep: str):
+    """A list given as one string, split on ``sep``, each part trimmed and a
+    blank one dropped. A non-string element, or a value that is neither a
+    string nor a list, is left for pydantic's list[str] check to refuse."""
+    if isinstance(value, str):
+        value = value.split(sep)
+    if not isinstance(value, list):
+        return value
+    return [
+        part.strip() if isinstance(part, str) else part
+        for part in value
+        if not (isinstance(part, str) and not part.strip())
+    ]
+
+
+# NoDecode: pydantic-settings would otherwise JSON-decode a list read from env,
+# and `SECRETS_DIRS=/a:/b` is not JSON.
+CommaList = Annotated[list[str], NoDecode, BeforeValidator(lambda v: _parts(v, ","))]
+# A blank entry is dropped, so `dirs: [""]` is no dirs and never
+# FilesystemSource("") on the cwd.
+PathList = Annotated[
+    list[str], NoDecode, BeforeValidator(lambda v: _parts(v, os.pathsep))
+]
+# A path setting, where blank is unset.
+OptionalPath = Annotated[
+    str | None, AfterValidator(lambda v: (v or "").strip() or None)
+]
+
+
 class Section(BaseModel):
     """A group of settings. Unknown keys are refused, so a typo stops the boot."""
 
-    # hide_input_in_errors: a rejected value can be a credential (an allowed
-    # URL's userinfo, a secret's inline value), and pydantic's default error
-    # message otherwise echoes it verbatim via `input_value=...`.
+    # A rejected value can be a credential (an allowed URL's userinfo, a
+    # secret's inline value), and pydantic's errors quote `input_value`.
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
 
@@ -64,8 +93,7 @@ class FromValue(Section):
 
 
 # The key present is the discriminator. Each member forbids extra keys, so
-# `{file, env}` and `{}` match none of them and are refused, rather than
-# pydantic quietly picking the first member that fits.
+# `{file, env}` and `{}` match none of them and are refused.
 KeyRef = FromFile | FromEnv | FromValue
 
 
@@ -119,8 +147,7 @@ class OidcSettings(Section):
     jwks_uri: str | None = Field(
         None, description="Where the issuer publishes its signing keys."
     )
-    # NoDecode, like security.frame_ancestors: comma-separated in env.
-    roles: Annotated[list[str], NoDecode] = Field(
+    roles: CommaList = Field(
         default_factory=list,
         description="A JWT must hold one of these roles; empty checks none.",
     )
@@ -133,24 +160,10 @@ class OidcSettings(Section):
             "The admin UI's public client; setting it offers Sign in with OIDC."
         ),
     )
-    # NoDecode, like `roles`: comma-separated in env.
-    admin_roles: Annotated[list[str], NoDecode] = Field(
+    admin_roles: CommaList = Field(
         default_factory=list,
         description="A JWT from the admin UI holding one of these is the admin.",
     )
-
-    @field_validator("roles", "admin_roles", mode="before")
-    @classmethod
-    def _split(cls, value):
-        if isinstance(value, str):
-            value = value.split(",")
-        if not isinstance(value, list):
-            return value
-        return [
-            part.strip() if isinstance(part, str) else part
-            for part in value
-            if not (isinstance(part, str) and not part.strip())
-        ]
 
     @field_validator("issuer", "jwks_uri")
     @classmethod
@@ -187,8 +200,8 @@ class SessionSettings(Section):
         None, description="Seconds a page may take to load."
     )
     script_timeout: int | None = Field(None, description="Seconds a script may run.")
-    # Dr K's bounds: an hour at most, and 0 is off. Not an open's default:
-    # `FROM_CONFIG` does not list it, so no session remembers it.
+    # Not an open's default: `FROM_CONFIG` does not list it, so no session
+    # remembers it.
     keep_alive: int = Field(
         900,
         ge=0,
@@ -199,8 +212,8 @@ class SessionSettings(Section):
     version: str | None = Field(
         None, description="The browser version new sessions ask for, such as 152."
     )
-    # NoDecode, like `secrets.dirs`: env and the command line hand over a
-    # string, read as JSON below, so the error names this setting.
+    # NoDecode: the string from env or a flag is parsed below, so a bad one is
+    # refused naming this setting.
     capabilities: Annotated[dict[str, JsonValue], NoDecode] = Field(
         default_factory=dict,
         description="W3C capabilities every new session sends, under the "
@@ -234,8 +247,7 @@ class SessionSettings(Section):
     @field_validator("capabilities")
     @classmethod
     def _capabilities_owned(cls, value):
-        # An owned key is the operator's mistake, so the boot stops on it
-        # naming the option, rather than every open being refused.
+        # Refused at boot, naming the option, instead of at every open.
         check_capabilities(value, where="session.capabilities")
         return value
 
@@ -257,18 +269,13 @@ class RedisSettings(Section):
 
 
 class DataSettings(Section):
-    dir: str | None = Field(
+    dir: OptionalPath = Field(
         None,
         description=(
             "Where workspaces and recordings live. Unset turns flows, kept files "
             "and recordings off."
         ),
     )
-
-    @field_validator("dir")
-    @classmethod
-    def _blank_is_off(cls, value):
-        return (value or "").strip() or None
 
 
 class CaptureSettings(Section):
@@ -282,12 +289,12 @@ class CaptureSettings(Section):
 
 class LiveSettings(Section):
     """The admin UI's live view: selenium-flow proxies a session's VNC stream
-    and answers its password itself (spec 2026-10-27-live-view)."""
+    and answers its password itself."""
 
     enabled: bool = Field(
         True, description="Offer the admin UI's live view of a browser."
     )
-    password_file: str | None = Field(
+    password_file: OptionalPath = Field(
         None,
         description="The file holding the Grid's VNC password, read at every connect.",
     )
@@ -299,8 +306,7 @@ class LiveSettings(Section):
         description="Seconds a live viewer may send no presence before it is dropped.",
     )
     # At least 30: two of the progress heartbeat's 15 s (`mcp/progress.py`), and
-    # under Claude Code's two-minute move of a slow call to the background
-    # (live control spec, ruling 15).
+    # under Claude Code's two-minute move of a slow call to the background.
     await_cap: int = Field(
         90,
         ge=30,
@@ -309,17 +315,12 @@ class LiveSettings(Section):
         ),
     )
 
-    @field_validator("password_file")
-    @classmethod
-    def _blank_is_unset(cls, value):
-        return (value or "").strip() or None
-
 
 class RecordingSettings(Section):
     enabled: bool = Field(
         False, description="The Grid's recordings reach recording.dir."
     )
-    dir: str | None = Field(
+    dir: OptionalPath = Field(
         None,
         description="Where the Grid's recordings arrive. Unset is data.dir/recordings.",
     )
@@ -341,16 +342,9 @@ class RecordingSettings(Section):
         "filed, so its transport is done with it.",
     )
 
-    @field_validator("dir")
-    @classmethod
-    def _blank_is_unset(cls, value):
-        return (value or "").strip() or None
-
 
 class SecretsSettings(Section):
-    # NoDecode: pydantic-settings would otherwise JSON-decode a list read from
-    # env, and `SECRETS_DIRS=/a:/b` is not JSON.
-    dirs: Annotated[list[str], NoDecode] = Field(
+    dirs: PathList = Field(
         default_factory=list, description="Directories of secrets. First match wins."
     )
     entries: Annotated[dict[str, SecretEntry], NoDecode] = Field(
@@ -358,31 +352,6 @@ class SecretsSettings(Section):
         description="Secrets defined in the config file.",
         json_schema_extra={FILE_ONLY: True},
     )
-
-    @field_validator("dirs", mode="before")
-    @classmethod
-    def _split(cls, value):
-        if isinstance(value, str):
-            value = value.split(os.pathsep)
-        if not isinstance(value, list):
-            # Not a string and not a list: leave it for pydantic's own
-            # list[str] check to reject (as a clean ConfigError), rather than
-            # crashing here on something we can't iterate.
-            return value
-        # A blank/whitespace *string* entry is dropped, never an error:
-        # `dirs: [""]` means no dirs, same as an unset SECRETS_DIRS — one code
-        # path keeps the YAML list form consistent with the env/CLI string
-        # form instead of letting it bypass this and hand FilesystemSource("")
-        # the cwd. A non-string element is passed through untouched so
-        # pydantic's list[str] validation is what reports it, not us.
-        result = []
-        for part in value:
-            if isinstance(part, str):
-                part = part.strip()
-                if not part:
-                    continue
-            result.append(part)
-        return result
 
     @field_validator("entries")
     @classmethod
@@ -404,28 +373,13 @@ class McpSettings(Section):
 
 
 class SecuritySettings(Section):
-    # NoDecode for the same reason as `secrets.dirs`: a list read from env is
-    # comma-separated, not JSON.
-    frame_ancestors: Annotated[list[str], NoDecode] = Field(
+    frame_ancestors: CommaList = Field(
         default_factory=list,
         description=(
             "Origins allowed to frame the admin page, e.g. a Nextcloud or "
             "Grafana host; empty forbids framing."
         ),
     )
-
-    @field_validator("frame_ancestors", mode="before")
-    @classmethod
-    def _split(cls, value):
-        if isinstance(value, str):
-            value = value.split(",")
-        if not isinstance(value, list):
-            return value
-        return [
-            part.strip() if isinstance(part, str) else part
-            for part in value
-            if not (isinstance(part, str) and not part.strip())
-        ]
 
     @field_validator("frame_ancestors")
     @classmethod
@@ -468,15 +422,13 @@ class Settings(Section):
     @field_validator("log_level", mode="before")
     @classmethod
     def _upper(cls, value):
-        # Case-folded before the Literal check, so `LOG_LEVEL=debug` (the
-        # logging module itself is case-sensitive) still works — and a real
-        # typo is a ConfigError at boot, not a traceback from `logging` once
-        # something tries to log.
+        # Case-folded before the Literal check: `logging` is case-sensitive,
+        # and a typo is then a ConfigError at boot.
         return value.upper() if isinstance(value, str) else value
 
     # Moves the WHOLE server, so the default is "no prefix" rather than a name
-    # for one tree (§F1.11). `/` means the same thing and is what an operator
-    # types when they mean it.
+    # for one tree. `/` means the same thing and is what an operator types when
+    # they mean it.
     route_prefix: str = Field(
         "/", description="Path the whole server is mounted under."
     )
@@ -632,10 +584,8 @@ def parser() -> argparse.ArgumentParser:
         prog="selenium-flow",
         description="Drive a Selenium Grid browser over MCP and HTTP.",
         argument_default=argparse.SUPPRESS,
-        # A generated flag is a name someone will type, and argparse's default
-        # prefix matching would let `--redis-h` silently mean `--redis-host` —
-        # until a second flag starts the same way and it silently means
-        # something else instead.
+        # Prefix matching would let `--redis-h` mean `--redis-host`, until a
+        # second flag starts the same way.
         allow_abbrev=False,
     )
     for leaf in leaves():
@@ -654,21 +604,18 @@ def parser() -> argparse.ArgumentParser:
 
 
 def _is_blank(value: Any) -> bool:
-    """The value every layer agrees means "not set": `${VAR:-}`'s empty
-    string from env, a bare `--flag ""` on the command line, and, in the
-    config file, any string that is empty once whitespace is stripped — a
-    YAML author can quote a blank the same way. One predicate, so all three
-    layers drop it the same way instead of each rolling its own check.
-    """
+    """Whether every layer reads ``value`` as not set: `${VAR:-}`'s empty
+    string from env, `--flag ""`, or a quoted blank in the file. Empty is "not
+    set" everywhere, so a blank AUTH_TOKEN is no auth, never an empty
+    credential."""
     return isinstance(value, str) and not value.strip()
 
 
 class _Environment(EnvSettingsSource):
     """pydantic-settings' env reader, over a mapping we hand it.
 
-    `_load_env_vars` is its one hook for where variables come from. Overriding
-    it keeps a test's environment a plain dict, and keeps `os.environ` out of
-    every module but this one and secrets.py.
+    `_load_env_vars` is its one hook for where variables come from, so a test's
+    environment is a plain dict.
     """
 
     def __init__(self, environ: Mapping[str, str]):
@@ -678,23 +625,16 @@ class _Environment(EnvSettingsSource):
             case_sensitive=False,
             env_nested_delimiter="_",
             env_nested_max_split=1,
-            # `REDIS_URL=""` is what `${REDIS_URL:-}` sends when compose leaves
-            # it unset, not absence — and a blank AUTH_TOKEN must read as "no
-            # auth", not as an empty credential. Empty is "not set" everywhere.
             env_ignore_empty=True,
         )
 
     def _load_env_vars(self):
-        # A bare section name (SESSION, REDIS, ...) would otherwise be handed
-        # to pydantic-settings as a value for that whole section, which it
-        # tries to JSON-decode and raises SettingsError on before `_known()`
-        # ever gets a chance to filter it out as unknown.
-        #
-        # `env_ignore_empty` on the base class has no effect here: it is only
-        # applied inside the default `_load_env_vars`'s call to
-        # `parse_env_vars`, which this override replaces. So empty values are
-        # dropped here instead — `REDIS_URL=""` is what `${REDIS_URL:-}` sends
-        # when compose leaves it unset, not a value of its own.
+        # A bare section name (SESSION, REDIS) would reach pydantic-settings as
+        # that whole section's value, which it JSON-decodes and fails on before
+        # `_known()` can drop it. Blanks go here too: `env_ignore_empty` only
+        # applies inside the base `_load_env_vars`, which this replaces.
+        # `REDIS_URL=""` is what `${REDIS_URL:-}` sends when compose leaves it
+        # unset, not a value of its own.
         sections = set(SECTION_ORDER) - {"server"}
         return {
             key.lower(): value
@@ -726,8 +666,6 @@ def _known(raw: dict) -> dict:
 def _read_file(path: str) -> dict:
     file = Path(path)
     if not file.is_file():
-        # A directory exists, so "does not exist" would be a lie about what is
-        # actually wrong with it.
         reason = "is not a file" if file.exists() else "does not exist"
         raise ConfigError(f"config file {path} {reason}")
     try:
@@ -735,8 +673,8 @@ def _read_file(path: str) -> dict:
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None)
         where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
-        # Never the parser's message: it quotes the offending line, and that
-        # line may be an inline secret value.
+        # Never the parser's message: it quotes the offending line, which may
+        # be an inline secret value.
         raise ConfigError(f"config file {path} is not valid YAML{where}") from None
     except (OSError, UnicodeDecodeError) as exc:
         raise ConfigError(
@@ -776,16 +714,9 @@ def _has(tree: dict, path: str) -> bool:
 
 
 def _drop_blank_leaves(data: dict) -> dict:
-    """A blank leaf value in the config file reads as unset, like env and args.
-
-    Env and args already drop these before `_has`/`_merge` ever see them; the
-    file layer did not, so `redis: {host: ""}` used to make `redis.host`'s
-    source "config" and drive the store to redis on an empty host. Scoped to
-    known leaves only — `secrets.entries` is FILE_ONLY and excluded from
-    `leaves()` already (its own models validate it), and `secrets.dirs` is a
-    list, never a str, so a blank entry inside it stays the `dirs`
-    validator's job, not this one's.
-    """
+    """``data`` without its blank leaf values, which read as unset, as in env
+    and args. `secrets.entries` is not a leaf, and a blank inside the
+    `secrets.dirs` list is that field's validator's to drop."""
     out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in data.items()}
     for leaf in leaves():
         head, _, tail = leaf.path.partition(".")
@@ -839,7 +770,7 @@ def oidc_problem(settings: Settings) -> str | None:
     """Why this server's OIDC cannot run, or None. Checked after every layer merges."""
     oidc = settings.oidc
     if bool(oidc.client_id) != bool(oidc.admin_roles):
-        # An empty list would let nobody in — or, read the other way, everybody.
+        # An empty list would let nobody in or, read the other way, everybody.
         return "oidc.client_id and oidc.admin_roles are set together or not at all"
     named = [oidc.issuer, oidc.audience, oidc.jwks_uri]
     if not any(named):
@@ -875,10 +806,8 @@ RETIRED_SESSION_KEYS = (
 
 
 def _retired_session(environ: Mapping[str, str], file: dict) -> None:
-    """The `session` section's moved names, refused rather than dropped (spec
-    2026-10-09-workspaces-rename, ruling 2), for the two that moved. Only a
-    moved setting's own name counts: SESSION_PORT from a Service called
-    session is not one."""
+    """Refuses the `session` section's two moved names. Only a moved setting's
+    own name counts: SESSION_PORT from a Service called session is not one."""
     prefix = "session_"
     moved = ("store", "ttl")
     old = sorted(
@@ -922,22 +851,16 @@ def load(
     """The settings this process should run with, and where each one came from."""
     environ = os.environ if environ is None else environ
     raw_args = vars(parser().parse_args(argv))
-    # An empty string on the command line (`--auth-token ""`) is "not set", the
-    # same as an empty env var — never a value of its own, sensitive or not.
     args = _nest({k: v for k, v in raw_args.items() if not _is_blank(v)})
     env = _known(_Environment(environ)())
     named = args.get("config_file") or env.get("config_file")
     path = str(named).strip() if named else None
-    # Blank is unset in the file layer too, same as env and args — a quoted
-    # `""` (or whitespace) does not mean "use this empty value".
     file = _drop_blank_leaves(_read_file(path)) if path else {}
     _retired(environ, file)
-    # The file's own contract is strict, checked in isolation: `_merge` below
-    # overwrites a whole section when a later layer sets any key in it, so a
-    # malformed `redis: broken` would otherwise validate fine once, say,
-    # REDIS_HOST supplied a real dict for that same section — silently
-    # ignoring a bad file instead of stopping the boot on it. Every field has
-    # a default, so a partial file always validates on its own.
+    # The file alone first: `_merge` replaces a whole section when a later
+    # layer sets a key in it, so a malformed `redis: broken` would pass once
+    # REDIS_HOST supplied a dict. Every field has a default, so a partial file
+    # validates on its own.
     try:
         Settings.model_validate(file)
     except ValidationError as exc:
@@ -945,8 +868,7 @@ def load(
         raise ConfigError(_explain(exc, file_sources, path)) from None
 
     layers = {"args": args, "env": env, "config": file}
-    # Highest precedence first: SOURCES is default < config < env < args, so its
-    # reverse (minus "default", which is the fallback below) is the search order.
+    # Highest first; "default" is the fallback.
     precedence = tuple(reversed(SOURCES[1:]))
     sources = {
         leaf.path: next(
@@ -957,15 +879,12 @@ def load(
     }
     merged = _merge(file, env, args)
     if sources["workspace.store"] == "default":
-        # Today's rule, kept: asking for Redis by naming it is asking for the
-        # Redis store. Explicitly `memory` still wins.
+        # Naming Redis asks for the Redis store; an explicit `memory` wins.
         redis_sources = (sources["redis.url"], sources["redis.host"])
         wanted = any(name != "default" for name in redis_sources)
         merged.setdefault("workspace", {})["store"] = "redis" if wanted else "memory"
         if wanted:
-            # Provenance follows whichever of redis.url/redis.host was set
-            # with the highest precedence; memory needs no such update, since
-            # memory IS the default.
+            # Its source is the highest layer that set redis.url or redis.host.
             sources["workspace.store"] = next(
                 name for name in precedence if name in redis_sources
             )
@@ -1029,15 +948,10 @@ def sources_for(settings: Settings) -> dict[str, str]:
     }
 
 
-# Non-sensitive settings that are still URLs, and so may carry userinfo
-# (`GRID_URL=http://user:pass@hub:4444`). `auth.token`/`redis.url`/
-# `redis.password` are handled separately below, as `sensitive`: this set is
-# for the ones that are shown in full, and so must have their credentials
-# stripped first.
-#
-# `without_userinfo`, not `urls.public_url`: the latter also rewrites the
-# path (`rstrip("/")`), which turns `grid.console_url`'s default `/` into `""`
-# on the Settings tab even though the live server still serves it at `/`.
+# Settings shown in full that are URLs, and so may carry userinfo
+# (`GRID_URL=http://user:pass@hub:4444`). Stripped with `without_userinfo`:
+# `urls.public_url` also trims the path, and would show `grid.console_url`'s
+# default `/` as "".
 URL_LEAVES = {
     "grid.url",
     "grid.console_url",
@@ -1050,33 +964,26 @@ URL_LEAVES = {
 def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
     """The Settings tab's payload. Never a sensitive value, and no secret entries.
 
-    A row from the config file carries the `config` source, not the file's
-    path — that path is already shown once, as the value of the `config_file`
-    setting itself.
+    A row from the config file has the source `config`: the file's path is the
+    `config_file` row's value.
     """
     rows: dict[str, list[dict]] = {name: [] for name in SECTION_ORDER}
     for leaf in leaves():
         value = value_of(settings, leaf.path)
         if leaf.path in URL_LEAVES and value:
             value = without_userinfo(str(value))
-        # `name` is what the row shows: the card title is already the section.
+        # `name` is what the row shows: the card's title is the section.
         row: dict[str, Any] = {
             "key": leaf.path,
             "name": leaf.path.rsplit(".", 1)[-1],
             "description": leaf.description,
+            "value": None if leaf.sensitive else value,
+            "source": sources.get(leaf.path, "default"),
         }
         if leaf.sensitive:
-            row.update(
-                value=None,
-                source=sources.get(leaf.path, "default"),
-                sensitive=True,
-                # Not `value is not None`: a blank inline value or an empty env
-                # read (before this loader dropped it) is not a credential
-                # either, and the pill would otherwise read "set" on nothing.
-                set=value is not None and bool(value.get_secret_value()),
-            )
-        else:
-            row.update(value=value, source=sources.get(leaf.path, "default"))
+            # A blank value is not a credential either.
+            set_ = value is not None and bool(value.get_secret_value())
+            row.update(sensitive=True, set=set_)
         rows[leaf.section].append(row)
     return {
         "sections": [

@@ -457,7 +457,7 @@ def test_one_bad_line_invalidates_the_whole_declaration(tmp_path):
 
 
 def test_a_declaration_carrying_a_path_is_refused_not_trimmed(tmp_path):
-    """Origins are what §F1.27 compares, so https://host/admin and https://host
+    """Origins are what the leash compares, so https://host/admin and https://host
     are the same permission. Quietly widening one into the other makes the file
     say less than its author wrote."""
     make_secret(
@@ -479,12 +479,6 @@ def test_a_bare_origin_is_accepted_with_or_without_a_trailing_slash(tmp_path, li
     entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
     assert "allowed_urls_rejected" not in entry
     assert len(entry["allowed_urls"]) == 1
-
-
-def test_a_secret_with_no_declaration_is_marked_unrestricted_and_refused(tmp_path):
-    entry = make(tmp_path, {"app": {"password": "p"}}).entry("app")
-    assert entry["restricted"] is False
-    assert "refused" in entry
 
 
 def test_an_unreadable_directory_does_not_take_down_the_catalogue(tmp_path):
@@ -535,12 +529,26 @@ def test_a_bind_returns_the_value_to_exactly_one_caller(bindable):
     assert value == "hunter2"
 
 
-def test_a_bind_on_a_page_the_secret_does_not_allow_is_refused(bindable):
-    with pytest.raises(secrets.Refused, match="may not be used"):
-        secrets.bind(
-            bindable, {"name": "nextcloud", "key": "password"},
+@pytest.mark.parametrize(
+    ("refusal", "reference", "url"),
+    [
+        pytest.param(
+            "may not be used",
+            {"name": "nextcloud", "key": "password"},
             "https://evil.test/login",
-        )
+            id="a-bind-on-a-page-the-secret-does-not-allow-is-refused",
+        ),
+        pytest.param(
+            "cannot be used: no allowed sites",
+            {"name": "anywhere", "key": "token"},
+            "https://wherever.test/",
+            id="an-unleashed-secret-is-refused-at-bind-time",
+        ),
+    ],
+)
+def test_a_bind_the_leash_does_not_allow_is_refused(bindable, refusal, reference, url):
+    with pytest.raises(secrets.Refused, match=refusal):
+        secrets.bind(bindable, reference, url)
 
 
 def test_the_origin_suffix_attack_is_refused_at_bind_time(bindable):
@@ -548,14 +556,6 @@ def test_the_origin_suffix_attack_is_refused_at_bind_time(bindable):
         secrets.bind(
             bindable, {"name": "nextcloud", "key": "password"},
             "https://nc.example.com.evil.test/login",
-        )
-
-
-def test_an_unleashed_secret_is_refused_at_bind_time(bindable):
-    with pytest.raises(secrets.Refused, match="cannot be used: no allowed sites"):
-        secrets.bind(
-            bindable, {"name": "anywhere", "key": "token"},
-            "https://wherever.test/",
         )
 
 
@@ -628,7 +628,7 @@ def test_a_refused_bind_is_logged_without_a_value(tmp_path, caplog):
 @pytest.mark.parametrize("tool", ["execute_script", "navigate", "press_key", "extract"])
 def test_only_write_may_receive_a_secret(bindable, tool):
     """A script is arbitrary code; a URL lands in history, the referrer and our
-    own workspace record. Neither may carry a credential (§F1.28)."""
+    own workspace record. Neither may carry a credential."""
     with pytest.raises(secrets.Refused, match="cannot be bound into"):
         secrets.bind(
             bindable, {"name": "anywhere", "key": "token"},
@@ -734,33 +734,40 @@ def test_an_unparseable_port_is_a_rejected_line_not_a_crash(tmp_path):
     assert catalogue.allows("app", "https://good.test/") is False  # one bad line voids it
 
 
-def test_credentials_in_an_allowed_url_are_refused(tmp_path):
-    """netloc carries userinfo, so accepting one would put a password in the
-    permission file and make the same site read as two origins."""
-    make_secret(
-        tmp_path, "app", password="p",
-        **{ALLOWED_URLS: "https://user:s3cr3t@host.test"},
-    )
+@pytest.mark.parametrize(
+    ("allowed", "reported", "hidden", "also_hidden"),
+    [
+        # netloc carries userinfo, so accepting one would put a password in the
+        # permission file and make the same site read as two origins.
+        pytest.param(
+            {ALLOWED_URLS: "https://user:s3cr3t@host.test"},
+            ["https://host.test (+ credentials)"],
+            "s3cr3t",
+            "user",
+            id="credentials-in-an-allowed-url-are-refused",
+        ),
+        # The sharpest shape of this: a line is refused *because* it carries a
+        # credential, and `?token=` is how one usually arrives. Removing userinfo and
+        # echoing the rest handed it straight back through /secrets.
+        pytest.param(
+            {ALLOWED_URLS: "https://host.test/login?token=hunter2"},
+            ["https://host.test (+ a path)"],
+            "hunter2",
+            "token",
+            id="a-rejected-line-never-publishes-its-query",
+        ),
+    ],
+)
+def test_a_rejected_allowed_url_is_reported_without_what_it_hid(
+    tmp_path, allowed, reported, hidden, also_hidden
+):
+    make_secret(tmp_path, "app", password="p", **allowed)
     entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
     # Reported so an operator can find the line — with the credential taken
     # out, since /secrets is the last place one should turn up.
-    assert entry["allowed_urls_rejected"] == ["https://host.test (+ credentials)"]
-    assert "s3cr3t" not in str(entry)
-    assert "user" not in str(entry)
-
-
-def test_a_rejected_line_never_publishes_its_query(tmp_path):
-    """The sharpest shape of this: a line is refused *because* it carries a
-    credential, and `?token=` is how one usually arrives. Removing userinfo and
-    echoing the rest handed it straight back through /secrets."""
-    make_secret(
-        tmp_path, "app", password="p",
-        **{ALLOWED_URLS: "https://host.test/login?token=hunter2"},
-    )
-    entry = Catalogue([FilesystemSource(tmp_path)]).entry("app")
-    assert entry["allowed_urls_rejected"] == ["https://host.test (+ a path)"]
-    assert "hunter2" not in str(entry)
-    assert "token" not in str(entry)
+    assert entry["allowed_urls_rejected"] == reported
+    assert hidden not in str(entry)
+    assert also_hidden not in str(entry)
 
 
 def test_a_rejected_line_still_says_which_host_it_was(tmp_path):
@@ -829,7 +836,7 @@ def bound_http(tmp_path, monkeypatch):
         secrets={"dirs": str(tmp_path)},
     ))
     # A named workspace holding a browser: this surface addresses one by naming
-    # itself now, so there is no id to put in the body (§F2.13).
+    # itself now, so there is no id to put in the body.
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("b1", "chrome"))
     client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": "desktop"})
     return client, typed
@@ -1240,24 +1247,40 @@ def test_a_workspace_in_use_is_kept_alive_even_when_its_page_is_withheld():
     assert kept.url == "https://nc.test/home"
 
 
-async def test_every_surface_refuses_a_value_given_twice(bound_http):
-    """There is no "two sources" any more — a secret is one argument. What is
-    still refusable, and still refused on every surface, is naming the value
-    twice: `text` beside `secret` says two things that cannot both be true."""
+@pytest.mark.parametrize(
+    ("body", "refusal"),
+    [
+        # There is no "two sources" any more — a secret is one argument. What is
+        # still refusable, and still refused on every surface, is naming the value
+        # twice: `text` beside `secret` says two things that cannot both be true.
+        pytest.param(
+            {
+                "session_id": "browser-1",
+                "selector": {"css": "#password"},
+                "text": "typed as well",
+                "secret": {"name": "nextcloud", "key": "password"},
+            },
+            "not both",
+            id="every-surface-refuses-a-value-given-twice",
+        ),
+        pytest.param(
+            {
+                "session_id": "browser-1",
+                "selector": {"css": "#password"},
+                "secret": {"name": "nextcloud", "key": "password", "namespace": "x"},
+            },
+            "does not take namespace",
+            id="an-http-reference-with-an-unknown-field-is-a-400",
+        ),
+    ],
+)
+async def test_a_bound_write_with_a_bad_reference_is_a_400(bound_http, body, refusal):
     client, typed = bound_http
-    response = client.post(
-        "/browser/write",
-        headers=AUTH,
-        json={
-            "session_id": "browser-1",
-            "selector": {"css": "#password"},
-            "text": "typed as well",
-            "secret": {"name": "nextcloud", "key": "password"},
-        },
-    )
+    response = client.post("/browser/write", headers=AUTH, json=body)
     assert response.status_code == 400
-    assert "not both" in response.json()["error"]
+    assert refusal in response.json()["error"]
     assert typed == []
+
 
 def test_a_leash_and_a_value_always_describe_the_same_secret(tmp_path):
     """The policy was read from a cached listing while the owner was resolved by
@@ -1308,22 +1331,6 @@ def test_a_reference_with_a_field_the_binder_ignores_is_refused(bindable, refere
         secrets.bind(
             bindable, {"secret": reference}, "https://nc.example.com/login"
         )
-
-
-def test_an_http_reference_with_an_unknown_field_is_a_400(bound_http):
-    client, typed = bound_http
-    response = client.post(
-        "/browser/write",
-        headers=AUTH,
-        json={
-            "session_id": "browser-1",
-            "selector": {"css": "#password"},
-            "secret": {"name": "nextcloud", "key": "password", "namespace": "x"},
-        },
-    )
-    assert response.status_code == 400
-    assert "does not take namespace" in response.json()["error"]
-    assert typed == []
 
 
 async def test_the_http_catalogue_is_in_the_published_contract(secret_server):

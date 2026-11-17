@@ -26,11 +26,9 @@ def _decode(content) -> bytes:
         ) from exc
 
 
-# The browser reads File.type from the file's EXTENSION — verified: data.json
-# arrives as application/json, an extensionless file as "". So mime_type cannot
-# override the type; all it can do is choose the extension. These are the
-# formats an agent is likely to hand over, where the stdlib is wrong (it guesses
-# .xsl for application/xml) or silent (yaml, ndjson).
+# The browser reads File.type from the file's extension, so mime_type can only
+# choose one. These are where the stdlib is wrong (.xsl for application/xml) or
+# silent (yaml, ndjson).
 EXTENSIONS = {
     "application/json": ".json",
     "application/xml": ".xml",
@@ -60,13 +58,9 @@ def safe_name(filename, mime_type=None, default_extension="") -> str:
 
     Reduced to a basename because the caller chooses it and it is written to
     disk here. An extension is appended when there is none, since without one
-    the page reports an empty File.type and content sniffing does not happen.
+    the page reports an empty File.type.
     """
-    # Backslashes are folded to "/" first so a Windows-style name is reduced to
-    # its basename too. os.path.basename does not do that on Linux, which left
-    # r"..\..\etc\passwd" intact as a "basename" — harmless as the staged
-    # filename it becomes, but it is the caller's string and this is the one
-    # place it is narrowed before being written to disk.
+    # Backslashes are folded first, so a Windows-style path is reduced too.
     raw_name = str(filename or "").replace("\\", "/")
     name = PurePosixPath(raw_name).name.strip().lstrip(".")
     if not name:
@@ -79,11 +73,8 @@ def safe_name(filename, mime_type=None, default_extension="") -> str:
 def _generated_name(filename, extension: str) -> str:
     """A name for bytes this server made, whose type it already knows.
 
-    `safe_name` keeps whatever suffix the caller wrote, which is right for an
-    upload: there the caller has the file and names its type. Here the bytes are
-    ours. A screenshot called `chart.pdf` is still a PNG, and the file store
-    guesses the served type from the name - so the wrong suffix hands a browser
-    a PNG labelled `application/pdf`, which it will not open.
+    A screenshot called `chart.pdf` is still a PNG, and the file store serves
+    the type its name says, so ``extension`` is appended when the name lacks it.
     """
     name = safe_name(filename, None, extension)
     if PurePosixPath(name).suffix.lower() != extension:
@@ -94,10 +85,9 @@ def _generated_name(filename, extension: str) -> str:
 def _why_unsaved(exc: BaseException) -> str:
     """Why a capture could not be kept, without quoting the server's disk at it.
 
-    Our own refusals — nowhere to keep files, an unusable name — are written to
-    be read and are repeated. Anything else, an `OSError` above all, carries a
-    path under `DATA_DIR` that answers a question nobody asked, so it is
-    reported by type and the detail stays in the log.
+    Our own refusals (`ValueError`) are repeated. Anything else, an `OSError`
+    above all, can carry a path under `DATA_DIR`, so it is reported by type and
+    the detail stays in the log.
     """
     if isinstance(exc, ValueError):
         return str(exc)
