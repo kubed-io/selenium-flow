@@ -8,6 +8,8 @@
   import type { WorkspaceModel } from './workspace.svelte'
   import StepDetail from './StepDetail.svelte'
   import StepRow from './StepRow.svelte'
+  import TagInput from './TagInput.svelte'
+  import { inUse, passes } from './tags'
 
   /* Rendered once per WorkspaceDetail, which is itself keyed by workspace, so
      every prop here belongs to one workspace for this component's whole life: a
@@ -37,8 +39,20 @@
   let draft = $state('')
 
   const data = $derived(m.flows ?? { enabled: true, flows: [] })
-  const rows = $derived(data.flows || [])
-  const at = $derived(Math.max(rows.findIndex((x) => x.name === flowName), 0) + 1)
+  const all = $derived(data.flows || [])
+  // Rows of tags, any of which a listed flow carries in full. Every workspace's
+  // and global's tags are offered: the admin sees every flow.
+  let filter = $state<string[][]>([[]])
+  const offered = $derived(inUse(all))
+  const tagged = $derived(offered.length > 0)
+  const rows = $derived(all.filter((x) => passes(filter, x.tags)))
+  // The filter bar is the list's first grid row; the panel starts level with
+  // it for the first flow and with the picked one below that.
+  const at = $derived.by(() => {
+    const i = rows.findIndex((x) => x.name === flowName)
+    return tagged && i > 0 ? i + 2 : Math.max(i, 0) + 1
+  })
+  const ftags = $derived(all.find((x) => x.name === flowName)?.tags ?? [])
   const f = $derived(m.flowDoc && m.flowDoc.name === flowName ? m.flowDoc : null)
   const docError = $derived(m.flowDocError && m.flowDocError.name === flowName ? m.flowDocError.message : null)
   const declared = $derived(f ? mapping(mapping(f.parameters).properties) : {})
@@ -80,6 +94,25 @@
     picked = null
     if (name !== flowName) clicked = name
     onpick(name)
+  }
+
+  const addTo = (i: number, tag: string) => { filter = filter.map((row, j) => (j === i ? [...row, tag] : row)) }
+  function dropFrom(i: number, tag: string) {
+    const next = filter.map((row, j) => (j === i ? row.filter((t) => t !== tag) : row))
+    filter = next.length > 1 ? next.filter((row) => row.length) : next
+  }
+
+  /* A tag added or taken off is saved at once, where the flow lives. */
+  async function setTags(next: string[]) {
+    const path = workspacePath(m.key, '/flows/' + encodeURIComponent(f!.name) + '/tags')
+    try {
+      refuseIfGone()
+      await api(path, 'PUT', { tags: next })
+    } catch (err) {
+      alert('Could not save the tags: ' + (err as Error).message)
+      return
+    }
+    if (!isGone()) await reload()
   }
 
   async function edit() {
@@ -146,10 +179,16 @@
 <div id="flows" onclick={pick}>{#if m.flowsError}<div class="empty error">{m.flowsError}</div>{:else if !m.flows}<div
   class="empty">Loading…</div>{:else if !data.enabled}<div
   class="empty">Flows are off: this server was started with no DATA_DIR.</div>{:else if !(data.flows || []).length}<div
-  class="empty">No flows yet.</div>{:else}<div class="flows" style:--n={rows.length}><div class="flowlist" id="flowlist">{#each rows as item (item.name)}<!--
+  class="empty">No flows yet.</div>{:else}<div class="flows" style:--n={rows.length + (tagged ? 1 : 0)}>{#if tagged}<div
+    class="tagfilter"><div class="fhead"><span class="olabel">Filter</span><span class="count">{rows.length} of {all.length}</span></div>{#each filter as row, i (i)}{#if i}<div
+      class="or">or</div>{/if}<div class="frow">{#each row as t (t)}<span class="tag on"><span class="t">{t}</span><button type="button"
+        aria-label={'Remove ' + t} onclick={() => dropFrom(i, t)}>×</button></span>{/each}<TagInput {offered} taken={row}
+        onadd={(t) => addTo(i, t)} /></div>{/each}<button type="button" class="addrow" onclick={() => { filter = [...filter, []] }}>+ or</button></div>{/if}<div
+    class="flowlist" id="flowlist">{#each rows as item (item.name)}<!--
     svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (today's list items are mouse-only)
     --><div class="item" aria-selected={item.name === flowName} onclick={() => choose(item.name)}><div
-        class="grow"><div class="nm">{item.name}</div><div class="ct">{item.step_count} step{item.step_count === 1 ? '' : 's'}</div></div>{#if item.shared}<span
+        class="grow"><div class="nm">{item.name}</div><div class="ct">{item.step_count} step{item.step_count === 1 ? '' : 's'}</div>{#if item.tags?.length}<div
+          class="tags">{#each item.tags as t (t)}<span class="tag">{t}</span>{/each}</div>{/if}</div>{#if item.shared}<span
         class="globe" role="img" aria-label="global" title="In the shared global library">🌐</span>{/if}</div>{/each}</div><div
     id="flowpanel" style:--at={at}>{#if !flowName}<div class="empty">Pick a flow.</div>{:else if docError}<div
       class="empty error">{docError}</div>{:else if !f}<div class="empty">Loading…</div>{:else}<div class="panel"><div
@@ -158,7 +197,10 @@
             onclick={edit}>✏️</button>{#if canMove}<button type="button" data-move title={moveSaid} aria-label={moveSaid}
             onclick={move}>{f.shared ? '🏠' : '🌐'}</button>{/if}<button type="button" class="danger" data-drop
             title="Delete this flow" aria-label="Delete this flow" onclick={drop}>🗑️</button></div></div>{#if f.description}<div
-        class="desc">{f.description}</div>{/if}<div class="panes"><div class="outline"><div
+        class="desc">{f.description}</div>{/if}<div class="tags"><span class="olabel">Tags</span>{#each ftags as t (t)}<span
+          class="tag"><span class="t">{t}</span><button type="button" aria-label={'Remove ' + t}
+          onclick={() => setTags(ftags.filter((x) => x !== t))}>×</button></span>{/each}<TagInput {offered} taken={ftags}
+          onadd={(t) => setTags([...ftags, t])} /></div><div class="panes"><div class="outline"><div
             class="olabel">Params</div>{#if names.length}<div class="rows">{#each names as n (n)}<ParamRow
               name={n} spec={declared[n]} required={required.includes(n)} picked={isPicked('param', n)} />{/each}</div>{:else}<div
             class="none">This flow takes nothing.</div>{/if}<div class="olabel">Steps</div><!-- eslint-disable-next-line svelte/require-each-key -- (a step has no unique key, and an index key is no key) --><div
