@@ -496,6 +496,41 @@ def test_a_save_from_a_replaced_browser_keeps_nothing(named_caller):
     assert m.store.get(NAMED).site_data == {}
 
 
+def test_a_save_keeps_the_storage_of_an_origin_visited_during_the_capture():
+    from kubed.selenium_flow.site_data.snapshot import CAPTURED
+
+    workspaces = Workspaces(RecordingActions())
+    workspaces.open_browser(Caller(NAMED), url="https://b.test/")
+    session_id = workspaces.store.get(NAMED).session_id
+    workspaces.store.update(
+        NAMED,
+        lambda r: r.with_site_data(
+            {
+                "cookies": [],
+                "origins": {"https://a.test": {"local": {"k": "v"}}},
+                "session": {},
+                "saved_at": 1.0,
+            }
+        ),
+    )
+    # The capture read the history as it was: only b.test. A call landing on
+    # a.test before the save is written adds it to the record's history.
+    captured = {
+        "origin": "https://b.test",
+        "local": {"x": "1"},
+        "session": {},
+        "cookies": [],
+        "others": {},
+        "failed": [],
+    }
+    workspaces.store.update(NAMED, lambda r: r.visited("https://a.test/"))
+    workspaces.settle(
+        NAMED, {CAPTURED: captured}, browser=session_id, url=None, touch=False
+    )
+    origins = workspaces.store.get(NAMED).site_data["origins"]
+    assert origins.get("https://a.test") == {"local": {"k": "v"}}
+
+
 def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_caller):
     """A result from a browser the record no longer names must not write its
     page or size over the newer browser's: a reap would reopen B at A's page

@@ -99,44 +99,6 @@ def test_no_oidc_username_reads_as_the_admin_or_an_open_server(name):
 # ---- site data ---------------------------------------------------------------
 
 
-@bug(
-    "a save drops the storage of an origin that entered the history after the capture read it"
-)
-def test_a_save_keeps_the_storage_of_an_origin_visited_during_the_capture():
-    from kubed.selenium_flow.site_data.snapshot import CAPTURED
-
-    workspaces = Workspaces(RecordingActions())
-    workspaces.open_browser(Caller(NAMED), url="https://b.test/")
-    session_id = workspaces.store.get(NAMED).session_id
-    workspaces.store.update(
-        NAMED,
-        lambda r: r.with_site_data(
-            {
-                "cookies": [],
-                "origins": {"https://a.test": {"local": {"k": "v"}}},
-                "session": {},
-                "saved_at": 1.0,
-            }
-        ),
-    )
-    # The capture read the history as it was: only b.test. A call landing on
-    # a.test before the save is written adds it to the record's history.
-    captured = {
-        "origin": "https://b.test",
-        "local": {"x": "1"},
-        "session": {},
-        "cookies": [],
-        "others": {},
-        "failed": [],
-    }
-    workspaces.store.update(NAMED, lambda r: r.visited("https://a.test/"))
-    workspaces.settle(
-        NAMED, {CAPTURED: captured}, browser=session_id, url=None, touch=False
-    )
-    origins = workspaces.store.get(NAMED).site_data["origins"]
-    assert origins.get("https://a.test") == {"local": {"k": "v"}}
-
-
 # ---- surfaces ----------------------------------------------------------------
 
 
