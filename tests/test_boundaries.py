@@ -508,16 +508,78 @@ def test_every_allowance_still_names_a_log_line():
     assert set(NOT_A_GRID_ID) <= used
 
 
+def _loggers(tree) -> set[str]:
+    """The names and attributes bound to `logging.getLogger(...)` in ``tree``."""
+    bound = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and _is_get_logger(node.value):
+            for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                if isinstance(target, ast.Name):
+                    bound.add(target.id)
+                elif isinstance(target, ast.Attribute):
+                    bound.add(target.attr)
+    return bound
+
+
+def _is_get_logger(node) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "getLogger"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "logging"
+    )
+
+
+def _raw_tracebacks(tree) -> list[int]:
+    """The lines of every log call in ``tree`` that writes frames unscrubbed:
+    on `logging` itself, on any logger it hands out, or on `log`/`logger`."""
+    loggers = {"log", "logger", "logging"} | _loggers(tree)
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        on = node.func.value
+        if not (
+            (isinstance(on, ast.Name) and on.id in loggers)
+            or (isinstance(on, ast.Attribute) and on.attr in loggers)
+            or _is_get_logger(on)
+        ):
+            continue
+        if node.func.attr == "exception" or (
+            node.func.attr in LOG_LEVELS
+            and any(k.arg in ("exc_info", "stack_info") for k in node.keywords)
+        ):
+            found.append(node.lineno)
+    return found
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'log.debug("x", exc_info=True)',
+        'logging.warning("x", exc_info=exc)',
+        'logging.exception("x")',
+        'audit = logging.getLogger("a")\naudit.error("x", exc_info=True)',
+        'self._log = logging.getLogger("a")\nself._log.exception("x")',
+        'logging.getLogger("a").info("x", stack_info=True)',
+    ],
+)
+def test_the_traceback_guard_sees_every_logger(source):
+    assert _raw_tracebacks(ast.parse(source))
+
+
+def test_the_traceback_guard_passes_a_scrubbed_line_and_a_future():
+    source = 'log.debug("x %s", Traceback(exc))\nfuture.exception()'
+    assert _raw_tracebacks(ast.parse(source)) == []
+
+
 def test_no_log_line_writes_a_traceback_unscrubbed():
     """`exc_info` and `log.exception` print the frames as they are, and a frame
     can quote a URL's userinfo: `faults.formatted` is the scrubbed traceback."""
     found = []
     for path in sorted(PACKAGE.rglob("*.py")):
         where = str(path.relative_to(REPO))
-        for node in ast.walk(ast.parse(path.read_text(), str(path))):
-            if _is_log_call(node) and (
-                node.func.attr == "exception"
-                or any(k.arg in ("exc_info", "stack_info") for k in node.keywords)
-            ):
-                found.append(f"{where}:{node.lineno}")
+        tree = ast.parse(path.read_text(), str(path))
+        found += [f"{where}:{line}" for line in _raw_tracebacks(tree)]
     assert found == [], f"log lines writing a raw traceback: {found}"
