@@ -185,6 +185,11 @@ CANNOT_TYPE = "this browser cannot type some of these characters (emoji, for one
 # ChromeDriver's refusal of a character outside the Basic Multilingual Plane.
 BMP_REFUSAL = "only supports characters in the BMP"
 FOCUSED = js.read("focused.js")
+# How much text a field holds, never the text: it may be a secret's field.
+FIELD_LENGTH = (
+    "const e = arguments[0];"
+    " return ('value' in e ? e.value : e.textContent || '').length"
+)
 
 # An element's HTML with no password input's value in it.
 EXTRACT_JS = js.read("extract.js")
@@ -1059,7 +1064,7 @@ class Actions:
             if bound and element.tag_name.lower() in FRAME_ELEMENTS:
                 raise ValueError(FRAME_REFUSAL)
             if as_bool(clear, True):
-                element.clear()
+                _clear(driver, element)
             element.send_keys(str(text))
             # Read before any submit, which can make the element stale. A
             # password field's value is never read back.
@@ -1493,3 +1498,22 @@ class Actions:
                 before_going=lambda: self._refuse(session_id, "navigate"),
             )
         return driver
+
+
+def _clear(driver, element) -> None:
+    """Empty ``element`` so that a framework sees it emptied.
+
+    `clear()` alone sets the value and fires no input event, so a field whose
+    text a framework holds (React's controlled inputs) renders the old text
+    back at the next keystroke. Selecting all and deleting by key fires the
+    events it listens for. An empty field gets no key: a chip input reads
+    Backspace there as "remove the last chip".
+    """
+    if not driver.execute_script(FIELD_LENGTH, element):
+        return
+    platform = (getattr(driver, "capabilities", None) or {}).get("platformName", "")
+    mac = str(platform).lower() in ("mac", "macos")
+    element.send_keys(Keys.COMMAND if mac else Keys.CONTROL, "a")
+    element.send_keys(Keys.BACKSPACE)
+    if driver.execute_script(FIELD_LENGTH, element):
+        element.clear()

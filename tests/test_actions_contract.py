@@ -21,11 +21,12 @@ from selenium.common.exceptions import (
     StaleElementReferenceException,
     UnexpectedAlertPresentException,
 )
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support import wait as selenium_wait
 
 from kubed.selenium_flow.core import browser
-from kubed.selenium_flow.core.actions import EXTRACT_JS
+from kubed.selenium_flow.core.actions import EXTRACT_JS, FIELD_LENGTH
 from kubed.selenium_flow.core.browser import NAVIGATION_SETTLE
 from kubed.selenium_flow.errors import status_for
 
@@ -508,6 +509,58 @@ def test_write_reads_back_nothing_from_a_password_field(actions, scripted):
     assert result["value"] is None
 
 
+class Controlled(ScriptedElement):
+    """A field whose text a framework holds, as React's controlled inputs do:
+    `clear()` empties the page's copy and fires nothing, so the next keystroke
+    renders the held text back before it lands."""
+
+    def __init__(self, log, held):
+        super().__init__(log, value=held)
+        self.held, self.selected = held, False
+
+    def clear(self):
+        super().clear()
+        self.value = ""
+
+    def send_keys(self, *keys):
+        super().send_keys(*keys)
+        self.value = self.held
+        if keys == (Keys.CONTROL, "a"):
+            self.selected = True
+            return
+        for key in keys:
+            if key == Keys.BACKSPACE:
+                self.value = "" if self.selected else self.value[:-1]
+            else:
+                self.value += key
+            self.selected = False
+        self.held = self.value
+
+
+def _controlled(scripted, held):
+    driver = scripted()
+    driver.element = field = Controlled(driver.log, held)
+    plain = driver.execute_script
+    driver.execute_script = lambda script, *args: (
+        len(field.value) if script == FIELD_LENGTH else plain(script, *args)
+    )
+    return driver, field
+
+
+def test_write_replaces_the_text_a_framework_holds(actions, scripted):
+    _, field = _controlled(scripted, "old@example.com")
+    result = actions.write("abc", "new@example.com", selector={"css": "#x"})
+    assert result["value"] == field.value == "new@example.com"
+
+
+def test_write_into_an_empty_field_presses_no_delete(actions, scripted):
+    """A chip input reads Backspace in an empty field as "remove the last chip"."""
+    driver, field = _controlled(scripted, "")
+    actions.write("abc", "smoke", selector={"css": "#x"})
+    assert ("element", "send_keys", Keys.BACKSPACE) not in driver.log
+    assert field.value == "smoke"
+
+
 def test_extract_waits_for_presence_not_for_clickability(actions, scripted):
     driver = scripted()
     actions.extract("abc", selector={"css": "#x"})
@@ -663,7 +716,7 @@ ROADS = {
     "write": (
         {}, lambda a: a.write("abc", "hi", selector=AT, url=OTHER),
         [*ARRIVE, "current_url", "get", "find_elements", "element.is_displayed",
-         "element.is_enabled", "element.clear", "element.send_keys",
+         "element.is_enabled", "execute_script", "element.send_keys",
          "element.get_attribute", "element.get_attribute", "current_url", "title"],
     ),
     "press_key at an element": (
