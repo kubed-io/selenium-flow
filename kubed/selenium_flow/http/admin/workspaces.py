@@ -383,6 +383,7 @@ def mount(
             # directory. Without one, it must not be shown the shared library's.
             workspace = library_of(key)
             stores = flow_store is not None and workspace is not None
+            # One list bound to four names: none is appended to, each is rebound.
             flow_names = shots = recs = kept = []
             if stores:
                 flow_names = named(flow_store.names, workspace)

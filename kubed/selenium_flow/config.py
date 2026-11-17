@@ -426,6 +426,9 @@ class Settings(Section):
         # and a typo is then a ConfigError at boot.
         return value.upper() if isinstance(value, str) else value
 
+    # Moves the WHOLE server, so the default is "no prefix" rather than a name
+    # for one tree. `/` means the same thing and is what an operator types when
+    # they mean it.
     route_prefix: str = Field(
         "/", description="Path the whole server is mounted under."
     )
@@ -602,7 +605,9 @@ def parser() -> argparse.ArgumentParser:
 
 def _is_blank(value: Any) -> bool:
     """Whether every layer reads ``value`` as not set: `${VAR:-}`'s empty
-    string from env, `--flag ""`, or a quoted blank in the file."""
+    string from env, `--flag ""`, or a quoted blank in the file. Empty is "not
+    set" everywhere, so a blank AUTH_TOKEN is no auth, never an empty
+    credential."""
     return isinstance(value, str) and not value.strip()
 
 
@@ -628,6 +633,8 @@ class _Environment(EnvSettingsSource):
         # that whole section's value, which it JSON-decodes and fails on before
         # `_known()` can drop it. Blanks go here too: `env_ignore_empty` only
         # applies inside the base `_load_env_vars`, which this replaces.
+        # `REDIS_URL=""` is what `${REDIS_URL:-}` sends when compose leaves it
+        # unset, not a value of its own.
         sections = set(SECTION_ORDER) - {"server"}
         return {
             key.lower(): value

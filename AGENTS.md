@@ -36,8 +36,9 @@ session is the live browser open in it, at most one at a time. Never call a work
 - When `test_surfaces`, `test_boundaries`, `test_scrub_coverage`, `test_show_inventory`,
   `test_wiki` or a golden fails, fix the code (add the missing half, regenerate the page), never the
   assertion. A golden is regenerated only for a contract change you meant, in a commit of its own.
-- A comment or prose pass leaves the signatures and docstrings in `mcp/tools.py` alone: they are the
-  tool schemas and the descriptions a model reads. Edit one only to change the tool.
+- A comment or prose pass leaves the signatures and docstrings in `mcp/tools.py` and
+  `mcp/instructions.py` alone: they are the tool schemas and the descriptions a model reads. Edit one
+  only to change the tool.
 - The CONTRIBUTING rules agents break most often: an integration test added only to be thorough
   ("Tests"), an argument's shape changed in one release ("Changing an argument"), and a changelog
   line for internal work ("The changelog").

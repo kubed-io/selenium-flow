@@ -6,7 +6,7 @@
 A pull request cannot show a flamegraph inline: GitHub takes no image uploads
 through its API and will not render an SVG from the repository in a comment. So
 the comment carries what the flamegraph says in numbers — the responsiveness
-timings and where the server spent its CPU — and links the SVG artifact (§F4.19).
+timings and where the server spent its CPU — and links the SVG artifact.
 """
 
 from __future__ import annotations

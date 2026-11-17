@@ -1365,7 +1365,8 @@ class Actions:
 
     def network_body(self, session_id: str, id: str) -> dict:
         """One captured request's response body, asked of the browser that made
-        it and of no other.
+        it and of no other. ``id`` is checked before any lookup, and nothing is
+        asked of a browser until the request is known to be this one's.
 
         A binary body is answered from its row, never fetched, and a text body
         over `BODY_FETCH_LIMIT` is refused unasked. Chrome answers

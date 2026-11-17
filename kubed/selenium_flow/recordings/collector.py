@@ -29,8 +29,8 @@ shorter.
 Whether a session is gone is the monitor's to say (`monitor/`). Every owed
 session is watched for ``"recording"`` (when it is expected, and at ``start``
 for each note still owed and not ended) and released once its note is gone
-from disk. The monitor announces an end as ``session.ended``, which the server
-hands to ``ended``.
+from disk. The monitor reads the Grid's status, never the browser, and
+announces an end as ``session.ended``, which the server hands to ``ended``.
 
 It owns no browser and takes no session lock. ``expect`` and ``ended`` are
 called from worker threads. ``expect`` writes its note in the caller's thread;

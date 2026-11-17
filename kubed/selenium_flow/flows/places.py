@@ -4,8 +4,9 @@ A hint for finding a flow, never a restriction on running one.
 
 A site is a host with an optional port, and without one matches any port:
 right for finding a flow and wrong for a password's leash, so this shares no
-code with `secrets.origin`. The scheme is ignored. Hosts are IDNA-encoded and a
-port is explicit or the scheme's default, as the browser reports them.
+code with `secrets.origin`. The scheme is ignored, and a site is never a URL.
+Hosts are IDNA-encoded and a port is explicit or the scheme's default, as the
+browser reports them.
 
 A path is exact, with `*` for one segment and `**` for any depth, matched with
 case and without the query. A path entry may name a hash route after `#`,

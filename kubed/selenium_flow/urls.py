@@ -14,7 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 # The userinfo of a URL. `GRID_URL` may carry credentials, and an exception's
 # text is quoted into logs and into the error a caller reads, so it is stripped
-# from every message.
+# from every message. Every scrubber imports this, with no copies.
 #
 # Anchored to a scheme, and blind to brackets: unanchored, `//` then `@` is also
 # an XPath attribute test, and `//input[@name='q']` would come out as

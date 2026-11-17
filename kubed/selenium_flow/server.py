@@ -284,14 +284,20 @@ class SeleniumMCP:
             self.mcp, self.actions, self.workspaces, self.secrets, live=settings.live
         )
 
+        # Templates a person picks, rather than instructions the model reads. A
+        # failed run's hint names one, so an agent that cannot invoke a prompt
+        # still points somebody at the right one.
         self.prompts = prompts.register(self.mcp)
 
+        # Everything to read is a resource.
         resources.register(self.mcp, self.workspaces)
         if self.skill is not None:
             skill.register(self.mcp, self.skill)
             # An agent's first step is to read the skill, so agents are served
             # only with it, and declared even when there are none.
             agents.register(self.mcp, agents.load(skills={self.skill.skill_info.name}))
+        # A client that cannot read resources gets `mirror`'s two tools, which
+        # read the same URIs.
         mirror.register(self.mcp)
         completions.register(self.mcp)
 

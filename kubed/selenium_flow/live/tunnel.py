@@ -36,7 +36,8 @@ HANDSHAKE_TIMEOUT = 15.0
 # How long closing the viewer may take: a stalled peer can hold uvicorn's
 # send, and nothing waits on the close but the audit line.
 CLOSE_TIMEOUT = 5.0
-# How long the Grid's listing may take at the close; a slower one says nothing.
+# How long the Grid's listing may take at the close; a slower one says nothing,
+# so a slow /status never holds the close.
 LISTED_TIMEOUT = 3.0
 CONTROL_CAP = 1024
 REASON_CAP = 123  # a WebSocket close reason is 123 bytes at most
