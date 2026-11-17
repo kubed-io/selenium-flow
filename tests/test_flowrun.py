@@ -6,6 +6,7 @@ calls to find out why, which loses more than the flow ever saved.
 """
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -1748,7 +1749,10 @@ def test_a_run_scrubs_each_step_with_the_origins_it_began_and_ended_on(monkeypat
 
     monkeypatch.setattr(flowapi, "run_one", run_one)
     try:
-        flowapi.run_for(None, workspaces.actions, workspaces, "w", "login")
+        flowapi.run_for(
+            SimpleNamespace(get=lambda workspace, name: {"steps": []}),
+            workspaces.actions, workspaces, "w", "login",
+        )
         assert not seen["stayed"]  # nothing allowed on b: nothing to scan
         assert seen["moved"].ids == {IN_SCOPE_ID}  # a's, read when it arrived
         assert seen["leashed_before_failing"] == 0
@@ -1825,7 +1829,8 @@ def _progress_run(monkeypatch, broken=False):
     monkeypatch.setattr(flowapi, "run_one", run_one)
     try:
         flowapi.run_for(
-            None, workspaces.actions, workspaces, "w", "login",
+            SimpleNamespace(get=lambda workspace, name: {"steps": []}),
+            workspaces.actions, workspaces, "w", "login",
             before_step=lambda entry, total: lines.append(entry),
         )
     finally:

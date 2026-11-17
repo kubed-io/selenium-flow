@@ -603,6 +603,8 @@ def run_for(
     ``page``, its steps' hints summed. Each step's line is checked for the
     secrets allowed where it ran, typed or not (`Workspaces.in_scope`).
     """
+    # A missing flow is named before a missing browser.
+    read_one(store, workspace, name)
     resolved, kind = workspaces.resolved(workspace)
     # The run's hint compares its end with this, since a flush before a save
     # moves the record's page part-way.

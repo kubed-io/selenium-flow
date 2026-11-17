@@ -791,3 +791,16 @@ async def test_save_flow_describes_both_places_for_the_model(flow_server):
 async def test_save_flow_says_a_placeless_flow_is_never_named(flow_server):  # ruling 5
     tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
     assert "a flow with neither is never named" in tool.description
+
+
+def test_a_missing_flow_is_named_before_a_missing_browser():
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.flows import api as flowapi
+
+    from .conftest import manager
+
+    workspaces = manager()
+    store = SimpleNamespace(get=lambda workspace, name: None)
+    with pytest.raises(ValueError, match="no flow called"):
+        flowapi.run_for(store, workspaces.actions, workspaces, NAMED, "nope")

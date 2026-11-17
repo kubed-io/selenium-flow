@@ -292,3 +292,19 @@ def test_a_run_that_worked_carries_no_hint():
 
     document = {"steps": [{"tool": "navigate", "args": {"url": "https://example.test/"}}]}
     assert "hint" not in run(_Fine(), document, "b")
+
+
+def test_a_crlf_prompt_has_no_carriage_return_before_its_body():
+    from kubed.selenium_flow.mcp.prompts import _split
+
+    _, body = _split("---\r\ndescription: a\r\n---\r\nBody\r\n")
+    assert body.startswith("Body")
+
+
+def test_a_first_line_that_is_not_exactly_three_dashes_opens_no_header():
+    from kubed.selenium_flow.mcp import frontmatter
+    from kubed.selenium_flow.mcp.prompts import _split
+
+    text = "---x\ndescription: a\n---\nBody\n"
+    assert frontmatter.split(text) is None
+    assert _split(text) is None

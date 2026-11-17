@@ -848,6 +848,14 @@ class Actions:
             )
         if resolved == "switch" and not selector and index is None:
             raise ValueError("switch needs a selector or an index to say which frame")
+        if resolved == "switch" and not selector:
+            # An omitted optional often arrives as "": the first frame.
+            try:
+                frame_index = int(str(index).strip() or 0)
+            except ValueError:
+                raise ValueError(
+                    f"index must be a whole number, not {index!r}"
+                ) from None
 
         # Only a switch by selector waits for its frame.
         by_selector = resolved == "switch" and bool(selector)
@@ -861,7 +869,7 @@ class Actions:
             elif by_selector:
                 driver.switch_to.frame(at.element)
             else:
-                driver.switch_to.frame(as_int(index, 0))
+                driver.switch_to.frame(frame_index)
             return {"action": resolved, "in_frame": browser.in_frame(driver)}
 
         return self._reattached(PRESENCE if by_selector else None).run(
@@ -957,6 +965,8 @@ class Actions:
             )
             if v
         ]
+        if not sources and text is not None:
+            sources = ["text"]  # an empty text file is still a file
         if not sources:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
@@ -970,13 +980,13 @@ class Actions:
 
         # Resolved before connecting: unusable input is a 400 about the input.
         raw = None
-        if text is not None:
+        if sources == ["text"]:
             raw = str(text).encode("utf-8")
             name = safe_name(filename, mime_type, default_extension=".txt")
-        elif content is not None:
+        elif sources == ["content"]:
             raw = content if isinstance(content, bytes) else _decode(content)
             name = safe_name(filename, mime_type)
-        elif file is not None:
+        elif sources == ["file"]:
             if self.read_file is None:
                 raise ValueError(
                     "file is not available on this server: the flow store is "
@@ -1037,6 +1047,8 @@ class Actions:
         the credential is never in a local variable, a traceback or a result.
         """
 
+        if text is None:
+            raise ValueError("text is required: pass the text to type")
         bound = not as_bool(read_back, True)
 
         def typing(at):

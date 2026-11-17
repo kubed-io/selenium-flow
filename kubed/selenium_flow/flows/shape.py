@@ -64,7 +64,7 @@ class Shape:
         """What is wrong with the `parameters` block, one sentence per fault.
 
         A falsy value is no parameters: `parameters: []` and `properties: {}` are
-        accepted, and `parameters: [email]` is not.
+        accepted, and `parameters: [email]` and `properties: []` are not.
         """
         parameters = self._parameters
         if not parameters:
@@ -72,12 +72,12 @@ class Shape:
         if not isinstance(parameters, dict):
             return [NOT_PARAMETERS]
         problems = []
-        if parameters.get("properties") and not isinstance(
+        if "properties" in parameters and not isinstance(
             parameters["properties"], dict
         ):
             problems.append(NOT_PROPERTIES)
         required = parameters.get("required")
-        if required and (
+        if "required" in parameters and (
             not isinstance(required, list)
             or not all(isinstance(name, str) for name in required)
         ):

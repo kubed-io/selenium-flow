@@ -634,6 +634,13 @@ def validate(document, schemas: dict) -> dict:
         raise InvalidFlow(["a flow must be an object"])
 
     problems = []
+    # `name` is checked against the file name by the editor's save.
+    unknown = set(document) - set(DOCUMENT_KEYS) - {"name", "workspace", "shared"}
+    if unknown:
+        problems.append(
+            f"unknown flow key {listed(unknown)}; a flow takes "
+            f"{', '.join(DOCUMENT_KEYS)}"
+        )
     if "description" in document and not isinstance(document["description"], str):
         problems.append("description must be a string")
 

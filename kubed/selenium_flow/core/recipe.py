@@ -15,6 +15,7 @@ from typing import Any, NamedTuple
 
 from selenium.common.exceptions import (
     StaleElementReferenceException,
+    UnexpectedAlertPresentException,
     WebDriverException,
 )
 
@@ -162,10 +163,19 @@ class Recipe:
                 element = found.element if found else None
                 return body(At(driver, element, target, timeout, state, found))
 
-            if self.retry_stale:
-                fields = self._once_more_if_stale(attempt)
-            else:
-                fields = attempt()
+            try:
+                if self.retry_stale:
+                    fields = self._once_more_if_stale(attempt)
+                else:
+                    fields = attempt()
+            except UnexpectedAlertPresentException:
+                # The driver refused the call outright: nothing was done, so it
+                # is a failure, not a success carrying page state.
+                message = browser.page_state(driver).get("dialog", "")
+                raise ValueError(
+                    f"a dialog is open ({message!r}) and blocked this call; "
+                    "nothing was done: answer it with dialog"
+                ) from None
             found = chosen[-1] if chosen else None
             return {
                 **fields,
