@@ -1,5 +1,5 @@
 """What a reader gets back: a window of the last navigations, filtered, newest
-first — and the checks on what a reader may ask for.
+first, and the checks on what a reader may ask for.
 
 Called by `store.Capture` under its lock. Every row handed out is a copy, so
 the buffer can go on changing under a caller serialising it on another thread.
@@ -14,8 +14,7 @@ from . import FILTERS, LEVELS, MAX_PAGES, NETWORK_URI
 if TYPE_CHECKING:
     from .store import Buffer
 
-# What only a request's own detail carries: its headers, and how many of them
-# were too many to keep.
+# What only a request's own detail carries.
 HEADERS = ("request_headers", "response_headers", "headers_dropped")
 
 PAGES = f"pages is 1 to {MAX_PAGES}: how many of the last navigations to show"
@@ -33,7 +32,7 @@ def check_filter(value) -> str:
 
 def check_pages(value) -> int:
     """How many of the last navigations: 1 to 5, ``"3"`` read as 3, omitted
-    as 1. Anything else is refused rather than guessed at."""
+    as 1. Anything else is refused."""
     if value is None or (isinstance(value, str) and not value.strip()):
         return 1
     if isinstance(value, bool):  # an int to Python, never a count to a caller
@@ -83,8 +82,7 @@ def console(buffer: Buffer, level: str, pages: int) -> dict:
         "entries": [dict(e) for e in shown],
         "count": len(shown),
         "total": len(kept),
-        # What the entries hold, counted here: a view cut to the newest rows
-        # (`show`) would otherwise count only those.
+        # Counted here: a view cut to the newest rows would count only those.
         "tally": {
             "errors": sum(1 for e in shown if _is_error(e)),
             "warnings": sum(1 for e in shown if e["level"] == "warn"),
@@ -113,7 +111,6 @@ def network(buffer: Buffer, filter: str, pages: int) -> dict:
         "requests": [without_headers(r) for r in shown],
         "count": len(shown),
         "total": len(kept),
-        # As the console's: what the requests hold, whatever a view draws.
         "tally": {
             "failed": sum(1 for r in shown if _is_failed(r)),
             "xhr": sum(1 for r in shown if _is_xhr(r)),
@@ -144,9 +141,9 @@ def request(buffer: Buffer, id: str) -> dict | None:
 
 
 def counts(buffer: Buffer) -> dict:
-    """What was kept since the last navigation (plan ruling 12): console
-    counts kept entries, network every request seen, static included. Its
-    ``dropped`` (`lost`) is the exception: since the buffer began."""
+    """What was kept since the last navigation: console counts kept entries,
+    network every request seen, static included. Its `lost` counts since the
+    buffer began."""
     nav = buffer.nav
     return {
         "console": sum(1 for e in buffer.console if e["nav"] == nav),
@@ -158,11 +155,10 @@ def counts(buffer: Buffer) -> dict:
 
 
 def lost(buffer: Buffer) -> dict:
-    """``dropped``: the events the browser sent that capture never heard, so
-    any view may be missing them; ``unmasked``: the credentials too long to
-    learn, so any view may show them. Each present only when there were
-    some, and counted since the buffer began, not per navigation, unlike
-    every count beside them: neither can be placed on a page."""
+    """``dropped``: the events the browser sent that capture never heard;
+    ``unmasked``: the credentials too long to learn, so any view may show
+    them. Each present only when non-zero, and counted since the buffer
+    began, since neither can be placed on a page."""
     counted = {"dropped": buffer.dropped, "unmasked": buffer.unmasked}
     return {name: n for name, n in counted.items() if n}
 

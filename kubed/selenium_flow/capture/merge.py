@@ -7,7 +7,7 @@ from __future__ import annotations
 from . import HINTED_TYPES, STATIC_TYPES, TEXT_CAP
 from .masking import Masker
 
-# (realm, timestamp, type, level, text, first frame) — ruling 9.
+# (realm, timestamp, type, level, text, first frame)
 Key = tuple[str, float, str, str, str, str]
 
 _DESTINATIONS = {
@@ -36,7 +36,7 @@ def _first_frame(params: dict) -> dict | None:
 
 def entry_key(params: dict) -> Key:
     """What identifies a console entry across Chrome's replay, read from the raw
-    event before masking (ruling 9). Identical keys are legitimate entries."""
+    event before masking. Identical keys are legitimate entries."""
     frame = _first_frame(params)
     where = (
         f"{frame.get('url')}:{frame.get('lineNumber')}:{frame.get('columnNumber')}"
@@ -105,8 +105,8 @@ def resource_type(request: dict, mime: str = "", navigation: bool = False) -> st
 
 
 def counts_in_hint(row: dict) -> bool:
-    """A failed or 4xx/5xx document, fetch or xhr: what a call's hint counts
-    (ruling 12). A failed image is kept but never hinted (programme R10)."""
+    """A failed or 4xx/5xx document, fetch or xhr: what a call's hint counts.
+    A failed image is kept but never hinted."""
     return row["type"] in HINTED_TYPES and (
         row["failed"] or (row["status"] or 0) >= 400
     )
@@ -114,7 +114,7 @@ def counts_in_hint(row: dict) -> bool:
 
 def is_static_success(row: dict) -> bool:
     """A stylesheet, image, font, script or media that answered 2xx or 3xx:
-    counted, not kept (ruling 3)."""
+    counted, not kept."""
     return (
         row["type"] in STATIC_TYPES
         and not row["failed"]
@@ -135,9 +135,9 @@ def took_ms(params: dict, begin) -> int | None:
     end = ``timeOrigin + responseEnd`` (Chrome's origin is the epoch and the
     rest relative to it; Firefox's origin is 0 and the rest epoch). Only when
     ``responseEnd`` is 0 or absent is it the end event's ``timestamp`` less
-    the start's ``begin`` — and since Chrome stamps every event of a request
-    with its start, a fallback of 0 says nothing: None, never a false 0.
-    A result below zero or past `TOOK_MAX_MS` mixed two time bases: None.
+    the start's ``begin``. Chrome stamps every event of a request with its
+    start, so a fallback of 0 is None. A result below zero or past
+    `TOOK_MAX_MS` mixed two time bases: None.
     """
     timings = (params.get("request") or {}).get("timings")
     timings = timings if isinstance(timings, dict) else {}
