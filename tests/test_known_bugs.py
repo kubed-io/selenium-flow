@@ -254,31 +254,6 @@ def test_a_missing_flow_is_named_before_a_missing_browser():
 # ---- config -------------------------------------------------------------------
 
 
-@bug("an unreachable Redis at boot is a traceback, not 'selenium-flow: <reason>'")
-def test_an_unreachable_redis_stops_the_boot_with_the_reason(tmp_path, monkeypatch):
-    import sys
-    import types
-
-    from kubed.selenium_flow import main as main_module
-
-    module = types.ModuleType("redis")
-    module.Redis = type(
-        "Redis",
-        (),
-        {
-            "__init__": lambda self, **kw: None,
-            "ping": lambda self: (_ for _ in ()).throw(ConnectionError("refused")),
-            "from_url": classmethod(lambda cls, url, **kw: cls()),
-        },
-    )
-    monkeypatch.setitem(sys.modules, "redis", module)
-    path = tmp_path / "config.yaml"
-    path.write_text("workspace:\n  store: redis\nredis:\n  url: redis://nope:6379\n")
-    with pytest.raises(SystemExit) as caught:
-        main_module.main(["--config-file", str(path)])
-    assert str(caught.value.code).startswith("selenium-flow: ")
-
-
 @bug("the Settings tab shows session.capabilities unmasked, proxy credentials included")
 def test_the_settings_tab_does_not_show_credentials_in_capabilities():
     import json

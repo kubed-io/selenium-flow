@@ -340,3 +340,27 @@ def test_an_unreadable_data_dir_exits_naming_it_not_a_traceback(tmp_path, listen
         main_module.main(config(tmp_path))
     assert str(data) in str(exc.value) and "OSError" in str(exc.value)
     assert listened == []
+
+
+def test_an_unreachable_redis_stops_the_boot_with_the_reason(tmp_path, monkeypatch):
+    import sys
+    import types
+
+    from kubed.selenium_flow import main as main_module
+
+    module = types.ModuleType("redis")
+    module.Redis = type(
+        "Redis",
+        (),
+        {
+            "__init__": lambda self, **kw: None,
+            "ping": lambda self: (_ for _ in ()).throw(ConnectionError("refused")),
+            "from_url": classmethod(lambda cls, url, **kw: cls()),
+        },
+    )
+    monkeypatch.setitem(sys.modules, "redis", module)
+    path = tmp_path / "config.yaml"
+    path.write_text("workspace:\n  store: redis\nredis:\n  url: redis://nope:6379\n")
+    with pytest.raises(SystemExit) as caught:
+        main_module.main(["--config-file", str(path)])
+    assert str(caught.value.code).startswith("selenium-flow: ")
