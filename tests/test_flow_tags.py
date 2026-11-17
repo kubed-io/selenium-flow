@@ -297,3 +297,11 @@ def test_the_admin_still_sees_and_opens_every_global_flow(hiding):
     listing = client.get(admin(), headers=AUTH).json()
     assert [e["name"] for e in listing["flows"]] == ["open", "secret"]
     assert client.get(admin("secret"), headers=AUTH).status_code == 200
+
+
+async def test_the_tags_in_use_are_a_part_of_the_context(server):
+    server.flows.save(NAMED, "a", flow("smoke"))
+    assert await resource(server, "workspace://current/tags") == {
+        "workspace": NAMED,
+        "tags": {"smoke": 1},
+    }
