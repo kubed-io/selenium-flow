@@ -16,6 +16,7 @@ import logging
 from contextlib import contextmanager
 
 import pytest
+from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import pointer
@@ -71,6 +72,23 @@ def server():
 def open_server():
     """A server with auth disabled, as `docker compose up` runs it."""
     return SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+
+
+@pytest.fixture
+def data_server(tmp_path):
+    """An authenticated server with a data directory in ``tmp_path``, so flows
+    and kept files have somewhere to go."""
+    return SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        data={"dir": str(tmp_path)},
+    ))
+
+
+@pytest.fixture
+def client(server):
+    """An HTTP client of ``server`` that sends no credentials of its own."""
+    return TestClient(server.mcp.http_app())
 
 
 # ---- doubles ---------------------------------------------------------------

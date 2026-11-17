@@ -89,11 +89,6 @@ def server(hub):
     return build()
 
 
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
-
-
 def mint(client):
     return client.get("/admin/workspaces/w1/live", headers=AUTH).json()["url"]
 

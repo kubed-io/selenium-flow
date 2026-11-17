@@ -22,15 +22,10 @@ GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 
 
 @pytest.fixture
-def flow_server(tmp_path, named_caller):
+def flow_server(data_server, named_caller):
     """A server with a flow library and a caller who has named their workspace."""
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
-    server.flows.save(named_caller, "login", {"steps": GOOD, "description": "Log in"})
-    return server
+    data_server.flows.save(named_caller, "login", {"steps": GOOD, "description": "Log in"})
+    return data_server
 
 
 @pytest.fixture

@@ -43,6 +43,14 @@ from .fakes import FakeRedis
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture
+def workspaces():
+    """A manager over `RecordingActions` whose Grid holds ``abc`` alive."""
+    actions = RecordingActions()
+    actions.grid.alive.add("abc")
+    return manager(actions)
+
+
 # ---- naming the workspace --------------------------------------------------
 
 
@@ -280,14 +288,11 @@ def test_resolve_never_opens_a_browser():
     assert actions.opened == 0
 
 
-def test_a_live_remembered_workspace_is_recalled():
-    actions = RecordingActions()
-    workspaces = manager(actions)
-    actions.grid.alive.add("abc")
+def test_a_live_remembered_workspace_is_recalled(workspaces):
     workspaces.remember(NAMED, "abc")
     assert workspaces.resolve(NAMED) == "abc"
     assert workspaces.resolve(NAMED) == "abc"
-    assert actions.opened == 0
+    assert workspaces.actions.opened == 0
 
 
 def test_clients_do_not_see_each_others_browsers():
@@ -380,10 +385,7 @@ def test_the_refreshed_workspace_replaces_the_stored_one():
     assert workspaces.resolve(NAMED) == "generated-1"
 
 
-def test_touch_records_the_page_for_a_later_refresh():
-    actions = RecordingActions()
-    workspaces = manager(actions)
-    actions.grid.alive.add("abc")
+def test_touch_records_the_page_for_a_later_refresh(workspaces):
     workspaces.remember(NAMED, "abc")
     workspaces.touch(NAMED, "https://example.com/deep")
     assert workspaces.store.get(NAMED).url == "https://example.com/deep"
@@ -398,19 +400,16 @@ def test_touch_on_an_unknown_key_is_harmless():
 # ---- ending a browser ------------------------------------------------------
 
 
-def test_ending_a_browser_means_open_session_again():
+def test_ending_a_browser_means_open_session_again(workspaces):
     """An agent is never told "your browser was taken". It is told it has none —
     the same branch as never having had one — so it calls open_session, which is
     the one path that opens one. resolve itself must never open anything."""
-    actions = RecordingActions()
-    workspaces = manager(actions)
-    actions.grid.alive.add("abc")
     workspaces.remember(NAMED, "abc")
     workspaces.end_browser(Caller(NAMED))
-    opened_before = actions.opened
+    opened_before = workspaces.actions.opened
     with pytest.raises(ValueError, match="call open_session first"):
         workspaces.resolve(NAMED)
-    assert actions.opened == opened_before, "resolve must never open one"
+    assert workspaces.actions.opened == opened_before, "resolve must never open one"
 
 
 def test_ending_a_browser_never_removes_the_workspace():
@@ -467,12 +466,9 @@ def test_describe_reports_the_workspace_and_where_to_read_about_it(named_caller)
     assert "WORKSPACES.md" in status["guidance"]
 
 
-def test_describe_never_names_the_grid_id(named_caller):
+def test_describe_never_names_the_grid_id(named_caller, workspaces):
     """The whole of E18 in one assertion: the browser id is how a browser is
     reached and is not part of what a caller is told."""
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
     workspaces.remember(NAMED, "abc", "https://example.com")
     assert "abc" not in repr(workspaces.describe(clients_module.caller()))
 
@@ -486,11 +482,10 @@ def test_describe_never_opens_a_browser(named_caller):
     assert actions.opened == 0
 
 
-def test_describe_reports_a_held_workspace_and_whether_it_is_still_there(named_caller):
+def test_describe_reports_a_held_workspace_and_whether_it_is_still_there(
+    named_caller, workspaces
+):
     """Whether the browser is still there is the question this resource is for."""
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
     workspaces.store.set(
         NAMED, Workspace(session_id="abc").visited("https://example.com")
     )
@@ -506,26 +501,22 @@ def test_describe_flags_a_workspace_the_grid_has_reaped(named_caller):
     assert workspaces.describe(clients_module.caller())["live"] is False
 
 
-def test_describe_reports_the_settings_a_workspace_was_opened_with(named_caller):
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
+def test_describe_reports_the_settings_a_workspace_was_opened_with(
+    named_caller, workspaces
+):
     workspaces.remember(NAMED, "abc", "", {"width": 1400})
     assert workspaces.describe(clients_module.caller())["settings"] == {"width": 1400}
 
 
-def test_describe_reports_which_browser_is_being_driven(named_caller):
+def test_describe_reports_which_browser_is_being_driven(named_caller, workspaces):
     """Top level, not only inside settings: "which browser am I driving" is a
     question this resource exists to answer, and a caller should not have to
     know it happens to be stored as a setting."""
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
     workspaces.remember(NAMED, "abc", "", {"browser": "firefox"})
     assert workspaces.describe(clients_module.caller())["browser"] == "firefox"
 
 
-def test_describe_reports_the_window_it_is_working_in(named_caller):
+def test_describe_reports_the_window_it_is_working_in(named_caller, workspaces):
     """Top level, for the same reason as `browser`.
 
     An agent deciding whether something is off-screen, or whether a layout has
@@ -534,9 +525,6 @@ def test_describe_reports_the_window_it_is_working_in(named_caller):
     named one: the window is then whatever the Grid node's default happens to
     be, and printing a number would claim we knew which.
     """
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
     workspaces.remember(NAMED, "abc", "", {"width": 1024, "height": 768})
     assert workspaces.describe(clients_module.caller())["window"] == "1024x768"
 
@@ -544,12 +532,11 @@ def test_describe_reports_the_window_it_is_working_in(named_caller):
     assert workspaces.describe(clients_module.caller())["window"] is None
 
 
-def test_a_workspace_stored_before_browsers_were_selectable_reads_as_chrome(named_caller):
+def test_a_workspace_stored_before_browsers_were_selectable_reads_as_chrome(
+    named_caller, workspaces
+):
     """A record with no browser really is the default one — there was nothing
     else to be — so reporting chrome is more true than reporting None."""
-    actions = RecordingActions()
-    actions.grid.alive.add("abc")
-    workspaces = manager(actions)
     workspaces.remember(NAMED, "abc", "", {"width": 1400})
     assert workspaces.describe(clients_module.caller())["browser"] == "chrome"
 

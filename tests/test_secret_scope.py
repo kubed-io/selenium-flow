@@ -61,24 +61,45 @@ def make():
         scrubber.close()
 
 
+@pytest.fixture
+def cat():
+    """The catalogue: ``a/password`` is ``alpha-11``, leashed to `A`."""
+    return FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+
+
+@pytest.fixture
+def built(make, cat):
+    """A scrubber over `cat` that has built `A`'s forms for ``g1``."""
+    scrubber = make(cat)
+    scrubber.build("w", "g1", A).result(WAIT)
+    return scrubber
+
+
+@pytest.fixture
+def origins():
+    return Origins()
+
+
+@pytest.fixture
+def seen(origins):
+    """Every `OriginChanged` that `origins` emits."""
+    got = []
+    origins.listen(got.append)
+    return got
+
+
 # --- the origin-changed event -----------------------------------------------
 
 
-def test_the_event_fires_once_per_origin_change():  # ruling 6
-    seen = []
-    o = Origins()
-    o.listen(seen.append)
+def test_the_event_fires_once_per_origin_change(origins, seen):  # ruling 6
     for url in [f"{A}/x", f"{A}/y?q=1", f"{A}/y", f"{B}/", f"{B}/z"]:
-        o.arrived("w", "g1", url)
+        origins.arrived("w", "g1", url)
     assert [(e.old, e.new) for e in seen] == [(None, A), (A, B)]
     assert seen[0] == OriginChanged("w", "g1", None, A, False)
 
 
-def test_a_missing_url_emits_nothing_and_answers_none():
-    seen = []
-    o = Origins()
-    o.listen(seen.append)
-    assert o.arrived("w", "g1", None) is None and seen == []
+def test_a_missing_url_emits_nothing_and_answers_none(origins, seen):
+    assert origins.arrived("w", "g1", None) is None and seen == []
 
 
 def test_an_arrival_answers_the_origin():
@@ -87,12 +108,9 @@ def test_an_arrival_answers_the_origin():
     assert o.arrived("w", "g1", "about:blank") == ""
 
 
-def test_an_opaque_page_is_an_origin_of_its_own():  # ruling 13
-    seen = []
-    o = Origins()
-    o.listen(seen.append)
+def test_an_opaque_page_is_an_origin_of_its_own(origins, seen):  # ruling 13
     for url in [f"{A}/", "about:blank", "data:text/html,hi", f"{A}/"]:
-        o.arrived("w", "g1", url)
+        origins.arrived("w", "g1", url)
     assert [(e.old, e.new) for e in seen] == [(None, A), (A, ""), ("", A)]
 
 
@@ -103,27 +121,21 @@ def test_a_new_browser_starts_with_no_origin():
     assert o.current("w", "g1") == A
 
 
-def test_a_new_browser_fires_again_for_the_same_origin():
-    seen = []
-    o = Origins()
-    o.listen(seen.append)
-    o.arrived("w", "g1", f"{A}/")
-    o.forget("w", "g1")
-    o.arrived("w", "g2", f"{A}/")
+def test_a_new_browser_fires_again_for_the_same_origin(origins, seen):
+    origins.arrived("w", "g1", f"{A}/")
+    origins.forget("w", "g1")
+    origins.arrived("w", "g2", f"{A}/")
     assert [(e.browser, e.old, e.new) for e in seen] == [
         ("g1", None, A),
         ("g2", None, A),
     ]
 
 
-def test_a_frame_origin_fires_once_per_browser():
-    seen = []
-    o = Origins()
-    o.listen(seen.append)
-    o.arrived("w", "g1", "https://f.test/a", frame=True)
-    o.arrived("w", "g1", "https://f.test/b", frame=True)
+def test_a_frame_origin_fires_once_per_browser(origins, seen):
+    origins.arrived("w", "g1", "https://f.test/a", frame=True)
+    origins.arrived("w", "g1", "https://f.test/b", frame=True)
     assert [(e.new, e.frame) for e in seen] == [("https://f.test", True)]
-    assert o.current("w", "g1") is None  # a frame is never the top's origin
+    assert origins.current("w", "g1") is None  # a frame is never the top's origin
 
 
 def test_a_listener_that_raises_never_fails_the_arrival(caplog):
@@ -154,32 +166,26 @@ def test_framed_is_set_answered_and_cleared_by_a_new_browser():  # ruling 15
     assert o.framed("w", "g2") is False
 
 
-def test_a_stale_arrival_leaves_the_current_browser_alone():  # fix round 1
+def test_a_stale_arrival_leaves_the_current_browser_alone(origins, seen):  # fix round 1
     """A call still on g1 when g2 opened must not wipe g2's state."""
-    seen = []
-    o = Origins()
-    o.listen(seen.append)
-    o.arrived("w", "g1", f"{A}/")
-    o.forget("w", "g1")
-    o.arrived("w", "g2", f"{B}/")
-    o.framed("w", "g2", True)
-    assert o.arrived("w", "g1", f"{A}/x") == A  # answered, nothing more
-    o.framed("w", "g1", False)
-    o.arrived("w", "g1", "https://f.test/", frame=True)
-    assert o.current("w", "g2") == B and o.framed("w", "g2") is True
+    origins.arrived("w", "g1", f"{A}/")
+    origins.forget("w", "g1")
+    origins.arrived("w", "g2", f"{B}/")
+    origins.framed("w", "g2", True)
+    assert origins.arrived("w", "g1", f"{A}/x") == A  # answered, nothing more
+    origins.framed("w", "g1", False)
+    origins.arrived("w", "g1", "https://f.test/", frame=True)
+    assert origins.current("w", "g2") == B and origins.framed("w", "g2") is True
     assert [(e.browser, e.new) for e in seen] == [("g1", A), ("g2", B)]
 
 
-def test_a_browser_takes_the_slot_only_once_the_last_one_is_forgotten():
-    seen = []
-    o = Origins()
-    o.listen(seen.append)
-    o.arrived("w", "g1", f"{A}/")
-    o.framed("w", "g1", True)
-    o.arrived("w", "g2", f"{B}/")  # g1 not forgotten: g2 is not current yet
-    assert o.current("w", "g1") == A and o.framed("w", "g1") is True
-    assert o.current("w", "g2") is None
-    assert o.framed("w", "g2") is True  # not the current browser: unknown
+def test_a_browser_takes_the_slot_only_once_the_last_one_is_forgotten(origins, seen):
+    origins.arrived("w", "g1", f"{A}/")
+    origins.framed("w", "g1", True)
+    origins.arrived("w", "g2", f"{B}/")  # g1 not forgotten: g2 is not current yet
+    assert origins.current("w", "g1") == A and origins.framed("w", "g1") is True
+    assert origins.current("w", "g2") is None
+    assert origins.framed("w", "g2") is True  # not the current browser: unknown
     assert [e.browser for e in seen] == ["g1"]
 
 
@@ -277,8 +283,7 @@ def test_no_secret_allowed_here_returns_the_value_itself(make):  # Review Focus 
     assert cat.calls == {"forms_for": [A], "leashed": 0}
 
 
-def test_an_unknown_origin_reads_every_leashed_secret(make):  # ruling 11
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+def test_an_unknown_origin_reads_every_leashed_secret(make, cat):  # ruling 11
     s = make(cat)
     shown, _ = s.result("w", "g1", {"text": "alpha-11"}, [A, None])
     assert shown == {"text": "[secret:a/password]"} and cat.calls["leashed"] == 1
@@ -331,27 +336,21 @@ def test_the_sets_of_origins_the_browser_left_still_apply(make):  # ruling 14
     assert shown == {"t": "[secret:a/password]"}
 
 
-def test_a_changed_url_is_reported(make):  # ruling 21
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
-    shown, changed = s.result(
+def test_a_changed_url_is_reported(built):  # ruling 21
+    shown, changed = built.result(
         "w", "g1", {"url": f"{A}/?q=alpha-11", "title": "t"}, [A, A]
     )
     assert shown["url"] == f"{A}/?q=[secret:a/password]" and changed is True
-    shown, changed = s.result(
+    shown, changed = built.result(
         "w", "g1", {"url": f"{A}/", "title": "alpha-11"}, [A, A]
     )
     assert shown == {"url": f"{A}/", "title": "[secret:a/password]"}
     assert changed is False
 
 
-def test_a_url_that_is_not_text_is_not_changed(make):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
-    assert s.result("w", "g1", {"url": None}, [A, A]) == ({"url": None}, False)
-    assert s.result("w", "g1", "alpha-11", [A, A]) == ("[secret:a/password]", False)
+def test_a_url_that_is_not_text_is_not_changed(built):
+    assert built.result("w", "g1", {"url": None}, [A, A]) == ({"url": None}, False)
+    assert built.result("w", "g1", "alpha-11", [A, A]) == ("[secret:a/password]", False)
 
 
 def test_a_rotation_rebuilds_and_keeps_the_old_forms(make):  # ruling 10
@@ -381,23 +380,20 @@ def test_a_rotation_rebuilds_the_current_origin(make):  # ruling 10
     assert cat.calls == {"forms_for": [A, A], "leashed": 0}
 
 
-def test_ended_drops_the_browser_and_carry_keeps_it(make):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
-    s.forms("w", "g1", [A, A])
+def test_ended_drops_the_browser_and_carry_keeps_it(built, cat):
+    built.forms("w", "g1", [A, A])
     assert cat.calls == {"forms_for": [A], "leashed": 0}
 
-    s.carry("w", "g1", "g2")
-    assert ("a", "password") in s.forms("w", "g2", [A, A]).ids
+    built.carry("w", "g1", "g2")
+    assert ("a", "password") in built.forms("w", "g2", [A, A]).ids
     assert cat.calls == {"forms_for": [A], "leashed": 0}  # g2 needs no read
 
-    s.ended("w", "g1")  # late, for the browser carried from: kept
-    s.forms("w", "g2", [A, A])
+    built.ended("w", "g1")  # late, for the browser carried from: kept
+    built.forms("w", "g2", [A, A])
     assert cat.calls == {"forms_for": [A], "leashed": 0}
 
-    s.ended("w", "g2")
-    assert ("a", "password") in s.forms("w", "g2", [A, A]).ids
+    built.ended("w", "g2")
+    assert ("a", "password") in built.forms("w", "g2", [A, A]).ids
     assert cat.calls["leashed"] == 1  # read again
 
 
@@ -450,31 +446,24 @@ def test_a_stale_build_reads_nothing_and_installs_nothing(make):  # fix round 1
     assert scrub(both, s.forms("w", "g2", [A, A])) == masked
 
 
-def test_an_ended_browser_never_comes_back(make):  # fix round 1
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
-    s.ended("w", "g1")
-    s.forms("w", "g1", [A, A])  # a late call: every secret, nothing kept
-    s.forms("w", "g1", [A, A])
+def test_an_ended_browser_never_comes_back(built, cat):  # fix round 1
+    built.ended("w", "g1")
+    built.forms("w", "g1", [A, A])  # a late call: every secret, nothing kept
+    built.forms("w", "g1", [A, A])
     assert cat.calls["leashed"] == 2 and cat.calls["forms_for"] == [A]
-    s.build("w", "g2", A).result(WAIT)  # the slot is free for a new one
-    s.forms("w", "g2", [A, A])
+    built.build("w", "g2", A).result(WAIT)  # the slot is free for a new one
+    built.forms("w", "g2", [A, A])
     assert cat.calls["leashed"] == 2
 
 
-def test_a_browser_takes_the_slot_only_once_the_last_one_ended(make):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
-    s.forms("w", "g3", [A, A])  # g1 has not ended: g3 is not current yet
+def test_a_browser_takes_the_slot_only_once_the_last_one_ended(built, cat):
+    built.forms("w", "g3", [A, A])  # g1 has not ended: g3 is not current yet
     assert cat.calls["leashed"] == 1
-    s.forms("w", "g1", [A, A])  # g1 lost nothing
+    built.forms("w", "g1", [A, A])  # g1 lost nothing
     assert cat.calls == {"forms_for": [A], "leashed": 1}
 
 
-def test_a_build_that_fails_falls_back_to_every_leashed_secret(make, caplog):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+def test_a_build_that_fails_falls_back_to_every_leashed_secret(make, caplog, cat):
     cat.fail_forms_for = True
     s = make(cat)
     got = []
@@ -485,8 +474,7 @@ def test_a_build_that_fails_falls_back_to_every_leashed_secret(make, caplog):
     assert "OSError" in caplog.text and "alpha-11" not in caplog.text
 
 
-def test_a_build_where_both_reads_fail_is_done_with_none(make, caplog):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+def test_a_build_where_both_reads_fail_is_done_with_none(make, caplog, cat):
     cat.fail_forms_for = cat.fail_leashed = True
     s = make(cat)
     got = []
@@ -568,8 +556,7 @@ def test_a_failed_revision_read_fails_closed(make, caplog):
     assert "KeyError" in caplog.text and "alpha-11" not in caplog.text
 
 
-def test_forms_reach_capture_when_built(make):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+def test_forms_reach_capture_when_built(make, cat):
     capture = FakeCapture()
     s = make(cat, capture)
     forms = s.build("w", "g1", A).result(WAIT)
@@ -579,9 +566,7 @@ def test_forms_reach_capture_when_built(make):
     assert len(capture.secrets) == 1
 
 
-def test_a_capture_that_raises_never_fails_the_build(make, caplog):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-
+def test_a_capture_that_raises_never_fails_the_build(make, caplog, cat):
     class Broken:
         def secret(self, workspace, forms):
             raise RuntimeError("alpha-11")
@@ -592,8 +577,7 @@ def test_a_capture_that_raises_never_fails_the_build(make, caplog):
     assert "RuntimeError" in caplog.text and "alpha-11" not in caplog.text
 
 
-def test_a_selected_frame_is_unknown(make):  # ruling 15
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+def test_a_selected_frame_is_unknown(make, cat):  # ruling 15
     o = Origins()
     o.opened("w", "g1")  # known unframed (round 3)
     s = make(cat, origins=o)
@@ -608,10 +592,9 @@ def test_a_selected_frame_is_unknown(make):  # ruling 15
     assert cat.calls["leashed"] == 1
 
 
-def test_a_browser_capture_heard_first_is_unframed_once_opened(make):
+def test_a_browser_capture_heard_first_is_unframed_once_opened(make, cat):
     """Capture attaches before the first page, so its navigation takes the slot
     implicitly before `open_session` gives it: opened, it is known unframed."""
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
     o = Origins()
     s = make(cat, origins=o)
     o.arrived("w", "g1", f"{A}/")  # capture's navigationStarted
@@ -649,32 +632,25 @@ def test_changed_with_no_catalogue_does_nothing(make):
     assert s.build("w", "g1", A).result(WAIT) == Forms()
 
 
-def test_an_error_is_scrubbed_in_place(make):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
+def test_an_error_is_scrubbed_in_place(built):
     exc = ValueError("no element after typing alpha-11")
-    assert s.error("w", "g1", exc, [A, A]) is None
+    assert built.error("w", "g1", exc, [A, A]) is None
     assert exc.args == ("no element after typing [secret:a/password]",)
     assert type(exc) is ValueError
 
 
-def test_an_error_that_cannot_be_scrubbed_fails_closed(make, caplog):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
+def test_an_error_that_cannot_be_scrubbed_fails_closed(caplog, built):
     exc = OSError(2, "missing", "/tmp/alpha-11")  # filename is out of reach
     with (
         caplog.at_level(logging.WARNING),
         pytest.raises(faults.ScrubFailed) as failed,
     ):
-        s.error("w", "g1", exc, [A, A])
+        built.error("w", "g1", exc, [A, A])
     assert failed.value.__cause__ is None and failed.value.__suppress_context__
     assert "Unscrubbed" in caplog.text and "alpha-11" not in caplog.text
 
 
-def test_a_resource_is_scrubbed_with_every_leashed_secret(make):  # ruling 16
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+def test_a_resource_is_scrubbed_with_every_leashed_secret(make, cat):  # ruling 16
     s = make(cat)
     assert s.resource("w", "site data: alpha-11") == (
         "site data: [secret:a/password]"
@@ -717,22 +693,19 @@ def test_scrub_failed_says_the_fixed_sentence():
 # --- fix round 2: taking the slot explicitly, and a slot that heals ------------
 
 
-def test_opened_takes_the_slot_from_a_browser_never_forgotten():
+def test_opened_takes_the_slot_from_a_browser_never_forgotten(origins, seen):
     """A workspace that lost its record cannot name g1 to forget it."""
-    seen = []
-    o = Origins()
-    o.listen(seen.append)
-    o.arrived("w", "g1", f"{A}/")
-    o.framed("w", "g1", True)
-    o.opened("w", "g2")
-    o.arrived("w", "g2", f"{B}/")
+    origins.arrived("w", "g1", f"{A}/")
+    origins.framed("w", "g1", True)
+    origins.opened("w", "g2")
+    origins.arrived("w", "g2", f"{B}/")
     assert [(e.browser, e.old, e.new) for e in seen] == [
         ("g1", None, A),
         ("g2", None, B),
     ]
-    assert o.framed("w", "g2") is False and o.current("w", "g2") == B
-    o.arrived("w", "g1", f"{A}/x")  # g1 is finished with: stale
-    assert o.current("w", "g2") == B and len(seen) == 2
+    assert origins.framed("w", "g2") is False and origins.current("w", "g2") == B
+    origins.arrived("w", "g1", f"{A}/x")  # g1 is finished with: stale
+    assert origins.current("w", "g2") == B and len(seen) == 2
 
 
 def test_opened_twice_keeps_the_browser_it_gave_the_slot_to():
@@ -759,8 +732,7 @@ def test_opened_starts_the_scrubber_afresh(make):
     assert cat.calls["leashed"] == leashed + 1
 
 
-def test_opened_twice_keeps_the_scrubbers_state(make):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+def test_opened_twice_keeps_the_scrubbers_state(make, cat):
     s = make(cat)
     s.opened("w", "g1")
     s.build("w", "g1", A).result(WAIT)
@@ -813,17 +785,14 @@ def test_a_stale_streak_is_logged_once_without_the_browser(caplog):
         assert "b.test" not in said and "alpha-11" not in said
 
 
-def test_a_scrubbers_stale_streak_is_logged_once_without_the_browser(make, caplog):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
+def test_a_scrubbers_stale_streak_is_logged_once_without_the_browser(caplog, built):
     with caplog.at_level(logging.DEBUG, logger="kubed.selenium_flow.workspace"):
-        s.forms("w", "g2", [A, A])
-        s.result("w", "g2", {"t": "alpha-11"}, [A, A])
+        built.forms("w", "g2", [A, A])
+        built.result("w", "g2", {"t": "alpha-11"}, [A, A])
         stale = [r for r in caplog.records if "slot" in r.getMessage()]
         assert len(stale) == 1
-        s.forms("w", "g1", [A, A])  # the holder: the streak ends
-        s.forms("w", "g2", [A, A])
+        built.forms("w", "g1", [A, A])  # the holder: the streak ends
+        built.forms("w", "g2", [A, A])
         stale = [r for r in caplog.records if "slot" in r.getMessage()]
     assert len(stale) == 2
     for record in stale:
@@ -861,9 +830,8 @@ def test_a_slot_evicted_and_taken_again_is_framed():
 # --- fix round 4: carry gives the slot; a browser carried from is stale ---------
 
 
-def test_carry_gives_the_slot_whoever_held_it(make):
+def test_carry_gives_the_slot_whoever_held_it(make, cat):
     """`carry` from a browser that did not hold the slot still gives ``new`` it."""
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
     s = make(cat)
     s.build("w", "X", A).result(WAIT)
     s.carry("w", "old", "new")
@@ -893,8 +861,7 @@ def test_carry_from_another_holder_unmasks_nothing(make):  # ruling 10, fails sa
     assert scrub(both, s.forms("w", "new", [A, A])) == masked
 
 
-def test_carry_on_a_free_slot_gives_it(make):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
+def test_carry_on_a_free_slot_gives_it(make, cat):
     s = make(cat)
     s.carry("w", "old", "new")
     s.forms("w", "other", [None, None])  # new holds it: other is stale
@@ -1405,36 +1372,27 @@ def test_a_reap_heard_first_still_carries_what_the_browser_kept():  # fix 1
         ws.scrubber.close()
 
 
-def test_ended_parks_and_carry_claims(make):  # fix 1
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
+def test_ended_parks_and_carry_claims(built, cat):  # fix 1
     cat.rotate({A: {}})
-    s.ended("w", "g1")
-    s.carry("w", "g1", "g2")
-    assert scrub("alpha-11", s.forms("w", "g2", [B, B])) == "[secret:a/password]"
+    built.ended("w", "g1")
+    built.carry("w", "g1", "g2")
+    assert scrub("alpha-11", built.forms("w", "g2", [B, B])) == "[secret:a/password]"
 
 
-def test_opened_discards_what_was_parked(make):  # fix 1
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
+def test_opened_discards_what_was_parked(built, cat):  # fix 1
     cat.rotate({A: {}})
-    s.ended("w", "g1")
-    s.opened("w", "g2")
-    s.carry("w", "g1", "g3")  # a late carry from the parked browser: nothing left
-    assert scrub("alpha-11", s.forms("w", "g3", [""])) == "alpha-11"
+    built.ended("w", "g1")
+    built.opened("w", "g2")
+    built.carry("w", "g1", "g3")  # a late carry from the parked browser: nothing left
+    assert scrub("alpha-11", built.forms("w", "g3", [""])) == "alpha-11"
 
 
-def test_a_call_from_a_parked_browser_is_still_stale(make):  # fix 1
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
-    s.ended("w", "g1")
+def test_a_call_from_a_parked_browser_is_still_stale(built, cat):  # fix 1
+    built.ended("w", "g1")
     before = cat.calls["leashed"]
-    assert scrub("alpha-11", s.forms("w", "g1", [A, A])) == "[secret:a/password]"
+    assert scrub("alpha-11", built.forms("w", "g1", [A, A])) == "[secret:a/password]"
     assert cat.calls["leashed"] == before + 1
-    assert "w" not in s._entries
+    assert "w" not in built._entries
 
 
 class FailingOpen(ScopeActions):
@@ -1527,29 +1485,23 @@ def test_with_secrets_off_a_screenshot_is_the_very_object(ws_without_secrets):  
 # --- fix round 2 (Task 6) -------------------------------------------------------
 
 
-def test_carry_claims_the_park_when_the_new_browser_took_the_slot_first(make):
+def test_carry_claims_the_park_when_the_new_browser_took_the_slot_first(built, cat):
     """Capture hears the reopened browser's first page before `carry` runs, so
     the new browser takes the free slot implicitly: the park is still claimed."""
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
     cat.rotate({A: {}})
-    s.ended("w", "g1")
-    s.forms("w", "g2", [B, B])  # g2 takes the free slot implicitly
-    s.carry("w", "g1", "g2")
-    assert scrub("alpha-11", s.forms("w", "g2", [B, B])) == "[secret:a/password]"
+    built.ended("w", "g1")
+    built.forms("w", "g2", [B, B])  # g2 takes the free slot implicitly
+    built.carry("w", "g1", "g2")
+    assert scrub("alpha-11", built.forms("w", "g2", [B, B])) == "[secret:a/password]"
 
 
-def test_a_second_park_keeps_the_first(make):
-    cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
-    s = make(cat)
-    s.build("w", "g1", A).result(WAIT)
+def test_a_second_park_keeps_the_first(built, cat):
     cat.rotate({A: {}})
-    s.ended("w", "g1")
-    s.forms("w", "g2", [B, B])  # g2 takes the free slot implicitly
-    s.ended("w", "g2")  # parks g2's, over g1's
-    s.carry("w", "g2", "g3")
-    assert scrub("alpha-11", s.forms("w", "g3", [B, B])) == "[secret:a/password]"
+    built.ended("w", "g1")
+    built.forms("w", "g2", [B, B])  # g2 takes the free slot implicitly
+    built.ended("w", "g2")  # parks g2's, over g1's
+    built.carry("w", "g2", "g3")
+    assert scrub("alpha-11", built.forms("w", "g3", [B, B])) == "[secret:a/password]"
 
 
 # --- network_body: the request's origin; scrubbed whole, then cut ----------

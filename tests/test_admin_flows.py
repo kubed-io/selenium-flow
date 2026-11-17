@@ -57,11 +57,6 @@ def server(tmp_path, monkeypatch):
     return built
 
 
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
-
-
 def url(name: str = "", suffix: str = "") -> str:
     base = f"/admin/workspaces/{quote(KEY, safe='')}/flows"
     return f"{base}/{quote(name, safe='')}{suffix}" if name else base

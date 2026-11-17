@@ -15,26 +15,19 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from mcp.types import Implementation, ResourceTemplateReference
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import mirror
 from kubed.selenium_flow.mcp.resources import RESOURCE_URI
-from kubed.selenium_flow.server import SeleniumMCP
 
-from .conftest import NAMED, TOKEN, calling_as, http
+from .conftest import NAMED, calling_as, http
 
 pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def reader(tmp_path, monkeypatch):
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
+def reader(data_server, monkeypatch):
     calling_as(monkeypatch, NAMED)
-    return server
+    return data_server
 
 
 async def listed(server, name="a spec-complete client"):

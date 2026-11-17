@@ -567,18 +567,20 @@ def test_the_prefix_is_a_mount_point_and_slash_means_root(given, expected):
     assert mount(given) == expected
 
 
-def test_every_tree_moves_with_the_prefix():
+@pytest.fixture
+def prefixed():
+    """A server mounted under ``/flow``."""
+    return SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
+    ))
+
+
+def test_every_tree_moves_with_the_prefix(prefixed):
     """The inversion §F1.11 asked for: `ROUTE_PREFIX` used to rename `/browser`
     while `/mcp`, `/admin` and `/files` stayed fixed. Nobody wants the browser
     endpoints called something else; everybody eventually wants the server
     mounted under a path."""
-    from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
-    app = server.mcp.http_app(path=server.mcp_path)  # what `run` serves
+    app = prefixed.mcp.http_app(path=prefixed.mcp_path)  # what `run` serves
     paths = {r.path for r in app.routes if hasattr(r, "path")}
     for tree in (
         "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/workspaces",
@@ -591,16 +593,10 @@ def test_every_tree_moves_with_the_prefix():
     ), "something stayed behind at the root"
 
 
-def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects():
+def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects(prefixed):
     """The UI is what a person gets for visiting the server; `/admin/*` is the
     API that page calls. The root used to 404."""
-    from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(prefixed.mcp.http_app())
     assert client.get("/flow/").status_code == 200
     moved = client.get("/flow/admin", follow_redirects=False)
     assert moved.status_code == 301
@@ -608,34 +604,23 @@ def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects():
     assert moved.headers["location"] == "./"
 
 
-def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix():
+def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix(prefixed):
     """The one path whose reader did not choose the mount. A readiness probe
     that 404s after a config change is the failure this avoids."""
-    from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.server import SeleniumMCP
-
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(prefixed.mcp.http_app())
     for probe in ("/health", "/started", "/ready", "/info"):
         assert client.get(probe).status_code in (200, GRID_DOWN), probe
         assert client.get(f"/flow{probe}").status_code in (200, GRID_DOWN), probe
 
 
-async def test_the_published_spec_describes_the_paths_actually_served():
+async def test_the_published_spec_describes_the_paths_actually_served(prefixed):
     """A document that names a path nothing serves is worse than no document,
     and a prefix is exactly where the two drift apart."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.core.capabilities import ENDPOINTS
-    from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
-    spec = await build_spec(server.mcp, ENDPOINTS, "/flow", authenticated=True)
-    served = {r.path for r in server.mcp.http_app().routes if hasattr(r, "path")}
+    spec = await build_spec(prefixed.mcp, ENDPOINTS, "/flow", authenticated=True)
+    served = {r.path for r in prefixed.mcp.http_app().routes if hasattr(r, "path")}
     assert set(spec["paths"]) <= served, set(spec["paths"]) - served
 
 

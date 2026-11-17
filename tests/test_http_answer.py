@@ -43,11 +43,6 @@ TREES = (
 )
 
 
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
-
-
 def test_there_is_one_answer_and_the_trees_share_it():
     """The module exists and is where the shared decision lives."""
     from kubed.selenium_flow.http import answer as answer_module

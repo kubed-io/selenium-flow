@@ -8,10 +8,8 @@ from contextlib import asynccontextmanager
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import BODY_CAP
 from kubed.selenium_flow.http.admin import capture as admin_capture
-from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .capture_events import done, log, nav_started, req
@@ -38,15 +36,10 @@ def feed(capture, *events, workspace="ws"):
 
 
 @pytest.fixture
-def server(tmp_path):
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
-    server.workspaces.actions.grid = SilentGrid()
-    server.actions.grid = server.workspaces.actions.grid
-    return server
+def server(data_server):
+    data_server.workspaces.actions.grid = SilentGrid()
+    data_server.actions.grid = data_server.workspaces.actions.grid
+    return data_server
 
 
 @pytest.fixture

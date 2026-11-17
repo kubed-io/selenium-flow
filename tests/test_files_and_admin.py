@@ -14,7 +14,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
-from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
@@ -31,11 +30,6 @@ ENTRIES = [
     {"name": "shot.png", "size": 1024, "creationTime": 1700000000000},
     {"name": "report.pdf", "size": 2048, "creationTime": 1700000001000},
 ]
-
-
-@pytest.fixture
-def client(server):
-    return TestClient(server.mcp.http_app())
 
 
 KEY = "desktop"
