@@ -22,7 +22,7 @@ from starlette.responses import JSONResponse
 
 from .. import errors, faults
 from ..faults import TooLarge
-from ..principal import ADMIN
+from ..principal import ADMIN, Principal
 from ..workspace.workspaces import Caller, values_of
 from . import auth, links
 
@@ -111,6 +111,16 @@ def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     return JSONResponse({"error": text}, status_code=status)
 
 
+async def admitted(
+    door: auth.AdminDoor, request: Request
+) -> tuple[Principal | None, JSONResponse | None]:
+    """The admin door's principal (None on an open server), or its refusal."""
+    try:
+        return await door.admit(request), None
+    except auth.Refused as refused:
+        return None, JSONResponse({"error": refused.reason}, status_code=refused.status)
+
+
 async def stream_door(
     request: Request, path: str, token: str | None, door: auth.AdminDoor
 ) -> JSONResponse | None:
@@ -126,11 +136,8 @@ async def stream_door(
         token,
     ):
         return None
-    try:
-        await door.admit(request)
-    except auth.Refused as refused:
-        return JSONResponse({"error": refused.reason}, status_code=refused.status)
-    return None
+    _, refusal = await admitted(door, request)
+    return refusal
 
 
 def guarded(door: auth.AdminDoor) -> Callable:
@@ -140,12 +147,9 @@ def guarded(door: auth.AdminDoor) -> Callable:
     def decorate(handler):
         @wraps(handler)
         async def wrapper(request: Request):
-            try:
-                await door.admit(request)
-            except auth.Refused as refused:
-                return JSONResponse(
-                    {"error": refused.reason}, status_code=refused.status
-                )
+            _, refusal = await admitted(door, request)
+            if refusal is not None:
+                return refusal
             return await handler(request)
 
         return wrapper

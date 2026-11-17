@@ -177,10 +177,9 @@ def mount(
 
         Not ``guarded``: the principal it drops is who the link is bound to.
         """
-        try:
-            principal = await door.admit(request)
-        except auth.Refused as refused:
-            return JSONResponse({"error": refused.reason}, status_code=refused.status)
+        principal, refusal = await answer.admitted(door, request)
+        if refusal is not None:
+            return refusal
         key = request.path_params["key"]
         _record, why = await run_in_threadpool(look, key)
         if why is not None:
@@ -208,10 +207,9 @@ def mount(
 
         Control only. Neither this module nor `audit.pasted` ever logs the text.
         """
-        try:
-            principal = await door.admit(request)
-        except auth.Refused as refused:
-            return JSONResponse({"error": refused.reason}, status_code=refused.status)
+        principal, refusal = await answer.admitted(door, request)
+        if refusal is not None:
+            return refusal
         key = request.path_params["key"]
         try:
             body = await answer.read_body(request)
