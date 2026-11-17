@@ -751,6 +751,7 @@ class Workspaces:
                 log.info(
                     "capture did not attach for %s: %s", name, type(exc).__name__
                 )
+                log.debug("%s", faults.formatted(exc))
                 raise faults.BidiUnavailable(ATTACH_FAILED) from exc
 
         try:
