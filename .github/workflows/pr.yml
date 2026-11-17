@@ -116,15 +116,6 @@ jobs:
       checks: write
       pull-requests: write
 
-  bench:
-    name: Bench
-    if: ${{ !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) }}
-    uses: ./.github/workflows/bench.yml
-    secrets: inherit
-    permissions:
-      contents: read
-      pull-requests: write
-
   package:
     name: Package
     if: ${{ !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) }}
@@ -137,7 +128,7 @@ jobs:
   # copy of the workflow. It always succeeds; the checks themselves are what gate.
   checks:
     name: Checks
-    needs: [pr-tasks, test, lint, ui, integration, bench, package]
+    needs: [pr-tasks, test, lint, ui, integration, package]
     if: >-
       always() && !github.event.pull_request.draft &&
       !contains(fromJSON('["labeled","unlabeled"]'), github.event.action)

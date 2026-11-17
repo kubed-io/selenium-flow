@@ -1,9 +1,7 @@
 """The test doubles, one copy of each.
 
 Each class answers a named production seam and carries the union of what the
-modules that used to keep their own copy needed. Before this module two files
-could each hold a ``FakeRedis`` and the unit double could drift from the one the
-bench times; a module split now has one file to repoint.
+test modules using it need, so a module split has one file to repoint.
 """
 
 import asyncio
