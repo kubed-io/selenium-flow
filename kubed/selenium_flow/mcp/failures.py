@@ -121,8 +121,8 @@ class Explained(Middleware):
 class QuietCallerMistakes(logging.Filter):
     """One warning line for a caller's mistake; a scrubbed traceback for ours.
 
-    Decided by `errors.status_for`, the same test that makes one a 400 and the
-    other a 500 over HTTP.
+    Decided by `errors.status_for`, the same test that makes one a 400 or a 503
+    (a warning) and the other a 500 (a traceback) over HTTP.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -131,7 +131,7 @@ class QuietCallerMistakes(logging.Filter):
             return True
         # FastMCP's line quotes the requested URI as sent.
         said = without_userinfo(record.getMessage())
-        if errors.status_for(exc) < 500:
+        if errors.status_for(exc) != 500:
             record.levelno, record.levelname = logging.WARNING, "WARNING"
             record.msg = f"{said}: {faults.message(exc)}"
         else:

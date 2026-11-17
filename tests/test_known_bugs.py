@@ -322,37 +322,6 @@ def test_a_first_line_that_is_not_exactly_three_dashes_opens_no_header():
 
 
 @bug(
-    "MCP logs an unreachable Grid (503) as an ERROR with a traceback; HTTP logs one WARNING"
-)
-def test_a_503_over_mcp_is_one_warning_line_as_it_is_over_http():
-    import logging
-    import sys
-
-    import requests
-
-    from kubed.selenium_flow import errors
-    from kubed.selenium_flow.mcp.failures import FAILED_CALL, QuietCallerMistakes
-
-    try:
-        raise requests.ConnectionError("grid down")
-    except requests.ConnectionError:
-        exc_info = sys.exc_info()
-    assert errors.status_for(exc_info[1]) == 503
-    record = logging.LogRecord(
-        "fastmcp.server.server",
-        logging.ERROR,
-        __file__,
-        1,
-        f"{FAILED_CALL} 'navigate'",
-        (),
-        exc_info,
-    )
-    QuietCallerMistakes().filter(record)
-    assert record.levelno == logging.WARNING
-    assert "Traceback" not in record.getMessage()
-
-
-@bug(
     "log.debug(exc_info=True) in core/ writes frames that can quote a Grid URL's userinfo"
 )
 def test_a_failure_logged_with_a_traceback_is_scrubbed_of_credentials(actions, caplog):
