@@ -127,6 +127,31 @@ REPLACED_BEFORE_SAVE = (
 )
 
 NAME_PARAM = "workspace"
+
+# Every key `workspace://current` can carry, whether or not this workspace has
+# a value for it: the parts `workspace://current/{part}` answers. A key the
+# context gains is added here.
+CONTEXT_KEYS = (
+    "workspace",
+    "named_by",
+    "principal",
+    "browser",
+    "url",
+    "live",
+    "recording",
+    "capture",
+    "capturing",
+    "in_frame",
+    "window",
+    "grid_timeout",
+    "version",
+    "store",
+    "settings",
+    "flows_here",
+    "captured",
+    "site_data",
+    "guidance",
+)
 WORKSPACE_HEADER = "sf-workspace"
 # Claude.ai's connectors can send only allowlisted header names, and
 # `x-workspace` is one where `sf-workspace` is not. Read only when
@@ -444,6 +469,18 @@ class Workspaces:
         is, so `workspace://current` and its REST route answer alike.
         """
         return self.scrubber.resource(caller.name, self._described(caller))
+
+    def describe_part(self, caller: Caller, part: str) -> dict:
+        """One key of `describe`, as ``{workspace, <part>: value}``: null when
+        this workspace's context leaves it out. A part that is no key of the
+        context is a ValueError naming them."""
+        if part not in CONTEXT_KEYS:
+            raise ValueError(
+                f"no part {part!r} in workspace://current; the parts are "
+                + ", ".join(CONTEXT_KEYS)
+            )
+        whole = self.describe(caller)
+        return {"workspace": whole["workspace"], part: whole.get(part)}
 
     def _described(self, caller: Caller) -> dict:
         """`describe`, before the scrub."""

@@ -300,3 +300,77 @@ async def test_the_mirror_refuses_an_old_uri_naming_the_new_one(reader):
 
     with pytest.raises(ToolError, match="`session://current` is now `workspace://current`"):
         await read(reader, "session://current")
+
+
+# ---- workspace://current/{part} ----------------------------------------------
+
+
+async def read_part(server, part):
+    async with Client(server.mcp) as c:
+        result = await c.read_resource(f"{RESOURCE_URI}/{part}")
+    return json.loads(result[0].text)
+
+
+async def test_a_part_answers_the_workspace_and_that_key(reader):
+    assert await read_part(reader, "grid_timeout") == {
+        "workspace": NAMED, "grid_timeout": None,
+    }
+    assert await read_part(reader, "store") == {
+        "workspace": NAMED, "store": "memory",
+    }
+
+
+async def test_a_key_the_context_leaves_out_answers_null(reader):
+    assert (await read_part(reader, "site_data"))["site_data"] is None
+    assert "site_data" not in await read_whole(reader)
+
+
+async def read_whole(server):
+    async with Client(server.mcp) as c:
+        return json.loads((await c.read_resource(RESOURCE_URI))[0].text)
+
+
+async def test_a_part_is_the_wholes_value_through_the_mirror_too(reader):
+    result = await read(reader, f"{RESOURCE_URI}/browser")
+    assert json.loads(result.content[0].text) == {"workspace": NAMED, "browser": None}
+
+
+async def test_a_part_the_context_cannot_carry_is_refused_with_the_keys(reader):
+    from mcp.shared.exceptions import MCPError
+
+    from kubed.selenium_flow.workspace.workspaces import CONTEXT_KEYS
+
+    with pytest.raises(MCPError) as raised:
+        await read_part(reader, "nonsense")
+    assert all(key in str(raised.value) for key in CONTEXT_KEYS)
+
+
+async def test_the_part_template_is_listed_beside_the_whole(reader):
+    async with Client(reader.mcp) as c:
+        templates = {t.uriTemplate for t in await c.list_resource_templates()}
+    assert f"{RESOURCE_URI}/{{part}}" in templates
+
+
+async def test_a_part_never_opens_a_browser(reader):
+    assert (await read_part(reader, "live"))["live"] is False
+    assert reader.store.get(NAMED) is None
+
+
+def test_every_key_the_context_carries_is_in_the_list_of_keys():
+    from dataclasses import replace
+
+    from kubed.selenium_flow.workspace.workspaces import CONTEXT_KEYS, Caller
+
+    from .conftest import manager
+
+    m = manager()
+    m.hints = lambda name, url: [{"name": "login"}]
+    m.skill_available = True
+    m.open_browser(Caller(NAMED), url="https://a.test/")
+    m.store.update(NAMED, lambda r: replace(
+        r, settings={**r.settings, "capture": True}, site_data={"origins": {"https://a.test": {"cookies": [], "local": {}, "session": {}}}},
+    ))
+    m.capture = type("C", (), {"counts": lambda self, name: None})()
+    carried = set(m.describe(Caller(NAMED)))
+    assert carried - set(CONTEXT_KEYS) == set()
+    assert {"flows_here", "guidance", "captured"} <= carried

@@ -30,6 +30,7 @@ SKILL = "skill://selenium-flow/"
 # Research's table in the spec, with the skill's files folded into one.
 FORMS = {
     "workspace://current",
+    "workspace://current/{part}",
     "workspace://site-data",
     "workspace://site-data/{site}",
     "workspace://files",
