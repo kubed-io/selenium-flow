@@ -40,7 +40,7 @@ def test_a_workspace_is_controlled_while_any_viewer_is_in_control():
     assert hint(tunnels, "w1") == said
     assert hint(tunnels, "w1") == said
     assert hint(tunnels, "w2") is None
-    assert tunnels.controlling("w1", "drk") and not tunnels.controlling("w1", "kim")
+    assert tunnels.controls.controlling("w1", "drk") and not tunnels.controls.controlling("w1", "kim")
     assert tunnels.controls.refusal("g1", "navigate") is not None
 
 
@@ -59,10 +59,10 @@ def test_handed_back_is_said_once_after_the_last_controller_goes():
     clock.now = T + 120
     watch(back)
     assert hint(tunnels, "w1").startswith("kim has control")
-    assert not tunnels.controlling("w1", "drk")
+    assert not tunnels.controls.controlling("w1", "drk")
     clock.now = T + 180
     tunnels.discard("g1", gone)
-    assert not tunnels.controlling("w1", "kim")
+    assert not tunnels.controls.controlling("w1", "kim")
     assert hint(tunnels, "w1") == HANDED_BACK.format(at="14:05")
     assert hint(tunnels, "w1") is None
 
@@ -98,14 +98,14 @@ def test_a_watcher_is_no_controller():
     tunnels = registry()
     a = held(tunnels, "w1", "drk", "watch")
     assert hint(tunnels, "w1") is None
-    assert not tunnels.controlling("w1", "drk")
+    assert not tunnels.controls.controlling("w1", "drk")
     tunnels.discard("g1", a)
     assert hint(tunnels, "w1") is None
 
 
 def test_a_fresh_registry_knows_no_controller():
     tunnels = registry()
-    assert hint(tunnels, "w1") is None and not tunnels.controlling("w1", "drk")
+    assert hint(tunnels, "w1") is None and not tunnels.controls.controlling("w1", "drk")
     assert tunnels.open("g1") == 0
 
 

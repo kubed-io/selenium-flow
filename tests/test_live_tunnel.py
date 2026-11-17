@@ -654,7 +654,7 @@ async def test_control_is_handed_back_before_a_stalled_viewer_closes(monkeypatch
     tunnel.end(NOBODY)
     await asyncio.wait_for(viewer.closing.wait(), 1)
     assert not task.done()  # the close is still pending
-    assert not tunnels.controlling("w1", "drk")
+    assert not tunnels.controls.controlling("w1", "drk")
     assert hint(tunnels, "w1").startswith("control of this browser was handed back")
     assert (await asyncio.wait_for(task, 1)) == NOBODY
 
