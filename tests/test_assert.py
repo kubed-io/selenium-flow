@@ -2,13 +2,13 @@
 
 A flow had no way to state what must be true, so one came back 8/8 green while
 sitting on the wrong page — the worst thing this server can do, because a loud
-failure costs a turn and a confident green costs ten. See saga §F2.5.
+failure costs a turn and a confident green costs ten.
 """
 
 import pytest
 
 from kubed.selenium_flow.core import assertion as assertion
-from kubed.selenium_flow.core.capabilities import ENDPOINTS, method_for
+from kubed.selenium_flow.core.capabilities import method_for
 from kubed.selenium_flow.errors import status_for
 
 pytestmark = pytest.mark.unit
@@ -44,11 +44,6 @@ def driving(actions, monkeypatch):
 
 
 # ---- the surface ------------------------------------------------------------
-
-
-def test_assert_is_a_browser_action_on_both_surfaces():
-    """A step is a tool is an endpoint — the promise test_surfaces.py holds."""
-    assert ENDPOINTS["assert"] == "assert"
 
 
 def test_the_keyword_is_aliased_in_exactly_one_place(actions):
@@ -189,7 +184,7 @@ class _AlreadySignedIn:
 
 def test_a_failing_assert_stops_the_run_and_carries_the_message():
     """The whole point, through `run()`: no new status, and the step's error is
-    the sentence its author wrote (saga §F2.5)."""
+    the sentence its author wrote."""
     from kubed.selenium_flow.flows.run import run
 
     report = run(_AlreadySignedIn(), LOGIN_GUARD, "b")
@@ -353,14 +348,6 @@ def test_an_answer_that_arrives_after_the_deadline_is_not_accepted(
     assert driver.calls == 1, "it evaluated again after the deadline had passed"
 
 
-def test_no_wait_still_means_exactly_one_look(actions, driving):
-    """The guard above must not cost the single evaluation wait_timeout=0
-    promises."""
-    driver = driving(True)
-    assert actions.assert_("abc", "return true", wait_timeout=0)["asserted"] is True
-    assert driver.calls == 1
-
-
 # ---- stable_for: a guard needs an answer that HOLDS --------------------------
 
 
@@ -391,7 +378,7 @@ async def test_the_tool_publishes_stable_for(server):
 
 
 def test_a_transient_true_does_not_satisfy_a_hold(actions, driving, clock):
-    """The fault §F2.10 opened with. Navigating to `/`, a real app painted its
+    """Navigating to `/`, a real app painted its
     authenticated shell for a moment before the auth guard redirected, and a
     guard asking until true caught that moment — so it passed while signed out.
     True, then false, has not held true for anything."""

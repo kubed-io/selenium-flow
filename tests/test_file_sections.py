@@ -1,4 +1,4 @@
-"""A workspace's files as three sections, addressed by path (§F4.6, §F4.7)."""
+"""A workspace's files as three sections, addressed by path."""
 
 import json
 import re

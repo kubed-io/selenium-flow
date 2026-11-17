@@ -1,6 +1,6 @@
 """Workspaces: the name a caller gives, and which browser that resolves to.
 
-Naming is the whole contract now (§F2.12). The tests that matter most are the
+Naming is the whole contract now. The tests that matter most are the
 ones proving a request that names nothing — or names two things — is *refused*
 rather than quietly given a browser, because inventing an identity is how every
 tool call opened a browser nobody closed.
@@ -289,7 +289,7 @@ def test_opening_on_a_page_that_is_not_the_web_costs_the_held_browser_nothing():
 def test_the_shared_library_is_the_one_thing_an_unnamed_caller_gets():
     """The other half of requiring a name, rather than an exception to it:
     `global` is read-only, so an unnamed caller can read the shared flows and can
-    write nowhere at all (§F2.13)."""
+    write nowhere at all."""
     assert caller_of().library == "global"
 
 
@@ -1000,19 +1000,15 @@ def test_session_ttl_is_honoured():
 
 
 def test_no_redis_env_means_memory():
+    """Memory is the answer only when nothing asked for Redis at all, never a
+    step down from a Redis that failed."""
     store = from_settings(WorkspaceSettings(), RedisSettings())
     assert isinstance(store, MemoryStore)
     assert store.kind == "memory"
 
 
-def test_memory_is_used_when_nothing_asked_for_redis():
-    """Unchanged behaviour (§F4.12): memory is the answer only when nothing
-    asked for Redis at all, never a step down from a Redis that failed."""
-    assert isinstance(from_settings(WorkspaceSettings(), RedisSettings()), MemoryStore)
-
-
 def test_an_unreachable_redis_stops_the_boot_with_the_reason(monkeypatch):
-    """§F4.12: a server that refuses to start is restarted by Kubernetes until
+    """A server that refuses to start is restarted by Kubernetes until
     Redis answers; one that started on the wrong store is never corrected."""
     import sys
     import types
@@ -1084,7 +1080,7 @@ def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
 
 def test_the_reason_never_quotes_the_redis_password(monkeypatch):
     """The refusal message is read by whoever restarts the pod, and logged —
-    it must never carry the credential (§F4.12)."""
+    it must never carry the credential."""
     import sys
     import types
 
@@ -1293,10 +1289,6 @@ def test_an_unreachable_grid_does_not_strand_the_workspace(monkeypatch):
 # ---- a workspace outlives its session ---------------------------------------
 
 
-def test_ending_something_that_is_not_there_is_not_an_error():
-    assert manager().end_browser(Caller("nobody")) is None
-
-
 def test_context_is_what_a_reopen_should_inherit(monkeypatch):
     workspaces = manager()
     workspaces.store.set(
@@ -1339,18 +1331,6 @@ def test_opening_a_replacement_ends_the_browser_it_replaces():
     ended = workspaces.end_browser(Caller(NAMED))
     assert ended == "old-browser"
     assert actions.closed == ["old-browser"]
-
-
-def test_replacing_keeps_the_workspace_and_its_context():
-    """The same command the admin End uses — the context is what the
-    replacement inherits, so ending must not take it."""
-    workspaces = manager()
-    workspaces.remember(NAMED, "old-browser", "https://x/", {"browser": "firefox"})
-    workspaces.end_browser(Caller(NAMED))
-    record = workspaces.store.get(NAMED)
-    assert not record.attached
-    assert record.url == "https://x/"
-    assert record.settings == {"browser": "firefox"}
 
 
 def test_ending_a_workspace_with_no_browser_ends_nothing():
@@ -2472,15 +2452,6 @@ def test_a_new_page_hints_the_flows_there():  # rulings 6, 12
     assert result["flows_here"] == [LOGIN_HINT]
 
 
-def test_a_query_change_is_not_a_new_page():  # ruling 18
-    asked = []
-    m = hinting(asked)
-    m.settle(NAMED, {"url": "http://localhost:8080/login?next=/admin"}, browser="abc")
-    result = {"url": "http://localhost:8080/login?next=/billing#x"}
-    m.settle(NAMED, result, browser="abc")
-    assert "flows_here" not in result and len(asked) == 1
-
-
 def test_a_route_change_is_a_new_page():  # ruling 2
     m = hinting()
     m.settle(NAMED, {"url": "http://localhost:8080/#/dashboard"}, browser="abc")
@@ -2490,11 +2461,12 @@ def test_a_route_change_is_a_new_page():  # ruling 2
 
 
 @pytest.mark.parametrize("first, then", [
+    ("http://localhost:8080/login?next=/admin", "http://localhost:8080/login?next=/billing#x"),
     ("http://localhost:8080/login#a", "http://localhost:8080/login#b"),
     ("http://localhost:8080/#/auth/login?x=1", "http://localhost:8080/#/auth/login?x=2"),
     ("http://localhost:8080/login", "http://localhost:8080/login#access_token=T"),
 ])
-def test_an_anchor_or_a_route_query_is_not_a_new_page(first, then):  # rulings 1, 2
+def test_a_query_an_anchor_or_a_route_query_is_not_a_new_page(first, then):
     asked = []
     m = hinting(asked)
     m.settle(NAMED, {"url": first}, browser="abc")

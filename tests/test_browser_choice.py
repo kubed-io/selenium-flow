@@ -96,7 +96,7 @@ def test_firefox_is_told_to_save_downloads_without_asking():
 
 
 def test_chrome_is_never_offered_the_chance_to_save_a_password():
-    """The worst-shaped failure this server has had (§F1.37).
+    """The worst-shaped failure this server has had.
 
     Submitting a password makes Chrome offer to remember it, and that offer is
     browser furniture rather than anything in the page: it takes the input focus

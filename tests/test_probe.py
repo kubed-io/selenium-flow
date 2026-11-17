@@ -2,7 +2,7 @@
 
 The first agent to fly a real app lost a stretch of its sortie to a link inside
 a `display: none` menu: the wait said "no clickable element matched" and timed
-out, which is true and is not the diagnosis. The page knew. See saga §F2.8.
+out, which is true and is not the diagnosis. The page knew.
 """
 
 import pytest
@@ -231,7 +231,7 @@ def test_the_failure_and_the_map_read_the_same_answer():
     """The error and `outline` must never disagree about one element, and the
     way to guarantee that is not to test two copies against each other — it is
     to have one copy. Both scripts are built from `_HELPERS`; if someone
-    inlines a second `reasonFor`, this fails (saga §F2.8)."""
+    inlines a second `reasonFor`, this fails."""
     from kubed.selenium_flow.core import js
 
     helpers = js.read(probe._HELPERS_FILE)

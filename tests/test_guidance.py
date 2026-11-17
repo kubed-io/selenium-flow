@@ -165,7 +165,7 @@ def test_a_run_out_of_time_points_at_the_budget_whatever_step_was_next(tool):
 async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode):
     """The instructions name skill:// and every hint names a URI. VS Code's
     model cannot read one, so its instructions say read_resource — on the
-    handshake of either protocol generation (§F3.2)."""
+    handshake of either protocol generation."""
     from fastmcp import Client
     from mcp.types import Implementation
 
@@ -186,7 +186,7 @@ async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode)
 
 
 # What earlier chapters removed. Each was once the name an agent was told to
-# use, and every one of them turned up again in text after it was gone (§F3.3).
+# use, and every one of them turned up again in text after it was gone.
 REMOVED = (
     "current_session",
     "selenium_flow_skill",

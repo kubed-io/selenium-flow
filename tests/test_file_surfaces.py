@@ -1,4 +1,4 @@
-"""What an agent and an HTTP caller can do with a workspace's files (§F4.6, §F4.7)."""
+"""What an agent and an HTTP caller can do with a workspace's files."""
 
 import asyncio
 import base64
@@ -52,7 +52,7 @@ def test_keep_file_takes_a_uri_and_is_not_idempotent(data_server):
     assert list(tool.input_schema["properties"]) == ["uri"]
     assert tool.input_schema["required"] == ["uri"]
     assert tool.annotations.idempotent_hint is False
-    # A download keep REPLACES a same-named file in Files (§F4.7) — honest
+    # A download keep REPLACES a same-named file in Files — honest
     # annotations means this one says so rather than leaning on MCP's own
     # default, which happens to be True for the wrong reason.
     assert tool.annotations.destructive_hint is True

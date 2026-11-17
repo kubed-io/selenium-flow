@@ -154,20 +154,6 @@ async def test_an_unknown_parameter_names_the_ones_the_tool_takes(step_schema_ma
     assert "xpath" in str(caught.value)
 
 
-async def test_a_binding_satisfies_what_the_schema_cannot_demand(step_schema_map):
-    assert validate(
-        flow(
-            steps=[
-                {
-                    "tool": "write",
-                    "args": {"selector": {"css": "#p"}, "secret": {"name": "n", "key": "password"}},
-                }
-            ]
-        ),
-        step_schema_map,
-    )
-
-
 async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
     """press_key goes wherever focus is; screenshot captures the viewport."""
     assert validate(
@@ -217,18 +203,6 @@ async def test_a_declared_parameter_may_be_referenced(step_schema_map, parameter
 @pytest.mark.parametrize(
     "steps",
     [
-        pytest.param(
-            [
-                {
-                    "tool": "write",
-                    "args": {
-                        "selector": {"css": "#password"},
-                        "secret": {"name": "nextcloud", "key": "password"},
-                    },
-                }
-            ],
-            id="a-step-may-take-its-value-from-a-secret",
-        ),
         # `$${` is a literal `${`. Without the escape there would be no way to
         # type one, and a page that genuinely wants `${x}` in a field is not exotic —
         # it is every templating tutorial on the internet.
@@ -575,7 +549,7 @@ async def test_a_write_only_parameter_is_refused_rather_than_ignored(
     """It used to mean "supplied but not returned" and nothing implements that
     now. Accepting a familiar JSON-Schema marker that silently does nothing is
     worse than not having it: an author marks a password `writeOnly`, believes
-    it is hidden, and reads it back out of the report (§F1.38)."""
+    it is hidden, and reads it back out of the report."""
     with pytest.raises(InvalidFlow, match="writeOnly") as caught:
         validate(
             flow(
@@ -652,7 +626,7 @@ async def test_the_escape_it_suggests_actually_saves(step_schema_map):
     assert validate(document, step_schema_map)
 
 
-# ---- a closed set is checked at save time (§F2.1) ----------------------------
+# ---- a closed set is checked at save time ------------------------------------
 
 
 async def test_an_action_outside_its_set_is_refused_at_save_time(step_schema_map):

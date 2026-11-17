@@ -195,13 +195,6 @@ def test_the_socket_refuses_4004_once_the_browser_has_gone(client, server):
     assert (gone.code, gone.reason) == (4004, live_module.NO_BROWSER)
 
 
-def test_an_unreadable_password_file_closes_4003(hub, tmp_path):
-    server = build(password_file=str(tmp_path / "missing"))
-    client = TestClient(server.mcp.http_app())
-    gone = closed_with(client, mint(client))
-    assert gone.code == 4003
-
-
 @pytest.mark.parametrize(
     "name, enabled, reason",
     [

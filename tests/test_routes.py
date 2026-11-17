@@ -35,7 +35,7 @@ pytestmark = pytest.mark.unit
 GRID_DOWN = 503
 
 
-# Every request names its workspace the way the surface says to (§F2.13). It is a
+# Every request names its workspace the way the surface says to. It is a
 # default header on the client rather than a keyword on each call, because it is
 # a property of the caller, not of the request.
 WORKSPACE = "desktop"
@@ -195,12 +195,6 @@ def test_the_probes_answer_when_the_grid_url_is_malformed():
     assert ready.status_code == GRID_DOWN and "hunter2" not in ready.text
 
 
-def test_endpoints_reject_a_missing_token(client):
-    response = client.post("/browser", json={})
-    assert response.status_code == 401
-    assert response.json() == {"error": "unauthorized"}
-
-
 def test_endpoints_reject_a_wrong_token(client):
     response = client.post(
         "/browser", json={}, headers={"Authorization": "Bearer nope"}
@@ -275,7 +269,7 @@ def test_a_bad_argument_is_a_400_naming_it(open_client, path, body, said):
 
 def test_the_mouse_action_is_the_path_not_a_field(open_client):
     """`/browser/interact/click` reads as the thing it does, and the action can
-    no longer be omitted: without one there is no route (§F2.13)."""
+    no longer be omitted: without one there is no route."""
     assert open_client.post("/browser/interact", json={}).status_code in (404, 405)
 
 
@@ -405,13 +399,25 @@ def test_upload_accepts_a_multipart_file(open_client):
     assert response.status_code == GRID_DOWN, response.json()
 
 
-def test_a_multipart_filename_can_be_overridden(open_client):
-    response = open_client.post(
-        "/browser/upload",
-        data={"selector": '{"xpath": "//input"}', "filename": "renamed.csv"},
+def test_a_multipart_filename_can_be_overridden():
+    """An explicit `filename` field wins over the file part's own name."""
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    from kubed.selenium_flow.http import answer
+
+    async def echo(request):
+        body = await answer.read_body(request)
+        return JSONResponse({"filename": body["filename"], "content": body["content"].decode()})
+
+    client = TestClient(Starlette(routes=[Route("/", echo, methods=["POST"])]))
+    response = client.post(
+        "/",
+        data={"filename": "renamed.csv"},
         files={"content": ("original.csv", b"x", "text/csv")},
     )
-    assert response.status_code == GRID_DOWN, response.json()
+    assert response.json() == {"filename": "renamed.csv", "content": "x"}
 
 
 def test_frame_default_needs_no_target(open_client):
@@ -468,7 +474,7 @@ def test_every_endpoint_is_mounted(route_table):
 
 def test_the_browser_is_one_resource_addressed_by_naming_yourself(open_client):
     """Opening, reading and ending are methods on it rather than paths of their
-    own, because which browser is a question about who is asking (§F2.13)."""
+    own, because which browser is a question about who is asking."""
     assert open_client.get("/browser").status_code == 200
     assert open_client.delete("/browser").status_code == 200
 
@@ -570,7 +576,7 @@ def prefixed():
 
 
 def test_every_tree_moves_with_the_prefix(prefixed):
-    """The inversion §F1.11 asked for: `ROUTE_PREFIX` used to rename `/browser`
+    """`ROUTE_PREFIX` used to rename `/browser`
     while `/mcp`, `/admin` and `/files` stayed fixed. Nobody wants the browser
     endpoints called something else; everybody eventually wants the server
     mounted under a path."""

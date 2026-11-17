@@ -2,7 +2,7 @@
 
 One entry per origin, newest first, and the current page is the top one. Only
 a page with an origin enters it, and a URL withheld after a secret write
-records nothing (§F1.24). Entries expire with the record's TTL, the top one
+records nothing. Entries expire with the record's TTL, the top one
 excepted."""
 
 import json

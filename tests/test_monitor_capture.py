@@ -1,6 +1,6 @@
 """The monitor holds a capture's connection: attached before the first page,
 closed clean at the deadline, held again with ``again`` after it, backed off
-when it cannot open, and leaking nothing when cancelled (capture spec, §2)."""
+when it cannot open, and leaking nothing when cancelled."""
 
 import asyncio
 import logging
@@ -39,7 +39,6 @@ def clock():
 
 @pytest.fixture
 async def running_monitor(clock):
-    FakeConnection.reset()
     sink = FakeSink()
     monitor = monitor_for(sink, clock)
     monitor.bus.start()
@@ -49,7 +48,6 @@ async def running_monitor(clock):
     finally:
         await monitor.stop()
         await monitor.bus.stop()
-        FakeConnection.reset()
 
 
 async def test_attach_holds_subscribes_and_collects_before_returning(running_monitor):
@@ -303,7 +301,6 @@ async def test_a_looks_failed_hold_backs_off_from_when_it_failed(clock):
     began, and the next call held again at once."""
     import threading
 
-    FakeConnection.reset()
     began, answer = threading.Event(), threading.Event()
 
     def listing():
@@ -329,7 +326,6 @@ async def test_a_looks_failed_hold_backs_off_from_when_it_failed(clock):
         answer.set()
         await monitor.stop()
         await monitor.bus.stop()
-        FakeConnection.reset()
 
 
 async def test_a_failed_resume_backs_off_instead_of_costing_every_call(running_monitor, clock):
@@ -395,7 +391,6 @@ class PagesSink(FakeSink):
 @pytest.fixture
 async def both(clock):
     """A running monitor with capture's events and control's, each to its sink."""
-    FakeConnection.reset()
     capture, pages = HeardCapture(), PagesSink()
     monitor = Monitor(
         LocalBus(), listing=lambda: (1, {GID: 300}), socket_url=lambda s: f"ws://x/{s}",
@@ -410,7 +405,6 @@ async def both(clock):
     finally:
         await monitor.stop()
         await monitor.bus.stop()
-        FakeConnection.reset()
 
 
 async def test_a_control_only_hold_never_reaches_capture(both):
@@ -545,7 +539,6 @@ class Resending(FakeConnection):
 
 async def test_a_tab_open_before_a_control_only_hold_is_not_followed(clock):
     """Ruling 26, through the real `Pages` on a first hold."""
-    FakeConnection.reset()
     pages = Pages()
     monitor = Monitor(
         LocalBus(), listing=lambda: (1, {GID: 300}), socket_url=lambda s: f"ws://x/{s}",
@@ -570,7 +563,6 @@ async def test_a_tab_open_before_a_control_only_hold_is_not_followed(clock):
     finally:
         await monitor.stop()
         await monitor.bus.stop()
-        FakeConnection.reset()
 
 
 async def lapsed(monitor, clock):
@@ -626,7 +618,6 @@ async def test_a_resume_that_times_out_still_backs_off(both, clock, monkeypatch)
 @pytest.fixture
 async def told(clock):
     """Both reasons, each to a recording sink, so ``again`` is seen."""
-    FakeConnection.reset()
     capture, pages = FakeSink(), PagesSink()
     monitor = Monitor(
         LocalBus(), listing=lambda: (1, {GID: 300}), socket_url=lambda s: f"ws://x/{s}",
@@ -641,7 +632,6 @@ async def told(clock):
     finally:
         await monitor.stop()
         await monitor.bus.stop()
-        FakeConnection.reset()
 
 
 NAVIGATED = "browsingContext.navigationStarted"  # capture's, not control's

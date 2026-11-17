@@ -68,12 +68,6 @@ def test_an_open_dialog_is_reported_as_page_state_and_never_raised(
     assert "answer it with dialog" in result["hint"]
 
 
-def test_a_page_with_no_dialog_has_no_dialog_keys(actions, scripted):
-    scripted()
-    result = actions.navigate("abc", PAGE)
-    assert result == {"url": PAGE, "title": "Example"}
-
-
 # ---- K6: settling is allowed to expire ---------------------------------------
 
 

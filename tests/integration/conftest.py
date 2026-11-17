@@ -14,11 +14,7 @@ answer is "a detail of a behaviour already covered", it belongs in the unit
 suite, which is fast and does not need a browser.
 
 One exception, ``test_responsive.py``: whether the server keeps answering while
-a browser is busy is not something a flow can see (§F4.19).
-
-``PROFILE_DIR``, when set and ``py-spy`` is installed, records the server for the
-whole run as a flamegraph there: MCP driving a browser and that browser driving
-the admin page, at once, in one process.
+a browser is busy is not something a flow can see.
 
 Needs two settings, and skips without them:
 
@@ -65,7 +61,7 @@ def pytest_collection_modifyitems(items):
             item.add_marker(skip)
 
 
-# A starved 2-core runner, with py-spy sampling the server, took ~30 s to start.
+# A starved 2-core runner has taken ~30 s to start the server.
 STARTUP_SECONDS = 90
 
 
@@ -87,29 +83,6 @@ def _wait_until_serving(url: str, process: subprocess.Popen, log: Path) -> None:
 def _signal_group(process: subprocess.Popen, sig: int) -> None:
     with contextlib.suppress(ProcessLookupError):
         os.killpg(process.pid, sig)
-
-
-def _profiled(command: list[str]) -> list[str]:
-    """``command`` under ``py-spy record`` when PROFILE_DIR asks for it.
-
-    Its own child, so no ptrace privilege is needed. Non-blocking: py-spy's
-    default pauses the process for every sample, and on a loaded 2-core runner
-    it fell hundreds of seconds behind ("behind in sampling") and kept stopping
-    the server to catch up, so a POST /mcp was answered every ~200 s and the
-    responsiveness test and four flow fixtures failed to connect (run
-    37088887775). A profiler that can pause the server cannot sit under a
-    responsiveness assertion; torn reads cost flamegraph fidelity, not the
-    measurement.
-    """
-    directory = os.environ.get("PROFILE_DIR")
-    spy = shutil.which("py-spy") if directory else None
-    if not spy:
-        return command
-    Path(directory).mkdir(parents=True, exist_ok=True)
-    svg = str(Path(directory, "server.svg"))
-    # 10 Hz is plenty for a flamegraph on a 2-core runner.
-    return [spy, "record", "--threads", "--nonblocking", "--rate", "10",
-            "--format", "flamegraph", "-o", svg, "--", *command]
 
 
 @pytest.fixture(scope="session")
@@ -136,7 +109,7 @@ def server(tmp_path_factory):
     log = root / "server.log"
     with log.open("w") as out:
         process = subprocess.Popen(
-            _profiled([sys.executable, "-m", "kubed.selenium_flow"]),
+            [sys.executable, "-m", "kubed.selenium_flow"],
             env=env,
             stdout=out,
             stderr=subprocess.STDOUT,
@@ -147,9 +120,9 @@ def server(tmp_path_factory):
         _wait_until_serving(f"{local}/health", process, log)
         yield local
     finally:
-        # SIGINT to the group: the server shuts down the way Ctrl-C does, and
-        # py-spy, when it is there, stops and writes its profile. A server that
-        # died at startup has no group left, and that must not hide its log.
+        # SIGINT to the group: the server shuts down the way Ctrl-C does. A
+        # server that died at startup has no group left, and that must not
+        # hide its log.
         _signal_group(process, signal.SIGINT)
         try:
             process.wait(timeout=30)

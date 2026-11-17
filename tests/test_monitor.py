@@ -42,7 +42,6 @@ class Listing:
 
 @pytest.fixture
 def parts():
-    FakeConnection.reset()
     bus, heard = LocalBus(), []
     bus.subscribe(("session.opened", "session.ended"), heard.append, name="t")
     listing, clock = Listing({GID: 300}), Clock()
@@ -537,7 +536,6 @@ async def test_a_call_on_an_unwatched_session_starts_its_keep_alive():  # Review
 
 
 async def test_the_keep_alive_alone_holds_no_connection():  # Dr K, plan review (11-14)
-    FakeConnection.reset()
     clock, pings = Clock(), Pings()
     monitor = Monitor(
         LocalBus(), listing=Listing({GID: 300}), ping=pings, keep_alive=900,
@@ -553,7 +551,6 @@ async def test_the_keep_alive_alone_holds_no_connection():  # Dr K, plan review 
 
 
 async def test_capture_beside_the_keep_alive_lets_go_at_the_nodes_timeout():  # Dr K, rulings 9, 20
-    FakeConnection.reset()
     clock, pings, sink = Clock(), Pings(), FakeSink()
     monitor = Monitor(
         LocalBus(), listing=Listing({GID: 300}), ping=pings, keep_alive=900,

@@ -1,4 +1,4 @@
-"""Serving the built UI, and serving without one (§F4.15, §F4.17)."""
+"""Serving the built UI, and serving without one."""
 
 import html
 import json

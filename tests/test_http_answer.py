@@ -43,13 +43,6 @@ TREES = (
 )
 
 
-def test_there_is_one_answer_and_the_trees_share_it():
-    """The module exists and is where the shared decision lives."""
-    from kubed.selenium_flow.http import answer as answer_module
-
-    assert callable(answer_module.answer)
-
-
 @pytest.mark.parametrize(("method", "path"), TREES)
 def test_no_token_is_401_on_every_tree(client, method, path):
     """Whichever tree answered, a request with no credential reads the same."""

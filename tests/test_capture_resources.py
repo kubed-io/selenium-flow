@@ -1,5 +1,5 @@
 """`workspace://console` and `workspace://network`: five forms, one rule - they
-read what capture kept, and never open or ask a browser (spec §7, plan ruling 12)."""
+read what capture kept, and never open or ask a browser."""
 
 import json
 

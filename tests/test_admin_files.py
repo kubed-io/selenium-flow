@@ -1,6 +1,6 @@
 """The admin surface over a workspace's three file sections.
 
-Downloads, Screenshots and Files never merge into one list (§F4.6): each has
+Downloads, Screenshots and Files never merge into one list: each has
 its own address, its own listing, and — for Screenshots and Downloads — its
 own clear. This module is the HTTP-level proof of the routes `admin.py`
 builds on top of `files.sections`, `files.keep`, `files.delete_one` and
@@ -36,7 +36,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 @pytest.fixture
 def client(data_server):
-    """Every request names its workspace, the way this surface says to (§F2.13)."""
+    """Every request names its workspace, the way this surface says to."""
     return TestClient(
         data_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
     )
@@ -92,7 +92,7 @@ def test_clearing_downloads_empties_the_grid_store(client, live):
     assert response.status_code == 200, response.text
     clear.assert_called_once_with("abc")
     # Screenshots are ours and elsewhere, so clearing the Grid's store leaves
-    # them exactly where they were (§F1.10).
+    # them exactly where they were.
     assert [f["name"] for f in live.flows.files(WORKSPACE, SCREENSHOTS_DIR)] == [
         "shot.png"
     ]

@@ -238,7 +238,7 @@ def test_every_outline_selector_matches_exactly_the_element_it_describes():
 # textContent, so a toolbar read "SaveCancel" and a container read as
 # everything in it (#138). A control is still named from its content,
 # descendants included, as ARIA names a link or a button; anything else is
-# named only from text it owns, as for the text selector (saga §F2.10).
+# named only from text it owns, as for the text selector.
 def names(page, interactive=True, text=""):
     answer = outline(page, text=text, interactive=interactive)
     return [(e["role"], e["name"]) for e in answer["elements"]]

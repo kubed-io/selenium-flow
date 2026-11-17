@@ -2,8 +2,7 @@
 
 A skill is read by the model; a prompt is picked by a person. An agent cannot
 invoke one — so when a run fails, the report names the prompt that repairs it and
-the reference that explains the failure, and somebody can act on either. See
-saga §F2.6.
+the reference that explains the failure, and somebody can act on either.
 """
 
 import pytest

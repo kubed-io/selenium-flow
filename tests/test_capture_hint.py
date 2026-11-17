@@ -1,6 +1,5 @@
 """Every call: the monitor is touched, `call.finished` is said, and with capture
-on the result carries what the page reported while the call ran (spec §6,
-ruling 12; plan rulings 4-8)."""
+on the result carries what the page reported while the call ran."""
 
 import itertools
 import logging

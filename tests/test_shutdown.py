@@ -4,7 +4,7 @@ The real server as a process, because signal handling is uvicorn's and
 FastMCP's, not anything a TestClient runs. An admin page's event stream is held
 open while the signal lands: that stream never ends on its own, and as a plain
 StreamingResponse it held every rollout for FastMCP's whole 2s grace, was
-cancelled, and left a traceback per open page in the log (§F4.19).
+cancelled, and left a traceback per open page in the log.
 """
 
 import json

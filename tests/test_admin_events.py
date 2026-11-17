@@ -12,6 +12,7 @@ a semaphore, so "N entered" means the Nth tick is under way.
 import asyncio
 import json
 import threading
+import time
 
 import pytest
 
@@ -19,9 +20,53 @@ from kubed.selenium_flow.http.admin import workspaces as admin
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
-from .test_files_and_admin import _listen, _until
 
 pytestmark = pytest.mark.unit
+
+
+async def _listen(app, sink, stop):
+    """One `/admin/events` client, speaking raw ASGI.
+
+    Not a TestClient: its portal buffers a response until the app finishes, and
+    this one never does. ``sink`` collects each event's data as it is sent;
+    setting ``stop`` is the browser closing the tab.
+    """
+
+    async def receive():
+        await stop.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.body":
+            for line in message.get("body", b"").decode().splitlines():
+                if line.startswith("data: "):
+                    sink.append(line[len("data: "):])
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": "/admin/events",
+            "raw_path": b"/admin/events",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [(b"authorization", f"Bearer {TOKEN}".encode())],
+            "client": ("127.0.0.1", 1),
+            "server": ("test", 80),
+        },
+        receive,
+        send,
+    )
+
+
+async def _until(condition, what, seconds=5.0):
+    deadline = time.monotonic() + seconds
+    while not condition():
+        assert time.monotonic() < deadline, f"timed out waiting for {what}"
+        await asyncio.sleep(0.01)
 
 
 async def _request(app, method, path):
@@ -86,6 +131,27 @@ def counted(server, monkeypatch):
     return calls
 
 
+@pytest.fixture
+def under_way(monkeypatch):
+    """The listings being computed in a worker thread right now. A test that
+    closes its pages waits for this to empty before it counts Grid calls: a
+    tick started before the last page left may reach the Grid after it."""
+    running, used = [], []
+    real = admin.run_in_threadpool
+
+    async def tracked(fn, *args, **kwargs):
+        running.append(fn)
+        used.append(fn)
+        try:
+            return await real(fn, *args, **kwargs)
+        finally:
+            running.remove(fn)
+
+    monkeypatch.setattr(admin, "run_in_threadpool", tracked)
+    yield running
+    assert used, "the broadcast no longer computes through run_in_threadpool"
+
+
 async def _close(stop, tasks, gate=None):
     """Close every page. The gate opens first: a page stuck behind it would
     hold the close, and a failing test would hang rather than fail."""
@@ -95,26 +161,72 @@ async def _close(stop, tasks, gate=None):
     await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 5)
 
 
-async def test_three_pages_cost_one_grid_listing_a_tick(server, gated):
-    gate, entered = gated
+async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch):
+    """One broadcaster sits behind every connection, so three open pages ask the
+    Grid once a tick. What must survive is the rest — one payload when something
+    changed, none when nothing did, and a late joiner's first event is the state
+    as it is now.
+
+    Ticks are paced by the test, not the clock: `grid.status` blocks on a
+    semaphore, so "one entered" means the broadcaster is mid-tick and the counts
+    are exact on any runner. A tick reads the store *before* it asks the
+    Grid, so a change made while a tick is blocked is seen by the one after."""
+    monkeypatch.setattr(admin, "POLL_SECONDS", 0.05)
+    gate = threading.Semaphore(0)
+    entered = []
+
+    def status():
+        entered.append(1)
+        gate.acquire()
+        return {"value": {"nodes": []}}
+
+    monkeypatch.setattr(server.actions.grid, "status", status)
     server.workspaces.store.set("one", Workspace(session_id=""))
+
     app = server.mcp.http_app()
     stop = asyncio.Event()
     sinks = [[], [], []]
     tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
+
+    async def tick(number, pages=1):
+        """Wait for the `number`th Grid call, then let it through."""
+        await _until(lambda: len(entered) >= number, f"Grid call {number}")
+        assert len(entered) == number, "one Grid listing per tick, for every page"
+        gate.release(pages)
+
     try:
-        for tick in (1, 2, 3):
-            await _until(lambda t=tick: len(entered) >= t, f"tick {tick}")
-            assert len(entered) == tick, "one Grid listing per tick, not per page"
-            gate.release(1)
-        await _until(lambda: len(entered) >= 4, "the fourth tick")
-        assert len(entered) == 4
-        assert all(len(s) == 1 for s in sinks) and sinks[0] == sinks[1] == sinks[2]
+        await tick(1)  # first tick: the state as it is
+        await _until(lambda: all(len(s) == 1 for s in sinks), "the first events")
+        assert sinks[0] == sinks[1] == sinks[2]
+
+        await tick(2)  # second tick: nothing changed
+        await tick(3)  # reaching the third means the second finished
+        assert all(len(s) == 1 for s in sinks), "a tick that found no change spoke"
+
+        # Tick three is blocked having already read the store; this lands in four.
+        server.workspaces.store.set("two", Workspace(session_id=""))
+        await tick(4)
+        await _until(lambda: all(len(s) == 2 for s in sinks), "the change")
+        assert sinks[0] == sinks[1] == sinks[2]
+        assert sinks[0][0] != sinks[0][1]
+        assert [r["key"] for r in json.loads(sinks[0][1])["workspaces"]] != []
+
+        late = []
+        tasks.append(asyncio.create_task(_listen(app, late, stop)))
+        # The broadcaster is mid-tick again, and one permit lets it through.
+        await _until(lambda: len(entered) >= 5, "the next Grid call")
+        gate.release(1)
+        await _until(lambda: len(late) == 1, "the late joiner's first event")
+        assert late[0] == sinks[0][1], "its first event is the state now"
     finally:
-        await _close(stop, tasks, gate)
+        stop.set()
+        gate.release(1000)
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 5)
 
 
-async def test_nothing_polls_once_the_last_page_has_gone(server, counted, monkeypatch):
+async def test_nothing_polls_once_the_last_page_has_gone(
+    server, counted, under_way, monkeypatch
+):
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
     app = server.mcp.http_app()
     stop = asyncio.Event()
@@ -122,17 +234,19 @@ async def test_nothing_polls_once_the_last_page_has_gone(server, counted, monkey
     tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
     await _until(lambda: len(counted) >= 3, "a few ticks")
     await _close(stop, tasks)
+    await _until(lambda: not under_way, "the tick under way")
 
     settled = len(counted)
     await asyncio.sleep(0.2)  # ten ticks' worth
     assert len(counted) == settled, "the broadcaster outlived its pages"
 
-    # And the next page starts it again.
+    # And the next page starts it again. Its first event can be the recent
+    # broadcast handed out on joining, before the new tick reaches the Grid.
     again, stop = [], asyncio.Event()
     task = asyncio.create_task(_listen(app, again, stop))
     try:
         await _until(lambda: len(again) == 1, "the first event after a restart")
-        assert len(counted) > settled
+        await _until(lambda: len(counted) > settled, "a Grid listing after a restart")
     finally:
         await _close(stop, [task])
 
@@ -245,7 +359,9 @@ async def test_a_failed_tick_sends_nothing_and_the_stream_carries_on(
         await _close(stop, [task])
 
 
-async def test_a_page_that_drops_mid_send_leaves_at_once(server, counted, monkeypatch):
+async def test_a_page_that_drops_mid_send_leaves_at_once(
+    server, counted, under_way, monkeypatch
+):
     """A client gone while its event is being written leaves a paused generator
     that only the garbage collector would close. The page must not wait for it:
     with the collector off, the polling stops when the response returns."""
@@ -276,7 +392,7 @@ async def test_a_page_that_drops_mid_send_leaves_at_once(server, counted, monkey
     gc.disable()
     try:
         await asyncio.wait_for(app(scope, receive, send), 5)
-        await asyncio.sleep(0.05)  # a tick already under way may finish
+        await _until(lambda: not under_way, "the tick under way")
         settled = len(counted)
         await asyncio.sleep(0.2)  # ten ticks' worth
         assert len(counted) == settled, "the Grid is still polled for a closed page"
