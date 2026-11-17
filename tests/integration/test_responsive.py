@@ -3,7 +3,7 @@
 Not a flow, and the one exception to the rule in ``conftest.py``: what breaks
 here is not something a flow can see. Every `/browser/*` action used to run on
 the event loop, so one `assert` waiting minutes stalled MCP, the admin page and
-`/health` until it finished (§F4.19). The unit suite proves the calls leave the
+`/health` until it finished. The unit suite proves the calls leave the
 loop; this proves the property a person feels, against the real server, Grid
 and Redis, with MCP and the admin API asked at the same time.
 

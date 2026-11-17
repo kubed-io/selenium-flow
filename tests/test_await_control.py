@@ -538,7 +538,7 @@ async def test_the_carried_header_is_ignored_on_a_request(server):
 
 async def test_a_submission_naming_no_workspace_is_refused(server):
     """Refused at submission, as the tool would refuse it inline: a worker
-    has nothing to say it with, and must never invent a name (§F2.12)."""
+    has nothing to say it with, and must never invent a name."""
     hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "alex", "control"))
     async with over_http(server, "http://test/mcp") as client:
         with pytest.raises(ToolError, match="did not run as a task"):

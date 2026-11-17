@@ -549,7 +549,7 @@ async def test_a_write_only_parameter_is_refused_rather_than_ignored(
     """It used to mean "supplied but not returned" and nothing implements that
     now. Accepting a familiar JSON-Schema marker that silently does nothing is
     worse than not having it: an author marks a password `writeOnly`, believes
-    it is hidden, and reads it back out of the report (§F1.38)."""
+    it is hidden, and reads it back out of the report."""
     with pytest.raises(InvalidFlow, match="writeOnly") as caught:
         validate(
             flow(
@@ -626,7 +626,7 @@ async def test_the_escape_it_suggests_actually_saves(step_schema_map):
     assert validate(document, step_schema_map)
 
 
-# ---- a closed set is checked at save time (§F2.1) ----------------------------
+# ---- a closed set is checked at save time ------------------------------------
 
 
 async def test_an_action_outside_its_set_is_refused_at_save_time(step_schema_map):

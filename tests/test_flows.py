@@ -101,7 +101,7 @@ def test_a_bad_name_is_refused_naming_its_kind(refusal, name, kind):
 
 def test_a_workspace_owns_the_library_of_its_own_name():
     """One answer now, where there were three. A workspace name IS a directory
-    name — validated where it arrives (§F2.12) — so there is no longer a lenient
+    name — validated where it arrives — so there is no longer a lenient
     resolver for browsers, a strict one for storage, and a third answering None
     for the admin list."""
     assert library_of("research-bot") == "research-bot"
@@ -263,7 +263,7 @@ def test_a_listing_resolves_no_path_per_entry(store, monkeypatch):
     assert listing(2) == listing(40)
 
 
-# ---- parsing, which every listing pays for per flow (§F4.19) -----------------
+# ---- parsing, which every listing pays for per flow --------------------------
 
 
 def test_a_hand_edit_is_read_at_once_not_from_a_cache(store, tmp_path):
@@ -504,8 +504,8 @@ def test_a_symlink_to_another_workspace_is_refused_even_though_it_stays_inside(
 def test_the_root_itself_may_be_a_link_because_that_is_the_installer_s_business(
     tmp_path,
 ):
-    """DATA_DIR pointing at a mount is exactly the case §F1.12 leaves open,
-    so only the parts we join on have to be honest."""
+    """DATA_DIR may point at a mount, so only the parts we join on have to be
+    honest."""
     real = tmp_path / "real"
     real.mkdir()
     link = tmp_path / "link"

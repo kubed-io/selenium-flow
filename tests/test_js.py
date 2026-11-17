@@ -112,8 +112,8 @@ def test_the_scripts_are_not_escaped_for_python_any_more():
 
 
 def test_helpers_are_shared_rather_than_copied():
-    """One copy of the reasoning, concatenated into both scripts — the property
-    saga §F2.8 rests on, now that the files could drift apart instead."""
+    """One copy of the reasoning, concatenated into both scripts, which could
+    otherwise drift apart."""
     helpers = js.read(probe._HELPERS_FILE)
     assert helpers in probe.USABLE_JS
     assert helpers in probe.OUTLINE_JS

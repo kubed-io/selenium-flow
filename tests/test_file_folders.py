@@ -1,4 +1,4 @@
-"""A workspace keeps files in two folders: Files, and its screenshots (§F4.7).
+"""A workspace keeps files in two folders: Files, and its screenshots.
 
 Downloads are not here — they are the Grid's. What is asserted is that the two
 folders are separate, that the folder is part of every address, and that the
@@ -70,7 +70,7 @@ def test_clearing_a_folder_that_does_not_exist_is_zero(store):
 
 
 def test_files_cannot_be_cleared_wholesale(store):
-    """Everything in Files was put there on purpose (§F4.1)."""
+    """Everything in Files was put there on purpose."""
     store.write_file(S, "keep.pdf", b"y")
     with pytest.raises(InvalidName):
         store.clear_folder(S, FILES_DIR)

@@ -1,6 +1,6 @@
 """The monitor holds a capture's connection: attached before the first page,
 closed clean at the deadline, held again with ``again`` after it, backed off
-when it cannot open, and leaking nothing when cancelled (capture spec, §2)."""
+when it cannot open, and leaking nothing when cancelled."""
 
 import asyncio
 import logging

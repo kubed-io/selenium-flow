@@ -457,7 +457,7 @@ def test_one_bad_line_invalidates_the_whole_declaration(tmp_path):
 
 
 def test_a_declaration_carrying_a_path_is_refused_not_trimmed(tmp_path):
-    """Origins are what §F1.27 compares, so https://host/admin and https://host
+    """Origins are what the leash compares, so https://host/admin and https://host
     are the same permission. Quietly widening one into the other makes the file
     say less than its author wrote."""
     make_secret(
@@ -628,7 +628,7 @@ def test_a_refused_bind_is_logged_without_a_value(tmp_path, caplog):
 @pytest.mark.parametrize("tool", ["execute_script", "navigate", "press_key", "extract"])
 def test_only_write_may_receive_a_secret(bindable, tool):
     """A script is arbitrary code; a URL lands in history, the referrer and our
-    own workspace record. Neither may carry a credential (§F1.28)."""
+    own workspace record. Neither may carry a credential."""
     with pytest.raises(secrets.Refused, match="cannot be bound into"):
         secrets.bind(
             bindable, {"name": "anywhere", "key": "token"},
@@ -836,7 +836,7 @@ def bound_http(tmp_path, monkeypatch):
         secrets={"dirs": str(tmp_path)},
     ))
     # A named workspace holding a browser: this surface addresses one by naming
-    # itself now, so there is no id to put in the body (§F2.13).
+    # itself now, so there is no id to put in the body.
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("b1", "chrome"))
     client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": "desktop"})
     return client, typed

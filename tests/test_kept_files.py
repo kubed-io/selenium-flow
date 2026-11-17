@@ -54,7 +54,7 @@ def store(tmp_path):
 
 @pytest.fixture
 def client(data_server):
-    """Every request names its workspace, the way this surface says to (§F2.13)."""
+    """Every request names its workspace, the way this surface says to."""
     return TestClient(
         data_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
     )
@@ -79,8 +79,8 @@ def test_a_kept_file_round_trips(store):
 
 
 def test_a_kept_entry_is_shaped_like_the_grids(store):
-    """Files and Screenshots are read separately from Downloads, never merged
-    (§F4.6, §F4.7), but the shapes still have to agree on the key names AND
+    """Files and Screenshots are read separately from Downloads, never merged,
+    but the shapes still have to agree on the key names AND
     the units. Milliseconds, because that is what the Grid reports — a
     seconds-based timestamp beside it sorts every kept file to 1970 while
     nothing looks wrong."""
@@ -288,7 +288,7 @@ def test_deleting_refuses_when_keeping_is_off():
 # ---- the two surfaces --------------------------------------------------------
 
 # What answers each endpoint over MCP: a resource for a read, a tool for an
-# action (§F3.6). Written out rather than derived, so a typo in either table
+# action. Written out rather than derived, so a typo in either table
 # cannot make the parity test agree with itself.
 MCP_FOR = {
     "list": ("resource", files.ROOT_URI),
@@ -337,7 +337,7 @@ async def test_the_file_actions_are_not_counted_as_browser_actions(data_server):
 
 
 async def test_the_keep_tool_declares_honest_annotations(data_server):
-    """A download keep REPLACES a same-named file in Files (§F4.7), so the
+    """A download keep REPLACES a same-named file in Files, so the
     honest hint is destructive — the ruling from the final review: a missing
     or wrong annotation is worse than the confirmation prompt it costs a
     client that honours it."""
@@ -347,7 +347,7 @@ async def test_the_keep_tool_declares_honest_annotations(data_server):
     assert keep.destructive_hint is True, "a download keep replaces a same-named file"
     # False: a screenshot move is refused the second time (there is no longer a
     # screenshot to move) and a download kept twice replaces the same bytes —
-    # neither is "repeat me and nothing further happens" (§F4.7).
+    # neither is "repeat me and nothing further happens".
     assert keep.idempotent_hint is False
 
 
@@ -394,7 +394,7 @@ def test_keep_then_list_over_http(client, live):
     assert [f["name"] for f in body["files"]] == ["report.pdf"]
     assert body["workspace"] == WORKSPACE
     # The Grid still reports both — keeping a download is a copy, so the
-    # original stays exactly where it was until the browser ends (§F1.10).
+    # original stays exactly where it was until the browser ends.
     assert downloads["folder"] == "downloads" and downloads["count"] == 2
 
 
@@ -473,7 +473,7 @@ def test_the_grids_own_status_decides_what_its_refusal_means(status, expected):
 async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
     """Nothing was stored, so there is no name to carry and no reason to wrap
     the result in anything. Storing is now the default, so this is the caller
-    that asked not to (§F2.9)."""
+    that asked not to."""
     tool = await live.mcp.get_tool("screenshot")
     with patch.object(
         live.actions,

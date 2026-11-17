@@ -2,7 +2,7 @@
 
 A flow had no way to state what must be true, so one came back 8/8 green while
 sitting on the wrong page — the worst thing this server can do, because a loud
-failure costs a turn and a confident green costs ten. See saga §F2.5.
+failure costs a turn and a confident green costs ten.
 """
 
 import pytest
@@ -184,7 +184,7 @@ class _AlreadySignedIn:
 
 def test_a_failing_assert_stops_the_run_and_carries_the_message():
     """The whole point, through `run()`: no new status, and the step's error is
-    the sentence its author wrote (saga §F2.5)."""
+    the sentence its author wrote."""
     from kubed.selenium_flow.flows.run import run
 
     report = run(_AlreadySignedIn(), LOGIN_GUARD, "b")
@@ -378,7 +378,7 @@ async def test_the_tool_publishes_stable_for(server):
 
 
 def test_a_transient_true_does_not_satisfy_a_hold(actions, driving, clock):
-    """The fault §F2.10 opened with. Navigating to `/`, a real app painted its
+    """Navigating to `/`, a real app painted its
     authenticated shell for a moment before the auth guard redirected, and a
     guard asking until true caught that moment — so it passed while signed out.
     True, then false, has not held true for anything."""

@@ -1,6 +1,6 @@
 """A long run is watchable, survives a client's idle timeout, and can be stopped.
 
-The pilot behind §F2.15 lost a run that had succeeded: one `assert` waiting up to
+A pilot lost a run that had succeeded: one `assert` waiting up to
 fifteen minutes sent nothing for five, the client gave up, and the flow went on
 to finish for nobody. These hold the three things that fix it, through the real
 MCP client wherever the property is about what a client sees:

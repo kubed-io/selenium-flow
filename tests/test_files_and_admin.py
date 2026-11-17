@@ -463,7 +463,7 @@ def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server)
 
 def test_the_stdio_workspace_is_listed_and_labelled(client, server):
     """One key shape survives — the name a caller chose — and `stdio` is the one
-    nobody typed, so it is still worth saying where it came from (§F2.12)."""
+    nobody typed, so it is still worth saying where it came from."""
     server.workspaces.store.set("stdio", Workspace(session_id="abc"))
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(

@@ -65,7 +65,7 @@ def test_a_broken_store_answers_through_errors_not_a_bare_500(
     """`catalogue.listing` used to run unguarded, so an ``OSError`` from a store
     gone read-only or unmounted fell straight through to Starlette's own handler
     instead of the scrubbed, logged answer every other route on this surface
-    gives (§AGENTS.md, errors.py)."""
+    gives (AGENTS.md, errors.py)."""
     from kubed.selenium_flow import secrets as secrets_module
 
     srv = SeleniumMCP(Settings(

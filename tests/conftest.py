@@ -218,7 +218,7 @@ def unnamed_caller(monkeypatch):
     """Make the ambient request name no workspace at all.
 
     There is one contract now, and this is the caller that has not met it: every
-    call is refused with the message that says how to name yourself (§F2.12).
+    call is refused with the message that says how to name yourself.
     """
     monkeypatch.setattr(clients_module, "request_values", lambda: http())
     return

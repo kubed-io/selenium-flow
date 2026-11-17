@@ -1,4 +1,4 @@
-"""The admin's flow API: the operator path §F1.2 reserves.
+"""The admin's flow API: the operator's path into every library.
 
 `/flows/*` is scoped to whoever is calling and refuses the shared library.
 This surface addresses **any** workspace and is allowed into `global`, because a
@@ -347,7 +347,7 @@ def test_deleting_a_shared_flow_is_allowed_here(client, server):
 
 def test_a_flow_moves_to_the_shared_library(client, server):
     """Promotion is this verb with `global` as the target — there is no separate
-    promote, because a flow lives in exactly one directory (§F1.2)."""
+    promote, because a flow lives in exactly one directory."""
     server.flows.write_text(WORKSPACE, "login", YAML)
     body = client.post(
         url("login", "/move"), json={"to": GLOBAL_WORKSPACE}, headers=AUTH

@@ -2,8 +2,8 @@
 
 Everything to read is a resource, and the text an agent reads names it by URI.
 A client whose model cannot read resources — VS Code Copilot is the one
-measured — gets `list_resources` and `read_resource`, which take the same URIs
-(saga §F3.1, §F3.6). These go through the real MCP client wherever the property
+measured — gets `list_resources` and `read_resource`, which take the same URIs.
+These go through the real MCP client wherever the property
 is about what a client is shown or reads.
 """
 
@@ -70,7 +70,7 @@ def test_stdio_clients_are_assumed_to_read_resources(monkeypatch):
 
 async def test_vs_code_is_given_the_reading_tools_without_asking(reader):
     """Its model cannot list or read a resource, so the default is decided by
-    who is calling (§F3.1)."""
+    who is calling."""
     assert await listed(reader, "Visual Studio Code") >= mirror.MIRROR_TOOLS
     assert await listed(reader, "Visual Studio Code - Insiders") >= mirror.MIRROR_TOOLS
 
@@ -87,7 +87,7 @@ async def test_saying_so_beats_being_recognised(reader, monkeypatch):
 
 
 async def test_the_old_per_resource_tools_are_gone(reader, monkeypatch):
-    """Seven tools, one per resource, became two that take a URI (§F3.6)."""
+    """Seven tools, one per resource, became two that take a URI."""
     monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "off"}))
     names = await listed(reader)
     for gone in (
@@ -208,8 +208,8 @@ async def test_open_session_is_the_same_named_or_not(server, monkeypatch):
 
 
 async def test_a_person_picking_a_flow_is_offered_the_names_they_can_read(reader):
-    """VS Code asks for completions when a template or a prompt is picked
-    (§F3.4). They are the caller's listing read back, so they cannot offer a
+    """VS Code asks for completions when a template or a prompt is picked.
+    They are the caller's listing read back, so they cannot offer a
     flow the caller could not open."""
     from mcp.types import PromptReference, ResourceTemplateReference
 

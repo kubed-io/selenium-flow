@@ -4,10 +4,10 @@
 its own contract here instead of being folded into test_surfaces.py. What that
 contract has to protect:
 
-- reads see the shared library, writes never touch it (§F1.2);
+- reads see the shared library, writes never touch it;
 - the reads are resources, with tools mirroring them only for clients that
-  cannot read resources (§F1.5);
-- a broken flow is refused when it is saved, not when it runs (§F1.6).
+  cannot read resources;
+- a broken flow is refused when it is saved, not when it runs.
 """
 
 import pytest
@@ -64,7 +64,7 @@ def acting_as(monkeypatch, server, workspace):
     """Make every surface agree about who is calling.
 
     One seam now, where there were two. A caller's browser identity and its
-    storage identity are the same name (§F2.12), so there is no longer a way to
+    storage identity are the same name, so there is no longer a way to
     patch one and quietly exercise a caller who is two different people.
 
     `None` is the caller that named no workspace: it gets the shared library, and
@@ -87,7 +87,7 @@ def acting_as(monkeypatch, server, workspace):
 
 async def test_the_reads_are_resources_and_the_writes_are_tools(flow_server):
     """Reading the library is a resource at a URI; a client that cannot read
-    resources reads the same URIs through read_resource (§F3.6)."""
+    resources reads the same URIs through read_resource."""
     names = {t.name for t in await flow_server.mcp.list_tools()}
     assert {flowapi.SAVE_TOOL, flowapi.DELETE_TOOL, flowapi.RUN_TOOL} <= names
     uris = {str(r.uri) for r in await flow_server.mcp.list_resources()}
@@ -192,7 +192,7 @@ async def test_your_own_flow_wins_a_name_collision(flow_server, store):
 
 
 async def test_a_save_never_writes_to_the_shared_library(flow_server, store):
-    """An agent cannot publish. Promotion to global is an admin action (§F1.2)."""
+    """An agent cannot publish. Promotion to global is an admin action."""
     store.save(GLOBAL_WORKSPACE, "login", {"steps": GOOD, "description": "shared"})
     await call(flow_server, flowapi.SAVE_TOOL, name="login", steps=GOOD,
                description="mine")
@@ -369,7 +369,7 @@ def test_the_endpoints_need_the_token(client):
 
 
 def test_save_then_list_then_get_over_http(client):
-    """A flow is a resource: PUT creates or replaces it, GET reads it (§F2.13)."""
+    """A flow is a resource: PUT creates or replaces it, GET reads it."""
     saved = client.put(
         "/flows/login",
         json={"steps": GOOD, "description": "x"},
@@ -396,7 +396,7 @@ def test_the_workspace_can_be_named_in_the_query_string_too(client):
 
 def test_naming_the_workspace_twice_is_refused(client):
     """Dr K's rule, and it replaces a precedence: a request carrying both has
-    two ideas about who is calling, and picking one hides that (§F2.13)."""
+    two ideas about who is calling, and picking one hides that."""
     response = client.get(
         "/flows",
         params={"workspace": "from-url"},
@@ -524,7 +524,7 @@ async def test_a_saved_flow_runs_end_to_end(ran):
     assert report["status"] == "ok"
     assert report["steps_run"] == 3
     assert [tool for tool, _, _ in calls] == ["navigate", "write", "interact"]
-    # One browser for the whole run, which is the point (§F1.1).
+    # One browser for the whole run, which is the point.
     assert {session for _, session, _ in calls} == {"browser-1"}
 
 
@@ -568,7 +568,7 @@ async def test_parameters_reach_the_step_that_names_them(ran):
 def test_running_over_http_needs_a_named_workspace(client):
     """A run drives a browser, so it is one of the calls that has to know who is
     asking — the one place the fallback to the shared library does not apply,
-    because there is no shared browser (§F2.13)."""
+    because there is no shared browser."""
     client.put("/flows/f", json={"steps": GOOD}, headers=named("workflow"))
     response = client.post("/flows/f/runs", headers=AUTH)
     assert response.status_code == 400
@@ -646,7 +646,7 @@ async def test_the_schema_publishes_the_secret_shape_from_the_model(flow_server)
 async def test_a_flow_that_starts_on_whatever_page_you_are_on_is_warned_about(
     flow_server, store
 ):
-    """A flow is responsible for being where it acts (§F2.6). One that starts
+    """A flow is responsible for being where it acts. One that starts
     by clicking whatever is under a selector reports eight green steps on the
     page before the one it meant to reach — the worst thing this server does."""
     saved = await call(

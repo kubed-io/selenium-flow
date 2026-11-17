@@ -14,7 +14,7 @@ answer is "a detail of a behaviour already covered", it belongs in the unit
 suite, which is fast and does not need a browser.
 
 One exception, ``test_responsive.py``: whether the server keeps answering while
-a browser is busy is not something a flow can see (§F4.19).
+a browser is busy is not something a flow can see.
 
 Needs two settings, and skips without them:
 

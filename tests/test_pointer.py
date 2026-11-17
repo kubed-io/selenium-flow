@@ -1,6 +1,6 @@
 """The pointer: where it is, how it gets somewhere, and what that changes.
 
-Three faults from the second sortie meet here (saga §F2.3, §F2.4, §F2.10):
+Three faults from the second sortie meet here:
 
 - a hover onto a target the pointer was already inside fired no `mouseover` and
   still reported `ok` — twice, to the same pilot, on the same menu;
@@ -72,7 +72,7 @@ def test_a_position_is_kept_per_browser_and_forgotten_on_demand():
 
 def test_an_unknown_browser_has_no_position_rather_than_a_guessed_one():
     """Never a guessed start: a path plotted from the wrong origin crosses the
-    wrong elements, which is worse than no path (§F2.3)."""
+    wrong elements, which is worse than no path."""
     assert MemoryPointers().get("never-seen") is None
 
 
@@ -193,7 +193,7 @@ def moving(actions, monkeypatch):
 
 def test_a_click_leaves_the_pointer_on_what_it_clicked(actions, moving, monkeypatch):
     """Dr K's rule, and the thing WebDriver's element click does not do: it
-    leaves the pointer where it was, measured on the live Grid (§F2.3)."""
+    leaves the pointer where it was, measured on the live Grid."""
     clicked = []
     monkeypatch.setattr(
         "kubed.selenium_flow.core.browser.wait_for_clickable",
@@ -262,7 +262,7 @@ def test_a_glide_is_off_unless_asked_for(actions, moving):
 
 
 def test_the_first_glide_in_a_browser_is_a_jump_and_says_so(actions, moving):
-    """Never a guessed start (§F2.3). The result has to admit the degrade, or a
+    """Never a guessed start. The result has to admit the degrade, or a
     caller debugging a slider believes it sent movement it did not send."""
     result = actions.interact("abc", "hover", selector={"css": "#go"}, glide=True)
     assert result["glided"] is False
@@ -314,7 +314,7 @@ def test_the_other_gestures_wait_for_the_element_to_be_clickable(
 def test_a_move_that_started_inside_the_target_says_it_stepped_out_first(
     actions, scripted, lands
 ):
-    """Explains a hover that worked this time and did nothing last time (§F2.10)."""
+    """Explains a hover that worked this time and did nothing last time."""
     scripted()
     lands["nudged"] = True
     result = actions.interact("abc", "hover", selector={"css": "#go"})
@@ -498,7 +498,7 @@ def test_a_source_the_pointer_cannot_reach_is_the_callers_to_fix(actions, monkey
 # ---- against a real browser ----------------------------------------------
 #
 # Everything above fakes the WebDriver call. These are the tests that prove the
-# call itself does what §F2.3 and §F2.4 say, so they need a Grid: marked
+# call itself, so they need a Grid: marked
 # `integration` and skipped without `GRID_URL`.
 
 GRID_URL = os.environ.get("GRID_URL", "")
@@ -595,7 +595,7 @@ def test_a_glide_ends_on_the_element_it_was_aimed_at(live):
 @pytest.mark.integration
 @needs_grid
 def test_hovering_what_the_pointer_is_already_on_still_fires_mouseover(live):
-    """The §F2.10 fault, and the reason for the nudge: no movement means no
+    """The reason for the nudge: no movement means no
     `mouseover`, and the step reported `ok` either way. Measured twice, on both
     browsers, before this existed."""
     actions, session = live

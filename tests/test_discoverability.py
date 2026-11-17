@@ -5,7 +5,7 @@ the description, but the schema said `action` was any string — and a model pla
 against types, so it reached for `execute_script` instead and built a flaky
 workaround. These tests hold the surface to the rule that came out of it: a
 closed set of values is an enum in the schema, and an open one says what it
-accepts. See saga §F2.1 and §F2.2.
+accepts.
 """
 
 import re

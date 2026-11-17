@@ -166,9 +166,8 @@ BODY_CLOSED = "no session is open in this workspace; a body lives only as long a
 
 
 def test_a_known_body_after_end_browser_is_404_over_http(admin_client, fed):
-    """Spec §7 and ruling 11: a body for a browser that has ended is a 404
-    naming why, never the "call open_session first" 400 — opening one cannot
-    bring the body back."""
+    """A body for a browser that has ended is a 404 naming why, never the
+    "call open_session first" 400 — opening one cannot bring the body back."""
     r = admin_client.post("/browser/network-body", json={"id": "1.1"},
                           headers={**AUTH, "Sf-Workspace": "ws"})
     assert r.status_code == 404 and r.json()["error"] == BODY_CLOSED

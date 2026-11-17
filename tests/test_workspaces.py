@@ -1,6 +1,6 @@
 """Workspaces: the name a caller gives, and which browser that resolves to.
 
-Naming is the whole contract now (§F2.12). The tests that matter most are the
+Naming is the whole contract now. The tests that matter most are the
 ones proving a request that names nothing — or names two things — is *refused*
 rather than quietly given a browser, because inventing an identity is how every
 tool call opened a browser nobody closed.
@@ -289,7 +289,7 @@ def test_opening_on_a_page_that_is_not_the_web_costs_the_held_browser_nothing():
 def test_the_shared_library_is_the_one_thing_an_unnamed_caller_gets():
     """The other half of requiring a name, rather than an exception to it:
     `global` is read-only, so an unnamed caller can read the shared flows and can
-    write nowhere at all (§F2.13)."""
+    write nowhere at all."""
     assert caller_of().library == "global"
 
 
@@ -1008,7 +1008,7 @@ def test_no_redis_env_means_memory():
 
 
 def test_an_unreachable_redis_stops_the_boot_with_the_reason(monkeypatch):
-    """§F4.12: a server that refuses to start is restarted by Kubernetes until
+    """A server that refuses to start is restarted by Kubernetes until
     Redis answers; one that started on the wrong store is never corrected."""
     import sys
     import types
@@ -1080,7 +1080,7 @@ def test_an_unreachable_redis_never_chains_the_raw_password(monkeypatch):
 
 def test_the_reason_never_quotes_the_redis_password(monkeypatch):
     """The refusal message is read by whoever restarts the pod, and logged —
-    it must never carry the credential (§F4.12)."""
+    it must never carry the credential."""
     import sys
     import types
 

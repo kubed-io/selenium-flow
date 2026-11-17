@@ -28,8 +28,8 @@ PAGE = (
     "<nav id=menu><button class=toggle>Account</button>"
     '<ul class=menu-content><li><a href="/settings">Settings</a></li></ul></nav>'
     # The other kind of menu: a trigger that says aria-expanded, so it opens on
-    # a CLICK. Hovering it does nothing, which is what the advice used to say
-    # (saga §F2.10). The trigger is also an <a> with no href, which is why half
+    # a CLICK. Hovering it does nothing, which is what the advice used to say.
+    # The trigger is also an <a> with no href, which is why half
     # a real site's nav was invisible to the map.
     "<div id=acct><a id=acctbtn aria-expanded=false aria-controls=acctmenu>"
     "Account menu</a>"
@@ -97,7 +97,7 @@ def test_outline_answers_about_a_real_page(browser_page):
     assert "Not a control" not in by_name
 
     # An <a> with no href is a control somebody wired up, and skipping it is
-    # what gated half a real nav (saga §F2.10).
+    # what gated half a real nav.
     assert "Account menu" in by_name
 
 
@@ -106,7 +106,7 @@ def test_outline_answers_about_a_real_page(browser_page):
 def test_a_hidden_entry_names_what_opens_it_and_which_gesture(browser_page):
     """`blocked_by` says what is in the way, which was never the question. On
     selenium.dev the advice said hover, the menu opened on click, and the page
-    had been reporting `aria-expanded` the whole time (saga §F2.10)."""
+    had been reporting `aria-expanded` the whole time."""
     actions, session = browser_page
     by_name = {e["name"]: e for e in actions.outline(session)["elements"]}
 
@@ -251,8 +251,8 @@ def chrome_page():
 @pytest.mark.integration
 @pytest.mark.skipif(not GRID_URL, reason="needs a Selenium Grid; set GRID_URL")
 def test_the_content_comes_before_the_chrome_and_nothing_is_dropped(chrome_page):
-    """In document order a navbar spent the whole map before the content began
-    (saga §F2.15). A header inside an article heads the article, not the page."""
+    """In document order a navbar spent the whole map before the content began.
+    A header inside an article heads the article, not the page."""
     actions, session = chrome_page
     mapped = actions.outline(session)
     names = [entry["name"] for entry in mapped["elements"]]

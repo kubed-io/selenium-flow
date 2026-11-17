@@ -437,7 +437,7 @@ def test_the_plugin_manifest_names_the_skill_and_declares_nothing_else():  # Rul
 
 
 def test_the_built_ui_ships_by_glob_so_an_unbuilt_install_still_works():
-    """§F4.15/§F4.17: collected when it exists, and never a mapped package —
+    """Collected when it exists, and never a mapped package —
     a mapped directory that is missing fails `pip install`."""
     data = tomllib.loads(PYPROJECT.read_text())
     setuptools = data["tool"]["setuptools"]

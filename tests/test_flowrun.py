@@ -1062,7 +1062,7 @@ def test_a_stored_flow_that_still_marks_a_parameter_write_only_is_refused():
     been saved through the validator — which is exactly where a marker survives
     a migration. `writeOnly` used to hide a parameter from the report and now
     hides nothing, so an author who trusted it would have the value echoed back
-    by any `return: true` step (§F1.38)."""
+    by any `return: true` step."""
     steps = [
         {"tool": "write", "args": {"selector": {"css": "#p"}, "text": "${password}"}, "return": True}
     ]
@@ -1269,7 +1269,7 @@ class _Stepping:
 
 
 def test_a_step_says_where_it_went_when_it_went_somewhere():
-    """§F2.7: the cheapest defence left when an author forgets an assert — a
+    """The cheapest defence left when an author forgets an assert — a
     navigation that did not happen becomes visible in a report nobody asked to
     be verbose."""
     actions = _Stepping(

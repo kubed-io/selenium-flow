@@ -34,8 +34,8 @@ pytestmark = pytest.mark.unit
 # Saved flows are a layer ABOVE the browser actions, not more of them: they are
 # about documents that contain actions, they live under /flows rather than
 # /browser, and they have their own route table. So they are subtracted from
-# every assertion below rather than added to EXPECTED — see saga §F1.7 and
-# tests/test_flowapi.py, which holds them to their own contract.
+# every assertion below rather than added to EXPECTED; tests/test_flowapi.py
+# holds them to their own contract.
 FLOW_TOOLS = {
     flowapi.RUN_TOOL,
     flowapi.SAVE_TOOL,
@@ -63,7 +63,7 @@ def browser_tools(tools) -> set[str]:
 
 # `open_session` and `end_browser` are actions on the browser RESOURCE rather
 # than commands under it: POST and DELETE on /browser itself, because which
-# browser is a question about who is asking (§F2.13). They are still on both
+# browser is a question about who is asking. They are still on both
 # surfaces, and `test_the_browser_resource_is_on_both_surfaces` below holds them
 # to it — this set is the commands, which is what ENDPOINTS lists.
 RESOURCE_ACTIONS = {"open_session", "end_browser"}
@@ -266,7 +266,7 @@ async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypa
 def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypatch):
     """The names used to be listed in press_key's description — sixty of them,
     read on every call by a model that needed none. They are in the refusal
-    instead, which is where a model that guessed wrong is looking (§F3.5)."""
+    instead, which is where a model that guessed wrong is looking."""
     from kubed.selenium_flow.core.keys import KEY_NAMES
 
     monkeypatch.setattr(actions, "_at", lambda *a, **k: KeyDriver())

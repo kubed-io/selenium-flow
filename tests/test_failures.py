@@ -1,7 +1,7 @@
 """What a failed MCP tool call says — to the caller, and to the log.
 
 The pilot's six wasted calls were pydantic's report of a `selector` mistake: a
-type code, the input echoed and a link to pydantic's documentation (§F2.15).
+type code, the input echoed and a link to pydantic's documentation.
 And the MCP surface never asked `errors.py` anything, so a caller read Selenium's
 stack dump and the pod logged a traceback for every typo. These go through the
 real MCP client, because what matters is the text a caller and an operator read.
