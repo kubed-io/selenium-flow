@@ -374,18 +374,12 @@ def sections(
         "component": "fileSections",
         "workspace": owned or None,
         "browser": bool(target),
-        "downloads": listing_of(
-            actions, store, DOWNLOADS, owned, target, token, base, mount, downloads, ttl
-        ),
-        "screenshots": listing_of(
-            actions, store, SCREENSHOTS, owned, target, token, base, mount, ttl=ttl
-        ),
-        "recordings": listing_of(
-            actions, store, RECORDINGS, owned, target, token, base, mount, ttl=ttl
-        ),
-        "files": listing_of(
-            actions, store, FILES, owned, target, token, base, mount, ttl=ttl
-        ),
+        **{
+            which: listing_of(
+                actions, store, which, owned, target, token, base, mount, downloads, ttl
+            )
+            for which in (DOWNLOADS, SCREENSHOTS, RECORDINGS, FILES)
+        },
     }
 
 
