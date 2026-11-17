@@ -478,9 +478,13 @@ def test_the_worst_case_request_event_stays_within_its_budgets(monkeypatch):
     """A request event runs on the server's main loop, and what it costs there
     is one `find` pass per form over each text it scans. At the forms budget
     (16 + 48 forms, each tier over by one value at most), an event with 32
-    headers of 600 characters and a 2 kB URL scans its headers once, cut to
-    the bytes a side keeps, and its URL; the 256 forms the budget replaced
-    fail the first assert."""
+    headers of 600 characters and a 2 kB URL scans three texts: its headers
+    once, joined and cut to the bytes a side keeps, its method and its URL.
+    The 256 forms the budget replaced fail the first assert.
+
+    It counts scans, forms and characters, so it does not see a scanner that
+    got slower per form or per character, or work an event does outside
+    `_scan`."""
     from kubed.selenium_flow.capture import AUTH_FORMS, COOKIE_FORMS, masking
     from kubed.selenium_flow.capture.store import Capture
 
@@ -497,7 +501,7 @@ def test_the_worst_case_request_event_stays_within_its_budgets(monkeypatch):
     monkeypatch.setattr(masking, "_scan", lambda read, s: reads.append(len(read)) or real(read, s))
     capture.ingest("ws", "s1", *req("r1", url, headers=headers))
     assert len(forms_of(held.masker)) < 2 * (AUTH_FORMS + COOKIE_FORMS)
-    assert len(reads) <= 3
+    assert len(reads) == 3                                  # headers, method, URL
     assert sum(reads) < HEADER_BYTES + TEXT_CAP
 
 
