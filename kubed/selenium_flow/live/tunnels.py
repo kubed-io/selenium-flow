@@ -50,8 +50,3 @@ class Tunnels:
     def _moded(self, tunnel: Tunnel) -> None:
         if tunnel.mode == "watch":
             self.controls.withdraw(tunnel)
-
-    # control, as the callers ask it ----------------------------------------
-
-    def controlling(self, workspace: str, who: str) -> bool:
-        return self.controls.controlling(workspace, who)

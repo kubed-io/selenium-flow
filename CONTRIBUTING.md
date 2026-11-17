@@ -55,8 +55,7 @@ and [config.md](docs/superpowers/specs/config.md) holds the rules.
 | Command | Does |
 |---|---|
 | `ruff check .` | Lints the whole checkout, tests included. Rules in `[tool.ruff.lint]` |
-| `pytest` | The unit suite: no browser, no network, `tests/bench` left out |
-| `pytest tests/bench` | The benchmarks, after `pip install -e ".[test,bench]"` |
+| `pytest` | The unit suite: no browser, no network |
 | `GRID_URL=... ADMIN_ORIGIN=... pytest tests/integration` | The integration suite (see Tests) |
 | `GOLDEN_UPDATE=1 pytest` | Rewrites the goldens under `tests/golden/` |
 | `python scripts/generate_openapi.py` | Writes `openapi.yaml` |
@@ -294,7 +293,6 @@ checkout; the served one is true.
 | `Integration` | `integration.yml` | The flows against a standalone Chrome and Redis; not required yet |
 | `Dependency Audit`, `Dockerfile Lint`, `OpenAPI Spec` | `lint.yml` | `pip-audit`, `hadolint`, and a Redocly lint of the generated document |
 | `Package` | `package.yml` | Builds the sdist and wheel, `twine check --strict`, installs the wheel clean and imports it |
-| `Bench` | `bench.yml` | Times the read paths in `tests/bench/` against main's numbers; a slowdown never fails it |
 | `Checks` | `pr.yml` | Collects what failed for whoever fixes it |
 
 `quality.yml` (CodeQL and `zizmor`) and `wiki.yml` run on their own triggers. The image is not

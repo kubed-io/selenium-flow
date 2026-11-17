@@ -253,9 +253,10 @@ def message(exc: BaseException) -> str:
     """One actionable line, without the driver's internals.
 
     Selenium's ``str()`` is ``"Message: <what happened>\\nStacktrace:\\n"``
-    and twenty lines of ``chrome://remote/...``; only the first line is kept,
-    without its ``Message:``. Never returns an empty string: with no text it
-    is the class name.
+    and twenty lines of ``chrome://remote/...``; everything before
+    ``Stacktrace:`` is kept, without its ``Message:``. A driver's lines are
+    joined into one, dropping Chrome's ``(Session info:`` line. Never returns
+    an empty string: with no text it is the class name.
 
     A Grid refusal is cut to its status and reason: ``raise_for_status`` ends
     with ``for url: <the full URL>``, and ``GRID_URL`` may carry credentials.

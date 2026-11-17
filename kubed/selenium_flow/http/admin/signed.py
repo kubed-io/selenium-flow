@@ -91,7 +91,7 @@ def link_refused(request: Request, why: str) -> Response:
 
 def unsigned(request: Request, token: str | None, path: str) -> Response | None:
     """The refusal for a request whose signature does not open ``path``, or
-    None when it does — or when there is no token, so nothing is signed."""
+    None when it does, or when there is no token, so nothing is signed."""
     if not token:
         return None
     why = links.refusal(

@@ -346,8 +346,8 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
     """`upload_file(session=...)` existed because an HTTP caller had no other
     way to say which library a kept file came from. It names its workspace like
     everything else now, so the field is gone from both surfaces rather than
-    published on one. The action's own `workspace`
-    argument is a flow run's injection, and is published nowhere either."""
+    published on one. The action's own `workspace` argument is a flow run's
+    injection, and is published nowhere either."""
     upload = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     published = spec["components"]["schemas"]["UploadFileRequest"]["properties"]
     multipart = upload["multipart/form-data"]["schema"]["properties"]

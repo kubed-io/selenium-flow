@@ -144,7 +144,7 @@ def load() -> dict:
 
 
 def resolve(spec: dict, node: dict) -> dict:
-    """Follow a local $ref, once — the spec never nests them deeper."""
+    """Follow a local $ref, once: the spec never nests them deeper."""
     ref = node.get("$ref")
     if not ref:
         return node
@@ -418,8 +418,8 @@ def render(spec: dict, tool: str, method: str, path: str, op: dict) -> str:
 
 
 def page_name(op: dict) -> str:
-    """What an operation's page is called: its tool, or for a read — which is a
-    resource over MCP and has no tool — its operationId in the same snake case.
+    """What an operation's page is called: its tool, or for a read (a
+    resource over MCP, with no tool) its operationId in the same snake case.
     """
     if op.get("x-mcp-tool"):
         return op["x-mcp-tool"]
