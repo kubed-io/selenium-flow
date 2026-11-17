@@ -223,8 +223,8 @@ def mount(
             # Read before typing, so the audit line never depends on a store
             # that may fail once the text is in.
             record = await run_in_threadpool(workspaces.store.get, key)
-            done = await run_in_threadpool(workspaces.paste, key, text)
             session = audit.session_label(record.opened_at if record else 0)
+            done = await run_in_threadpool(workspaces.paste, key, text)
             audit.pasted(who, key, session, done["typed"])
         except Exception as exc:  # noqa: BLE001 - every failure is an answer
             if _ours(exc):

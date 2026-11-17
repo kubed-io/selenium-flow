@@ -612,3 +612,20 @@ def test_a_paste_is_audited_even_when_the_store_fails_once_it_is_typed(
         answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
     assert answered.status_code == 200
     assert "pasted 5 characters into w1" in caplog.text
+
+
+def test_a_paste_with_an_unreadable_start_time_types_nothing_and_says_so(
+    client, server, typing, monkeypatch
+):
+    from kubed.selenium_flow.workspace.store import Workspace
+
+    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    real = server.workspaces.store.get
+    monkeypatch.setattr(
+        server.workspaces.store,
+        "get",
+        lambda key: Workspace(**{**vars(real(key)), "opened_at": float("nan")}),
+    )
+    answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
+    assert answered.status_code >= 400
+    assert ("element", "send_keys", "hello") not in typing.log
