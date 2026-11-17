@@ -1,14 +1,14 @@
 """The pages a person reaches while they hold Control: the monitor's sink for
-the ``control`` reason (spec 2026-10-27-live-control, rulings 19, 20 and 26).
+the ``control`` reason.
 
-Heard on the monitor's held connection, capture's plumbing, never a second one
-(R7): the grant follows a Grid id (`follow`), the monitor tells this sink what
-the connection hears for ``control``, and the release ends the list (`stop`).
-A page is a ``browsingContext.load`` (the page actually reached, after
-redirects) or ``browsingContext.historyUpdated`` (a single-page app's route
-change) in a top-level context: the top the hold learned, handed in through
-`attached`, or one created with no parent. A frame's load is not a page, and
-neither is a tab open before the hold other than the top (ruling 26).
+Heard on the monitor's held connection, never a second one: the grant follows
+a Grid id (`follow`), the monitor tells this sink what the connection hears for
+``control``, and the release ends the list (`stop`). A page is a
+``browsingContext.load`` (after redirects) or ``browsingContext.historyUpdated``
+(a single-page app's route change) in a top-level context: the top the hold
+learned, handed in through `attached`, or one created with no parent. A frame's
+load is not a page, and neither is a tab open before the hold other than the
+top.
 
 BiDi events carry no title, so one ``script.evaluate`` of ``document.title``
 is sent on the same connection for each page, bounded by ``REPLY_TIMEOUT``; a
@@ -19,13 +19,13 @@ newest, and a count of the ones that went.
 
 Nothing is heard between `attached` and `subscribed`: subscribing
 ``contextCreated`` re-sends it, parent null, for every tab already open, and
-a tab open before the hold is not followed (ruling 26). The monitor flushes
-the subscribe before it says `subscribed`, so a tab opened after it is.
+a tab open before the hold is not followed. The monitor flushes the subscribe
+before it says `subscribed`, so a tab opened after it is.
 
 The URLs are kept as heard, in memory, and go into the hand-back's summary and
-nowhere else (ruling 20): nothing here writes History, and nothing here logs a
-URL, a title or a Grid id. The summary shapes them as History does
-(`urls.without_userinfo`, `urls.page_of`) when it is built.
+nowhere else: nothing here writes History or logs a URL, a title or a Grid id.
+The summary shapes them as History does (`urls.without_userinfo`,
+`urls.page_of`).
 """
 
 from __future__ import annotations
@@ -156,9 +156,7 @@ class Pages:
         conn = self.connection(grid_id)
         if conn is None:
             return
-        task = asyncio.get_running_loop().create_task(
-            self._title(conn, context, entry)
-        )
+        task = asyncio.get_running_loop().create_task(self._title(conn, context, entry))
         followed.reading.add(task)
         task.add_done_callback(followed.reading.discard)
 

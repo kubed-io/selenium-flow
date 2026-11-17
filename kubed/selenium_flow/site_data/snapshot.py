@@ -1,26 +1,22 @@
 """Site data: the cookies and storage a workspace keeps for the sites it uses.
 
-A workspace outlives its sessions, and used to come back signed out: the page it
-was on survived a reap, the sign-in did not. An agent saves when it knows the
-browser is worth keeping — after a sign-in is confirmed — and every browser
-opened in the workspace gets it back (spec 2026-09-30, rounds 1 and 2).
+A workspace outlives its sessions. An agent saves when it knows the browser is
+worth keeping, after a sign-in is confirmed, and every browser opened in the
+workspace gets it back. A reap gives no warning, so only an explicit save is
+dependable.
 
-Saved, not captured: every call paying for a snapshot was rejected, and a reap
-gives no warning, so only an explicit save is dependable.
-
-**A save is a snapshot.** It replaces the last one whole: the jar, the
+A save is a snapshot. It replaces the last one whole: the jar, the
 localStorage of every origin the session has been to, and the sessionStorage
 of the page it is on. Other origins are reached through a spare tab
 (`spare.spare_tab`, driven by `transfer`), which is also how a restore writes
 them back before the first page loads.
 
-**A site is a host.** Cookies carry a domain and no scheme or port, so the view
+A site is a host. Cookies carry a domain and no scheme or port, so the view
 groups by host. Storage is kept per origin, as ``location.origin`` spells it.
 
 Values are credentials. They live in the workspace store and nowhere else, are
 never logged, and an httpOnly cookie's value is never shown on any surface.
 """
-
 
 from __future__ import annotations
 
@@ -35,7 +31,7 @@ CAPTURED = "_site_data_captured"
 MAX_BYTES = 1_000_000
 MASK = "•••"
 # Why an origin's storage was not read: its own service worker answered the
-# spare tab (spec round 2, *Service workers at save time*).
+# spare tab.
 SW_REASON = "a service worker answered: save while on this site"
 LIST_URI = "workspace://site-data"
 
@@ -53,7 +49,7 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
     saved after a sign-in is what comes back.
 
     ``captured`` is what :func:`capture` read. ``origins`` keeps the
-    localStorage of every origin read that has any, newest first — the page,
+    localStorage of every origin read that has any, newest first: the page,
     then the history. ``session`` is the page's sessionStorage, for its
     origin. An origin that could not be read keeps its storage from
     ``previous``, so a blip does not sign the agent out. Over
@@ -72,7 +68,8 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
     last = (previous or {}).get("origins") or {}
     kept = {
         f["site"]: (last.get(f["site"]) or {}).get("local")
-        for f in skipped if f.get("site")
+        for f in skipped
+        if f.get("site")
     }
     newest = (here, *(v["origin"] for v in history or ()), *read, *kept)
     origins = {}
@@ -87,18 +84,15 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
         "session": {"origin": here, "items": items} if here else {},
         "saved_at": now,
     }
-    if _size({**data, "origins": {}, "session": {}}) > MAX_BYTES:
-        # The jar is the one thing a save cannot leave out.
-        raise ValueError(
-            f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved"
-        )
-    # Sized once, then evicted by subtracting: re-serialising the whole payload
-    # per eviction was quadratic (1.2 s at 400 origins of 20 KB). Every piece is
-    # sized with the same ``json.dumps`` the payload is, and the separators
-    # ("key": value joined by ", ") are counted, so the running total is the
-    # serialised length exactly — and so never below it.
-    entries = {o: len(json.dumps(o)) + 2 + _size(e) for o, e in origins.items()}
     total = _size({**data, "origins": {}, "session": {}})
+    if total > MAX_BYTES:
+        # The jar is the one thing a save cannot leave out.
+        raise ValueError(f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved")
+    # Sized once, then evicted by subtracting: re-serialising the whole payload
+    # per eviction is quadratic. Every piece is sized with the same
+    # ``json.dumps`` the payload is, and the separators ("key": value joined by
+    # ", ") are counted, so the running total is the serialised length.
+    entries = {o: len(json.dumps(o)) + 2 + _size(e) for o, e in origins.items()}
     total += _joined(entries.values()) - 2
     total += _size(data["session"]) - 2
     while total > MAX_BYTES:
@@ -140,15 +134,21 @@ def restorable(data: dict) -> bool:
         return False
     session = data.get("session")
     return bool(
-        data.get("cookies") or data.get("origins")
+        data.get("cookies")
+        or data.get("origins")
         or (isinstance(session, dict) and session.get("items"))
     )
 
 
-def _own(domain: str, host: str) -> bool:
-    """A cookie a host's row owns: set for the host itself, or ``.host``.
-    A parent's leading-dot cookie only covers it; other rows use that one."""
-    return domain in (host, "." + host)
+def _own(c: dict, host: str) -> bool:
+    """A cookie a host's row owns: set for the host itself, or ``.host``."""
+    return (c.get("domain") or "") in (host, "." + host)
+
+
+def _shared(c: dict, host: str) -> bool:
+    """A parent's leading-dot cookie: it only covers ``host``, other rows use
+    it, and it stays when ``host`` is forgotten."""
+    return (c.get("domain") or "").startswith(".") and not _own(c, host)
 
 
 def _suffixes(host: str) -> list[str]:
@@ -168,12 +168,12 @@ class _Jar:
     dict lookups instead of a scan of the whole jar per host."""
 
     def __init__(self, data: dict):
-        # Read as a stored record may be, not as a save writes it: a corrupt
-        # shape counts as nothing rather than failing a view, or the clean open
-        # that is the way out of it (Copilot, #51).
+        # Read as a stored record may be: a corrupt shape counts as nothing, so
+        # it fails neither a view nor the clean open that clears it.
         self.data = _a(data, dict)
         self.cookies = [
-            c for c in _a(self.data.get("cookies"), list)
+            c
+            for c in _a(self.data.get("cookies"), list)
             if isinstance(c, dict)
             and all(isinstance(c.get(k), str) and c[k] for k in ("name", "domain"))
         ]
@@ -186,7 +186,8 @@ class _Jar:
         self.origins: dict[str, dict] = {}
         for o, e in _a(self.data.get("origins"), dict).items():
             self.origins.setdefault(host_of(o), {})[o] = {
-                "local": dict(_a(_a(e, dict).get("local"), dict)), "session": {},
+                "local": dict(_a(_a(e, dict).get("local"), dict)),
+                "session": {},
             }
         session = _a(self.data.get("session"), dict)
         items = _a(session.get("items"), dict)
@@ -231,10 +232,7 @@ def _cookie_view(c: dict, host: str) -> dict:
         "http_only": bool(c.get("http_only")),
         "secure": bool(c.get("secure")),
         "same_site": c.get("same_site"),
-        # Shared with other sites only when a parent domain set it; `.host`
-        # is this row's own (Forget removes it).
-        "shared": (c.get("domain") or "").startswith(".")
-        and not _own(c.get("domain") or "", host),
+        "shared": _shared(c, host),
     }
 
 
@@ -255,18 +253,9 @@ def _site(jar: _Jar, host: str) -> dict:
         "site": host,
         "uri": site_uri(host),
         "_cookies": cookies,
-        "_own": [c for c in cookies if _own(c.get("domain") or "", host)],
+        "_own": [c for c in cookies if _own(c, host)],
         "storage": storage,
     }
-
-
-def _shared(cookies: list[dict], host: str) -> list[dict]:
-    """Covering cookies that stay when ``host`` is forgotten: a parent's
-    leading-dot cookie, which other rows use."""
-    return [
-        c for c in cookies
-        if (c.get("domain") or "").startswith(".") and not _own(c["domain"], host)
-    ]
 
 
 def _identity(c: dict) -> dict:
@@ -293,7 +282,9 @@ def _ordered(jar: _Jar, history=()) -> list[str]:
 
 def _row(site: dict) -> dict:
     return {
-        "site": site["site"], "uri": site["uri"], "cookies": len(site["_cookies"]),
+        "site": site["site"],
+        "uri": site["uri"],
+        "cookies": len(site["_cookies"]),
         "storage": [
             {
                 "origin": e["origin"],
@@ -308,12 +299,13 @@ def _row(site: dict) -> dict:
 def _detail(site: dict) -> dict:
     host = site["site"]
     return {
-        "site": host, "uri": site["uri"],
+        "site": host,
+        "uri": site["uri"],
         "cookies": [_cookie_view(c, host) for c in site["_cookies"]],
         "storage": site["storage"],
         # What Forget would do, by the rule Forget itself uses.
         "own_cookies": [c["name"] for c in site["_own"]],
-        "kept_shared": [_identity(c) for c in _shared(site["_cookies"], host)],
+        "kept_shared": [_identity(c) for c in site["_cookies"] if _shared(c, host)],
     }
 
 
@@ -360,17 +352,21 @@ def history_view(history, data: dict, secrets: list[dict] | None = None) -> dict
     rows = []
     for host in history_hosts(history):
         row = saved.get(host)
-        rows.append({
-            "site": host,
-            "url": latest[host]["url"],
-            "at": latest[host]["at"],
-            "saved": {
-                "cookies": row["cookies"],
-                "local": sum(e["local_storage"] for e in row["storage"]),
-                "session": sum(e["session_storage"] for e in row["storage"]),
-            } if row else None,
-            "secrets": matching_secrets(secrets, host),
-        })
+        rows.append(
+            {
+                "site": host,
+                "url": latest[host]["url"],
+                "at": latest[host]["at"],
+                "saved": {
+                    "cookies": row["cookies"],
+                    "local": sum(e["local_storage"] for e in row["storage"]),
+                    "session": sum(e["session_storage"] for e in row["storage"]),
+                }
+                if row
+                else None,
+                "secrets": matching_secrets(secrets, host),
+            }
+        )
     return {"sites": rows}
 
 
@@ -382,12 +378,12 @@ def summary(data: dict) -> dict | None:
 def forget(data: dict, host: str) -> tuple[dict, dict]:
     """Remove one host from the snapshot: its storage, sessionStorage
     included, and the cookies named for it (``host`` or ``.host``). A
-    parent-domain cookie stays — other hosts use it — and so does
+    parent-domain cookie stays, since other hosts use it, and so does
     ``saved_at``: forgetting is not a save."""
     host = (host or "").lower()
     jar = _Jar(data)
     covering = jar.covering(host)
-    gone_ids = {id(c) for c in covering if _own(c.get("domain") or "", host)}
+    gone_ids = {id(c) for c in covering if _own(c, host)}
     stored = data.get("origins") or {}
     origins = [o for o in stored if host_of(o) == host]
     session = data.get("session") or {}
@@ -404,6 +400,5 @@ def forget(data: dict, host: str) -> tuple[dict, dict]:
         "site": host,
         "cookies": [c["name"] for c in covering if id(c) in gone_ids],
         "origins": origins,
-        "kept_shared": [_identity(c) for c in _shared(covering, host)],
+        "kept_shared": [_identity(c) for c in covering if _shared(c, host)],
     }
-

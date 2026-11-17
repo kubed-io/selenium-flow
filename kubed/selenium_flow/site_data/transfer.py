@@ -57,8 +57,8 @@ READ_STORAGE = (
 
 def capture(channel: Channel, driver, origins=(), *, hidden=None) -> dict:
     """The whole cookie jar (BiDi sees httpOnly ones), the page's own two
-    storages, and the localStorage of every other origin in ``origins`` — the
-    history's, newest first — read one at a time in a spare tab.
+    storages, and the localStorage of every other origin in ``origins`` (the
+    history's, newest first), read one at a time in a spare tab.
 
     The browser answered classic WebDriver to get here, so a jar that cannot
     be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503, and
@@ -70,16 +70,19 @@ def capture(channel: Channel, driver, origins=(), *, hidden=None) -> dict:
         jar = channel.call("storage.getCookies", {})["cookies"]
     except (BidiUnavailable, BidiError) as e:
         # Only a channel that did not answer, or a browser that refused, is a
-        # 503. Anything else - an unexpected return shape, a bug here - stays
-        # a 500, as errors.py decides for every failure it does not recognise
-        # (Copilot, #50).
+        # 503. Anything else, an unexpected return shape included, stays a 500.
         raise BidiUnavailable(BIDI_DOWN) from e
     cookies = [
         {
-            "name": c["name"], "value": c["value"]["value"],
-            "value_type": c["value"]["type"], "domain": c["domain"],
-            "path": c["path"], "http_only": c["httpOnly"], "secure": c["secure"],
-            "same_site": c["sameSite"], "expiry": c.get("expiry"),
+            "name": c["name"],
+            "value": c["value"]["value"],
+            "value_type": c["value"]["type"],
+            "domain": c["domain"],
+            "path": c["path"],
+            "http_only": c["httpOnly"],
+            "secure": c["secure"],
+            "same_site": c["sameSite"],
+            "expiry": c.get("expiry"),
         }
         for c in jar
     ]
@@ -87,7 +90,8 @@ def capture(channel: Channel, driver, origins=(), *, hidden=None) -> dict:
     here = page.get("origin") or ""
     # Only http(s) can be stood on; the page's own origin is read in place.
     wanted = [
-        o for o in dict.fromkeys(origins)
+        o
+        for o in dict.fromkeys(origins)
         if o != here and o.startswith(("http://", "https://"))
     ]
     others: dict[str, dict] = {}
@@ -137,7 +141,8 @@ def _kept(channel: Channel, cookies: list[dict]) -> list[dict] | None:
         return None
     held = {_key(c["name"], c["domain"], c["path"]) for c in jar}
     return [
-        c for c in cookies
+        c
+        for c in cookies
         if _key(c.get("name"), c.get("domain"), c.get("path")) in held
     ]
 
@@ -149,27 +154,32 @@ BAD_EXPIRY = "a stored cookie whose expiry is not a time"
 def _usable(c) -> bool:
     return (
         isinstance(c, dict)
-        and isinstance(c.get("name"), str) and bool(c["name"])
-        and isinstance(c.get("domain"), str) and bool(c["domain"])
-        # Compared with `now` before any per-cookie guard: a string here took
-        # the whole restore down instead of skipping one cookie (Copilot, #50).
-        and (c.get("expiry") is None or (
-            isinstance(c["expiry"], (int, float)) and not isinstance(c["expiry"], bool)
-        ))
+        and isinstance(c.get("name"), str)
+        and bool(c["name"])
+        and isinstance(c.get("domain"), str)
+        and bool(c["domain"])
+        # Compared with `now` outside any per-cookie guard: a string here would
+        # take the whole restore down.
+        and (
+            c.get("expiry") is None
+            or (
+                isinstance(c["expiry"], (int, float))
+                and not isinstance(c["expiry"], bool)
+            )
+        )
     )
 
 
 def _malformed(c) -> dict:
     """A skip entry for a stored cookie restore cannot use: only the fields
-    that are strings, since the published shape says so (Copilot, #50)."""
+    that are strings, since the published shape says so."""
     entry = {"reason": MALFORMED}
     if isinstance(c, dict):
         for field, key in (("cookie", "name"), ("domain", "domain")):
             if isinstance(c.get(key), str):
                 entry[field] = c[key]
         if entry.get("cookie") and entry.get("domain"):
-            # Name and domain are fine, so it was the expiry: say which field
-            # is corrupt rather than blaming the two that are not (Copilot, #50).
+            # Name and domain are fine, so it was the expiry.
             entry["reason"] = BAD_EXPIRY
     return entry
 
@@ -183,8 +193,10 @@ def _bidi_cookie(c: dict) -> dict:
         "domain": c["domain"],
     }
     optional = {
-        "path": c.get("path"), "httpOnly": c.get("http_only"),
-        "secure": c.get("secure"), "sameSite": _same_site(c),
+        "path": c.get("path"),
+        "httpOnly": c.get("http_only"),
+        "secure": c.get("secure"),
+        "sameSite": _same_site(c),
         "expiry": c.get("expiry"),
     }
     cookie.update({k: v for k, v in optional.items() if v is not None})
@@ -205,18 +217,25 @@ def _restore_cookies(
             channel.call("storage.setCookie", {"cookie": _bidi_cookie(c)})
             sent.append(c)
         except Exception as e:  # noqa: BLE001 - one refusal must not stop the rest
-            skipped.append({
-                "cookie": c.get("name"), "domain": c.get("domain"),
-                "reason": failure_text(e),
-            })
+            skipped.append(
+                {
+                    "cookie": c.get("name"),
+                    "domain": c.get("domain"),
+                    "reason": failure_text(e),
+                }
+            )
     # A browser can refuse a cookie without an error; only the jar says.
     kept = _kept(channel, sent)
     if kept is None:
         kept = sent
     skipped.extend(
-        {"cookie": c.get("name"), "domain": c.get("domain"),
-         "reason": "the browser did not keep it"}
-        for c in sent if c not in kept
+        {
+            "cookie": c.get("name"),
+            "domain": c.get("domain"),
+            "reason": "the browser did not keep it",
+        }
+        for c in sent
+        if c not in kept
     )
     return kept
 
@@ -236,7 +255,8 @@ def restore(channel: Channel, data: dict, now: float) -> dict:
     try:
         kept = _restore_cookies(channel, data.get("cookies") or [], now, skipped)
         local = {
-            o: e["local"] for o, e in (data.get("origins") or {}).items()
+            o: e["local"]
+            for o, e in (data.get("origins") or {}).items()
             if isinstance(e, dict) and e.get("local")
         }
         if local:
@@ -252,7 +272,8 @@ def restore(channel: Channel, data: dict, now: float) -> dict:
                 done = {s.get("site") for s in skipped}
                 skipped.extend(
                     {"site": o, "reason": failure_text(e)}
-                    for o in local if o not in filled and o not in done
+                    for o in local
+                    if o not in filled and o not in done
                 )
         session = data.get("session") or {}
         if session.get("origin") and session.get("items"):
@@ -268,10 +289,14 @@ def restore(channel: Channel, data: dict, now: float) -> dict:
                         # url leaves on screen, filled or not; the tab keeps its
                         # sessionStorage.
                         with contextlib.suppress(Exception):
-                            channel.call("browsingContext.navigate", {
-                                "context": main, "url": "about:blank",
-                                "wait": "complete",
-                            })
+                            channel.call(
+                                "browsingContext.navigate",
+                                {
+                                    "context": main,
+                                    "url": "about:blank",
+                                    "wait": "complete",
+                                },
+                            )
                 filled.append(session["origin"])
             except Exception as e:  # noqa: BLE001 - the rest stands
                 skipped.append({"site": session["origin"], "reason": _why(e)})
@@ -282,4 +307,3 @@ def restore(channel: Channel, data: dict, now: float) -> dict:
         "skipped": skipped,
         "uri": LIST_URI,
     }
-
