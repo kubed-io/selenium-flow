@@ -42,12 +42,33 @@ async def refused(server, tool, arguments) -> str:
     return str(caught.value)
 
 
-async def test_the_old_flat_selector_is_told_where_it_went(server):
-    """The shape a cached schema keeps sending after §F2.14."""
-    said = await refused(server, "interact", {"action": "click", "css": "button.go"})
-    assert 'selector={"css": "button.go"}' in said
-    # Named once. "needs an element" as well would be the same fix twice.
-    assert "needs an element" not in said
+@pytest.mark.parametrize(
+    ("tool", "args", "fix", "other_fix"),
+    [
+        # The shape a cached schema keeps sending.
+        pytest.param(
+            "interact",
+            {"action": "click", "css": "button.go"},
+            'selector={"css": "button.go"}',
+            # Named once. "needs an element" as well would be the same fix twice.
+            "needs an element",
+            id="the-old-flat-selector-is-told-where-it-went",
+        ),
+        # The secret is its text: "needs 'text'" beside an unrelated mistake would
+        # send the caller to fix the one thing that was right.
+        pytest.param(
+            "write",
+            {"selector": "input", "secret": {"name": "nc", "key": "password"}},
+            "selector",
+            "needs 'text'",
+            id="a-call-that-carries-a-secret-is-not-told-it-needs-text",
+        ),
+    ],
+)
+async def test_a_wrong_argument_is_told_the_one_fix(server, tool, args, fix, other_fix):
+    said = await refused(server, tool, args)
+    assert fix in said
+    assert other_fix not in said
 
 
 async def test_a_selector_given_as_text_is_shown_the_object_it_should_be(server):
@@ -55,18 +76,28 @@ async def test_a_selector_given_as_text_is_shown_the_object_it_should_be(server)
     assert '{"css": "button.go"}' in said and "xpath" in said
 
 
-async def test_an_upload_names_no_file_on_the_servers_disk(server):
-    """Ruling 3: `path` is gone from the tool, so naming one is an unknown
-    argument rather than a read of whatever the server can see."""
-    said = await refused(
-        server, "upload_file", {"selector": {"css": "input"}, "path": "/etc/passwd"}
-    )
-    assert "no parameter 'path'" in said
-
-
-async def test_a_word_outside_a_closed_set_is_given_the_set(server):
-    said = await refused(server, "interact", {"action": "tap", "selector": {"css": "a"}})
-    assert "click, double_click, right_click, hover, scroll_to" in said
+@pytest.mark.parametrize(
+    ("tool", "args", "named"),
+    [
+        # `path` is not a parameter of the tool, so naming one is an unknown
+        # argument rather than a read of whatever the server can see.
+        pytest.param(
+            "upload_file",
+            {"selector": {"css": "input"}, "path": "/etc/passwd"},
+            "no parameter 'path'",
+            id="an-upload-names-no-file-on-the-servers-disk",
+        ),
+        pytest.param(
+            "interact",
+            {"action": "tap", "selector": {"css": "a"}},
+            "click, double_click, right_click, hover, scroll_to",
+            id="a-word-outside-a-closed-set-is-given-the-set",
+        ),
+    ],
+)
+async def test_a_refused_argument_names_what_the_tool_takes(server, tool, args, named):
+    said = await refused(server, tool, args)
+    assert named in said
 
 
 @pytest.mark.parametrize(
@@ -172,19 +203,6 @@ async def test_a_refused_argument_shape_is_one_warning_line_too(server, mcp_log)
     assert mcp_log, "nothing was logged for the refusal"
     assert all(level == logging.WARNING for level, _, _ in mcp_log)
     assert not any("Traceback" in text for _, text, _ in mcp_log)
-
-
-async def test_a_call_that_carries_a_secret_is_not_told_it_needs_text(server):
-    """The secret is its text. A refusal for an unrelated mistake used to add
-    "needs 'text'" too, and sent the caller to fix the one thing that was right
-    (#38's last review)."""
-    said = await refused(
-        server,
-        "write",
-        {"selector": "input", "secret": {"name": "nc", "key": "password"}},
-    )
-    assert "selector" in said
-    assert "needs 'text'" not in said
 
 
 # ---- reading a resource fails the same way -------------------------------------

@@ -40,19 +40,25 @@ async def test_files_off_is_said_before_an_unnamed_caller_is_told_to_name_itself
         await server.mcp.read_resource("workspace://files/a.txt")
 
 
-async def test_a_bad_uri_is_said_before_an_unnamed_caller_is_told_to_name_itself(
-    monkeypatch, tmp_path
+@pytest.mark.parametrize(
+    ("refusal", "uri"),
+    [
+        pytest.param(
+            "is not a file",
+            "nonsense",
+            id="a-bad-uri-is-said-before-an-unnamed-caller-is-told-to-name-itself",
+        ),
+        pytest.param(
+            "name your workspace",
+            "workspace://files/a.txt",
+            id="a-good-call-still-asks-an-unnamed-caller-to-name-itself",
+        ),
+    ],
+)
+async def test_keep_file_answers_in_its_order_for_an_unnamed_caller(
+    monkeypatch, tmp_path, refusal, uri
 ):
     server = server_for(monkeypatch, tmp_path, files_on=True)
     keep = await server.mcp.get_tool(files.KEEP_TOOL)
-    with pytest.raises(ValueError, match="is not a file"):
-        keep.fn(uri="nonsense")
-
-
-async def test_a_good_call_still_asks_an_unnamed_caller_to_name_itself(
-    monkeypatch, tmp_path
-):
-    server = server_for(monkeypatch, tmp_path, files_on=True)
-    keep = await server.mcp.get_tool(files.KEEP_TOOL)
-    with pytest.raises(ValueError, match="name your workspace"):
-        keep.fn(uri="workspace://files/a.txt")
+    with pytest.raises(ValueError, match=refusal):
+        keep.fn(uri=uri)

@@ -973,9 +973,26 @@ def sid(ws):
     return ws.store.get("w").session_id
 
 
-def test_a_value_never_typed_is_marked_on_its_site(ws):  # ruling 1, the issue's repro
-    ws.actions.result = {"url": f"{A}/login", "title": "t", "html": '<input value="alpha-11">'}
-    assert act(ws)["html"] == '<input value="[secret:a/password]">'
+@pytest.mark.parametrize(
+    ("result", "field", "expected"),
+    [
+        pytest.param(
+            {"url": f"{A}/login", "title": "t", "html": '<input value="alpha-11">'},
+            "html",
+            '<input value="[secret:a/password]">',
+            id="a-value-never-typed-is-marked-on-its-site",
+        ),
+        pytest.param(
+            {"url": None, "title": None, "dialog": "alpha-11"},
+            "dialog",
+            "[secret:a/password]",
+            id="a-dialog-result-is-scrubbed-with-every-leashed-secret",
+        ),
+    ],
+)
+def test_a_result_is_scrubbed_with_what_its_site_needs(ws, result, field, expected):
+    ws.actions.result = result
+    assert act(ws)[field] == expected
 
 
 def test_the_same_value_on_another_site_is_left_alone():
@@ -1039,11 +1056,6 @@ def test_a_multi_line_value_in_extracts_text_comes_back_as_its_marker():
         assert got["html"] == "<pre>[secret:a/key]</pre>"
     finally:
         ws.scrubber.close()
-
-
-def test_a_dialog_result_is_scrubbed_with_every_leashed_secret(ws):  # Review Focus 5
-    ws.actions.result = {"url": None, "title": None, "dialog": "alpha-11"}
-    assert act(ws)["dialog"] == "[secret:a/password]"
 
 
 def test_no_catalogue_leaves_every_result_as_it_was(ws_without_secrets, monkeypatch):  # Review Focus 1
@@ -1273,18 +1285,17 @@ def test_a_captured_site_data_save_is_stored_raw(ws, monkeypatch):
     assert snapshot.CAPTURED not in result
 
 
-def test_capture_heard_builds_and_hands_the_forms(ws):
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param(f"{A}/x", id="capture-heard-builds-and-hands-the-forms"),
+        pytest.param(None, id="capture-heard-with-no-url-hands-every-leashed-secret"),
+    ],
+)
+def test_capture_heard_builds_and_hands_the_forms_for_its_url(ws, url):
     got: list = []
     done = threading.Event()
-    ws.capture_heard("w", sid(ws), f"{A}/x", False, lambda forms: (got.append(forms), done.set()))
-    assert done.wait(WAIT)
-    assert "alpha-11" in got[0]
-
-
-def test_capture_heard_with_no_url_hands_every_leashed_secret(ws):
-    got: list = []
-    done = threading.Event()
-    ws.capture_heard("w", sid(ws), None, False, lambda forms: (got.append(forms), done.set()))
+    ws.capture_heard("w", sid(ws), url, False, lambda forms: (got.append(forms), done.set()))
     assert done.wait(WAIT)
     assert "alpha-11" in got[0]
 

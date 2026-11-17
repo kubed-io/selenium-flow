@@ -214,18 +214,35 @@ async def test_the_limit_counts_the_whole_result_as_sent(flow_server, monkeypatc
     assert f"({sent} characters)" in str(refused.value)
 
 
-async def test_a_missing_flow_is_refused(flow_server):
+@pytest.mark.parametrize(
+    ("uri", "said"),
+    [
+        pytest.param(
+            {"uri": "flow://flows/nope"}, "flow://flows/nope", id="a-missing-flow-is-refused"
+        ),
+        pytest.param(
+            {"uri": "secret://secrets/demo"},
+            "flow://flows/{name}",
+            id="an-unshowable-uri-is-refused-through-the-client",
+        ),
+        pytest.param(
+            {"uri": "secret://secrets"},
+            "secrets are not enabled",
+            id="showing-secrets-on-a-server-without-them-says-why",
+        ),
+        pytest.param(
+            {"uri": "workspace://files/screenshots/gone.png"},
+            "no file at workspace://files/screenshots/gone.png. "
+            "workspace://files/screenshots lists what there is",
+            id="a-file-the-listing-lacks-is-refused-naming-the-listing",
+        ),
+    ],
+)
+async def test_show_refuses_what_it_cannot_show_naming_why(flow_server, uri, said):
     async with Client(flow_server.mcp) as c:
         with pytest.raises(ToolError) as refused:
-            await c.call_tool("show", {"uri": "flow://flows/nope"})
-    assert "flow://flows/nope" in str(refused.value)
-
-
-async def test_an_unshowable_uri_is_refused_through_the_client(flow_server):
-    async with Client(flow_server.mcp) as c:
-        with pytest.raises(ToolError) as refused:
-            await c.call_tool("show", {"uri": "secret://secrets/demo"})
-    assert "flow://flows/{name}" in str(refused.value)
+            await c.call_tool("show", uri)
+    assert said in str(refused.value)
 
 
 async def test_showing_the_files_never_opens_a_browser(flow_server, monkeypatch):
@@ -356,13 +373,6 @@ async def test_showing_the_secrets_never_sends_a_value(secrets_server):
     assert "user-7f3a" not in sent and "pass-9c1e" not in sent
 
 
-async def test_showing_secrets_on_a_server_without_them_says_why(flow_server):
-    async with Client(flow_server.mcp) as c:
-        with pytest.raises(ToolError) as refused:
-            await c.call_tool("show", {"uri": "secret://secrets"})
-    assert "secrets are not enabled" in str(refused.value)
-
-
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
 
 
@@ -427,16 +437,6 @@ async def test_a_moved_download_uri_is_refused_naming_where_it_went(flow_server)
         )
     assert result.is_error
     assert "is now `session://downloads/report.csv`" in result.content[0].text
-
-
-async def test_a_file_the_listing_lacks_is_refused_naming_the_listing(flow_server):
-    async with Client(flow_server.mcp) as c:
-        with pytest.raises(ToolError) as refused:
-            await c.call_tool("show", {"uri": "workspace://files/screenshots/gone.png"})
-    assert (
-        "no file at workspace://files/screenshots/gone.png. "
-        "workspace://files/screenshots lists what there is"
-    ) in str(refused.value)
 
 
 async def test_a_skill_page_is_drawn_from_its_text(flow_server):

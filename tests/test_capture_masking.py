@@ -376,10 +376,17 @@ def test_learned_forms_are_bounded_in_characters_too():
     assert sum(map(len, forms_of(m))) <= 2 * (FORM_CHARS + 8 * CREDENTIAL_MAX)
 
 
-def test_a_credential_holding_a_nul_is_not_learned():
-    """A row's header values are scanned joined on NUL (R1-1)."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        # A row's header values are scanned joined on NUL (R1-1).
+        pytest.param("abc\x00def-0123456789-xyz", id="a-credential-holding-a-nul-is-not-learned"),
+        pytest.param("abc-123-xyz-99", id="a-cookie-under-sixteen-characters-is-not-learned"),
+    ],
+)
+def test_a_value_that_cannot_be_a_credential_is_not_learned(value):
     m = Masker()
-    cookie(m, "abc\x00def-0123456789-xyz")
+    cookie(m, value)
     assert forms_of(m) == ()
 
 
@@ -401,12 +408,6 @@ def test_the_probes_console_stays_readable_and_its_session_token_is_masked():
 def test_a_cookie_of_only_letters_or_only_digits_is_not_learned(value):
     m = Masker()
     cookie(m, value)
-    assert forms_of(m) == ()
-
-
-def test_a_cookie_under_sixteen_characters_is_not_learned():
-    m = Masker()
-    cookie(m, "abc-123-xyz-99")                        # 14, mixed
     assert forms_of(m) == ()
 
 

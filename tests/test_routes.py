@@ -234,17 +234,43 @@ def test_post_browser_takes_version_and_capabilities(open_server, monkeypatch):
     assert seen["version"] == "152" and seen["capabilities"] == {"kubed:pool": "a"}
 
 
-def test_post_browser_refuses_an_owned_capability_naming_the_option(open_client):
-    """Refused before anything is opened or ended: the Grid is unroutable here,
-    so reaching it would be a 503, not this 400."""
-    response = open_client.post(
-        "/browser", json={"capabilities": {"browserName": "firefox"}}
-    )
+@pytest.mark.parametrize(
+    ("path", "body", "said"),
+    [
+        # Refused before anything is opened or ended: the Grid is unroutable here,
+        # so reaching it would be a 503, not this 400.
+        pytest.param(
+            "/browser",
+            {"capabilities": {"browserName": "firefox"}},
+            "browserName cannot be sent in capabilities: use browser= instead",
+            id="owned-capability",
+        ),
+        pytest.param(
+            "/browser/interact/click",
+            {"selector": {"xpath": "//a", "css": "a"}},
+            "not both",
+            id="both-selectors",
+        ),
+        pytest.param("/browser/dialog", {"action": "shout"}, "shout", id="dialog-unknown-action"),
+        pytest.param(
+            "/browser/dialog",
+            {"action": "send_text"},
+            "text is required",
+            id="dialog-send-text-without-text",
+        ),
+        # Switching without saying which frame is a caller mistake, not a default.
+        pytest.param(
+            "/browser/frame", {"action": "switch"}, "selector", id="frame-switch-without-target"
+        ),
+        pytest.param(
+            "/browser/press-key", {"key": "banana"}, "unknown key", id="press-key-unknown-key"
+        ),
+    ],
+)
+def test_a_bad_argument_is_a_400_naming_it(open_client, path, body, said):
+    response = open_client.post(path, json=body)
     assert response.status_code == 400
-    assert (
-        "browserName cannot be sent in capabilities: use browser= instead"
-        in response.json()["error"]
-    )
+    assert said in response.json()["error"]
 
 
 def test_the_mouse_action_is_the_path_not_a_field(open_client):
@@ -262,15 +288,6 @@ def test_naming_no_element_is_a_400_that_says_how_to_address_one(open_client):
     assert "xpath" in error and "css" in error
 
 
-def test_naming_both_elements_is_a_400_rather_than_a_silent_choice(open_client):
-    response = open_client.post(
-        "/browser/interact/click",
-        json={"selector": {"xpath": "//a", "css": "a"}},
-    )
-    assert response.status_code == 400
-    assert "not both" in response.json()["error"]
-
-
 def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
     """A caller on a newer client should not hard-fail on an extra field."""
     response = open_client.post(
@@ -280,32 +297,35 @@ def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
     assert response.status_code == GRID_DOWN  # reached the Grid, not a 400
 
 
-def test_interact_rejects_an_unknown_action(open_client):
+@pytest.mark.parametrize(
+    ("path", "body", "unknown", "known_actions"),
+    [
+        pytest.param(
+            "/browser/interact/karate",
+            {"selector": {"xpath": "//a"}},
+            "karate",
+            ("click", "hover", "scroll_to"),
+            id="interact",
+        ),
+        pytest.param(
+            "/browser/frame",
+            {"action": "sideways"},
+            "sideways",
+            ("switch", "parent", "default"),
+            id="frame",
+        ),
+    ],
+)
+def test_an_unknown_action_is_a_400_naming_the_real_list(
+    open_client, path, body, unknown, known_actions
+):
     """The error names the real list, so a model can correct itself."""
-    response = open_client.post(
-        "/browser/interact/karate", json={"selector": {"xpath": "//a"}}
-    )
+    response = open_client.post(path, json=body)
     assert response.status_code == 400
     error = response.json()["error"]
-    assert "karate" in error
-    for known in ("click", "hover", "scroll_to"):
+    assert unknown in error
+    for known in known_actions:
         assert known in error
-
-
-def test_dialog_rejects_an_unknown_action(open_client):
-    response = open_client.post(
-        "/browser/dialog", json={"action": "shout"}
-    )
-    assert response.status_code == 400
-    assert "shout" in response.json()["error"]
-
-
-def test_dialog_send_text_requires_text(open_client):
-    response = open_client.post(
-        "/browser/dialog", json={"action": "send_text"}
-    )
-    assert response.status_code == 400
-    assert "text is required" in response.json()["error"]
 
 
 def test_upload_refuses_more_than_one_source(open_client):
@@ -394,24 +414,6 @@ def test_a_multipart_filename_can_be_overridden(open_client):
     assert response.status_code == GRID_DOWN, response.json()
 
 
-def test_frame_rejects_an_unknown_action(open_client):
-    response = open_client.post(
-        "/browser/frame", json={"action": "sideways"}
-    )
-    assert response.status_code == 400
-    error = response.json()["error"]
-    assert "sideways" in error
-    for known in ("switch", "parent", "default"):
-        assert known in error
-
-
-def test_frame_switch_needs_a_target(open_client):
-    """Switching without saying which frame is a caller mistake, not a default."""
-    response = open_client.post("/browser/frame", json={"action": "switch"})
-    assert response.status_code == 400
-    assert "selector" in response.json()["error"]
-
-
 def test_frame_default_needs_no_target(open_client):
     """Going back to the main page is unambiguous, so it takes no arguments.
 
@@ -426,14 +428,6 @@ def test_frame_default_needs_no_target(open_client):
 def test_a_non_object_body_is_rejected(open_client):
     response = open_client.post("/browser", json=[1, 2, 3])
     assert response.status_code == 400
-
-
-def test_press_key_rejects_an_unknown_key(open_client):
-    response = open_client.post(
-        "/browser/press-key", json={"key": "banana"}
-    )
-    assert response.status_code == 400
-    assert "unknown key" in response.json()["error"]
 
 
 def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
