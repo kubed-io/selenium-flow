@@ -39,6 +39,8 @@ DESCRIPTION = (
     "config is this workspace's own settings, each with its value and its "
     "source (default or workspace). Only an admin changes them, at config_url "
     "when the server has one.\n\n"
+    "tags maps each tag in use on this workspace's flows, and the global flows "
+    "it is offered, to how many carry it: reuse one when you tag a flow.\n\n"
     "Reading this never opens a browser: live is false when no session is open."
 )
 

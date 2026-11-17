@@ -148,6 +148,7 @@ CONTEXT_KEYS = (
     "version",
     "store",
     "settings",
+    "tags",
     "flows_here",
     "captured",
     "site_data",
@@ -386,6 +387,7 @@ class Workspaces:
         hints: Callable[[str, str], list[dict]] | None = None,
         catalogue=None,
         configs: Configs | None = None,
+        tags: Callable[[str], dict[str, int]] | None = None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -421,6 +423,9 @@ class Workspaces:
         self.hints = hints
         # Each workspace's own config (`workspace.config`): none without one.
         self.configs = configs if configs is not None else Configs(None)
+        # The tags in use in a workspace's flows (`FlowStore.tags_in_use`), or
+        # None with no flow store.
+        self.tags = tags
         # Where each workspace's browser is, and the secrets in scope there.
         # ``catalogue`` is the secrets catalogue, duck-typed (`forms_for`,
         # `leashed`, `revision`), or None with secrets off: then every answer is
@@ -507,6 +512,7 @@ class Workspaces:
             "version": None,
             "store": self.kind,
             "settings": {},
+            "tags": {},
         }
         if self.skill_available:
             status["guidance"] = guidance.pointer("WORKSPACES.md")
@@ -514,6 +520,14 @@ class Workspaces:
             status["config"] = self.configs.rows(self.configs.load(name))
             if url := self.configs.url(name):
                 status["config_url"] = url
+        if self.tags is not None:
+            try:
+                status["tags"] = self.tags(name)
+            except Exception as exc:  # noqa: BLE001 - status must never fail
+                log.warning(
+                    "tags for workspace %s could not be read: %s",
+                    name, type(exc).__name__,
+                )
         record = self.store.get(name)
         if record is None:
             return status

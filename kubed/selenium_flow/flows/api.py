@@ -47,6 +47,8 @@ from . import document as flowdoc
 from . import engine, places, redact, template
 from . import library as flowlib
 from . import run as flowrun
+from . import tags as flowtags
+from .shape import Shape
 
 log = logging.getLogger(__name__)
 
@@ -97,8 +99,9 @@ OFF = (
 LIST_DESCRIPTION = (
     "The flows this workspace can run: saved sequences of tool calls that run "
     "server-side in one call.\n\n"
-    "Each entry has a name, a description, the parameters it takes and how many "
-    "steps it has — never the steps themselves, which flow://flows/{name} returns.\n\n"
+    "Each entry has a name, a description, its tags, the parameters it takes "
+    "and how many steps it has — never the steps themselves, which "
+    "flow://flows/{name} returns.\n\n"
     "Flows saved in this workspace come first; anything in the shared 'global' "
     "library is also listed, and a flow of your own with the same name wins."
 )
@@ -120,8 +123,9 @@ def _context():
         return None
 
 
-def catalogue(store, workspace: str) -> dict:
-    """Every flow this workspace can run: its own, plus the shared library's.
+def catalogue(store, workspace: str, every: bool = False) -> dict:
+    """Every flow this workspace can run: its own, plus the shared library's
+    it is offered, or all of those with ``every`` (the admin's view).
 
     A name defined in both resolves to this workspace's, and each entry says
     which library it came from.
@@ -132,8 +136,10 @@ def catalogue(store, workspace: str) -> dict:
     # admin reads it to choose the globe and which way the move button points.
     own_are_shared = workspace == GLOBAL_WORKSPACE
     if not own_are_shared:
+        offer = store.offered(workspace)
         for summary in store.summaries(GLOBAL_WORKSPACE):
-            entries[summary["name"]] = {**summary, "shared": True}
+            if every or offer(summary.get(flowtags.TAGS, ())):
+                entries[summary["name"]] = {**summary, "shared": True}
     for summary in store.summaries(workspace):
         entries[summary["name"]] = {**summary, "shared": own_are_shared}
     return {
@@ -143,14 +149,17 @@ def catalogue(store, workspace: str) -> dict:
     }
 
 
-def read_one(store, workspace: str, name: str) -> dict:
-    """One flow: this workspace's if it has one, else the shared library's."""
+def read_one(store, workspace: str, name: str, every: bool = False) -> dict:
+    """One flow: this workspace's if it has one, else the shared library's when
+    the workspace is offered it, or with ``every`` (the admin's view)."""
     store = _require(store)
     flow = store.get(workspace, name)
     # The flag describes the directory, as in `catalogue`.
     shared = workspace == GLOBAL_WORKSPACE
     if flow is None and workspace != GLOBAL_WORKSPACE:
         flow = store.get(GLOBAL_WORKSPACE, name)
+        if flow is not None and not every:
+            flow = flow if store.offered(workspace)(Shape(flow).tags) else None
         shared = flow is not None
     if flow is None:
         raise ValueError(
@@ -200,10 +209,12 @@ def save_one(store, workspace: str, name: str, document: dict, schemas: dict) ->
     # `null` means unset, as it does for every optional argument an MCP caller
     # leaves out. Kept, it would be saved and read back as a null where the
     # schema promises an integer.
-    for key in (flowdoc.TIMEOUT, places.SITES, places.PATHS):
+    for key in (flowdoc.TIMEOUT, flowtags.TAGS, places.SITES, places.PATHS):
         if key in document and document[key] is None:
             del document[key]
     flowdoc.validate(document, schemas)
+    if flowtags.TAGS in document:
+        document[flowtags.TAGS] = flowtags.read(document[flowtags.TAGS])
     # `"900"` is accepted, and stored as the integer the schema promises.
     if document.get(flowdoc.TIMEOUT) is not None:
         document[flowdoc.TIMEOUT] = flowdoc.declared_timeout(document)
@@ -387,6 +398,9 @@ def register(
         name: str,
         steps: list,
         description: str = "",
+        tags: Annotated[
+            list[str] | None, Field(description=flowtags.DESCRIPTION)
+        ] = None,
         sites: Annotated[
             list[str] | None, Field(description=places.SITES_DESCRIPTION)
         ] = None,
@@ -404,6 +418,8 @@ def register(
     ) -> dict:
         # In DOCUMENT_KEYS order, which is the order the saved YAML lists them in.
         document = {"description": description}
+        if tags is not None:
+            document[flowtags.TAGS] = tags
         if sites is not None:
             document[places.SITES] = sites
         if paths is not None:
@@ -505,6 +521,7 @@ async def _document_schema(schemas: Schemas) -> dict:
 def _build_document_schema(steps: dict) -> dict:
     keys = {
         "description": {"type": "string"},
+        flowtags.TAGS: flowtags.SCHEMA,
         places.SITES: {
             "type": "array",
             "items": {"type": "string"},
