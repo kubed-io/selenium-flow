@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Regenerate openapi.yaml, the build artifact.
 
-The spec is generated and NOT committed — `.gitignore` holds it out, CI writes
-it, lints it with redocly and uploads it. Nothing in a pull request reviews this
-file; what is reviewed is the code that produces it, which `test_openapi.py`
-holds against the live tools. Run this when you want to read the document, or
-when redocly failed in CI and you want the same input it had.
+The document is not committed: CI writes it, lints it with redocly and uploads
+it, and `test_openapi.py` holds the code that produces it against the live
+tools. Run this to read the document, or to give redocly the input CI had.
 
     python scripts/generate_openapi.py
 """
@@ -34,10 +32,8 @@ async def main() -> None:
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "generated"})
     )
     spec = await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
-    # info.version is required by the spec, so it cannot simply be dropped —
-    # but stamping the real one would churn this file on every commit, since
-    # setuptools_scm derives it from git. The artifact is version-agnostic and
-    # the served document at /openapi.yaml carries the true version.
+    # info.version is required, and the real one comes from git through
+    # setuptools_scm. The served /openapi.yaml carries it.
     spec["info"]["version"] = PLACEHOLDER_VERSION
     OUT.write_text(yaml.safe_dump(spec, sort_keys=False, width=100))
     print(f"wrote {OUT} ({len(spec['paths'])} paths)")

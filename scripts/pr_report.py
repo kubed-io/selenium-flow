@@ -36,10 +36,8 @@ SYNTHETIC = re.compile(r"(thread|process) \(\d+\)")
 def hot_frames(svg: str) -> tuple[int, list[tuple[str, int, int]]]:
     """Total samples, and every function as (name, self, total).
 
-    Self is the samples a function was on top of the stack for — its own work,
-    not its callees' — which is what finds a hot spot: the entry points are in
-    every sample and say nothing. Ranked by self, from any package, because a
-    hot spot inside a library we call is still ours to avoid (§F4.19).
+    Self is the samples a function was on top of the stack for: its own work,
+    without its callees'. The entry points are in every sample and say nothing.
     """
     rects = [
         (html.unescape(label), int(y), int(x), int(w))
