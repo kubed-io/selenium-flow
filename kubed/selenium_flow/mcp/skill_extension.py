@@ -1,17 +1,13 @@
 """The MCP Skills extension (SEP-2640) for the embedded skill.
 
-``skill.py`` serves the skill as resources, which is FastMCP's job. A client that
-implements the Skills extension looks for more: the extension declared in the
-server's capabilities, then ``skills/list`` and ``skills/get``. They return an
-entry naming every file of the skill with the digest and size of what
-``resources/read`` hands back, so the client can verify each file it loads. They
-are JSON-RPC methods beside ``resources/list``, not tools.
+``skills/list`` and ``skills/get`` are JSON-RPC methods beside
+``resources/list``. They return an entry naming every file of the skill with the
+digest and size of what ``resources/read`` hands back, so a client can verify
+each file it loads.
 
-FastMCP has no built-in support yet (its #5016), so this part is ours, and kept
-apart from ``skill.py`` so it is easy to delete once FastMCP ships its own.
-
-The entry is built once, with the server: package data cannot change under a
-running process.
+FastMCP has no support of its own yet; this module is apart from ``skill.py`` so
+it can be deleted once it has. The entry is built once, with the server, since
+package data cannot change under a running process.
 """
 
 from __future__ import annotations
@@ -47,8 +43,8 @@ def _served_bytes(path: Path) -> bytes:
 
     SkillProvider reads a ``text/*`` file with ``read_text``, which normalises
     newlines, and anything else raw. A host verifies the bytes it receives, so
-    the digest follows the read, not the disk (which is what ``_manifest``
-    hashes). Importing SkillProvider registers ``.md`` as ``text/markdown``.
+    the digest follows the read, not the disk (which ``_manifest`` hashes).
+    Importing SkillProvider registers ``.md`` as ``text/markdown``.
     """
     mime_type, _ = mimetypes.guess_type(str(path))
     if mime_type and mime_type.startswith("text/"):
@@ -60,9 +56,6 @@ def _problem(metadata: object, name: str) -> str | None:
     """Why this frontmatter cannot be offered as a conforming entry, if it cannot."""
     if not isinstance(metadata, dict):
         return "SKILL.md has no YAML frontmatter mapping"
-    # Frontmatter travels as JSON and must arrive as written: a YAML-only
-    # value fails to encode, and a non-string key (1 beside "1") encodes
-    # but comes back renamed or lost.
     if not frontmatter.survives_json(metadata):
         return "its frontmatter is not representable as JSON"
     if metadata.get("name") != name:
@@ -107,7 +100,7 @@ def entry_for(provider: SkillProvider) -> dict | None:
 
 
 def _result(**fields: object) -> dict:
-    # The same freshness fields as mcp-kb: a hint, not an integrity property.
+    # mcp-kb's freshness fields.
     return {"resultType": "complete", "ttlMs": 0, "cacheScope": "private", **fields}
 
 
@@ -127,7 +120,7 @@ class SkillsExtension(ServerExtension):
 
     async def list_skills(self, ctx, params: PaginatedRequestParams) -> dict:
         if params.cursor is not None:
-            # One skill, so one page; any cursor is one this server never issued.
+            # One page, so no cursor was ever issued.
             raise MCPError(code=INVALID_PARAMS, message="Invalid skills cursor")
         return _result(skills=[copy.deepcopy(self._entry)])
 
@@ -158,8 +151,8 @@ class AdvertiseSkills(Middleware):
 def register(mcp, provider: SkillProvider) -> bool:
     """Offer the skill through the extension.
 
-    False, with nothing added, when the skill does not conform: its resources
-    are still served, so a bad SKILL.md costs the extension, not the boot.
+    False, with nothing added, when the skill does not conform; its resources
+    are still served.
     """
     entry = entry_for(provider)
     if entry is None:

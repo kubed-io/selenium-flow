@@ -1,11 +1,9 @@
 """show(uri): draw one resource as an MCP App, keyed by its URI.
 
-One tool and one shell for every view: the URI says which resource, the table
-below says which component draws it, and the data is the resource's own content
-(its JSON, a page's markdown text, or for one file its folder listing's entry) —
-so a view cannot drift from what the resource serves. It is not read_resource:
-that is the model's reading tool, and an app on it would draw a UI on every read
-the model makes to think (spec 2026-10-04, ruling 1).
+One tool and one shell for every view: the URI says which resource, `VIEWS`
+says which component draws it, and the data is the resource's own content (its
+JSON, a page's markdown text, or for one file its folder listing's entry).
+read_resource has no app: it would draw a UI on every read the model makes.
 """
 
 from __future__ import annotations
@@ -33,8 +31,8 @@ DOWNLOADS = files.FOLDER_URI[files.DOWNLOADS]
 
 class View(NamedTuple):
     """One URI form: how a URI is matched, what draws it, and whether it is
-    drawn from its folder's listing entry rather than read whole (a single
-    file: never its bytes, programme R17)."""
+    drawn from its folder's listing entry instead of read whole (a single file,
+    never its bytes)."""
 
     form: str
     pattern: re.Pattern[str]
@@ -46,10 +44,8 @@ def _exactly(form: str, component: str) -> View:
     return View(form, re.compile(re.escape(form)), component)
 
 
-# The only place a URI is tied to a view: what the tool names, what it matches,
-# what draws it. First match wins, so a folder sits before the `{name}` row
-# that would otherwise take it. Every URI the server serves has a row, and
-# tests/test_show_inventory.py holds that.
+# First match wins, so a folder sits before the `{name}` row that would take
+# it. Every URI the server serves has a row (tests/test_show_inventory.py).
 VIEWS: tuple[View, ...] = (
     _exactly("workspace://current", "context"),
     _exactly("workspace://site-data", "sites"),
@@ -88,8 +84,7 @@ VIEWS: tuple[View, ...] = (
         "request",
     ),
     View("workspace://network", re.compile(r"workspace://network(\?.*)?"), "network"),
-    # One secret is a closer look inside the app, not a URI: there is no
-    # single-secret resource to read (secrets.py, "one read").
+    # There is no single-secret resource; the app looks closer by itself.
     _exactly("secret://secrets", "secrets"),
     View(
         "skill://selenium-flow/{path}",
@@ -212,7 +207,7 @@ def newest(data, key: str):
 async def _entry(uri: str) -> dict:
     """One file, as its folder's listing describes it: never its bytes. The
     listing never opens a browser, and a download's costs the Grid call the
-    Downloads view already makes (spec 2026-10-09-show-everything, ruling 1)."""
+    Downloads view already makes."""
     listing_uri, _, leaf = uri.rpartition("/")
     listing = await _content(listing_uri)
     name = unquote(leaf)
@@ -240,8 +235,7 @@ def register(mcp, app_config) -> set[str]:
             data = newest(data, ROWS[component])
         payload = {"component": component, "uri": uri, "data": data}
         # Sent once, as structured content: a plain dict would go out as a JSON
-        # text block too, doubling it. The model reads resources to think
-        # (ruling 1), so its text is one line saying what was shown.
+        # text block too. The model's text is one line saying what was shown.
         text = summary(uri, component, data)
         size = len(
             json.dumps(

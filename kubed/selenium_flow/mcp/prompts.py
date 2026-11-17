@@ -1,23 +1,14 @@
-"""Prompts: templates a *person* picks, served from markdown files.
+"""Prompts: templates a person picks, served from markdown files.
 
-A skill is read by the model when it decides to; a prompt is chosen by somebody
-— Claude Code lists them as slash commands — who fills in a few arguments before
-the model sees anything. Different primitive, different module.
+A person picks a prompt (Claude Code lists them as slash commands) and fills in
+its arguments before the model sees anything. An agent cannot invoke one, so a
+failed run's `hint` names the prompt for the person to pick.
 
-This is why a failed run's `hint` names one: an agent cannot invoke a prompt, but
-it can tell a person which to pick, and that person picks it in their own client
-(saga §F2.6). The admin page has no run view and no picker — it shows workspaces,
-files and flows — so the hint reaches a person through whoever ran the flow.
-
-The file format and this loader follow `kubed-io/skills-mcp`, which has run them
-in production for months: frontmatter declaring the arguments, a body with
-`{{ placeholders }}`, strict loading. **Copied, not imported** — this server does
-not take a dependency on another server's package for sixty lines. What must not
-drift is the format; `skills-mcp/kubed/skills_mcp/prompts.py` is the other copy.
-
-Double braces rather than `str.format`'s single ones, and it matters more here
-than there: these bodies are full of flow YAML, whose parameter references are
-`${name}` and whose JSON examples are all braces.
+The format and this loader are a copy of `kubed-io/skills-mcp`'s
+(`kubed/skills_mcp/prompts.py`): frontmatter declaring the arguments, a body
+with `{{ placeholders }}`, strict loading. The format must not drift between the
+two. Placeholders take double braces because the bodies are full of flow YAML,
+whose `${name}` references and JSON examples are braces.
 """
 
 from __future__ import annotations
@@ -67,12 +58,7 @@ class FilePrompt(Prompt):
 
 
 def prompts_path() -> Path:
-    """The prompts directory, installed or in a source checkout.
-
-    `plugin/` lives at the repo root, where it reads as documentation rather
-    than as buried package data, and pyproject maps it into the package at build
-    time: without that they are simply absent from an installed wheel.
-    """
+    """The prompts directory, installed or in a source checkout."""
     packaged = Path(__file__).parent / PLUGIN_DIR / PROMPTS_DIR
     if packaged.is_dir():
         return packaged
@@ -90,9 +76,7 @@ def _split(text: str) -> tuple[dict, str] | None:
         return None
     meta = yaml.safe_load(block)
     if meta is not None and not isinstance(meta, dict):
-        # `description: x` is a mapping; a bare list or scalar is a file
-        # somebody got wrong, and publishing it with no metadata leaves an
-        # unusable entry in the picker rather than a skipped file.
+        # Published with no metadata, it would be an unusable picker entry.
         raise ValueError(f"frontmatter must be a mapping, got {type(meta).__name__}")
     return (meta or {}), body.lstrip("\n")
 
@@ -100,9 +84,8 @@ def _split(text: str) -> tuple[dict, str] | None:
 def load_prompt(path: Path) -> FilePrompt:
     """Parse one prompt file, raising ValueError on anything malformed.
 
-    An undeclared placeholder is an error rather than an empty substitution: it
-    is almost always a typo, and rendered blank it produces a prompt that reads
-    perfectly well and asks the model for the wrong thing.
+    An undeclared placeholder is an error: it is almost always a typo, and
+    rendered blank it asks the model for the wrong thing.
     """
     split = _split(path.read_text(encoding="utf-8"))
     if split is None:
@@ -111,9 +94,8 @@ def load_prompt(path: Path) -> FilePrompt:
 
     declared = meta.get("arguments") or []
     if not isinstance(declared, list):
-        # `arguments: 1` would otherwise raise TypeError out of the loop, which
-        # `load_prompts` does not catch — and one malformed file would take the
-        # server's whole prompt registration down with it.
+        # Otherwise `arguments: 1` raises a TypeError `load_prompts` does not
+        # catch.
         raise ValueError(f"arguments must be a list, got {type(declared).__name__}")
 
     arguments: list[PromptArgument] = []
@@ -149,10 +131,8 @@ def load_prompt(path: Path) -> FilePrompt:
 def load_prompts(base: Path | None = None) -> list[FilePrompt]:
     """Every prompt file, as the server will serve them.
 
-    A broken file is logged and skipped rather than raised: one bad prompt must
-    not take the server down with it. `tests/test_prompts.py` loads every
-    shipped prompt strictly, so this only ever fires for a file that arrived
-    after the tests did.
+    A broken file is logged and skipped, so one bad prompt cannot stop the
+    server.
     """
     base = prompts_path() if base is None else base
     if not base.is_dir():

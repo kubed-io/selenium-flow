@@ -1,39 +1,30 @@
 """Every resource an agent reads, checked for the secrets an agent may not see.
 
-A result is checked for the secrets allowed where its call ran (spec
-2026-11-14-secret-scope, ruling 1); a resource read is not a call on a page, so
-it has no before and after, and what it holds is often from another site than
-the browser's - a site-data entry, a kept file, a captured request. So each
-read is scrubbed with every leashed secret and whatever the workspace's browser
-holds (`Scrubber.resource`, ruling 16).
+A read is not a call on a page, and what it holds is often from another site
+than the browser's (a site-data entry, a kept file, a captured request), so
+each read is scrubbed with every leashed secret and whatever the workspace's
+browser holds (`Scrubber.resource`).
 
-**One place, below every reader.** `Scrubbed` is a middleware on
-`on_read_resource`, and FastMCP runs the middleware for `FastMCP.read_resource`
-too, which is how `read_resource` (`mirror`) and `show` read: so a client's own
-resource reader, the mirror tool and the app's drawing see one scrubbed text.
+`Scrubbed` is a middleware on `on_read_resource`, which FastMCP also runs for
+`FastMCP.read_resource`, so a client's own reader, `read_resource` (`mirror`)
+and `show` see one scrubbed text.
 
-**What is read as text.** FastMCP's read result is a `ResourceResult` whose
-`contents` are `ResourceContent`, each a `str` (sent as `TextResourceContents`)
-or `bytes` (sent as `BlobResourceContents`). Text is scrubbed; JSON text is
-also scrubbed value by value, since a value a page spelt backwards, upper-cased
-or with a quote in it is escaped again by the serialiser, where the text scan
-would not see it. Bytes whose media type is text (a kept `.txt`, a downloaded
-`.csv`) are scrubbed as UTF-8 too, any byte that is not carried through as it
-is, because the mirror hands them to a model as text; any other bytes - an
-image, a PDF, a video - pass as they are, like a screenshot's pixels (ruling 12).
+Text is scrubbed, and JSON text also value by value: a value a page spelt
+backwards, upper-cased or with a quote in it is escaped again by the serialiser,
+where the text scan would not see it. Bytes whose media type is text (a kept
+`.txt`, a downloaded `.csv`) are scrubbed as UTF-8, any byte that is not carried
+through as it is, because the mirror hands them to a model as text. Other bytes
+(an image, a PDF, a video) pass as they are.
 
-**A refusal is scrubbed too**, in place and keeping its type, so the choke point
-is unconditional. FastMCP logs a failed read before any middleware runs; what it
-logs is `failures.QuietCallerMistakes`' business.
+A refusal is scrubbed too, in place and keeping its type. FastMCP logs a failed
+read before any middleware runs; `failures.QuietCallerMistakes` handles that.
 
-**Exempt** (ruling 16): what this server wrote itself, which can hold no value -
-the skill, the app shell, the flow document schema and the secrets catalogue,
-which names secrets and never holds one.
+Exempt: what this server wrote itself and can hold no value (the skill, the app
+shell, the flow document schema and the secrets catalogue).
 
-**Fails closed** (ruling 2): a read whose scrub fails answers `ResourceError`
-with the `ScrubFailed` sentence, never the unscrubbed text, and the failure is
-logged by its type alone. With secrets off a read is returned as it was, the
-same object, unscanned.
+A read whose scrub fails answers `ResourceError` with the `ScrubFailed`
+sentence, never the unscrubbed text, and the failure is logged by its type
+alone. With secrets off a read is returned as it was, the same object.
 """
 
 from __future__ import annotations
@@ -52,7 +43,7 @@ from . import clients
 
 log = logging.getLogger(__name__)
 
-# Text this server wrote, which holds no value (ruling 16).
+# Text this server wrote, which holds no value.
 EXEMPT = ("skill://", "ui://", "flow://schema", "secret://secrets")
 
 # Media types that are text whatever their `text/` prefix says.
@@ -80,7 +71,7 @@ def textual(media: str | None) -> bool:
 
 def _media(uri: str, declared: str | None) -> str:
     """A content's real type: a template declares one for everything it
-    serves, so `application/octet-stream` is a shrug, and the name knows more."""
+    serves, so for `application/octet-stream` the name knows more."""
     if declared and declared != "application/octet-stream":
         return declared
     guessed, _ = mimetypes.guess_type(uri)
@@ -95,7 +86,7 @@ def _caller_name() -> str:
 
 
 class Scrubbed(Middleware):
-    """Scrub every resource read outside `EXEMPT` (ruling 16)."""
+    """Scrub every resource read outside `EXEMPT`."""
 
     def __init__(self, workspaces) -> None:
         self.scrubber = workspaces.scrubber
@@ -164,7 +155,7 @@ class Scrubbed(Middleware):
         if not textual(media):
             return data
         # Bytes that are not UTF-8 ride through as surrogates and come back as
-        # they were: a Latin-1 `.txt` is still text a reader decodes somehow.
+        # they were.
         text = data.decode("utf-8", errors="surrogateescape")
         scrubbed = self._text(name, media, text)
         if scrubbed is text:

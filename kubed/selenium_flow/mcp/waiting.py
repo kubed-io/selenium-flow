@@ -1,28 +1,21 @@
 """A tool that waits: as an MCP task where the client can, as a capped blocking
-call with progress where it cannot (live control spec, R4-R6, rulings 8 and 15).
+call with progress where it cannot.
 
-`await_control` is the first; the next long-running tool wraps the same helper.
-Three things make a waiting tool, and all three are here or in `clients`:
+- `waited` runs the tool's body, ``work(cap)``, an awaitable that answers by
+  itself at ``cap`` seconds ("call again") or, with ``cap`` None, only when it
+  is done. In a background task the cap is off: nothing times out a client
+  polling a task.
+- A progress notification goes at once and every `progress.HEARTBEAT`. On a
+  blocking call it keeps the client's idle clock from running out; in a task it
+  is the ``statusMessage`` a ``tasks/get`` reads.
+- The worker has no request, so `clients.Carry` captures the workspace at
+  submission.
 
-- **the wait itself**, `waited`: the tool's body is ``work(cap)``, an awaitable
-  that answers by itself at ``cap`` seconds - "call again" - or, with ``cap``
-  None, only when it is done. In a background task the cap is off: a client
-  polling a task is not holding a request open, and nothing times it out;
-- **the heartbeat**: a progress notification at once and every
-  `progress.HEARTBEAT` (reused, not copied). On a blocking call it keeps the
-  client's idle clock from running out; in a task it is the ``statusMessage``
-  a ``tasks/get`` reads;
-- **the workspace, captured at submission**: the worker has no request, so
-  ``?workspace=`` never reaches it. `clients.Carry` puts the caller's name in
-  a private header the worker's snapshot keeps (R3, ruling 31).
+A task tool must be ``async``: FastMCP refuses ``task=`` on a sync function.
 
-A task tool must be ``async``: ``task=`` on a sync function is refused at
-decoration (R6), and every other tool here is sync.
-
-**Docket stays in memory** (ruling 9), named in code so a stray
-``FASTMCP_DOCKET_URL`` cannot move it, and `Tasks` stops it only after the
-server's waiters are let go: Docket's worker waits for the tasks it runs when it
-stops, and a waiter nobody releases would hold the stop for ever.
+Docket stays in memory, named in code so a stray ``FASTMCP_DOCKET_URL`` cannot
+move it. Its worker waits for the tasks it runs when it stops, so `Tasks` lets
+the server's waiters go first, or the stop would hang.
 """
 
 from __future__ import annotations
@@ -44,7 +37,7 @@ log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# R4: the client polls a task, nothing is pushed, and the default is 5 s.
+# The client polls a task, nothing is pushed, and FastMCP's default is 5 s.
 TASK = TaskConfig(mode="optional", poll_interval=timedelta(seconds=1))
 MEMORY = "memory://"
 
@@ -109,8 +102,7 @@ async def waited(
         try:
             result = await work(limit)
         except Exception as exc:  # noqa: BLE001 - re-raised below, unwrapped
-            # Raised outside the group, or the caller gets an ExceptionGroup
-            # instead of the failure `errors` knows how to read.
+            # Raised outside the group, or the caller gets an ExceptionGroup.
             failure = exc
         finally:
             group.cancel_scope.cancel()

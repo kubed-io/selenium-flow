@@ -5,8 +5,7 @@ The server serves definitions; the host runs them. Agents are package data in
 ``plugin/agents/``, read once when the server is built, since package data
 cannot change under a running process.
 
-``io.kubed/agent`` in a detail's ``_meta`` is the shape both servers share (spec
-2026-11-12-plugin-agents, Ruling 2).
+``io.kubed/agent`` in a detail's ``_meta`` is the shape both servers share.
 """
 
 from __future__ import annotations
@@ -49,12 +48,9 @@ class Agent:
 def agents_path() -> Path:
     """The agents directory, installed or in a source checkout.
 
-    ``plugin/`` lives at the repo root; pyproject maps it into the package at
-    build time, so an installed wheel finds it beside this module, and a source
-    checkout falls back to the root. It may not exist: no agents is a valid state.
-    The test is for ``plugin/``, not ``agents/``: an installed wheel may ship
-    ``plugin/`` without ``agents/``, and must not then fall back to a
-    ``plugin/agents`` in site-packages that another distribution could own.
+    It may not exist: no agents is a valid state. The test is for ``plugin/``,
+    not ``agents/``, so a wheel that ships ``plugin/`` without ``agents/`` never
+    falls back to a ``plugin/agents`` another distribution could own.
     """
     packaged = Path(__file__).parent / PLUGIN_DIR
     if packaged.is_dir():
@@ -193,7 +189,7 @@ class AgentsExtension(ServerExtension):
 
     async def list_agents(self, ctx, params: PaginatedRequestParams) -> dict:
         if params.cursor is not None:
-            # One page; any cursor is one this server never issued.
+            # One page, so no cursor was ever issued.
             raise MCPError(code=INVALID_PARAMS, message="Invalid agents cursor")
         return _result(agents=[copy.deepcopy(a.card) for a in self._agents])
 
@@ -209,12 +205,8 @@ class AgentsExtension(ServerExtension):
 
 
 class AdvertiseAgents(Middleware):
-    """Declare the extension in a legacy ``initialize`` reply too.
-
-    FastMCP declares registered extensions in ``server/discover`` only, so a
-    handshake-era client would never learn the agents methods exist, as with
-    AdvertiseSkills.
-    """
+    """Declare the extension in a legacy ``initialize`` reply too, as
+    AdvertiseSkills does."""
 
     async def on_initialize(self, context, call_next):
         result = await call_next(context)
