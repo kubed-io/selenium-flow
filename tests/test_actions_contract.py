@@ -8,6 +8,7 @@ refactor of the recipe every action shares (reconnect, maybe navigate, wait, act
 report) is provable rather than hoped for.
 """
 
+import contextlib
 import re
 import tempfile
 from itertools import pairwise
@@ -1216,3 +1217,12 @@ def test_an_empty_text_file_can_be_uploaded(actions, scripted):
     scripted()
     result = actions.upload_file("abc", selector={"css": "input"}, text="")
     assert result["bytes"] == 0
+
+
+def test_a_null_text_is_never_typed_as_the_word_none(actions, scripted):
+    driver = scripted()
+    sent = []
+    driver.element.send_keys = lambda *keys: sent.append(keys)
+    with contextlib.suppress(ValueError):
+        actions.write("abc", None, selector={"css": "#q"})
+    assert sent == []

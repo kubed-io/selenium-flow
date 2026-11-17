@@ -1047,6 +1047,8 @@ class Actions:
         the credential is never in a local variable, a traceback or a result.
         """
 
+        if text is None:
+            raise ValueError("text is required: pass the text to type")
         bound = not as_bool(read_back, True)
 
         def typing(at):

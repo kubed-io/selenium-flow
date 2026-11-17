@@ -204,18 +204,6 @@ def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
 # ---- browser actions ----------------------------------------------------------
 
 
-@bug(
-    "Actions.write types the string None for text=None, and POST /browser/write passes it"
-)
-def test_a_null_text_is_never_typed_as_the_word_none(actions, scripted):
-    driver = scripted()
-    sent = []
-    driver.element.send_keys = lambda *keys: sent.append(keys)
-    with contextlib.suppress(ValueError):
-        actions.write("abc", None, selector={"css": "#q"})
-    assert sent == []
-
-
 # ---- saved flows -------------------------------------------------------------
 
 
