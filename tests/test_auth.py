@@ -146,14 +146,35 @@ async def test_a_jwt_valid_since_a_moment_ago_is_accepted(issuer):
     ids=["no-exp", "not-yet-valid", "no-role"],
 )
 async def test_our_refusals_are_logged_with_the_subject(issuer, caplog, claims, reason):
-    """FastMCP logs its own iss/aud refusals; ours would otherwise be silent."""
+    """FastMCP logs its own iss/aud refusals; ours would otherwise be silent.
+
+    FastMCP 4.2.1 refuses a future ``nbf`` itself, and logs it, before ours
+    runs; ours stays for an older FastMCP. Either way the refusal is logged once.
+    """
     verifier = auth.OidcVerifier(issuer.settings(TOKEN).oidc)
     token = _raw(issuer, **claims(int(time.time())))
-    with caplog.at_level(logging.INFO, logger=auth.__name__):
-        assert await verifier.verify_token(token) is None
-    [record] = [r for r in caplog.records if r.name == auth.__name__]
+    fastmcp_log = logging.getLogger("fastmcp")
+    fastmcp_log.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(logging.INFO, logger=auth.__name__), caplog.at_level(
+            logging.INFO, logger="fastmcp"
+        ):
+            assert await verifier.verify_token(token) is None
+    finally:
+        fastmcp_log.removeHandler(caplog.handler)
+    ours = [r for r in caplog.records if r.name == auth.__name__]
+    theirs = [
+        r
+        for r in caplog.records
+        if r.name.startswith("fastmcp") and "rejected" in r.getMessage()
+    ]
+    if reason == "nbf" and not ours:
+        [record] = theirs
+        assert "nbf" in record.getMessage()
+    else:
+        [record] = ours
+        assert reason in record.getMessage() and "6b0f" in record.getMessage()
     assert record.levelno == logging.INFO
-    assert reason in record.getMessage() and "6b0f" in record.getMessage()
     assert token not in caplog.text and issuer.issuer not in caplog.text
 
 
