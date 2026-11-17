@@ -103,7 +103,9 @@ def test_a_key_sets_masked_beside_its_value_or_alone():
     assert isinstance(keys["a"], config.FromFile) and keys["a"].masked is False
     assert isinstance(keys["b"], config.KeySettings) and keys["b"].masked is False
     assert keys["c"].masked is True
-    for bad in ({"masked": False, "path": "/f"}, {"masked": "sometimes"}):
+    bad_keys = ({"masked": False, "path": "/f"}, {"masked": "sometimes"},
+                {"masked": "false"}, {"masked": 0}, {"file": "/f", "masked": "no"})
+    for bad in bad_keys:
         with pytest.raises(ValidationError):
             Settings(secrets={"entries": {"demo": {"keys": {"k": bad}}}})
 

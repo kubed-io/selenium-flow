@@ -28,6 +28,7 @@ from pydantic import (
     Field,
     JsonValue,
     SecretStr,
+    StrictBool,
     ValidationError,
     field_validator,
 )
@@ -82,28 +83,29 @@ class Section(BaseModel):
 
 class FromFile(Section):
     file: str
-    masked: bool = True
+    masked: StrictBool = True
 
 
 class FromEnv(Section):
     env: str
-    masked: bool = True
+    masked: StrictBool = True
 
 
 class FromValue(Section):
     value: SecretStr
-    masked: bool = True
+    masked: StrictBool = True
 
 
 class KeySettings(Section):
     """Settings for a key a directory provides; its value stays the directory's."""
 
-    masked: bool
+    masked: StrictBool
 
 
 # The key present is the discriminator. Each member forbids extra keys, so
 # `{file, env}` and `{}` match none of them and are refused. `masked: false`
-# leaves the key's value out of the scrub, for a value that is not secret.
+# leaves the key's value out of the scrub, for a value that is not secret. It is
+# strict: a stray "no" or 0 must not unmask a key.
 KeyRef = FromFile | FromEnv | FromValue | KeySettings
 
 
