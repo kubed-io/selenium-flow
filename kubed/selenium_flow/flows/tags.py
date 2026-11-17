@@ -27,6 +27,14 @@ DESCRIPTION = (
     "a new one. Tags never decide where a flow applies: sites and paths do."
 )
 
+# The published shape, for `flow://schema` and the REST spec.
+SCHEMA = {
+    "type": "array",
+    "items": {"type": "string", "minLength": 1, "maxLength": 50},
+    "maxItems": MAX_TAGS,
+    "description": DESCRIPTION,
+}
+
 
 def _one(tag) -> str:
     """``tag`` trimmed and lowercased, or ValueError naming it and the rule."""
@@ -67,7 +75,9 @@ class Filter:
         naming the row. No rows passes no flow.
         """
         if not isinstance(rows, (list, tuple)):
-            raise ValueError("a tag filter is a list of rows, such as [auth:ldap,smoke]")
+            raise ValueError(
+                "a tag filter is a list of rows, such as [auth:ldap,smoke]"
+            )
         parsed = []
         for row in rows:
             if not isinstance(row, str):

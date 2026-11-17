@@ -7,6 +7,8 @@ and saving and running refuse with the same sentences.
 
 from __future__ import annotations
 
+from . import tags as flowtags
+
 NOT_A_STEP = "must be an object with a tool and its params"
 NAMES_NO_TOOL = "names no tool"
 NOT_STEPS = "steps must be a non-empty list"
@@ -24,6 +26,15 @@ class Shape:
     @property
     def _parameters(self):
         return self.document.get("parameters")
+
+    @property
+    def tags(self) -> list[str]:
+        """The tags as read, or none when they cannot be read."""
+        found = self.document.get(flowtags.TAGS)
+        try:
+            return flowtags.read(found) if found is not None else []
+        except ValueError:
+            return []
 
     @property
     def steps(self) -> list:
