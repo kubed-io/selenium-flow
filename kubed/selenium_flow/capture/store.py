@@ -411,9 +411,7 @@ class Capture:
                 return
             if self.heard is not None:  # it may have been a navigation
                 self._unheard(held, [], again=False)
-            buffer = self._cache.get(workspace) or Buffer()
-            buffer.dropped += 1
-            self._cache[workspace] = buffer
+            self._dropped(held, 1)
 
     def detached(self, workspace, session_id) -> None:
         """A hold ended, or failed before it began: anything held is dropped,
