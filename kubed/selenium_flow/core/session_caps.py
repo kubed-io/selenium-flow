@@ -1,25 +1,20 @@
 """The capabilities a session sends, and where each one came from.
 
-The one place the precedence rules live (spec 2026-10-26-session-capabilities,
-*Building the sent set*). Four layers, applied in order:
+Four layers, applied in order:
 
-1. **flow**: what selenium-flow always sends, because its own tools need it.
-2. **option**: what a named ``open_session`` option produces.
-3. **config**: the operator's ``session.capabilities``.
-4. **raw**: the caller's ``capabilities``, the escape hatch.
+1. flow: what selenium-flow always sends, because its own tools need it.
+2. option: what a named ``open_session`` option produces.
+3. config: the operator's ``session.capabilities``.
+4. raw: the caller's ``capabilities``, the escape hatch.
 
-A key flow or an option produces is **owned**: config or raw setting it is
-refused, naming what controls it, never applied quietly. Raw beats config for
-the same key. The browser's own vendor block (``goog:chromeOptions``,
-``moz:firefoxOptions``) is the one place the layers meet: args are added, prefs
-merge, and where both set the same pref ours wins and the loss is listed.
+A key flow or an option produces is owned: config or raw setting it is refused,
+naming what controls it. Raw beats config for the same key. The browser's own
+vendor block (``goog:chromeOptions``, ``moz:firefoxOptions``) is where the
+layers meet: args are added, prefs merge, and where both set the same pref ours
+wins and the loss is listed.
 
-What comes out is exactly what is sent. Selenium's Options objects add keys of
-their own (``pageLoadStrategy``, and on Firefox ``acceptInsecureCerts: true``
-and ``moz:debuggerAddress``); `Grid._options` sends this dict instead, so the
-admin's Capabilities section is the truth (ruling 23).
-
-Plain on purpose: no Selenium, no protocol library. ``config.py`` checks the
+What comes out is exactly what is sent (`Grid._options`), so the admin's
+Capabilities section is the truth. No Selenium import: ``config.py`` checks the
 operator's capabilities with :func:`check` at load.
 """
 
@@ -39,17 +34,16 @@ from .guidance import pointer
 SOURCES = ("flow", "option", "config", "raw")
 
 # The word that clears a remembered version. Never sent: the Grid's own "any
-# version" is an empty value or `stable` (ruling 19).
+# version" is an empty value or `stable`.
 LATEST = "latest"
 
-# Each browser's own options block, which is merged rather than replaced
-# (ruling 5). The other browser's block is an ordinary key, sent untouched.
+# Each browser's own options block, which is merged rather than replaced. The
+# other browser's block is an ordinary key, sent untouched.
 VENDOR = {CHROME: "goog:chromeOptions", FIREFOX: "moz:firefoxOptions"}
 
 # The keys selenium-flow or a named option produces, and the end of the
-# sentence that refuses one (ruling 15). `timeouts` is sent by nobody: the two
-# timeouts are WebDriver commands after the browser starts, and a capability
-# would fight them.
+# sentence that refuses one. `timeouts` is sent by nobody: the two timeouts are
+# WebDriver commands after the browser starts, and a capability would fight them.
 OWNED = {
     "unhandledPromptBehavior": "selenium-flow keeps dialogs open for the dialog tool",
     "se:downloadsEnabled": "the downloads folder needs it",
@@ -62,9 +56,8 @@ OWNED = {
     "timeouts": "use page_load_timeout= and script_timeout= instead",
 }
 
-# Headless is an option, not a raw flag: selenium-flow must know a browser is
-# headless to refuse record and the live view, and a flag in the vendor block
-# hides it. So the option owns every spelling of the flag (rulings 6, 7).
+# The headless option owns every spelling of the flag: selenium-flow must know a
+# browser is headless to refuse record and the live view.
 HEADLESS_ARGS = {CHROME: "--headless=new", FIREFOX: "-headless"}
 HEADLESS_OWNED = "use headless=true or headless=false instead"
 
@@ -80,19 +73,13 @@ REMEMBERED = (
 
 # What flow sends on every browser.
 _FLOW_KEYS = {
-    # Never let the browser answer a dialog on the caller's behalf. The
-    # default, "dismiss and notify", silently clicks Cancel on a confirm and
-    # only reports it as an error on whatever command happened to notice — so
-    # a destructive prompt gets answered by accident and the dialog is gone
-    # before anyone can decide. "ignore" leaves it open for `dialog`.
+    # The default, "dismiss and notify", clicks Cancel on a confirm and reports
+    # it on whatever command noticed. "ignore" leaves it open for `dialog`.
     "unhandledPromptBehavior": "ignore",
-    # Ask the Grid to manage this session's downloads. The node then keeps a
-    # per-session directory and exposes it at /session/<id>/se/files, which is
-    # the whole file store — listed, read and reaped by the Grid itself.
-    # Without this the browser downloads into a directory nothing can reach.
+    # The node keeps a per-session downloads directory at
+    # /session/<id>/se/files; without it nothing can reach a download.
     "se:downloadsEnabled": True,
-    # Every browser speaks BiDi so a saved site can be restored into it, and
-    # capture and the monitor can listen; every other tool still uses classic
+    # BiDi, for site data, capture and the monitor; every tool uses classic
     # WebDriver.
     "webSocketUrl": True,
 }
@@ -103,21 +90,16 @@ def _flow_block(browser: str) -> dict:
     if browser == FIREFOX:
         return {
             "prefs": {
-                # 2 = the directory the Grid node set for this session. Firefox
-                # otherwise saves to its own default and se:downloadsEnabled has
-                # nothing to collect.
+                # 2 = the directory the Grid node set for this session.
                 "browser.download.folderList": 2,
                 "browser.download.useDownloadDir": True,
-                # Firefox's equivalent of Chrome's automatic-downloads prompt:
-                # it asks what to do with a type it does not recognise, and
-                # nobody is there to answer. A PDF a site serves would hang
-                # without this, since Firefox opens PDFs in its own viewer.
+                # Firefox asks what to do with a type it does not recognise,
+                # and opens PDFs in its own viewer; nobody is there to answer.
                 "browser.helperApps.neverAsk.saveToDisk": (
                     "application/pdf,image/png,application/octet-stream"
                 ),
                 "pdfjs.disabled": True,
-                # See Chrome's prefs: the password-save prompt is a browser
-                # popup, and the browser is the only thing that can answer it.
+                # The password-save prompt, as in Chrome's prefs.
                 "signon.rememberSignons": False,
             }
         }
@@ -128,18 +110,12 @@ def _flow_block(browser: str) -> dict:
             "--disable-dev-shm-usage",
         ],
         "prefs": {
-            # Chrome asks permission before a page's *second* automatic
-            # download and denies it silently when nobody can answer. The first
-            # file of a session would arrive and every one after it would
-            # vanish with no error. 1 = allow.
+            # Chrome asks before a page's second automatic download and denies
+            # it silently when nobody answers. 1 = allow.
             "profile.default_content_setting_values.automatic_downloads": 1,
-            # Submitting a password offers to save it, and that offer is a
-            # *browser* popup rather than anything in the page. It takes the
-            # input focus and never gives it back, so every later click and
-            # keystroke is delivered to the bubble instead of the document —
-            # silently: the element is found, the command succeeds, and nothing
-            # happens. Nobody is here to answer the offer, so do not let it be
-            # made.
+            # The offer to save a submitted password is a browser popup that
+            # takes the input focus and keeps it: every later command succeeds
+            # and does nothing.
             "credentials_enable_service": False,
             "profile.password_manager_enabled": False,
             # Same popup, different trigger: Chrome warns about a password it
@@ -149,8 +125,8 @@ def _flow_block(browser: str) -> dict:
     }
 
 
-# Where a version the caller owns came from, as a refusal says it (ruling 4).
-# "config" is the operator's, so it has no phrase: it is never blamed.
+# Where a version the caller owns came from, as a refusal says it. "config" is
+# the operator's, so it has no phrase: it is never blamed.
 VERSION_FROM = {
     "client": "from Sf-Version or ?version=",
     "call": "from this call's version=",
@@ -167,10 +143,10 @@ class Built:
     send: dict[str, Any]
     # [{"key", "value", "sources"}], in `send`'s order: display only.
     sent: list[dict] = field(default_factory=list)
-    # `<block>.prefs.<name>` for each config or raw pref ours beat (ruling 28).
+    # `<block>.prefs.<name>` for each config or raw pref ours beat.
     ignored: list[str] = field(default_factory=list)
     # The top-level keys the caller's raw object set: what a node's refusal
-    # may be blamed on (ruling 16).
+    # may be blamed on.
     raw_keys: tuple[str, ...] = ()
     # The browserVersion sent, or None.
     version: str | None = None
@@ -192,10 +168,9 @@ def check(
 ) -> None:
     """Refuse an owned key, a headless flag, or a vendor block a merge cannot add to.
 
-    Raised as a ``ValueError`` (a 400) before anything opens or ends: a
-    rejected argument must cost nothing. ``where`` names the object in the
-    message; ``remembered`` says the workspace holds it, and how to clear it
-    (ruling 26).
+    Raised as a ``ValueError`` (a 400) before anything opens or ends.
+    ``where`` names the object in the message; ``remembered`` says the
+    workspace holds it, and how to clear it.
     """
     if raw is None:
         return
@@ -204,6 +179,7 @@ def check(
     owned = [key for key in raw if key in OWNED]
     if owned:
         raise ValueError("; ".join(_refusal(key, where, remembered) for key in owned))
+    flags = []
     for block in VENDOR.values():
         if block not in raw:
             continue
@@ -217,11 +193,6 @@ def check(
             raise ValueError(f"{block}.args in {where} must be a list of strings")
         if "prefs" in value and not isinstance(value["prefs"], Mapping):
             raise ValueError(f"{block}.prefs in {where} must be an object")
-    flags = []
-    for block in VENDOR.values():
-        value = raw.get(block)
-        if not isinstance(value, Mapping):
-            continue
         flags += [
             f"{block}.args {arg} cannot be sent in {where}: {HEADLESS_OWNED}"
             for arg in value.get("args", ())
@@ -231,8 +202,7 @@ def check(
         moz = block == VENDOR[FIREFOX] and isinstance(env, Mapping)
         if moz and "MOZ_HEADLESS" in env:
             flags.append(
-                f"{block}.env.MOZ_HEADLESS cannot be sent in {where}: "
-                + HEADLESS_OWNED
+                f"{block}.env.MOZ_HEADLESS cannot be sent in {where}: " + HEADLESS_OWNED
             )
     if flags:
         suffix = REMEMBERED if remembered else ""
@@ -306,12 +276,10 @@ def build(
 ) -> Built:
     """The capabilities an open of ``browser`` sends, and each one's sources.
 
-    ``option_args`` is what a named option adds to the browser's own args
-    (ruling 29); it is what ``headless`` adds (``HEADLESS_ARGS`` for the
-    browser). Raises
-    ``ValueError`` for an owned key or a vendor block of the wrong shape in
-    ``config`` or ``raw``. Never mutates its inputs, and nothing it returns
-    shares an object with them.
+    ``option_args`` is what a named option (``headless``) adds to the
+    browser's own args. Raises ``ValueError`` for an owned key or a vendor
+    block of the wrong shape in ``config`` or ``raw``. Never mutates its
+    inputs, and nothing it returns shares an object with them.
 
     ``version_from`` says whose ``version`` is ("config", "client", "call" or
     "remembered"); it is kept only when a version is sent, and decides whether
@@ -331,13 +299,11 @@ def build(
     entries["browserName"] = (name, ["option"])
     if sent_version is not None:
         entries["browserVersion"] = (sent_version, ["option"])
-    # Always said, true or false, on every browser: Selenium's Firefox default
-    # is true, so leaving it out made every Firefox accept any certificate and
-    # get saved site data while insecure (ruling 23, Dr K).
+    # Always sent: Selenium's Firefox default is true, which would accept any
+    # certificate and restore saved site data into it.
     entries["acceptInsecureCerts"] = (bool(insecure), ["option"])
     if record:
-        # The Grid's own recorder films this browser's whole life. The name
-        # only makes the operator's inbox readable; nothing matches on it.
+        # The name only makes the operator's inbox readable.
         entries["se:recordVideo"] = (True, ["option"])
         if video_name:
             entries["se:videoName"] = (video_name, ["option"])
@@ -380,7 +346,7 @@ def build(
 QUEUE_TIMEOUT = ("New session request timed out", "Timed out creating session")
 
 # The Grid's own failures, from its router and queue rather than a node: they
-# stay the plain 503 they always were (ruling 24). Pinned by a test.
+# stay a plain 503. Pinned by a test.
 GRID_SIDE = (
     "Unable to find owning node for slot",
     "Interrupted when creating the session",
@@ -392,9 +358,8 @@ GRID_SIDE = (
 # Extension capabilities the Grid never matches on (`DefaultSlotMatcher`).
 _UNMATCHED = ("goog:", "moz:", "ms:", "safari:", "se:")
 
-# The furniture appended to a node's message: the Grid's hosts, IPs and builds
-# of the cluster, and Selenium's link to its own troubleshooting page — nothing
-# a caller can act on.
+# The furniture appended to a node's message: the cluster's hosts, IPs and
+# builds, and Selenium's troubleshooting link.
 _FURNITURE = re.compile(
     r"\s*(?:\b(?:Host|Build|System|Driver) info:"
     r"|;\s*For documentation on this error).*",
@@ -408,13 +373,13 @@ def asked(built: Built) -> str:
     """What an open asked the Grid for, in the words it matches on.
 
     ``browserName`` and ``browserVersion``, then ``platformName`` and every
-    extension the Grid matches (ruling 25): a scalar as ``key=value``,
-    anything else as the key alone. Never a vendor block, ``proxy`` or a key
-    the Grid ignores: those are where credentials live, and they cannot
-    explain a miss anyway.
+    extension the Grid matches: a scalar as ``key=value``, anything else as
+    the key alone. Never a vendor block, ``proxy`` or a key the Grid ignores:
+    those are where credentials live, and they cannot explain a miss.
     """
     head = " ".join(
-        str(built.send[key]) for key in ("browserName", "browserVersion")
+        str(built.send[key])
+        for key in ("browserName", "browserVersion")
         if key in built.send
     )
     parts = [head]
@@ -442,10 +407,8 @@ def not_created(said: str, built: Built) -> Exception | None:
     """What a ``SessionNotCreatedException`` saying ``said`` means for ``built``.
 
     A queue timeout is `NoNodeTook`; a node's refusal is `NodeRefused`, blamed
-    on the caller only when it asked for raw keys or a version of the
-    caller's own (rulings 16, 4);
-    the Grid's own failures are None, and the caller re-raises the original.
-    Config capabilities are the operator's, so they never blame the caller.
+    on the caller only when it asked for raw keys or a version of its own; the
+    Grid's own failures are None, and the caller re-raises the original.
     """
     if any(text in said for text in QUEUE_TIMEOUT):
         return NoNodeTook(

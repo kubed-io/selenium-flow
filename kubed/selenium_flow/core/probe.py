@@ -1,21 +1,11 @@
 """What the page can tell you about its own elements.
 
-A wait that times out says the element never became clickable, which is true and
-almost never the diagnosis. The page usually knows: the link is inside a menu
-whose ancestor is `display: none`, a banner is on top of it, it is below the
-fold, it is disabled, or it is there with no size at all. Each of those has a
-different next move, and an agent told only "timed out" guesses.
+Why an element cannot be used (hidden by an ancestor, covered, offscreen,
+disabled, no size) and the move that fixes it. :func:`explain` adds it to a
+failure, and :func:`outline` hands it out before anything is tried; both read
+the same scripts, so the error and the map agree about an element.
 
-Two callers read the same answer. :func:`explain` decorates a failure with it,
-and :func:`outline` hands it out *before* anything is tried — the map an agent
-would otherwise build by hand out of three `execute_script` DOM dumps, which is
-what the first pilot report said cost it the most.
-
-They share `_HELPERS`, because a second copy of this reasoning is how the error
-and the map start disagreeing about the same element (saga §F2.8).
-
-Script, not CDP: the answer has to be the same on Chrome and on Firefox, which
-is a promise every other action in this package already keeps.
+Script, not CDP, so the answer is the same on Chrome and Firefox.
 """
 
 from __future__ import annotations
@@ -27,32 +17,24 @@ from . import js
 
 log = logging.getLogger(__name__)
 
-# How many elements `outline` returns unless asked for more. A page map is only
-# cheaper than reading the DOM if it stays small.
+# How many elements `outline` returns unless asked for more.
 DEFAULT_LIMIT = 50
 
-# How many matches of one selector a wait will ask about per poll. `is_displayed`
-# is a round trip per element, so a broad selector (`//a`) with hundreds of hidden
-# matches would make each poll take seconds, inside the session's lock. Past this
-# the timeout says only the first of them were tried (spec 2026-11-13, ruling 6).
+# How many matches of one selector a wait asks about per poll: `is_displayed`
+# is a round trip per element, inside the session's lock. Past this the timeout
+# says only the first of them were tried.
 CANDIDATES = 50
 
 # How many of the matches a timeout lists, each with its reason. The rest are
-# counted ("and N more"): the first few are the ones a person acts on.
+# counted ("and N more").
 LISTED = 5
 
 # How many levels inside the element a click may land before it is worth a
-# warning (spec 2026-11-13, ruling 13). A button's own label is depth 1.
+# warning. A button's own label is depth 1.
 DEEP = 2
 
-# What counts as worth listing when a caller has not asked for everything: the
-# things an agent can act on. `[role]` is here because a div with a role is a
-# button someone built by hand, and those are exactly the ones a tag-based list
-# misses.
-# `iframe` is here because `frame` is an action and needs a selector for one -
-# a page whose real content is inside a frame would otherwise map to nothing.
-# The roles are listed rather than matched with `[role]`: that also catches
-# `main`, `navigation`, `region` and `heading`, and a page's structural
+# The roles of hand-built controls worth listing. Not `[role]`, which also
+# catches `main`, `navigation`, `region` and `heading`: a page's structural
 # containers would eat the budget before its buttons were reached.
 ACTIONABLE_ROLES = (
     "button",
@@ -72,23 +54,16 @@ ACTIONABLE_ROLES = (
     "spinbutton",
 )
 
-# What a page says about a control that opens something else. All three are
-# declarations rather than guesses, and the one that matters is `aria-expanded`:
-# the trigger gating half a real site's nav was an `<a>` with no `href`, so the
-# tag-and-href rules above skipped it and the map had no way to say what opened
-# the menu it had just listed as hidden (saga §F2.10).
+# What a page declares about a control that opens something else.
 DECLARES_A_CONTROL = ("aria-expanded", "aria-controls", "aria-haspopup")
 
 INTERACTIVE = (
-    # `input:not([type="hidden"])`: a hidden field cannot be clicked or typed
-    # into, and a form with thirty of them would fill the budget before a
-    # single visible control was reached.
+    # A hidden field cannot be used, and thirty of them would fill the budget.
+    # `iframe`, so `frame` has a selector for one.
     'a[href], button, input:not([type="hidden"]), select, textarea, '
     "summary, label, iframe, "
-    # A bare `<a>` — no href — is almost always a control somebody wired up in
-    # JavaScript. The one false positive is the legacy `<a name="top">` bookmark,
-    # which costs an entry with an empty name; missing a nav toggle costs the
-    # whole nav.
+    # A bare `<a>` is almost always a control wired up in JavaScript; the
+    # legacy `<a name="top">` bookmark costs an entry with an empty name.
     "a:not([href]), "
     '[onclick], [contenteditable=""], [contenteditable="true"], '
     '[tabindex]:not([tabindex="-1"]), '
@@ -97,9 +72,7 @@ INTERACTIVE = (
     + ", ".join(f'[role="{role}"]' for role in ACTIONABLE_ROLES)
 )
 
-# The scripts, from `js/`. `_HELPERS` is shared by both because a second copy of
-# this reasoning is how the error and the map start disagreeing about the same
-# element (saga §F2.8) - and concatenation rather than an import because
+# The scripts, from `js/`, each prefixed with the shared helpers:
 # `execute_script` hands the browser one string and has no module loader.
 _HELPERS_FILE = "helpers.js"
 
@@ -113,20 +86,14 @@ USABLES_JS = js.script(_HELPERS_FILE, "usables.js")
 # click's `received_by` and of the intercept's explanation.
 RECEIVER_JS = js.script(_HELPERS_FILE, "receiver.js")
 
-# The map. Every entry carries a selector that is checked to match exactly one
-# element before it is handed out - a selector an agent has to verify itself is
-# most of the work it came here to avoid.
+# The map. Every entry's selector is checked to match exactly one element.
 OUTLINE_JS = js.script(_HELPERS_FILE, "outline.js")
 
 
-# What to do about it, in the same voice as the error it is appended to: the
-# reason, then the move. The move is the part a timeout never had.
+# The reason, then the move, in the voice of the error it is appended to.
 SENTENCES = {
     "none": "Nothing on the page matches it.",
-    # Deliberately says nothing about HOW it opens. That belongs to `MOVES`,
-    # which knows: a base sentence asserting "a menu that opens on mouse-over
-    # looks exactly like this" and then advising a click contradicts itself in
-    # two consecutive clauses (Copilot, #31).
+    # How it opens is `MOVES`'s to say.
     "hidden": "It exists, but {detail} is hidden.{trigger}",
     "covered": (
         "It exists, but {detail} is on top of it at its centre and would "
@@ -142,9 +109,8 @@ SENTENCES = {
         "through to {detail} behind it. Click a painted part of it (its text "
         "or icon), or the element that carries the interaction."
     ),
-    # Not "it may be the real target": a transparent layer on top really does
-    # take the click (Penpot's comment layer, reproduced for #138), and what to
-    # do is click it, or something inside it, on purpose.
+    # A transparent layer on top really does take the click (Penpot's comment
+    # layer), and clicking it may be the move.
     "invisible_cover": (
         "It exists, but an invisible element, {detail}, is on top of it at "
         "its centre and takes the click there. Clicking that, or something "
@@ -178,11 +144,8 @@ SHORT = {
 }
 
 
-# The move, which is not the same move for every menu. A trigger carrying
-# `aria-expanded` is a control somebody CLICKS: on selenium.dev the advice said
-# hover, hovering did nothing, and the page had been saying `expanded: false`
-# the whole time (saga §F2.10). The :hover caveat belongs only where the answer
-# actually is a hover — appended to "click this" it reads as a contradiction.
+# The move for a hidden element. A trigger carrying `aria-expanded` is clicked,
+# not hovered.
 MOVES = {
     "click": (
         " {trigger} opens it and says so with aria-expanded, so "
@@ -195,7 +158,7 @@ MOVES = {
         "either, because synthetic events do not set :hover."
     ),
     # Only when no trigger was found and a stylesheet could not be read: a
-    # guess, and said as one (spec 2026-11-13, ruling 12).
+    # guess, and said as one.
     "unread": (
         " A stylesheet on this page couldn't be read, so if {detail} opens on "
         "mouse-over, hover what opens it."
@@ -239,8 +202,7 @@ def short(answer: dict) -> str:
 def received(driver, element) -> dict:
     """What receives a pointer at ``element``'s click point, or {}.
 
-    Runs inside a gesture that is about to happen, so it never raises: a probe
-    that fails leaves the report's fields out and costs the gesture nothing.
+    Never raises: a probe that fails leaves the report's fields out.
     """
     try:
         answer = driver.execute_script(RECEIVER_JS, element, INTERACTIVE)
@@ -257,7 +219,7 @@ def receiver_report(answer: dict, gesture: str = "click") -> dict:
     """The ``received_by`` and ``warning`` a click-like gesture returns.
 
     Only the receiver's name, its depth and the selector the page offered go in:
-    never a value from the page (spec 2026-11-13, rulings 13 and 14).
+    never a value from the page.
     """
     answer = _answer(answer)
     if "inside" not in answer:
@@ -353,9 +315,7 @@ def explain(driver, target, element=None) -> str:
     move of the first that has one.
 
     Empty when there is nothing useful to add: a usable element, or a probe
-    that failed. **This runs inside a failure path**, so it never raises and
-    never replaces the error it is decorating — a diagnosis that throws would
-    hide the timeout that prompted it.
+    that failed. Never raises, so it never hides the failure it decorates.
     """
     try:
         if element is not None:
