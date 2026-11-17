@@ -110,7 +110,7 @@ def test_the_cap_sizes_each_origin_once_however_many_go(monkeypatch):
         written.append(len(text))
         return text
 
-    monkeypatch.setattr(sd.json, "dumps", dumps)
+    monkeypatch.setattr(sd, "json", SimpleNamespace(dumps=dumps))
     _, saved = sd.snapshot({}, cap, [visit(o) for o in others], NOW)
     assert len(saved["skipped"]) > 300
     assert sum(written) < 2 * len(real(cap))
