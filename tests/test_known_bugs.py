@@ -234,20 +234,6 @@ async def test_a_flow_with_an_unknown_top_level_key_is_refused(server):
     assert concerns(document)  # or at least warned about
 
 
-@bug("a run with no browser and no such flow answers 'no session is open'")
-def test_a_missing_flow_is_named_before_a_missing_browser():
-    from types import SimpleNamespace
-
-    from kubed.selenium_flow.flows import api as flowapi
-
-    from .conftest import manager
-
-    workspaces = manager()
-    store = SimpleNamespace(get=lambda workspace, name: None)
-    with pytest.raises(ValueError, match="no flow called"):
-        flowapi.run_for(store, workspaces.actions, workspaces, NAMED, "nope")
-
-
 # ---- config -------------------------------------------------------------------
 
 

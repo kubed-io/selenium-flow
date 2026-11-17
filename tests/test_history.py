@@ -7,6 +7,7 @@ excepted."""
 
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -25,6 +26,9 @@ from .test_workspaces import LOGIN_HINT
 pytestmark = pytest.mark.unit
 
 DAY = 86400.0
+
+# `run_one` is canned in these tests; the run only looks the flow up first.
+SOME_FLOW = SimpleNamespace(get=lambda workspace, name: {"steps": []})
 
 
 def origins(record):
@@ -194,7 +198,9 @@ def run_reporting(monkeypatch, report):
         return real(key, fn)
 
     monkeypatch.setattr(workspaces.store, "update", counting)
-    flowapi.run_for(None, workspaces.actions, workspaces, NAMED, "login")
+    flowapi.run_for(
+        SOME_FLOW, workspaces.actions, workspaces, NAMED, "login"
+    )
     return workspaces, writes
 
 
@@ -229,7 +235,9 @@ def run_hinting(monkeypatch, report, flush=None, settles=None, asked=None):
             return real(name, result, **kw)
 
         monkeypatch.setattr(workspaces, "settle", settle)
-    answered = flowapi.run_for(None, workspaces.actions, workspaces, NAMED, "login")
+    answered = flowapi.run_for(
+        SOME_FLOW, workspaces.actions, workspaces, NAMED, "login"
+    )
     return workspaces, answered
 
 

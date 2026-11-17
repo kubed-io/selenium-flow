@@ -254,13 +254,18 @@ def test_a_failed_call_stamps_called_at(named_caller):  # ruling 15
     assert m.store.get(NAMED).called_at > 1.0
 
 
-def test_a_run_that_fails_to_start_after_a_reap_says_so(named_caller, tmp_path):
+def test_a_run_that_fails_to_start_after_a_reap_says_so(named_caller, tmp_path, monkeypatch):
     from kubed.selenium_flow.flows import api as flowapi
 
     store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.example.com/"}}])
     reaped(m)
-    with pytest.raises(ValueError) as exc:  # `read_one`: no flow called 'no-such-flow'
-        flowapi.run_for(store, m.actions, m, NAMED, "no-such-flow")
+
+    def refuse(*_args, **_kwargs):
+        raise ValueError("the flow cannot start")
+
+    monkeypatch.setattr(flowapi, "run_one", refuse)
+    with pytest.raises(ValueError) as exc:
+        flowapi.run_for(store, m.actions, m, NAMED, "login")
     assert faults.REOPENED["lost"] in faults.message(exc.value)
 
 
