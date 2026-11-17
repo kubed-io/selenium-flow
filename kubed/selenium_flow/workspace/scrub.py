@@ -1,68 +1,64 @@
 """The secrets in scope on a browser's pages, and the scrub that keeps them out.
 
 No result or error an agent reads may carry the value of a secret allowed on
-the site it came from, typed or not (spec 2026-11-14-secret-scope, ruling 1).
-The values worth looking for change only with the origin, so they are read when
-it changes (`origins.OriginChanged`, ruling 6), once, off the event loop, and
-held as `Forms` for that workspace's browser alone: never written, logged, put
-in a record or returned (ruling 12).
+the site it came from, typed or not. The values worth looking for change only
+with the origin, so they are read when it changes (`origins.OriginChanged`),
+once, off the event loop, and held as `Forms` for that workspace's browser
+alone: never written, logged, put in a record or returned.
 
-**What a call is scrubbed with** (rulings 10, 11, 14, 15): the sets of the
-origins before and after it, plus everything this browser kept - the sets of
-origins it left and the forms from before a rotation. An origin is *known* once
-its set was built for this browser; one that is missing (None), not yet built
-here, or a selected frame is *unknown*, and adds every leashed secret
-(`leashed()`), read then. An opaque page ("") is known and empty (ruling 13):
-nothing is read for it.
+What a call is scrubbed with: the sets of the origins before and after it, plus
+everything this browser kept (the sets of origins it left and the forms from
+before a rotation). An origin is known once its set was built for this browser;
+one that is missing (None), not yet built here, or a selected frame is unknown,
+and adds every leashed secret (`leashed()`), read then. An opaque page ("") is
+known and empty: nothing is read for it.
 
-**Secrets off** (the catalogue None): every answer is empty, nothing is read and
-nothing is scanned, and a result comes back as the very object it was.
+Secrets off (the catalogue None): every answer is empty, nothing is read or
+scanned, and a result comes back as the very object it was.
 
-**Fails closed** (ruling 2). Anything that goes wrong in a scrub - a read past
-`BUILD_TIMEOUT`, a read that fails, an error it cannot reach the inside of -
-becomes `faults.ScrubFailed`, raised from nothing so neither the failure nor a
-value is reachable from it, and the failure is logged by its type alone.
+Fails closed. Anything that goes wrong in a scrub (a read past `BUILD_TIMEOUT`,
+a read that fails, an error it cannot reach the inside of) becomes
+`faults.ScrubFailed`, raised from nothing so neither the failure nor a value is
+reachable from it, and the failure is logged by its type alone.
 
-**Whose browser: the slot.** A workspace has one entry, held for one browser.
-Who takes it:
+Whose browser: the slot. A workspace has one entry, held for one browser. Who
+takes it:
 
 - a browser, implicitly, on its first call, when the slot is free and the
   workspace has not finished with it;
 - a browser named by `opened` (`open_session`, a reopen that starts afresh),
-  explicitly, whoever held it: the holder is finished with and its forms go;
-- the browser named by `carry` (a reap's reopen that keeps the pages),
-  explicitly, whoever held it: it takes the reaped browser's sets and kept
-  forms with the slot, or, when another browser held it, that holder's sets
-  and kept forms as its own kept forms - over-masked, never under.
+  whoever held it: the holder is finished with and its forms go;
+- the browser named by `carry` (a reap's reopen that keeps the pages), whoever
+  held it: it takes the reaped browser's sets and kept forms with the slot, or,
+  when another browser held it, that holder's sets and kept forms as its own
+  kept forms (over-masked, never under).
 
-Who frees it: `ended`, which finishes with its browser, and the TTL - an entry
+Who frees it: `ended`, which finishes with its browser, and the TTL: an entry
 nothing touches for ``ttl`` seconds (the workspace's) goes, since the old
 browser's id may be lost with the workspace's record.
 
-**What a browser holds is kept until the browser ends, or carried to the
-browser that replaces it.** `ended` parks the forms the browser held (its sets
-and kept forms) for its workspace rather than dropping them, because the Grid's
-reap is often heard (`session.ended`) before the reopen that carries it: a
-later `carry` from that browser claims them, `opened` (a fresh start) discards
-them, and the park goes with the TTL. A parked workspace's forms are part of
-what a stale call and a resource are scrubbed with.
+`ended` parks the forms its browser held (its sets and kept forms) for its
+workspace, because the Grid's reap is often heard (`session.ended`) before the
+reopen that carries it: a later `carry` from that browser claims them, `opened`
+(a fresh start) discards them, and the park goes with the TTL. A parked
+workspace's forms are part of what a stale call and a resource are scrubbed
+with.
 
-Anything else is *stale*: a call still in flight on a browser that was ended,
+Anything else is stale: a call still in flight on a browser that was ended,
 replaced or carried from while it ran, or a browser not yet given the slot. It
 is scrubbed with what the workspace holds and every leashed secret, and it never
 installs, replaces, slides or builds anything, so a late call can cost a read
 and never a value the current browser holds. A stale streak is logged once, by
 workspace, never by browser.
 
-**Locking.** One `threading.Lock` guards the per-workspace entries and the
-builds in flight; it is never held while the catalogue, capture, a `done`
-callback or a future is called or waited on. A build stores its forms and
-leaves the in-flight table in one step under it, so a caller sees the set or
-the build, never neither. The entries are process memory (AGENTS.md, "Scaling:
-one replica").
+Locking: one `threading.Lock` guards the per-workspace entries and the builds in
+flight; it is never held while the catalogue, capture, a `done` callback or a
+future is called or waited on. A build stores its forms and leaves the in-flight
+table in one step under it, so a caller sees the set or the build, never
+neither. The entries are process memory: the server runs as one replica.
 
-**No loop.** The executor runs the reads something asked for - an origin
-change, a scrub - and nothing else; `close()` stops its threads.
+The executor runs the reads something asked for (an origin change, a scrub) and
+nothing else; `close()` stops its threads.
 
 Plain: no Selenium, no protocol layer (`tests/test_boundaries.py`). The
 catalogue is duck-typed (`forms_for`, `leashed`, `revision`): `workspace/`
@@ -100,7 +96,7 @@ class _Entry:
 
     ``sets`` are the forms per origin built for this browser at ``revision``;
     ``kept`` is what it carries besides: the sets from before a rotation, and
-    what a holder it was carried over held, until the browser ends (ruling 10).
+    what a holder it was carried over held, until the browser ends.
     ``former`` are the browsers it was carried from (`Scrubber.carry`), so a
     build that started for one before the carry still lands here; a call on one
     is stale, and starts nothing.
@@ -493,7 +489,7 @@ class Scrubber:
     ) -> tuple[object, bool]:
         """``value`` scrubbed, and whether its top-level ``url`` carried a value.
 
-        That URL is withheld from the record (ruling 21). With nothing in scope
+        That URL is withheld from the record. With nothing in scope
         the value comes back as it is, the same object, unscanned.
         """
         if self._catalogue is None:
@@ -525,8 +521,8 @@ class Scrubber:
 
     def resource(self, workspace: str, value):
         """A resource's text, or an answer built of plain values (a dict, a
-        list), scrubbed with what the workspace kept and every leashed secret
-        (ruling 16): a resource read has no before and after. It writes
+        list), scrubbed with what the workspace kept and every leashed secret:
+        a resource read has no before and after. It writes
         nothing, and takes no browser's slot. With nothing to look for the
         value comes back as it is, the same object, unscanned.
         """
@@ -547,14 +543,14 @@ class Scrubber:
     def carries(self, workspace: str, url) -> bool:
         """Whether ``url`` carries the value of a secret allowed on its own
         origin, or one the workspace holds: asked of a page before a browser
-        not yet given the slot records it (an open, a reopen; ruling 21).
+        not yet given the slot records it (an open, a reopen).
 
         Reads the secrets allowed on that origin, unless the workspace holds
         them at the catalogue's revision, and none for an opaque one; every
         leashed secret when that read fails. What it read is kept for the
         workspace's next build of that origin, at that revision, which takes it
-        rather than reading again (ruling 6: one read per origin change); it
-        writes nothing else. Raises `faults.ScrubFailed`.
+        rather than reading again; it writes nothing else. Raises
+        `faults.ScrubFailed`.
         """
         if self._catalogue is None or not isinstance(url, str) or not url:
             return False
@@ -596,7 +592,7 @@ class Scrubber:
 
     def every(self, done: Callable[[Forms | None], object] | None = None) -> Future:
         """Every leashed secret, read on this scrubber's threads: for a page
-        whose origin nobody knows (capture's, ruling 9). Not kept.
+        whose origin nobody knows (capture's). Not kept.
 
         ``done(forms)`` is called with the forms, or with None when the read
         failed, as `build`'s is; with secrets off, at once, with no forms.
@@ -650,10 +646,10 @@ class Scrubber:
         entry moves to ``new``, sets and kept alike: its sets stay known while
         the catalogue's revision is the one they were read at, and become kept
         forms once it moves. When another browser holds it, or nobody does,
-        ``new`` takes it
-        as `opened` gives it - whoever held it is finished with - but fails
-        safe: everything the holder held (its sets and kept forms) becomes
-        ``new``'s kept forms, so nothing masked before is unmasked after. Its
+        ``new`` takes it as `opened` gives it (whoever held it is finished
+        with), but fails safe: everything the holder held (its sets and kept
+        forms) becomes ``new``'s kept forms, so nothing masked before is
+        unmasked after. Its
         origins are unknown until built for ``new``. ``old`` is finished with
         either way, and never takes the slot again. Calling it again for the
         holder changes nothing.

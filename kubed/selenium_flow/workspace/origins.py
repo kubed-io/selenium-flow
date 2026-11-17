@@ -1,46 +1,45 @@
 """Where each workspace's browser is: its current origin, and an event when it moves.
 
 The secrets in scope on a page are the ones whose `_allowed_urls` name its
-origin, so the values worth looking for change only when the origin does (spec
-2026-11-14-secret-scope, ruling 6). This keeps each workspace browser's current
-origin, in memory, compared on every result's URL (ruling 7), and tells its
-listeners once per change: the scrubber is the first, and reads the secrets
-allowed on the new origin then, not on every result.
+origin, so the values worth looking for change only when the origin does. This
+keeps each workspace browser's current origin, in memory, compared on every
+result's URL, and tells its listeners once per change: the scrubber is the
+first, and reads the secrets allowed on the new origin then, not on every
+result.
 
 An origin is scheme, host and port, as the leash compares them
 (`urls.scope_origin`). An opaque page (`about:blank`, `data:`, an error page) is
-the origin "", which has no secret in scope (ruling 13) - known, and empty. Only
-a missing URL is unknown, and it changes nothing here.
+the origin "", which has no secret in scope: known, and empty. Only a missing
+URL is unknown, and it changes nothing here.
 
-**One browser per workspace: the slot.** Who takes it:
+One browser per workspace: the slot. Who takes it:
 
 - a browser, implicitly, on its first arrival, when the slot is free and the
   workspace has not finished with it;
-- a browser named by `opened` (`open_session`, the reap's reopen), explicitly,
-  whoever held it: the holder is finished with. This is the same rule as the
-  scrubber's `opened` and `carry`, which give the slot whoever held it; there
-  is no carry here, since a reopened browser starts on the top page and its
-  first arrival is a change, so the reap's reopen calls `opened` beside
-  `Scrubber.carry`, and the browser it reopened starts unframed.
+- a browser named by `opened` (`open_session`, the reap's reopen), whoever held
+  it: the holder is finished with. Unlike the scrubber there is no carry here:
+  a reopened browser starts on the top page and its first arrival is a change,
+  so the reap's reopen calls `opened` beside `Scrubber.carry`, and the browser
+  it reopened starts unframed.
 
-Who frees it: `forget`, which finishes with its browser, and the TTL - a slot
-nobody touches for ``ttl`` seconds (the workspace's) heals on its own, since
-the old browser's id may be lost with the workspace's record. A new holder
-starts with no current origin and no frames heard. Its frame is known to be
-unselected only once `opened` names it, before or after its first arrival
-(capture can hear a new browser's first page before the open gives it the
-slot); a browser that took a free slot implicitly and was never opened may be
-one whose slot was evicted or expired with a frame selected, so its frame is
-*unknown* - `framed` answers True, the safe side (ruling 15) - until a
-`framed(..., False)` or `framed(..., True)` write says which.
+Who frees it: `forget`, which finishes with its browser, and the TTL: a slot
+nobody touches for ``ttl`` seconds (the workspace's) heals on its own, since the
+old browser's id may be lost with the workspace's record. A new holder starts
+with no current origin and no frames heard. Its frame is known to be unselected
+only once `opened` names it, before or after its first arrival (capture can hear
+a new browser's first page before the open gives it the slot). A browser that
+took a free slot implicitly and was never opened may be one whose slot was
+evicted or expired with a frame selected, so its frame is unknown (`framed`
+answers True, the safe side) until a `framed(..., False)` or `framed(..., True)`
+write says which.
 
-Anything else is **stale** - a call still in flight on a browser that was ended
-or replaced while it ran, or a browser not yet given the slot: it is answered
-and changes nothing, so it cannot move the current browser's origin or clear
-its selected frame (ruling 15). Asked about, a browser that does not hold the
-slot is framed: unknown, the safe side. A stale streak is logged once, by
-workspace, never by browser. Process memory, like the session's lock (AGENTS.md,
-"Scaling: one replica"). Not on the monitor bus, whose events carry no URLs.
+Anything else is stale (a call still in flight on a browser that was ended or
+replaced while it ran, or a browser not yet given the slot): it is answered and
+changes nothing, so it cannot move the current browser's origin or clear its
+selected frame. Asked about, a browser that does not hold the slot is framed:
+unknown, the safe side. A stale streak is logged once, by workspace, never by
+browser. Process memory, like the session's lock. Not on the monitor bus, whose
+events carry no URLs.
 
 Plain: no Selenium, no protocol layer (`tests/test_boundaries.py`).
 """
@@ -187,8 +186,8 @@ class Origins:
         """Give the workspace's slot to ``browser``, a browser just opened.
 
         Whoever held it is finished with, as `forget` would make it; the new
-        holder starts afresh. When ``browser`` already holds it - capture heard
-        its first page and took the slot before the open gave it - it keeps its
+        holder starts afresh. When ``browser`` already holds it (capture heard
+        its first page and took the slot before the open gave it), it keeps its
         origin and frames, and an unknown frame becomes unselected: the browser
         was just made, so no frame is selected unless a call has said so since,
         and a call's word stands.
@@ -251,7 +250,7 @@ class Origins:
         """Whether a frame is selected in ``browser``; set first when ``value`` is.
 
         A selected frame's origin is not in the result, so while one is the
-        scrub treats the page as unknown (ruling 15). A `frame` result's
+        scrub treats the page as unknown. A `frame` result's
         ``in_frame`` sets it. A browser `opened` gave the slot starts with
         none; one that took a free slot implicitly, or does not hold the slot
         at all, is unknown and answered True. A stale browser's write is
