@@ -3,10 +3,8 @@
 The page asks ``GET .../live`` for a short-lived signed URL and opens a
 WebSocket on it, because a browser's WebSocket cannot send a header. The mint
 sits behind the admin door and binds the link to who was admitted, so the audit
-line names the person the link was minted for; the socket takes that link or an
-admin credential in a header, checks the workspace again (the browser may have
-gone in the minute between) and hands the connection to a `Tunnel`
-(spec 2026-10-27-live-view, "Getting in").
+line names them; the socket takes that link or an admin credential in a header,
+checks the workspace again and hands the connection to a `Tunnel`.
 
 `live.audit` is the place that logs the live view. This module logs only a
 refused paste: by our own sentence, or by the failure's type alone. The link's

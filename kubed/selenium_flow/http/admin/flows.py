@@ -1,10 +1,7 @@
 """Flows, for a person rather than an agent.
 
-The agent-facing ``/flows/*`` surface is scoped to whoever is calling. This one
-addresses any workspace, and it is the **operator** path §F1.2 reserves: it
-deliberately does not go through ``flowapi.writable``, because that gate exists
-to keep agents out of the live shared library and this is the surface where a
-person is present and allowed in.
+This addresses any workspace and skips ``flowapi.writable``, the gate that
+keeps agents out of the shared library: an operator may write there.
 """
 
 from __future__ import annotations
@@ -28,20 +25,10 @@ log = logging.getLogger(__name__)
 def _uses(document: dict) -> dict[str, list[int]]:
     """Which steps each declared parameter reaches, by index.
 
-    The admin panel answers "what does this parameter actually do" by listing
-    the steps a `${name}` lands in, and that question has to be answered the
-    same way the validator answers it — an escaped `$${name}` is not a
-    reference, and a reference can be nested arbitrarily deep in an argument.
-    So it is `template.references` rather than a regex in the page, which is how
-    the two would come to disagree about what counts (§F1.40).
-
-    Declared-but-unused parameters are present with an empty list. That is a
-    fact worth showing rather than one to hide: a parameter nothing reads is
-    almost always a typo in a step, and the panel can only say so if it is
-    told about the parameter at all.
-
-    Read through `Shape`, because a stored flow is a file a person edits
-    (§F1.6) and the panel is where an operator goes to fix one.
+    Read with `template.references`, so it counts what the validator counts.
+    A parameter nothing reads has an empty list, which the panel shows as a
+    likely typo. Read through `Shape`, because a stored flow is a hand-edited
+    file and may be malformed.
     """
     shape = Shape(document)
     declared = shape.properties
@@ -52,9 +39,7 @@ def _uses(document: dict) -> dict[str, list[int]]:
         if not isinstance(step, dict):
             continue
         for name in template.references(step.get("args")):
-            # Only the declared ones. An undeclared `${name}` cannot be saved
-            # through any surface, but these documents are hand-editable files
-            # (§F1.6) and the panel must render whatever is on disk.
+            # Only the declared ones: a hand-edited file may hold others.
             if name in uses and index not in uses[name]:
                 uses[name].append(index)
     return uses
@@ -75,25 +60,19 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
     )
     @guarded
     async def admin_flows(request: Request) -> JSONResponse:
-        """What this workspace can run: its own flows, plus the shared library.
-
-        The same merge the agent sees, so the admin cannot show a different
-        library from the one a run would actually use — each entry says which
-        it came from, which is what the UI marks with a globe.
-        """
+        """What this workspace can run: its own flows and the shared library's,
+        merged as the agent sees them, each saying where it came from."""
         key = request.path_params["key"]
         workspace = library_of(key)
-        # Flows off, or a workspace whose name cannot be a directory: an empty
-        # list with a reason, rather than an error that blanks the whole panel.
+        # Flows off, or a name that cannot be a directory: an empty list, so
+        # the panel still renders.
         if flow_store is None or workspace is None:
             return JSONResponse(
                 {"key": key, "workspace": workspace, "enabled": False, "flows": []}
             )
-        # Read BEFORE the listing, deliberately. An edit landing between the two
-        # would otherwise pair the old summaries with the new revision — the
-        # page records that token, sees no change on the next poll, and keeps
-        # showing what it was already showing. This order errs the other way: a
-        # token older than the listing costs one redundant refresh.
+        # Read before the listing: an edit between the two then costs one
+        # redundant refresh, where the other order would pair old summaries
+        # with the new revision and the page would never repaint.
         rev = await run_in_threadpool(
             lambda: revision(flow_store, workspace)
             + "+"
@@ -103,10 +82,6 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             payload = await run_in_threadpool(flowapi.catalogue, flow_store, workspace)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"flows for {key}", log)
-        # The revision this listing was built from, so the page can record what
-        # it is showing and repaint only when that changes — the same shape the
-        # file listing uses, and self-correcting: a failed load records nothing
-        # and is retried on the next poll.
         return JSONResponse(
             {
                 "key": key,
@@ -126,11 +101,8 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
     async def admin_flow(request: Request) -> JSONResponse:
         """Read, rewrite or remove one flow.
 
-        Rewriting takes **YAML**, not JSON, and stores it verbatim (§F1.14): a
-        person wrote these, comments and ordering included, and a save that
-        round-tripped through a parsed dict would quietly discard both. It is
-        validated against the live step schemas first, exactly as `save_flow`
-        is, so the editor cannot store something that would not run.
+        A rewrite takes YAML and stores it verbatim, comments and order
+        included, after validating it as `save_flow` does.
         """
         key = request.path_params["key"]
         name = request.path_params["name"]
@@ -138,9 +110,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             workspace = library(key)
             enabled()
             if request.method in ("GET", "DELETE"):
-                # Both act on the flow *as resolved* — this workspace's if it has
-                # one, else the shared library's — so the panel and the buttons
-                # address the same document the reader is looking at.
+                # The flow as resolved: this workspace's, else the shared one.
                 found = await run_in_threadpool(
                     flowapi.read_one, flow_store, workspace, name
                 )
@@ -152,8 +122,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
                     return JSONResponse(
                         {**found, "yaml": text or "", "uses": _uses(found)}
                     )
-                # Deleted from the folder it lives in, which may be the shared
-                # one. That is the operator's call to make, and the UI says so.
+                # From the folder it lives in, which may be the shared one.
                 removed = await run_in_threadpool(flow_store.delete, where, name)
                 return JSONResponse(
                     {"deleted": removed, "workspace": where, "name": name}
@@ -175,15 +144,8 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
     @guarded
     @changes
     async def admin_move_flow(request: Request) -> JSONResponse:
-        """Move one flow into another library.
-
-        There is no separate "promote" (§F1.2): a flow lives in exactly one
-        directory, so the only action is *which one*. `global` is a folder like
-        any other here — promoting is this verb with `global` as the target, and
-        claiming a shared flow is the same verb with a workspace's name. Moving a
-        flow between two workspaces therefore needs no new mechanism: push it to
-        `global` from one and claim it from the other.
-        """
+        """Move one flow into another library; `global` is one like any other,
+        so promoting and claiming are both a move."""
         key = request.path_params["key"]
         name = request.path_params["name"]
         try:
@@ -204,9 +166,8 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             text = await run_in_threadpool(flow_store.read_text, source, name)
             if text is None:  # pragma: no cover - read_one just found it
                 raise ValueError(f"no flow called {name!r} in {source}")
-            # Write first, then delete. A failure between the two leaves the
-            # flow in both places, which an operator can see and fix; the other
-            # order loses it outright.
+            # Write, then delete: a failure between leaves it in both places,
+            # where the other order would lose it.
             await run_in_threadpool(flow_store.write_text, target, name, text)
             await run_in_threadpool(flow_store.delete, source, name)
             log.info("flow %s moved from %s to %s", name, source, target)
