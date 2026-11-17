@@ -572,11 +572,17 @@ class Workspaces:
         browser keeps its id in the record until something refreshes it, so
         liveness is asked of the Grid.
         """
+        return self._live(name)[0]
+
+    def _live(self, name: str) -> tuple[str, str]:
+        """`browser`, with its kind read off the same record; ("", "") with
+        no live one."""
         record = self.store.get(name)
         if record is None or not record.attached:
-            return ""
-        live = self.actions.grid.is_alive(record.session_id)
-        return record.session_id if live else ""
+            return "", ""
+        if not self.actions.grid.is_alive(record.session_id):
+            return "", ""
+        return record.session_id, _kind(record.settings)
 
     def resolve(self, name: str) -> str:
         """The Grid session id ``name`` is driving, reopening a reaped browser.
@@ -983,11 +989,9 @@ class Workspaces:
         The page is not recorded: a pasted newline can submit a form and land
         on a URL carrying the text, which is never kept.
         """
-        session_id = self.browser(name)
+        session_id, kind = self._live(name)
         if not session_id:
             raise faults.NotFound("this workspace has no browser open")
-        record = self.store.get(name)
-        kind = _kind(record.settings if record else None)
         result = self._said(
             name,
             session_id,
@@ -1044,12 +1048,10 @@ class Workspaces:
             # The pages a person reached may be on any origin: scrubbed as a
             # resource is, with every leashed secret.
             summary["visited"] = self.scrubber.resource(name, summary["visited"])
-        session_id = "" if summary["ended"] else self.browser(name)
+        session_id, kind = ("", "") if summary["ended"] else self._live(name)
         if not session_id:
             summary["ended"] = episode is not None
             return summary
-        record = self.store.get(name)
-        kind = _kind(record.settings if record else None)
         try:
             read = self._said(
                 name,
