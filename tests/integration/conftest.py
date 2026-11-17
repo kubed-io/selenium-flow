@@ -61,7 +61,7 @@ def pytest_collection_modifyitems(items):
             item.add_marker(skip)
 
 
-# A starved 2-core runner, with a profiler sampling the server, took ~30 s to start.
+# A starved 2-core runner has taken ~30 s to start the server.
 STARTUP_SECONDS = 90
 
 
