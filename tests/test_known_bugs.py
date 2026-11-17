@@ -137,43 +137,6 @@ def test_a_save_keeps_the_storage_of_an_origin_visited_during_the_capture():
     assert origins.get("https://a.test") == {"local": {"k": "v"}}
 
 
-@bug(
-    "save_site_data is not refused from an insecure browser, so a normal one restores it"
-)
-def test_an_insecure_browser_saves_no_site_data():
-    from kubed.selenium_flow.site_data.snapshot import CAPTURED
-
-    workspaces = Workspaces(RecordingActions())
-    workspaces.open_browser(Caller(NAMED), insecure=True)
-    session_id = workspaces.store.get(NAMED).session_id
-    captured = {
-        "cookies": [
-            {
-                "name": "sid",
-                "value": "v",
-                "domain": "bad.test",
-                "path": "/",
-                "http_only": True,
-                "secure": True,
-                "same_site": "lax",
-                "expiry": None,
-                "value_type": "string",
-            }
-        ],
-        "origin": "https://bad.test",
-        "local": {"k": "v"},
-        "session": {},
-        "others": {},
-        "failed": [],
-    }
-    # A refusal is as good as a drop.
-    with contextlib.suppress(Exception):
-        workspaces.settle(
-            NAMED, {"url": "https://bad.test/", CAPTURED: captured}, browser=session_id
-        )
-    assert not workspaces.store.get(NAMED).site_data
-
-
 # ---- surfaces ----------------------------------------------------------------
 
 

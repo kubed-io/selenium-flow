@@ -1,6 +1,7 @@
 """The workspace's side of site data: a save stored and never returned, a
 restore on open and on a silent reopen, and the one report each makes."""
 
+import contextlib
 import json
 import time
 from dataclasses import replace
@@ -8,6 +9,7 @@ from dataclasses import replace
 import pytest
 
 from kubed.selenium_flow import faults
+from kubed.selenium_flow.core.actions import INSECURE_SKIP
 from kubed.selenium_flow.site_data import snapshot as site_data
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
@@ -140,6 +142,50 @@ def test_an_insecure_open_keeps_what_was_saved(named_caller):
     m = opened_with_save()
     reopened(m, insecure=True)
     assert m.store.get(NAMED).site_data["origins"]
+
+
+def test_an_insecure_browser_saves_no_site_data():
+    from kubed.selenium_flow.site_data.snapshot import CAPTURED
+
+    workspaces = Workspaces(RecordingActions())
+    workspaces.open_browser(Caller(NAMED), insecure=True)
+    session_id = workspaces.store.get(NAMED).session_id
+    captured = {
+        "cookies": [
+            {
+                "name": "sid",
+                "value": "v",
+                "domain": "bad.test",
+                "path": "/",
+                "http_only": True,
+                "secure": True,
+                "same_site": "lax",
+                "expiry": None,
+                "value_type": "string",
+            }
+        ],
+        "origin": "https://bad.test",
+        "local": {"k": "v"},
+        "session": {},
+        "others": {},
+        "failed": [],
+    }
+    # A refusal is as good as a drop.
+    with contextlib.suppress(Exception):
+        workspaces.settle(
+            NAMED, {"url": "https://bad.test/", CAPTURED: captured}, browser=session_id
+        )
+    assert not workspaces.store.get(NAMED).site_data
+
+
+def test_an_insecure_save_keeps_what_a_secure_browser_saved_and_says_why(named_caller):
+    m = opened_with_save()
+    before = m.store.get(NAMED).site_data
+    reopened(m, insecure=True)
+    result = m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
+    assert site_data.CAPTURED not in result
+    assert result["saved"]["skipped"] == [{"reason": INSECURE_SKIP}]
+    assert m.store.get(NAMED).site_data == before
 
 
 def test_remember_keeps_site_data(named_caller):
