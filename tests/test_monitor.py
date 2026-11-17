@@ -472,6 +472,29 @@ async def test_a_ping_is_never_a_touch(kept):  # ruling 20
     assert pings.sent == [GID] and monitor.watches[GID].touched == touched
 
 
+@pytest.mark.parametrize("answer, heard", [
+    (True, [("bot", GID)]), (False, []), (ConnectionError("down"), []),
+], ids=["answered", "gone", "failed"])
+async def test_only_a_ping_the_grid_answered_is_reported(kept, answer, heard):
+    monitor, clock, pings, _ = kept
+    pings.answer, told = answer, []
+    monitor.answered = lambda workspace, gid: told.append((workspace, gid))
+    await at(monitor, clock, 240)
+    assert pings.sent == [GID] and told == heard
+
+
+async def test_a_sink_that_fails_leaves_the_keep_alive_going(kept):
+    monitor, clock, pings, _ = kept
+
+    def broken(workspace, gid):
+        raise OSError("store down")
+
+    monitor.answered = broken
+    await at(monitor, clock, 240)
+    await at(monitor, clock, 240)
+    assert len(pings.sent) == 2
+
+
 async def test_no_ping_while_a_call_is_in_flight(kept):  # Review Focus 4
     monitor, clock, pings, _ = kept
     monitor.calling(GID)

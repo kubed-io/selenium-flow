@@ -41,6 +41,14 @@ DESCRIPTION = (
     "Reading this never opens a browser: live is false when no session is open."
 )
 
+PART_DESCRIPTION = (
+    "One key of workspace://current, as {workspace, <part>: value}: for "
+    "instance workspace://current/url or workspace://current/grid_timeout. It "
+    "is null when the workspace has nothing for that key. A name that is not a "
+    "key is refused, and the refusal lists them. Built as workspace://current "
+    "is, and reading it never opens a browser."
+)
+
 
 def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     """Register the workspace status resource."""
@@ -53,6 +61,15 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     )
     def current_workspace_resource() -> dict:
         return workspaces.describe(clients.caller())
+
+    @mcp.resource(
+        f"{RESOURCE_URI}/{{part}}",
+        name="Current Workspace, one part",
+        description=PART_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def current_workspace_part_resource(part: str) -> dict:
+        return workspaces.describe_part(clients.caller(), part)
 
     @mcp.resource(
         site_data.LIST_URI,
