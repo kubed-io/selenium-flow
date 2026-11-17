@@ -1203,3 +1203,11 @@ def test_a_plain_screenshot_answers_while_controlled(actions, scripted):
     scripted()
     actions.control = _Held()
     assert actions.screenshot("abc", save=False)["image"]
+
+
+def test_an_unreadable_frame_index_is_refused(actions, scripted):
+    driver = scripted()
+    with pytest.raises(ValueError):
+        actions.frame("abc", "switch", index="abc")
+    assert ("switch_to", "frame", 0) not in driver.log
+

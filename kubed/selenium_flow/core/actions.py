@@ -848,6 +848,14 @@ class Actions:
             )
         if resolved == "switch" and not selector and index is None:
             raise ValueError("switch needs a selector or an index to say which frame")
+        if resolved == "switch" and not selector:
+            # An omitted optional often arrives as "": the first frame.
+            try:
+                frame_index = int(str(index).strip() or 0)
+            except ValueError:
+                raise ValueError(
+                    f"index must be a whole number, not {index!r}"
+                ) from None
 
         # Only a switch by selector waits for its frame.
         by_selector = resolved == "switch" and bool(selector)
@@ -861,7 +869,7 @@ class Actions:
             elif by_selector:
                 driver.switch_to.frame(at.element)
             else:
-                driver.switch_to.frame(as_int(index, 0))
+                driver.switch_to.frame(frame_index)
             return {"action": resolved, "in_frame": browser.in_frame(driver)}
 
         return self._reattached(PRESENCE if by_selector else None).run(

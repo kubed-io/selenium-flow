@@ -204,14 +204,6 @@ def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
 # ---- browser actions ----------------------------------------------------------
 
 
-@bug("an unreadable frame index switches to frame 0")
-def test_an_unreadable_frame_index_is_refused(actions, scripted):
-    driver = scripted()
-    with pytest.raises(ValueError):
-        actions.frame("abc", "switch", index="abc")
-    assert ("switch_to", "frame", 0) not in driver.log
-
-
 @bug("an empty text is refused as 'the file is required'")
 def test_an_empty_text_file_can_be_uploaded(actions, scripted):
     scripted()
