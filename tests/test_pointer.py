@@ -980,6 +980,9 @@ def test_an_element_replaced_under_the_action_is_found_again(
         def clear(self):
             raise StaleElementReferenceException("gone")
 
+        def send_keys(self, *_a):
+            raise StaleElementReferenceException("gone")
+
     class _Driver:
         current_url = "https://example.test/"
         title = "t"
