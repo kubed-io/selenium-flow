@@ -55,8 +55,13 @@ def authorized(request: Request, token: str | None) -> bool:
     """
     if not token:
         return True
-    # Bytes: a str compare_digest raises on non-ASCII, and headers arrive latin-1.
-    return hmac.compare_digest(presented(request).encode(), token.encode())
+    return _same(presented(request), token)
+
+
+def _same(given: str, token: str) -> bool:
+    """Whether ``given`` is ``token``, in constant time. As bytes: a str
+    compare_digest raises on non-ASCII, and a header arrives as latin-1."""
+    return hmac.compare_digest(given.encode(), token.encode())
 
 
 # ---- the MCP door: verifiers FastMCP runs on /mcp ----
@@ -102,9 +107,7 @@ class ServerTokenVerifier(TokenVerifier):
         self._token = token
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        # Bytes, not str: compare_digest raises on a non-ASCII str, and a
-        # bearer is whatever a client sends.
-        if not hmac.compare_digest(token.encode(), self._token.encode()):
+        if not _same(token, self._token):
             return None
         return PrincipalToken(
             token=token, client_id=CLIENT_ID, scopes=[], principal=ADMIN
@@ -239,8 +242,7 @@ class AdminDoor:
         if not self._token:
             return None
         bearer = presented(request)
-        # Bytes: a str compare_digest raises on non-ASCII, and headers arrive latin-1.
-        if hmac.compare_digest(bearer.encode(), self._token.encode()):
+        if _same(bearer, self._token):
             return ADMIN
         # No client to match is no JWT door: a JWT without `azp` must not match None.
         if self._jwt is None or not self._client_id or not bearer:
