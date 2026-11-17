@@ -1,20 +1,17 @@
 """Site data: the cookies and storage a workspace keeps for the sites it uses.
 
-A workspace outlives its sessions, and used to come back signed out: the page it
-was on survived a reap, the sign-in did not. An agent saves when it knows the
-browser is worth keeping — after a sign-in is confirmed — and every browser
-opened in the workspace gets it back (spec 2026-09-30, rounds 1 and 2).
+A workspace outlives its sessions. An agent saves when it knows the browser is
+worth keeping, after a sign-in is confirmed, and every browser opened in the
+workspace gets it back. A reap gives no warning, so only an explicit save is
+dependable.
 
-Saved, not captured: every call paying for a snapshot was rejected, and a reap
-gives no warning, so only an explicit save is dependable.
-
-**A save is a snapshot.** It replaces the last one whole: the jar, the
+A save is a snapshot. It replaces the last one whole: the jar, the
 localStorage of every origin the session has been to, and the sessionStorage
 of the page it is on. Other origins are reached through a spare tab
 (`spare.spare_tab`, driven by `transfer`), which is also how a restore writes
 them back before the first page loads.
 
-**A site is a host.** Cookies carry a domain and no scheme or port, so the view
+A site is a host. Cookies carry a domain and no scheme or port, so the view
 groups by host. Storage is kept per origin, as ``location.origin`` spells it.
 
 Values are credentials. They live in the workspace store and nowhere else, are
@@ -34,7 +31,7 @@ CAPTURED = "_site_data_captured"
 MAX_BYTES = 1_000_000
 MASK = "•••"
 # Why an origin's storage was not read: its own service worker answered the
-# spare tab (spec round 2, *Service workers at save time*).
+# spare tab.
 SW_REASON = "a service worker answered: save while on this site"
 LIST_URI = "workspace://site-data"
 
@@ -52,7 +49,7 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
     saved after a sign-in is what comes back.
 
     ``captured`` is what :func:`capture` read. ``origins`` keeps the
-    localStorage of every origin read that has any, newest first — the page,
+    localStorage of every origin read that has any, newest first: the page,
     then the history. ``session`` is the page's sessionStorage, for its
     origin. An origin that could not be read keeps its storage from
     ``previous``, so a blip does not sign the agent out. Over
@@ -91,10 +88,9 @@ def snapshot(previous: dict, captured: dict, history, now: float) -> tuple[dict,
         # The jar is the one thing a save cannot leave out.
         raise ValueError(f"the cookie jar is over {MAX_BYTES} bytes; nothing was saved")
     # Sized once, then evicted by subtracting: re-serialising the whole payload
-    # per eviction was quadratic (1.2 s at 400 origins of 20 KB). Every piece is
-    # sized with the same ``json.dumps`` the payload is, and the separators
-    # ("key": value joined by ", ") are counted, so the running total is the
-    # serialised length exactly — and so never below it.
+    # per eviction is quadratic. Every piece is sized with the same
+    # ``json.dumps`` the payload is, and the separators ("key": value joined by
+    # ", ") are counted, so the running total is the serialised length.
     entries = {o: len(json.dumps(o)) + 2 + _size(e) for o, e in origins.items()}
     total = _size({**data, "origins": {}, "session": {}})
     total += _joined(entries.values()) - 2
@@ -167,9 +163,8 @@ class _Jar:
     dict lookups instead of a scan of the whole jar per host."""
 
     def __init__(self, data: dict):
-        # Read as a stored record may be, not as a save writes it: a corrupt
-        # shape counts as nothing rather than failing a view, or the clean open
-        # that is the way out of it (Copilot, #51).
+        # Read as a stored record may be: a corrupt shape counts as nothing, so
+        # it fails neither a view nor the clean open that clears it.
         self.data = _a(data, dict)
         self.cookies = [
             c
@@ -391,7 +386,7 @@ def summary(data: dict) -> dict | None:
 def forget(data: dict, host: str) -> tuple[dict, dict]:
     """Remove one host from the snapshot: its storage, sessionStorage
     included, and the cookies named for it (``host`` or ``.host``). A
-    parent-domain cookie stays — other hosts use it — and so does
+    parent-domain cookie stays, since other hosts use it, and so does
     ``saved_at``: forgetting is not a save."""
     host = (host or "").lower()
     jar = _Jar(data)

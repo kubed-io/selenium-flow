@@ -19,7 +19,7 @@ SPARE_MARKER = "selenium-flow-spare"
 SPARE_PAGE = f'<!doctype html><meta name="{SPARE_MARKER}">'
 # The only URL the intercept matches, on any origin: an intercept that outlived
 # its tab (a teardown that failed) can then never hold up a real page load,
-# which would wait out the page-load timeout (CI, #51).
+# which would wait out the page-load timeout.
 SPARE_PATH = "/__selenium-flow-spare__"
 
 
@@ -36,8 +36,7 @@ def spare_tab(
     hidden: Callable[[str], ContextManager[None]] | None = None,
 ) -> Iterator[Callable[[str, str], object]]:
     """A tab whose every request is answered with :data:`SPARE_PAGE`, so it
-    can stand on any origin without that site loading — Playwright's way to
-    reach another origin's storage.
+    can stand on any origin without that site loading.
 
     Yields ``run(origin, expression)``: stand on ``origin`` and return what
     ``expression`` evaluates to there, JSON-safe. A page without the marker is
@@ -147,7 +146,7 @@ def _close(channel: Channel, tab: str) -> None:
 
 
 def _on_spare(expression: str, origin: str) -> str:
-    """``expression``, run only on our page AND only on ``origin``, as a JSON
+    """``expression``, run only on our page and only on ``origin``, as a JSON
     string that also says whose page it was and where. A navigation that did
     not land leaves the tab on the last origin's spare page; evaluating there
     would write this origin's saved storage into the wrong one, so the origin

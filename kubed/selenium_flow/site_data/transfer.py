@@ -57,8 +57,8 @@ READ_STORAGE = (
 
 def capture(channel: Channel, driver, origins=(), *, hidden=None) -> dict:
     """The whole cookie jar (BiDi sees httpOnly ones), the page's own two
-    storages, and the localStorage of every other origin in ``origins`` — the
-    history's, newest first — read one at a time in a spare tab.
+    storages, and the localStorage of every other origin in ``origins`` (the
+    history's, newest first), read one at a time in a spare tab.
 
     The browser answered classic WebDriver to get here, so a jar that cannot
     be read is the BiDi channel failing: :class:`BidiUnavailable`, a 503, and
@@ -70,9 +70,7 @@ def capture(channel: Channel, driver, origins=(), *, hidden=None) -> dict:
         jar = channel.call("storage.getCookies", {})["cookies"]
     except (BidiUnavailable, BidiError) as e:
         # Only a channel that did not answer, or a browser that refused, is a
-        # 503. Anything else - an unexpected return shape, a bug here - stays
-        # a 500, as errors.py decides for every failure it does not recognise
-        # (Copilot, #50).
+        # 503. Anything else, an unexpected return shape included, stays a 500.
         raise BidiUnavailable(BIDI_DOWN) from e
     cookies = [
         {
@@ -160,8 +158,8 @@ def _usable(c) -> bool:
         and bool(c["name"])
         and isinstance(c.get("domain"), str)
         and bool(c["domain"])
-        # Compared with `now` before any per-cookie guard: a string here took
-        # the whole restore down instead of skipping one cookie (Copilot, #50).
+        # Compared with `now` outside any per-cookie guard: a string here would
+        # take the whole restore down.
         and (
             c.get("expiry") is None
             or (
@@ -174,15 +172,14 @@ def _usable(c) -> bool:
 
 def _malformed(c) -> dict:
     """A skip entry for a stored cookie restore cannot use: only the fields
-    that are strings, since the published shape says so (Copilot, #50)."""
+    that are strings, since the published shape says so."""
     entry = {"reason": MALFORMED}
     if isinstance(c, dict):
         for field, key in (("cookie", "name"), ("domain", "domain")):
             if isinstance(c.get(key), str):
                 entry[field] = c[key]
         if entry.get("cookie") and entry.get("domain"):
-            # Name and domain are fine, so it was the expiry: say which field
-            # is corrupt rather than blaming the two that are not (Copilot, #50).
+            # Name and domain are fine, so it was the expiry.
             entry["reason"] = BAD_EXPIRY
     return entry
 
