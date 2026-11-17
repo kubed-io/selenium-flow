@@ -140,10 +140,15 @@ def restorable(data: dict) -> bool:
     )
 
 
-def _own(domain: str, host: str) -> bool:
-    """A cookie a host's row owns: set for the host itself, or ``.host``.
-    A parent's leading-dot cookie only covers it; other rows use that one."""
-    return domain in (host, "." + host)
+def _own(c: dict, host: str) -> bool:
+    """A cookie a host's row owns: set for the host itself, or ``.host``."""
+    return (c.get("domain") or "") in (host, "." + host)
+
+
+def _shared(c: dict, host: str) -> bool:
+    """A parent's leading-dot cookie: it only covers ``host``, other rows use
+    it, and it stays when ``host`` is forgotten."""
+    return (c.get("domain") or "").startswith(".") and not _own(c, host)
 
 
 def _suffixes(host: str) -> list[str]:
@@ -227,10 +232,7 @@ def _cookie_view(c: dict, host: str) -> dict:
         "http_only": bool(c.get("http_only")),
         "secure": bool(c.get("secure")),
         "same_site": c.get("same_site"),
-        # Shared with other sites only when a parent domain set it; `.host`
-        # is this row's own (Forget removes it).
-        "shared": (c.get("domain") or "").startswith(".")
-        and not _own(c.get("domain") or "", host),
+        "shared": _shared(c, host),
     }
 
 
@@ -251,19 +253,9 @@ def _site(jar: _Jar, host: str) -> dict:
         "site": host,
         "uri": site_uri(host),
         "_cookies": cookies,
-        "_own": [c for c in cookies if _own(c.get("domain") or "", host)],
+        "_own": [c for c in cookies if _own(c, host)],
         "storage": storage,
     }
-
-
-def _shared(cookies: list[dict], host: str) -> list[dict]:
-    """Covering cookies that stay when ``host`` is forgotten: a parent's
-    leading-dot cookie, which other rows use."""
-    return [
-        c
-        for c in cookies
-        if (c.get("domain") or "").startswith(".") and not _own(c["domain"], host)
-    ]
 
 
 def _identity(c: dict) -> dict:
@@ -313,7 +305,7 @@ def _detail(site: dict) -> dict:
         "storage": site["storage"],
         # What Forget would do, by the rule Forget itself uses.
         "own_cookies": [c["name"] for c in site["_own"]],
-        "kept_shared": [_identity(c) for c in _shared(site["_cookies"], host)],
+        "kept_shared": [_identity(c) for c in site["_cookies"] if _shared(c, host)],
     }
 
 
@@ -391,7 +383,7 @@ def forget(data: dict, host: str) -> tuple[dict, dict]:
     host = (host or "").lower()
     jar = _Jar(data)
     covering = jar.covering(host)
-    gone_ids = {id(c) for c in covering if _own(c.get("domain") or "", host)}
+    gone_ids = {id(c) for c in covering if _own(c, host)}
     stored = data.get("origins") or {}
     origins = [o for o in stored if host_of(o) == host]
     session = data.get("session") or {}
@@ -408,5 +400,5 @@ def forget(data: dict, host: str) -> tuple[dict, dict]:
         "site": host,
         "cookies": [c["name"] for c in covering if id(c) in gone_ids],
         "origins": origins,
-        "kept_shared": [_identity(c) for c in _shared(covering, host)],
+        "kept_shared": [_identity(c) for c in covering if _shared(c, host)],
     }
