@@ -8,39 +8,14 @@ It imports no protocol layer and no Selenium (`tests/test_boundaries.py`).
 from __future__ import annotations
 
 from .channel import CHANNEL_DOWN, Channel, Channels
-from .connection import (
-    FLUSH_GRACE,
-    LAGS_KEPT,
-    MAX_MESSAGE,
-    MESSAGE_TOO_BIG,
-    OPEN_TIMEOUT,
-    PING_INTERVAL,
-    QUEUE_BYTES,
-    QUEUE_LIMIT,
-    REPLY_TIMEOUT,
-    BidiError,
-    Connection,
-    Handler,
-    MessageTooBig,
-    Subscriber,
-)
+from .connection import REPLY_TIMEOUT, BidiError, Connection, MessageTooBig
 
 __all__ = [
     "CHANNEL_DOWN",
-    "FLUSH_GRACE",
-    "LAGS_KEPT",
-    "MAX_MESSAGE",
-    "MESSAGE_TOO_BIG",
-    "OPEN_TIMEOUT",
-    "PING_INTERVAL",
-    "QUEUE_BYTES",
-    "QUEUE_LIMIT",
     "REPLY_TIMEOUT",
     "BidiError",
     "Channel",
     "Channels",
     "Connection",
-    "Handler",
     "MessageTooBig",
-    "Subscriber",
 ]
