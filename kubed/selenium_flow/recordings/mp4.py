@@ -6,7 +6,7 @@ box whose last 16 bytes are an ``mfro`` box: size 16, ``mfro``, version and
 flags 0, then the size of the whole ``mfra`` (FFmpeg ``movenc.c``,
 ``mov_write_trailer`` → ``mov_write_mfra_tag``). A file still being recorded,
 or still being copied by whatever delivers it, cannot end that way. Only a
-recording whose ffmpeg was killed has none — the collector handles that case.
+recording whose ffmpeg was killed has none; the collector handles that case.
 """
 
 from __future__ import annotations

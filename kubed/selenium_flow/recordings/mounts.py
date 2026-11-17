@@ -1,9 +1,8 @@
 """Whether the inbox is on a network filesystem, where events see nothing.
 
 inotify reports only changes made through this machine's own mount: a file an
-NFS, SMB or FUSE peer writes raises no event (recordings spec, research). So
-``auto`` polls there and uses events everywhere else, including where there is
-no ``/proc`` to ask.
+NFS, SMB or FUSE peer writes raises no event. So ``auto`` polls there and uses
+events everywhere else, including where there is no ``/proc`` to ask.
 """
 
 from __future__ import annotations

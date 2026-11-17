@@ -1,9 +1,9 @@
-"""Masking, once, at capture (ruling 13).
+"""Masking, once, at capture.
 
 What capture keeps and what it tails are the same masked rows, so a value is
 masked here or nowhere. Credential headers are masked by name, whatever their
 value; the values the secrets catalogue bound in this session are masked
-wherever they appear — a URL, a header, a console text, a body. So are the
+wherever they appear: a URL, a header, a console text, a body. So are the
 values those headers and the request's cookies carried, since a page can echo
 them: they are learned as they pass, never shown. ``goog:postData`` is never
 read, so it never reaches a row.
@@ -158,12 +158,12 @@ class _Ranked:
     longer sent gives way, and one that rotates is replaced.
 
     Each cookie domain has a share, 1 / ``COOKIE_SHARE`` of each budget. Its
-    **core** is the values it ranks highest, up to its share; the rest it
-    holds is **overflow**. A core value always displaces overflow, whatever
-    either ranks, and overflow competes only with overflow; cores compete
-    with each other by rank only when no overflow is left. So a domain
-    alone may use the whole tier, but a third party's cookies, however they
-    are named, cannot evict a first party's session from its share.
+    core is the values it ranks highest, up to its share; the rest it holds
+    is overflow. A core value always displaces overflow, whatever either
+    ranks, and overflow competes only with overflow; cores compete with each
+    other by rank only when no overflow is left. So a domain alone may use
+    the whole tier, but a third party's cookies, however they are named,
+    cannot evict a first party's session from its share.
 
     One event (`offer`) ranks its new cookies, refuses before building any
     forms those a full tier would not take, and builds the forms of only the
@@ -480,9 +480,8 @@ class Masker:
         or offer the cookies it carries, as ``host``'s."""
         if name in ("authorization", "proxy-authorization"):
             # A scheme alone ("Negotiate") is no secret: only a token after
-            # it is learned, with the whole value it came in — as **one**
-            # entry, so the newest token is never evicted, whatever the
-            # budget, by the forms of its own header.
+            # it is learned, with the whole value it came in, as one entry, so
+            # the newest token is never evicted by the forms of its own header.
             scheme_and_token = value.split(None, 1)
             if len(scheme_and_token) < 2:
                 return False
@@ -567,7 +566,7 @@ class Masker:
         # Longest first, so a secret containing another is masked whole.
         secrets = tuple(sorted(known, key=len, reverse=True))
         # Unlabelled forms count wherever they are, however short: only a
-        # catalogued one stands alone below `SHORT` (ruling 4).
+        # catalogued one stands alone below `SHORT`.
         labelled = Forms({f: known[f] for f in secrets if known[f].ids})
         plain = Forms({f: known[f] for f in secrets if not known[f].ids})
         scanners = tuple(
@@ -603,12 +602,11 @@ class Masker:
         marker, anything else ``MASK``.
 
         Only the first ``cap`` plus the longest secret's characters are read,
-        so the work and the memory are bounded by what a row keeps, not by
-        what a page sends. Masking before the cut keeps a secret straddling it
-        masked; and since a mask can be shorter than its secret, pulling later
-        text inside the cap, the last characters read — where a secret may
-        begin and run on past what was read — are masked too when the value
-        was longer.
+        so the work and the memory are bounded by what a row keeps. Masking
+        before the cut keeps a secret straddling it masked. A mask can be
+        shorter than its secret, pulling later text inside the cap, so when
+        the value was longer the last characters read (where a secret may
+        begin and run on past what was read) are masked too.
 
         ``also`` is one more span of ``value`` to mask, merged with the
         secrets' (a URL's password, so a secret holding it is masked whole).
@@ -624,9 +622,9 @@ class Masker:
         return _shown(read, len(value), cap, spans, longest, also)
 
     def url(self, value: str, *, keep_query: bool) -> str:
-        """A URL masked — bound secrets, and any password in its userinfo —
-        without its query unless ``keep_query``, and cut to ``TEXT_CAP`` (a
-        ``data:`` URL can be megabytes)."""
+        """A URL with its bound secrets and any password in its userinfo
+        masked, without its query unless ``keep_query``, and cut to
+        ``TEXT_CAP`` (a ``data:`` URL can be megabytes)."""
         # The password is found on the whole URL (a cut can fall inside a long
         # userinfo, leaving what reads as a host and a port) and masked with
         # the secrets, so a secret holding the userinfo is still masked whole.
@@ -730,9 +728,9 @@ def _shown(
 
 
 def _masked(batch: list, state, longest: int) -> list[tuple[str, str]]:
-    """Each header of ``batch`` — (name, value or None for a credential,
-    password span) — as shown: masked and cut as `Masker.text` would, but
-    every text of the batch found in **one** scan, joined on NUL. Neither a
+    """Each header of ``batch`` (name, value or None for a credential,
+    password span) as shown: masked and cut as `Masker.text` would, with
+    every text of the batch found in one scan, joined on NUL. Neither a
     header text nor a learned form holds one, so no match crosses a join; a
     bound form or a text that does is scanned on its own."""
     _, scanners, nul_free, _ = state
