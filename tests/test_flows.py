@@ -454,7 +454,7 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
 
 
 def test_a_blank_explicit_directory_means_off_just_as_a_blank_env_does():
-    """`DataSettings` normalises "   " to None (see `_blank_is_off`), so a
+    """`DataSettings` normalises "   " to None (see `OptionalPath`), so a
     caller building `Settings` by hand cannot end up with a directory named
     three spaces."""
     from kubed.selenium_flow.config import Settings
