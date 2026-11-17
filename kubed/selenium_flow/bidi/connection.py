@@ -6,9 +6,9 @@ asyncio client. This is the only module that imports it
 
 A socket is a channel, never a liveness signal. Measured against the cluster's
 Grid, a held socket stays open after its session is deleted and after the Grid
-reaps it, and a command sent on it is never answered. The hub still answers its pings,
-so a ping proves the hub, never the browser. A command that gets no reply is
-the sign of a zombie socket, not of a session to declare gone, and a
+reaps it, and a command sent on it is never answered. The hub still answers its
+pings, so a ping proves the hub, never the browser. A command that gets no reply
+is the sign of a zombie socket, not of a session to declare gone, and a
 connection is closed when the reason it was held ends.
 
 Nothing runs on the read loop. The reader parses and routes: a reply resolves

@@ -522,9 +522,9 @@ class Scrubber:
     def resource(self, workspace: str, value):
         """A resource's text, or an answer built of plain values (a dict, a
         list), scrubbed with what the workspace kept and every leashed secret:
-        a resource read has no before and after. It
-        writes nothing, and takes no browser's slot. With nothing to look for the
-        value comes back as it is, the same object, unscanned.
+        a resource read has no before and after. It writes nothing, and takes no
+        browser's slot. With nothing to look for the value comes back as it is,
+        the same object, unscanned.
         """
         if self._catalogue is None or value is None or value == "":
             return value
