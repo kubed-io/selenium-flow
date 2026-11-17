@@ -970,17 +970,13 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
             "key": leaf.path,
             "name": leaf.path.rsplit(".", 1)[-1],
             "description": leaf.description,
+            "value": None if leaf.sensitive else value,
+            "source": sources.get(leaf.path, "default"),
         }
         if leaf.sensitive:
-            row.update(
-                value=None,
-                source=sources.get(leaf.path, "default"),
-                sensitive=True,
-                # A blank value is not a credential either.
-                set=value is not None and bool(value.get_secret_value()),
-            )
-        else:
-            row.update(value=value, source=sources.get(leaf.path, "default"))
+            # A blank value is not a credential either.
+            set_ = value is not None and bool(value.get_secret_value())
+            row.update(sensitive=True, set=set_)
         rows[leaf.section].append(row)
     return {
         "sections": [
