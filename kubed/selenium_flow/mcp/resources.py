@@ -36,6 +36,8 @@ DESCRIPTION = (
     "network (open_session(capture=true)); capturing is whether that is "
     "happening right now \u2014 false while it is paused, until the next call; "
     "captured counts what was kept since the last navigation. " + CAPTURE_KEPT + "\n\n"
+    "tags maps each tag in use on this workspace's flows, and the global flows "
+    "it is offered, to how many carry it: reuse one when you tag a flow.\n\n"
     "Reading this never opens a browser: live is false when no session is open."
 )
 

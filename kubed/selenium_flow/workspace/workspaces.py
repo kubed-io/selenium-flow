@@ -147,6 +147,7 @@ CONTEXT_KEYS = (
     "version",
     "store",
     "settings",
+    "tags",
     "flows_here",
     "captured",
     "site_data",
@@ -382,6 +383,7 @@ class Workspaces:
         control=None,
         hints: Callable[[str, str], list[dict]] | None = None,
         catalogue=None,
+        tags: Callable[[str], dict[str, int]] | None = None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -415,6 +417,9 @@ class Workspaces:
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
         # is hinted. Asked only by `_hint`, never inside a store write.
         self.hints = hints
+        # The tags in use in a workspace's flows (`FlowStore.tags_in_use`), or
+        # None with no flow store.
+        self.tags = tags
         # Where each workspace's browser is, and the secrets in scope there.
         # ``catalogue`` is the secrets catalogue, duck-typed (`forms_for`,
         # `leashed`, `revision`), or None with secrets off: then every answer is
@@ -501,9 +506,18 @@ class Workspaces:
             "version": None,
             "store": self.kind,
             "settings": {},
+            "tags": {},
         }
         if self.skill_available:
             status["guidance"] = guidance.pointer("WORKSPACES.md")
+        if self.tags is not None:
+            try:
+                status["tags"] = self.tags(name)
+            except Exception as exc:  # noqa: BLE001 - status must never fail
+                log.warning(
+                    "tags for workspace %s could not be read: %s",
+                    name, type(exc).__name__,
+                )
         record = self.store.get(name)
         if record is None:
             return status

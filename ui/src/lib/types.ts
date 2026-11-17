@@ -90,7 +90,7 @@ export interface FilesResponse {
   browser?: boolean
 }
 
-export interface FlowSummary { name: string; step_count: number; shared?: boolean }
+export interface FlowSummary { name: string; step_count: number; shared?: boolean; tags?: string[] }
 export interface FlowsListing { enabled: boolean; flows?: FlowSummary[]; workspace?: string; rev?: string | number | null }
 
 /** A stored flow, as edited by a person: nothing about its shape is guaranteed (§F1.6). */

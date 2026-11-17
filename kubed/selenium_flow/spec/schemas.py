@@ -16,7 +16,7 @@ from ..core.capabilities import (
     REOPENED_HINT,
     SITE_DATA_HINT,
 )
-from ..flows import places
+from ..flows import places, tags
 from ..flows.document import PARAMETERS_DESCRIPTION, PARAMETERS_EXAMPLE
 
 # Each capability's `response` column by name, plus the workspace status.
@@ -53,6 +53,15 @@ RESPONSES = {
                     " most 10, this workspace's own first. Read from the record,"
                     " so a page that moved by itself since the last call is not"
                     " reflected."
+                ),
+            },
+            "tags": {
+                "type": "object",
+                "additionalProperties": {"type": "integer"},
+                "description": (
+                    "The tags in use on the flows this workspace is offered, its"
+                    " own and global's, each with how many carry it, in tag"
+                    " order. Empty when no flow has one."
                 ),
             },
             "live": {
@@ -296,6 +305,7 @@ FLOW_SCHEMAS = {
                 "description": "True when it came from the shared global library.",
             },
             "description": {"type": "string"},
+            "tags": tags.SCHEMA,
             "sites": FLOW_SITES,
             "paths": FLOW_PATHS,
             "parameters": {
@@ -317,6 +327,7 @@ FLOW_SCHEMAS = {
             "name": {"type": "string"},
             "workspace": {"type": "string"},
             "description": {"type": "string"},
+            "tags": tags.SCHEMA,
             "sites": FLOW_SITES,
             "paths": FLOW_PATHS,
             "parameters": {"type": "object"},
@@ -345,6 +356,7 @@ FLOW_SCHEMAS = {
             "workspace": {"type": "string"},
             "name": {"type": "string"},
             "description": {"type": "string"},
+            "tags": tags.SCHEMA,
             "sites": FLOW_SITES,
             "paths": FLOW_PATHS,
             "parameters": {"type": "object"},
@@ -534,6 +546,7 @@ _FLOW_OPERATIONS = {
                 **_WRITE_WORKSPACE,
                 "name": {"type": "string"},
                 "description": {"type": "string"},
+                "tags": tags.SCHEMA,
                 "sites": FLOW_SITES,
                 "paths": FLOW_PATHS,
                 "parameters": FLOW_PARAMETERS,
