@@ -392,6 +392,9 @@ class Workspaces:
         # 0 keeps nothing. With the node's own timeout it is the window a reopen
         # is judged against: idle past it is a reap, inside it a lost browser.
         self.keep_alive = keep_alive
+        # When this manager began: no monitor of this process kept a browser
+        # alive through activity before it.
+        self.booted = time.time()
         # Where each workspace's browser is, and the secrets in scope there.
         # ``catalogue`` is the secrets catalogue, duck-typed (`forms_for`,
         # `leashed`, `revision`), or None with secrets off: then every answer is
@@ -691,13 +694,18 @@ class Workspaces:
 
         The window is the longer of the Grid's own timeout (the node's, as read
         at the open; the default when it did not say) and ``keep_alive``, which
-        counts only with a monitor to keep the browser alive. An open is
-        activity, so idleness is measured from the later of the last call and
-        the open.
+        counts only when a monitor of this process kept the browser alive since
+        its last activity: never with no monitor, nor for activity before this
+        process began. An open is activity, so idleness is measured from the
+        later of the last call and the open.
         """
-        kept = self.keep_alive if self.monitor is not None else 0
-        window = max(record.grid_timeout or DEFAULT_TIMEOUT, kept)
         last = max(record.called_at, record.opened_at)
+        kept = (
+            self.keep_alive
+            if self.monitor is not None and last >= self.booted
+            else 0
+        )
+        window = max(record.grid_timeout or DEFAULT_TIMEOUT, kept)
         return "reaped" if now - last >= window else "lost"
 
     def _recorded(self, name: str, settings: dict) -> dict:

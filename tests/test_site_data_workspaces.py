@@ -187,6 +187,7 @@ def test_a_reap_with_no_site_data_is_said_once(named_caller):  # ruling 2
 ])
 def test_the_cause_is_judged_by_the_window(named_caller, keep_alive, grid_timeout, seconds, cause):
     m = Workspaces(SiteActions(), MemoryStore(), keep_alive=keep_alive, monitor=FakeMonitor())
+    m.booted = 0.0  # the idle spell was this process's
     m.open_browser(Caller(NAMED))
     idle(m, seconds, grid_timeout)
     reaped(m)
@@ -207,6 +208,22 @@ def test_a_reap_with_no_keep_alive_running_is_reaped_not_lost():
     workspaces.resolve(NAMED)
     assert workspaces.store.get(NAMED).reopened["cause"] == "reaped"
 
+
+def test_activity_before_this_process_began_is_judged_without_the_keep_alive():
+    """Nothing in this process kept the browser alive through a restart."""
+    workspaces = Workspaces(RecordingActions(), keep_alive=900, monitor=FakeMonitor())
+    workspaces.open_browser(Caller(NAMED), url="https://a.test/")
+    now = time.time()
+    workspaces.booted = now - 100
+    workspaces.store.update(
+        NAMED,
+        lambda r: replace(
+            r, grid_timeout=300, called_at=now - 500, opened_at=now - 600
+        ),
+    )
+    workspaces.actions.grid.alive.clear()
+    workspaces.resolve(NAMED)
+    assert workspaces.store.get(NAMED).reopened["cause"] == "reaped"
 
 def test_an_open_counts_as_activity_for_the_cause(named_caller):  # ruling 14
     """Last called yesterday, opened 10 s ago: a browser gone now was lost."""
