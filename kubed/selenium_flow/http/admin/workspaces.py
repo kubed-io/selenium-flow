@@ -236,8 +236,8 @@ class Broadcast:
         self._nudge.set()
 
     def changes(self, handler):
-        """For a route that changes what the list shows — End, Forget, Clear,
-        keep, delete: once it has run, however it ended, the listing after it
+        """For a route that changes what the list shows (End, Forget, Clear,
+        keep, delete): once it has run, however it ended, the listing after it
         is computed rather than a tick old. A GET through it changes nothing."""
 
         @wraps(handler)

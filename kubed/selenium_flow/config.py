@@ -770,7 +770,7 @@ def oidc_problem(settings: Settings) -> str | None:
     """Why this server's OIDC cannot run, or None. Checked after every layer merges."""
     oidc = settings.oidc
     if bool(oidc.client_id) != bool(oidc.admin_roles):
-        # An empty list would let nobody in — or, read the other way, everybody.
+        # An empty list would let nobody in or, read the other way, everybody.
         return "oidc.client_id and oidc.admin_roles are set together or not at all"
     named = [oidc.issuer, oidc.audience, oidc.jwks_uri]
     if not any(named):
