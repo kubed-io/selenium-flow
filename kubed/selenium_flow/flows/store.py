@@ -54,6 +54,7 @@ from .shape import Shape
 
 if TYPE_CHECKING:
     from ..config import DataSettings
+    from .tags import Filter
 
 # The store's old logger name: operators filter logs by it.
 log = logging.getLogger("kubed.selenium_flow.flows.library")
@@ -275,6 +276,9 @@ class FlowStore(WorkspaceLayout):
         # per version however many workspaces ask. No TTL.
         self._hints: LRUCache = LRUCache(maxsize=LIBRARIES)
         self._hints_lock = threading.Lock()
+        # A workspace's `flows.global` filter, or None for every flow
+        # (`workspace.config.Configs.global_filter`, wired at boot).
+        self.global_filter: Callable[[str], Filter | None] = lambda _workspace: None
 
     def _flows_dir(self, workspace: str) -> Path:
         return self._workspace_dir(workspace, FLOWS_DIR)
@@ -347,8 +351,9 @@ class FlowStore(WorkspaceLayout):
 
     def offered(self, workspace: str) -> Callable[[Iterable[str]], bool]:
         """Which `global` flows ``workspace`` is offered, as a test of a flow's
-        tags: every one of them, until a workspace can choose."""
-        return _every
+        tags: its config's `flows.global`, else every one of them."""
+        found = self.global_filter(workspace)
+        return _every if found is None else found.passes
 
     def _shared_offered(self, workspace: str, own: Library, shared: Library) -> set:
         """The names of the `global` flows ``workspace`` is offered: those it

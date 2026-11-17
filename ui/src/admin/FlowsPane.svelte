@@ -186,9 +186,10 @@
         onadd={(t) => addTo(i, t)} /></div>{/each}<button type="button" class="addrow" onclick={() => { filter = [...filter, []] }}>+ or</button></div>{/if}<div
     class="flowlist" id="flowlist">{#each rows as item (item.name)}<!--
     svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (today's list items are mouse-only)
-    --><div class="item" aria-selected={item.name === flowName} onclick={() => choose(item.name)}><div
+    --><div class={['item', item.offered === false && 'dim']} aria-selected={item.name === flowName} onclick={() => choose(item.name)}><div
         class="grow"><div class="nm">{item.name}</div><div class="ct">{item.step_count} step{item.step_count === 1 ? '' : 's'}</div>{#if item.tags?.length}<div
-          class="tags">{#each item.tags as t (t)}<span class="tag">{t}</span>{/each}</div>{/if}</div>{#if item.shared}<span
+          class="tags">{#each item.tags as t (t)}<span class="tag">{t}</span>{/each}</div>{/if}</div>{#if item.offered === false}<span
+        class="pill unoffered" title="This workspace's flows.global filter does not offer it">not offered here</span>{/if}{#if item.shared}<span
         class="globe" role="img" aria-label="global" title="In the shared global library">🌐</span>{/if}</div>{/each}</div><div
     id="flowpanel" style:--at={at}>{#if !flowName}<div class="empty">Pick a flow.</div>{:else if docError}<div
       class="empty error">{docError}</div>{:else if !f}<div class="empty">Loading…</div>{:else}<div class="panel"><div

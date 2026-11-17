@@ -549,3 +549,20 @@ test('a click on the open flow leaves nothing behind to swallow a later link (#8
   await rerender({ flow: 'login' })
   await vi.waitFor(() => expect(scrolled).toHaveBeenCalledTimes(3))
 })
+
+test('a global flow this workspace is not offered is dimmed with its pill, and still opens (UI-77)', async () => {
+  const listing = { ...LIST, flows: [{ name: 'login', step_count: 4 }, { name: 'shared-one', step_count: 1, shared: true, offered: false }, { name: 'shared-two', step_count: 1, shared: true, offered: true }] }
+  const { container } = setup({
+    'GET /admin/workspaces/k/flows': { body: listing },
+    'GET /admin/workspaces/k/flows/shared-one': { body: { ...DOC, name: 'shared-one', shared: true } },
+  })
+  await vi.waitFor(() => expect(container.querySelectorAll('#flowlist > .item')).toHaveLength(3))
+  const [own, hidden, offered] = container.querySelectorAll('#flowlist > .item')
+  expect(hidden).toHaveClass('dim')
+  expect(hidden.querySelector('.pill.unoffered')).toHaveTextContent('not offered here')
+  expect(own).not.toHaveClass('dim')
+  expect(offered).not.toHaveClass('dim')
+  expect(offered.querySelector('.pill.unoffered')).toBeNull()
+  await fireEvent.click(hidden)
+  await vi.waitFor(() => expect(container.querySelector('.detail .head .nm, .head .nm')).toHaveTextContent('shared-one'))
+})

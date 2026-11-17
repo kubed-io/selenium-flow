@@ -137,6 +137,8 @@ class SeleniumMCP:
             self.flows, admin=base + self.prefix if base else ""
         )
         self.store.kept = self.configs.kept
+        if self.flows is not None:
+            self.flows.global_filter = self.configs.global_filter
 
         # One bus and one monitor in this process. The monitor watches the
         # Grid's status listing, holds a BiDi socket only for a reason that

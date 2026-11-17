@@ -237,6 +237,8 @@
         refuseIfGone()
         try {
           m.showConfig(await api(workspacePath(key, '/config'), 'PUT', { text: configDraft }))
+          // Which global flows are offered may have changed.
+          if (!destroyed) void reloadFlows()
         } catch (err) {
           if (!(err instanceof ApiError) || err.status !== 400) throw err
           configRefusal = err.message

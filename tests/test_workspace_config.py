@@ -135,10 +135,10 @@ def test_a_name_that_cannot_be_a_folder_is_refused(configs):
         configs.load("../escape")
 
 
-@pytest.mark.xfail(strict=True, reason="C5: rows are read by the tag filter")
-def test_a_row_that_is_not_a_tag_filter_is_refused(configs, tmp_path):
-    write(tmp_path, "flows:\n  global:\n  - 'Not A Tag!'\n")
-    assert configs.load(NAME).error
+def test_a_row_that_is_not_a_tag_filter_is_refused_naming_it(configs, tmp_path):
+    write(tmp_path, "flows:\n  global:\n  - shop\n  - 'Not A Tag!'\n")
+    error = configs.load(NAME).error
+    assert "`flows.global`" in error and "Not A Tag!" in error
 
 
 # ---- the cache -----------------------------------------------------------------

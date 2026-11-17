@@ -404,6 +404,8 @@ iframe.console { width: 100%; height: 72vh; border: 1px solid var(--line); borde
 /* The globe marks only the shared ones. A badge on everything says nothing,
    and a workspace's own flows are the unremarkable case. */
 .flowlist .item .globe { font-size: 14px; flex: none; }
+.flowlist .item.dim > .grow { opacity: .5; }
+.flowlist .item .pill.unoffered { flex: none; color: var(--muted); }
 
 /* Tags: chips under a flow's name and in its panel, and the filter bar that
    is the list's first row. A picked filter tag is outlined, so it reads as a

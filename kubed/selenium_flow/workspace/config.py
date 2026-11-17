@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from ..faults import Conflict
 from ..flows.library import yaml_complaint
 from ..flows.store import WorkspaceLayout, open_regular
+from ..flows.tags import Filter
 from ..names import CONFIG_FILE, InvalidName
 
 log = logging.getLogger(__name__)
@@ -53,8 +54,8 @@ class FlowsConfig(_Strict):
     @field_validator("global_")
     @classmethod
     def _rows(cls, rows: list[str] | None) -> list[str] | None:
-        if rows is not None and any(not row.strip() for row in rows):
-            raise ValueError("a row cannot be empty")
+        if rows is not None:
+            Filter.parse(rows)
         return rows
 
 
@@ -221,6 +222,15 @@ class Configs:
                 "source": "default" if value is None else "workspace",
             }
         return rows
+
+    def global_filter(self, name: str) -> Filter | None:
+        """Which `global` flows this workspace is offered: None for every one.
+        A refused file offers none; its calls are refused before they ask."""
+        loaded = self.load(name)
+        if loaded.error is not None:
+            return Filter(())
+        rows = _value(loaded.config, "flows.global")
+        return None if rows is None else Filter.parse(rows)
 
     def refusal(self, name: str) -> Conflict | None:
         """Why every call naming this workspace is refused, or None."""
