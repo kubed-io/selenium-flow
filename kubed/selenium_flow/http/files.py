@@ -744,7 +744,8 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
         label = "browser/downloads" if what == "downloads" else f"files/{what}"
         # A listing names what a site named, so it is scrubbed as its resource is.
         return await answer_module.answer(
-            request, token, label, call, log, scrubbed=workspaces.scrubbed
+            request, token, label, call, log, scrubbed=workspaces.scrubbed,
+            configs=workspaces.configs,
         )
 
     @mcp.custom_route(path("list"), methods=["GET"], name="files_list")

@@ -749,6 +749,7 @@ def _routes(
         return await answer_module.answer(
             request, token, f"flows/{what}", call, log, named=False,
             scrubbed=workspaces.scrubbed if scrub else None,
+            configs=workspaces.configs,
         )
 
     @mcp.custom_route(flows_root, methods=["GET"], name="flows_list")

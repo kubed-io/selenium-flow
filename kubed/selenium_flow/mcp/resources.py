@@ -36,6 +36,9 @@ DESCRIPTION = (
     "network (open_session(capture=true)); capturing is whether that is "
     "happening right now \u2014 false while it is paused, until the next call; "
     "captured counts what was kept since the last navigation. " + CAPTURE_KEPT + "\n\n"
+    "config is this workspace's own settings, each with its value and its "
+    "source (default or workspace). Only an admin changes them, at config_url "
+    "when the server has one.\n\n"
     "Reading this never opens a browser: live is false when no session is open."
 )
 

@@ -145,7 +145,7 @@ class Configs:
 
     def url(self, name: str) -> str | None:
         """The admin UI's view of this workspace's config, or None."""
-        if not self._admin:
+        if not self._admin or self._layout is None:
             return None
         return f"{self._admin}/#/workspaces/{quote(name, safe='')}/config"
 

@@ -380,9 +380,15 @@ class SeleniumMCP:
             # A failed run's hint points at a skill page only when one is served.
             skill_available=self.skill is not None,
         )
-        secrets.register(self.mcp, self.secrets, auth_token, prefix=self.prefix)
+        secrets.register(
+            self.mcp, self.secrets, auth_token, prefix=self.prefix,
+            configs=self.configs,
+        )
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
         self.mcp.add_middleware(instructions.InstructionsFor(self.skill is not None))
+        # Before anything names the workspace to act on it: a workspace whose
+        # config is refused answers nothing else.
+        self.mcp.add_middleware(clients.Refused(self.configs))
         # Outside `Notices`: a call that may become a task carries its
         # workspace in a header its worker reads.
         self.mcp.add_middleware(clients.Carry())

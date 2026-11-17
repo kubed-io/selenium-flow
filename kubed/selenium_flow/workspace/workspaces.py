@@ -152,6 +152,8 @@ CONTEXT_KEYS = (
     "captured",
     "site_data",
     "guidance",
+    "config",
+    "config_url",
 )
 WORKSPACE_HEADER = "sf-workspace"
 # Claude.ai's connectors can send only allowlisted header names, and
@@ -508,6 +510,10 @@ class Workspaces:
         }
         if self.skill_available:
             status["guidance"] = guidance.pointer("WORKSPACES.md")
+        if self.configs.enabled:
+            status["config"] = self.configs.rows(self.configs.load(name))
+            if url := self.configs.url(name):
+                status["config_url"] = url
         record = self.store.get(name)
         if record is None:
             return status

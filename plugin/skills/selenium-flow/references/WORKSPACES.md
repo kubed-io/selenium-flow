@@ -43,9 +43,65 @@ Grid's reaper. The server never invents a name: the caller names the workspace.
 | `grid_timeout` | how long the session may sit idle before the Grid ends it; any call restarts the clock |
 | `capture`, `capturing`, `captured` | opened with `capture=true`; recording now (false means paused until the next call); how many console entries and requests are kept |
 | `flows_here` | the saved flows that apply to this page |
+| `config`, `config_url` | the workspace's own settings, each with its `value` and `source` (`default` or `workspace`); the admin UI's page for them |
 
 The server keeps a browser alive for 15 minutes after your last call by default,
 so a pause of a few minutes costs nothing.
+
+## Managing a workspace
+
+A workspace can have a config, `workspace.yaml` in its folder. A workspace with
+one is kept: it never expires. `workspace://current/config` shows each setting,
+its value and whether the file set it. Today it holds one setting:
+
+| Setting | Means |
+|---|---|
+| `flows.global` | which shared flows this workspace is offered: rows of tags joined by commas; a flow carrying every tag of any row passes. Unset offers them all |
+
+Only an admin changes the config. You never can: no tool writes it, and that is
+the point, since it is the boundary a person set for you. When a person wants
+it changed, write the new YAML for them and guide them, in this order:
+
+1. **The admin UI.** Give them `config_url` from `workspace://current`, which
+   opens this workspace's Config tab, and the YAML to paste into its editor:
+
+   ```yaml
+   flows:
+     global:
+     - shop,login
+     - reports
+   ```
+
+2. **By hand, when there is no admin UI** (no `config_url`, as on stdio). The
+   file is `<data dir>/workspaces/<workspace>/workspace.yaml` on the server, and
+   the next call reads it. Give them the whole file:
+
+   ```yaml
+   flows:
+     global:
+     - shop,login
+   ```
+
+3. **With selenium-flow itself.** If the server's admin token is held as a
+   secret (an operator names it, for example `admin` with the key `token`), you
+   can drive the admin UI in your own browser: open the admin page, `write` the
+   secret into the token field (`#token`), open `config_url`, and paste the
+   YAML into the editor. Ask the person before you do, and show them this YAML
+   first:
+
+   ```yaml
+   flows:
+     global:
+     - shop,login
+   ```
+
+A config that does not parse or validate refuses every call that names the
+workspace, `workspace://current` included, with one sentence (over HTTP, a 409):
+
+> this workspace's config is invalid: `colour` is not a setting workspace.yaml holds: it holds flows.global. An admin fixes it in the admin UI: https://flows.example.com/#/workspaces/research-bot/config
+
+Nothing works until it is fixed. Tell the person the reason and the link, and
+offer the corrected YAML.
 
 ## Browser options that are not obvious
 
