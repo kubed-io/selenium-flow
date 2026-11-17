@@ -151,8 +151,9 @@ def test_the_first_call_after_a_pause_holds_capture_again_before_it_acts(capture
 
 def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
     now = [1000.0]
-    capture = Capture(ttl=10, clock=lambda: now[0])
-    workspaces = build(capture, FakeMonitor())
+    capture, monitor = Capture(ttl=10, clock=lambda: now[0]), FakeMonitor()
+    workspaces = build(capture, monitor)
+    monitor.owed.add(workspaces.store.get("ws").session_id)
     now[0] += 60
 
     def click(session_id):
@@ -291,6 +292,28 @@ def test_with_a_held_connection_the_call_flushes_it_before_counting(captured_ws,
     result = workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="interact")
     assert flushed == [("conn", "loop")] and result["page"]["errors"] == 1
 
+
+
+def test_a_workspace_that_captures_nothing_is_never_flushed(monkeypatch):
+    """A connection held for a person's control is not flushed for a call."""
+    monitor = FakeMonitor()
+    workspaces = Workspaces(PageActions(), monitor=monitor, capture=Capture())
+    workspaces.open_browser(Caller("ws", "query"))
+    monitor.held, monitor.loop = "conn", "loop"
+    flushed = []
+
+    class Channel:
+        def __init__(self, conn, loop):
+            pass
+
+        def flush(self, timeout):
+            flushed.append(timeout)
+
+    from kubed.selenium_flow.workspace import calls as calls_module
+
+    monkeypatch.setattr(calls_module, "Channel", Channel)
+    result = workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="interact")
+    assert flushed == [] and "page" not in result
 
 # ---- the hint's shape ---------------------------------------------------------
 

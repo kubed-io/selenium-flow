@@ -61,7 +61,7 @@ SEE_FAILED = f"{NETWORK_URI}?filter=failed"
 
 class Begun(NamedTuple):
     """A call under way: whose, on which browser, since when, and the capture's
-    totals as it started (None when capture is off)."""
+    totals as it started (None when the workspace captures nothing)."""
 
     workspace: str
     session_id: str
@@ -157,7 +157,9 @@ class Calls:
         told(self.monitor, "keep", workspace, session_id, browser=browser)
         told(self.monitor, "calling", session_id)
         self._resume(workspace, session_id, browser)
-        return Begun(workspace, session_id, self.clock(), self._mark(workspace))
+        return Begun(
+            workspace, session_id, self.clock(), self._mark(workspace, session_id)
+        )
 
     def end(
         self,
@@ -226,17 +228,19 @@ class Calls:
         except Exception as exc:  # noqa: BLE001 - capture is a fact, not a need
             log.warning("capture did not resume for a call: %s", type(exc).__name__)
 
-    def _mark(self, workspace: str) -> Mark | None:
+    def _mark(self, workspace: str, session_id: str) -> Mark | None:
         if self.capture is None:
             return None
         try:
             mark = self.capture.mark(workspace)
+            if mark is None and told(self.monitor, "owes", session_id, "capture"):
+                # The buffer expired in a quiet spell, and the call may begin
+                # one again, counting from zero.
+                mark = Mark(0, 0)
         except Exception as exc:  # noqa: BLE001 - no window, so no hint
             log.warning("capture could not mark a call: %s", type(exc).__name__)
             return None
-        # No buffer: it expired in a quiet spell, and the call may begin one
-        # again, counting from zero.
-        return mark if mark is not None else Mark(0, 0)
+        return mark
 
     def _caused(self, begun: Begun) -> dict | None:
         try:
