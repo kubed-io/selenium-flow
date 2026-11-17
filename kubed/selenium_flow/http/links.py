@@ -105,7 +105,11 @@ def kept_path(workspace: str, name: str) -> str:
 
 
 def _url(path: str, token: str | None, base: str, ttl: int) -> str:
-    """One path, signed when the server has a token to sign with."""
+    """One path, signed when the server has a token to sign with.
+
+    Every file route signs here, so none ends up unsigned or signed over a path
+    it does not serve.
+    """
     return base.rstrip("/") + (sign(path, token, ttl) if token else path)
 
 

@@ -282,6 +282,10 @@ def mount(mcp, actions, flow_store, token, prefix) -> None:
         # Looked up per request: the Grid object is the actions', not ours.
         read=lambda session_id, leaf: actions.grid.read_file(session_id, leaf),
         closed=is_partial,
+        # `absent` stays empty here: the Grid's own status decides what its
+        # refusal means. A 404 (the browser or the file is gone) answers 404,
+        # but an unreachable Grid must not read as "not found", which would
+        # tell a client to stop retrying something a retry could fetch.
         what="reading {name} for {owner}",
     )
     # Absent, or a name the store would never have written.
