@@ -169,9 +169,13 @@ class Recipe:
                 else:
                     fields = attempt()
             except UnexpectedAlertPresentException:
-                # A dialog is page state, never an error: the page state below
-                # carries it, and the hint names `dialog`.
-                fields = {}
+                # The driver refused the call outright: nothing was done, so it
+                # is a failure, not a success carrying page state.
+                message = browser.page_state(driver).get("dialog", "")
+                raise ValueError(
+                    f"a dialog is open ({message!r}) and blocked this call; "
+                    "nothing was done: answer it with dialog"
+                ) from None
             found = chosen[-1] if chosen else None
             return {
                 **fields,

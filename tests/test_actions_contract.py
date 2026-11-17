@@ -1228,13 +1228,59 @@ def test_a_null_text_is_never_typed_as_the_word_none(actions, scripted):
     assert sent == []
 
 
-def test_extract_with_a_dialog_open_names_the_dialog_tool(actions, scripted):
+@pytest.fixture
+def blocked(scripted):
+    """A browser whose every lookup is refused for a dialog that is open."""
     driver = scripted(dialog=DIALOG)
 
     def refuse(by=None, value=None):
         raise UnexpectedAlertPresentException("unexpected alert open")
 
     driver.__dict__["find_element"] = refuse
-    result = actions.extract("abc", selector={"css": "#x"})
-    assert result["dialog"] == DIALOG
-    assert "answer it with dialog" in result["hint"]
+    driver.__dict__["find_elements"] = refuse
+    return driver
+
+
+def _dialog_refusal(exc):
+    assert status_for(exc.value) == 400
+    assert DIALOG in str(exc.value) and "answer it with dialog" in str(exc.value)
+
+
+def test_extract_with_a_dialog_open_fails_naming_the_dialog_tool(actions, blocked):
+    with pytest.raises(ValueError) as exc:
+        actions.extract("abc", selector={"css": "#x"})
+    _dialog_refusal(exc)
+
+
+def test_screenshot_with_a_dialog_open_fails_cleanly(actions, scripted):
+    driver = scripted(dialog=DIALOG)
+
+    def refuse(*_args):
+        raise UnexpectedAlertPresentException("unexpected alert open")
+
+    driver.__dict__["get_screenshot_as_base64"] = refuse
+    with pytest.raises(ValueError) as exc:
+        actions.screenshot("abc", save=False)
+    _dialog_refusal(exc)
+
+
+def test_assert_with_a_dialog_open_fails(actions, scripted):
+    driver = scripted(dialog=DIALOG)
+
+    def refuse(*_args):
+        raise UnexpectedAlertPresentException("unexpected alert open")
+
+    driver.__dict__["execute_script"] = refuse
+    with pytest.raises(Exception) as exc:
+        actions.assert_("abc", "return true", wait_timeout=0)
+    assert "dialog" in str(exc.value)
+
+
+def test_a_flow_step_with_a_dialog_open_fails_the_run(actions, blocked):
+    from kubed.selenium_flow.flows import api  # noqa: F401 - sets up the toolbox
+    from kubed.selenium_flow.flows.run import run
+
+    document = {"steps": [{"tool": "extract", "args": {"selector": {"css": "#x"}}}]}
+    report = run(actions, document, "abc")
+    assert report["status"] != "ok"
+    assert "answer it with dialog" in str(report)
