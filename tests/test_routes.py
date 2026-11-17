@@ -399,13 +399,25 @@ def test_upload_accepts_a_multipart_file(open_client):
     assert response.status_code == GRID_DOWN, response.json()
 
 
-def test_a_multipart_filename_can_be_overridden(open_client):
-    response = open_client.post(
-        "/browser/upload",
-        data={"selector": '{"xpath": "//input"}', "filename": "renamed.csv"},
+def test_a_multipart_filename_can_be_overridden():
+    """An explicit `filename` field wins over the file part's own name."""
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    from kubed.selenium_flow.http import answer
+
+    async def echo(request):
+        body = await answer.read_body(request)
+        return JSONResponse({"filename": body["filename"], "content": body["content"].decode()})
+
+    client = TestClient(Starlette(routes=[Route("/", echo, methods=["POST"])]))
+    response = client.post(
+        "/",
+        data={"filename": "renamed.csv"},
         files={"content": ("original.csv", b"x", "text/csv")},
     )
-    assert response.status_code == GRID_DOWN, response.json()
+    assert response.json() == {"filename": "renamed.csv", "content": "x"}
 
 
 def test_frame_default_needs_no_target(open_client):
