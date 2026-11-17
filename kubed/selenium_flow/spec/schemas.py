@@ -1,15 +1,10 @@
-"""The response shapes and hand-written schemas the spec assembles.
+"""The response shapes and hand-written schemas the OpenAPI document assembles.
 
-Data, not logic. Request schemas come from the MCP tools themselves — see
-``builder.py`` — so what lives here is the half with nothing to introspect: the
-ops endpoints' answers, and the ``/flows`` and ``/files`` operations, which are
-paths carrying documents rather than an action's arguments. What each browser
-action returns is a column of its row in ``core/capabilities.py``, and
-``RESPONSES`` reads it from there.
-
-Split from the builder because fifteen literal blobs beside fourteen functions
-made one file nobody could hold in their head — and because a schema is read,
-while a builder is followed.
+Data only: the half with nothing to introspect. Request schemas come from the
+MCP tools (``builder.py``). Here are the ops endpoints' answers and the
+``/flows``, ``/files``, secrets and site-data operations, which carry documents
+and names instead of an action's arguments. What each browser action returns
+is a column of its row in ``core/capabilities.py``.
 """
 
 from __future__ import annotations
@@ -24,15 +19,10 @@ from ..core.capabilities import (
 from ..flows import places
 from ..flows.document import PARAMETERS_DESCRIPTION, PARAMETERS_EXAMPLE
 
-# What each capability answers is a column of its row in `core.capabilities`,
-# so a row cannot be written without one. This is that column by name, plus
-# the one answer that belongs to no capability: the workspace status.
+# Each capability's `response` column by name, plus the workspace status.
 RESPONSES = {
     **{row.name: row.response for row in CAPABILITIES},
-    # What `GET /browser` and `workspace://current` answer with. Hand-written like
-    # every capability's answer, and it was missing — so the published status
-    # operation was an empty object and a generated client could not read it
-    # (Copilot, #34).
+    # What `GET /browser` and `workspace://current` answer with.
     "current_workspace": {
         "type": "object",
         "properties": {
@@ -247,16 +237,12 @@ FLOW_STEP = {
     "type": "object",
     "required": ["tool"],
     "description": "One tool call. See GET /flows/schema for what each tool takes.",
-    # A real step, so anything generating an example from this document produces
-    # something that would actually run. Sampling the properties instead yields
-    # `{"tool": "…"}`, which is the right shape and names no tool that exists.
+    # A real step, so a generated example names a tool that exists.
     "example": {"tool": "navigate", "args": {"url": "https://example.com"}},
     "properties": {
         "tool": {"type": "string", "description": "Which action this step runs."},
         "args": {"type": "object", "description": "That action's arguments."},
-        # `secret` is not here: it is a parameter of `write`, so it lives in
-        # `args` and is described by that action's own schema. A step key would
-        # have been a second place to say it, and the two would drift.
+        # `secret` is a parameter of `write`, described in `args` by its schema.
         "id": {"type": "string"},
         "note": {"type": "string"},
         "onError": {"type": "string", "enum": ["abort", "continue"]},
@@ -264,9 +250,8 @@ FLOW_STEP = {
     },
 }
 
-# Said once, because a flow's document is described twice — as what a read
-# returns and as what a save takes — and the save side is the one that forgot it
-# (Copilot, #37).
+# A flow's document is described twice, as what a read returns and what a save
+# takes; these say each field once for both.
 FLOW_TIMEOUT = {
     "type": "integer",
     "minimum": 1,
@@ -276,8 +261,6 @@ FLOW_TIMEOUT = {
     ),
 }
 
-# The save side's `parameters`, which said only "object" while save_flow's
-# schema said nothing more (#118).
 FLOW_PARAMETERS = {
     "type": "object",
     "description": PARAMETERS_DESCRIPTION,
@@ -474,7 +457,7 @@ FLOW_SCHEMAS = {
             # Present only with capture on: the steps' hints, summed.
             "page": PAGE_HINT,
             # Present only when the run ended on a page it did not begin on and
-            # saved flows say they apply there (ruling 20).
+            # saved flows say they apply there.
             "flows_here": FLOWS_HINT,
         },
     },

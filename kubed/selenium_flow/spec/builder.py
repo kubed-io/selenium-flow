@@ -1,32 +1,14 @@
 """The OpenAPI description of the HTTP surface.
 
-Generated, never hand-written. Request schemas come straight from the MCP tools
-— the same objects FastMCP publishes to agents — so the two contracts are not
-merely consistent, they are the same schema. Adding a parameter to a tool
-changes this document with no further work.
+A browser endpoint's request body is its MCP tool's schema, unchanged, so a
+tool's new parameter reaches this document by itself. Responses are
+hand-written: each is the ``response`` column of its row in
+``core/capabilities.py``. The workspace, a header or query parameter on every
+operation, is in no tool schema.
 
-Response shapes are the one hand-maintained half: the actions return plain
-dicts, so there is nothing to introspect. Each is the ``response`` column of its
-row in ``core/capabilities.py``, so an action cannot be declared without one.
-
-**No transform is applied on the way through, and that is new.** There used to
-be three sanctioned differences, all of them consequences of the HTTP surface
-having no workspace of its own: ``session_id`` became required, ``fresh`` was
-dropped because there was no workspace to be fresh *from*, and ``upload_file``
-gained a ``session`` field so a kept file could name a library. §F2.12 and
-§F2.13 removed the cause rather than the symptoms — both surfaces now name a
-workspace the same way — so a request body here is exactly the tool's schema,
-and a test asserts it.
-
-What is described here and not in a tool schema is the workspace itself, as the
-header and query parameter every operation takes. That is not a body field on
-either surface, which is the whole point of it.
-
-What is described *differently* is the shape, and only the shape: a tool is a
-verb with arguments, an endpoint is a path with a method. Those come from the
-route tables — ``core.capabilities``, ``flowapi.FLOW_ROUTES``,
-``files.FILE_ROUTES`` — so this document cannot describe a path that is not
-served.
+Paths and methods come from the route tables (``core.capabilities``,
+``flowapi.FLOW_ROUTES``, ``files.FILE_ROUTES``), so the document cannot describe
+a path that is not served.
 """
 
 from __future__ import annotations
@@ -54,7 +36,6 @@ from .schemas import (
     WORKSPACE_PARAMETERS,
 )
 
-# One schema per question, because the ops endpoints answer different ones.
 DESCRIPTION = """\
 Drive a persistent browser on Selenium Grid over plain HTTP.
 
@@ -73,16 +54,14 @@ times out.
 """
 
 
-# What the committed openapi.yaml carries instead of a real version. The field
-# is required, so it cannot be omitted, but a real value would churn the file on
-# every commit.
+# What the committed openapi.yaml carries instead of a real version, which
+# would churn the file on every commit.
 PLACEHOLDER_VERSION = "0.0.0"
 
 
-# The browser resource's operations are summarised by hand: a command's summary
-# is its tool description's first line, which for these two reads as advice to
-# a model rather than as what the operation is. Keyed by capability, so a new
-# row on the resource without one fails the build rather than going unnamed.
+# A command's summary is its tool description's first line, which for these two
+# reads as advice to a model. A new row on the resource without one fails the
+# build.
 RESOURCE_SUMMARIES = {
     "open_session": (
         "Open a session in this workspace, or pick up the one it was using."
@@ -92,8 +71,7 @@ RESOURCE_SUMMARIES = {
 
 
 # What a 400 and a 503 on the browser resource mean, per capability: opening a
-# browser can fail in ways ending one cannot (spec
-# 2026-10-26-session-capabilities, *Errors*). "" is every other row's.
+# browser can fail in ways ending one cannot. "" is every other row's.
 RESOURCE_400 = {
     "": (
         "The request cannot succeed as sent — no workspace named, two "
@@ -135,24 +113,18 @@ async def build_spec(
 ) -> dict:
     """Assemble the OpenAPI 3.1 document for the HTTP surface.
 
-    3.1 rather than 3.0 on purpose: it is a strict superset of JSON Schema, so
-    the tool schemas can be embedded verbatim instead of being down-converted.
+    3.1 is a superset of JSON Schema, so the tool schemas are embedded as they
+    are.
 
     ``endpoints`` is ``core.capabilities.ENDPOINTS``, the commands under
-    ``/browser`` by path; everything else about each — its method, whether its
-    choice is in the path, what it answers — is read from its row.
+    ``/browser`` by path; everything else about each is read from its row.
 
-    ``prefix`` is where the whole server is mounted (§F1.11). Every tree hangs
-    off it, `/openapi.*` included. Only the four probes — `/health`, `/started`,
-    `/ready`, `/info` — also answer at the root, so a probe never depends on it.
+    ``prefix`` is where the whole server is mounted, `/openapi.*` included.
+    Only the four probes also answer at the root.
     """
     browser_root = f"{prefix}/browser"
-    # get_tool, not list_tools. A listing is shaped for whoever is asking, and
-    # this document describes the surface rather than one client's view of it —
-    # building from a listing is how the spec once omitted a field every
-    # endpoint required. Not guarded: an action in the route table with no tool
-    # behind it is a broken build, and a document quietly missing an endpoint is
-    # how that omission survived as long as it did.
+    # get_tool, never list_tools: a listing is shaped for whoever is asking.
+    # Not guarded: an action in the route table with no tool is a broken build.
     tools = {action: await mcp.get_tool(action) for action in set(endpoints.values())}
 
     schemas: dict[str, dict] = {"Error": ERROR, "Health": HEALTH}
@@ -166,7 +138,6 @@ async def build_spec(
 
         request_name = f"{_camel(action)}Request"
         response_name = f"{_camel(action)}Response"
-        # Verbatim: the body an endpoint accepts IS the tool's schema now.
         request, nested = _hoisted(copy.deepcopy(tool.parameters))
         schemas.update(nested)
         schemas[request_name] = request
@@ -175,8 +146,7 @@ async def build_spec(
         route = f"{browser_root}/{path}" + ("/{action}" if row.in_path else "")
         parameters = list(WORKSPACE_PARAMETERS)
         if row.in_path:
-            # The mouse action is the path, not a field: /browser/interact/click
-            # reads as the thing it does, and the enum is already closed.
+            # The action is the path (/browser/interact/click), not a field.
             choice = dict(request.get("properties", {}).get("action", {}))
             request = _without(request, "action")
             schemas[request_name] = request
@@ -196,11 +166,8 @@ async def build_spec(
             row.http_method.lower(): {
                 "operationId": action,
                 "parameters": parameters,
-                # The MCP tool this endpoint is the other half of. Redundant for
-                # a browser action, where the two names are the same by
-                # construction — and stated anyway, so a reader of the document
-                # never has to know which surface a name came from. See
-                # `_mcp_tools` for why the other two surfaces need it.
+                # The same name here, stated so a reader never has to know
+                # which surface a name came from.
                 "x-mcp-tool": action,
                 "summary": _summary(tool.description),
                 "description": tool.description or "",
@@ -220,9 +187,7 @@ async def build_spec(
                             }
                         },
                     },
-                    # These are a contract with a machine, so they are split by
-                    # what the caller should DO, not by what went wrong. See
-                    # errors.py.
+                    # Split by what the caller should do (errors.py).
                     "400": _error(
                         "The request cannot succeed as sent — a missing field, "
                         "a value that was rejected, a locator that matched "
@@ -243,17 +208,16 @@ async def build_spec(
             }
         }
         if row.waits:
-            # It takes nothing, is what a 409 sends a caller to, and says an
-            # ended browser in its answer rather than as a 404.
+            # It takes nothing, is what a 409 sends a caller to, and reports an
+            # ended browser in its answer, never as a 404.
             operation = paths[route][row.http_method.lower()]
             operation["requestBody"]["required"] = False
             for status in ("404", "409"):
                 operation["responses"].pop(status)
 
-    # The browser this caller holds: one resource, three methods. Not one path
-    # per verb, because which browser is a question about who is asking and the
-    # answer is in the header (§F2.13). Its two capabilities are the rows with
-    # no path of their own; the third method is the status read, below.
+    # The browser this caller holds: one resource, three methods. Its two
+    # capabilities are the rows with no path of their own; the third method is
+    # the status read, below.
     for row in CAPABILITIES:
         if row.route:
             continue
@@ -331,10 +295,8 @@ async def build_spec(
     schemas.update(SITE_DATA_SCHEMAS)
     paths.update(_site_data_paths(prefix))
 
-    # The ops endpoints. One per question a probe asks — `/openapi.json` was
-    # standing in for a liveness probe in this cluster, which it is not (Dr K).
-    # Each answers at the root as well as here, for a reader that did not choose
-    # the mount; the document names the mounted one.
+    # One ops endpoint per question a probe asks. Each also answers at the
+    # root; the document names the mounted one.
     schemas["Started"] = STARTED
     schemas["Ready"] = READY
     schemas["Info"] = INFO
@@ -412,16 +374,12 @@ async def build_spec(
             "title": "Selenium Flow",
             "version": _version(),
             "description": DESCRIPTION.format(mount=prefix),
-            # identifier, not just name: an SPDX id is machine-readable, and
-            # redocly's info-license-strict rule warns without one.
+            # redocly's info-license-strict rule warns without an identifier.
             "license": {"name": "MIT", "identifier": "MIT"},
         },
-        # Declared because a spec without servers cannot be exercised from a
-        # docs UI or a generated client, and redocly rejects an empty list.
-        # The prefix is in the paths rather than in these, deliberately: a
-        # server URL is where this process answers, and the mount point is part
-        # of every path it serves — including for a reader who pastes one into
-        # something that has never heard of `servers`.
+        # A docs UI or a generated client needs servers, and redocly rejects an
+        # empty list. The mount is in the paths, so a pasted path works even
+        # where `servers` is unknown.
         "servers": [
             {
                 "url": "/",
@@ -481,9 +439,8 @@ async def build_spec(
 def _request_content(action: str, request_name: str) -> dict:
     """The accepted request bodies for one endpoint.
 
-    Everything takes JSON. Uploading additionally takes a multipart form,
-    because sending a file over HTTP should be a file, not base64 wrapped in
-    JSON — that shape only exists because MCP tool arguments must be JSON.
+    Everything takes JSON. Uploading also takes a multipart form, so a file is
+    sent as a file instead of base64 in JSON.
     """
     content = {
         "application/json": {"schema": {"$ref": f"#/components/schemas/{request_name}"}}
@@ -537,31 +494,18 @@ def _request_content(action: str, request_name: str) -> dict:
                     "url": {"type": "string"},
                     "wait_timeout": {"type": "integer"},
                 },
-                # Nothing is required: the input is addressed by EITHER xpath
-                # OR css, which this hand-written schema cannot say without a
-                # oneOf, and the workspace is a header rather than a field.
-                # `browser.locator` enforces the selector rule at the boundary
-                # and returns a 400 naming both, exactly as it does for a JSON
-                # body.
+                # Nothing is required: `browser.locator` refuses a bad selector
+                # with a 400, as it does for a JSON body.
             }
         }
     return content
 
 
-# The workspace every operation is about, named the way §F2.13 says: a header, or
-# a query parameter, and never a body field or a path segment. Published on
-# every operation because it is how a caller says who it is, and a generated
-# client that cannot see it cannot name a workspace at all.
 def _named_in_path(template: str) -> list[dict]:
     """The path parameters a route template declares, in order.
 
-    Generic over the placeholder's name so a route with more than one — the
-    file keep route names both a folder and a name — publishes all of them,
-    not just the first. `folder` is special-cased with the three values it may
-    ever hold — the folders a file can be kept out of, `files.SCREENSHOTS`,
-    `files.RECORDINGS` and `files.DOWNLOADS`, as the keep route narrows it —
-    so a generated client should not have to guess a fourth. The downloads
-    listing is `/browser/downloads`, but keeping one is still `/files`'s.
+    `folder` is published with the three values the keep route accepts, the
+    folders a file can be kept out of.
     """
     return [
         {
@@ -581,8 +525,7 @@ def _named_in_path(template: str) -> list[dict]:
 def _without(schema: dict, *names: str) -> dict:
     """A request schema with fields that are no longer body fields removed.
 
-    `name` moved into the path and `session`/`session_id` into the header, so
-    publishing them here would describe a request nothing accepts.
+    `name` is in the path and the workspace is a header.
     """
     schema = copy.deepcopy(schema)
     properties = schema.get("properties", {})
@@ -596,20 +539,17 @@ def _without(schema: dict, *names: str) -> dict:
     return schema
 
 
-# What a body over its cap answers: 1 MiB of JSON, 64 MiB of upload.
 TOO_LARGE = (
     "The body is over its cap: 1 MiB of JSON, 64 MiB of upload, 1 MiB of "
     "flow YAML. Send less; retrying it unchanged will fail again."
 )
 
 
-# What a 404 means, and what to do about it. A body is not a browser: the one
-# that made the request held it, and a new browser cannot bring it back.
+# A body is not a browser: a new browser cannot bring one back.
 GONE_BROWSER = (
     "No such browser session. It ended, the Grid reaped it, "
     "or the id was never real. Open a new one and retry."
 )
-# What a 409 means: the request is fine, a person has the browser for now.
 CONTROLLED = (
     "A person holds this workspace's browser in the live view. Call POST "
     "/browser/await-control, then retry."
@@ -643,37 +583,16 @@ def _camel(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_"))
 
 
-# ---------------------------------------------------------------------------
-# The /flows surface, written by hand.
-#
-# Unlike the browser endpoints, these are not derived from tool schemas: their
-# request bodies are a document plus a workspace name, not an action's arguments.
-# That makes them the same kind of liability `_request_content`'s multipart form
-# turned out to be — a hand-written schema next to derived ones drifts, quietly,
-# and only a test notices. `test_openapi.py` holds the path list to
-# `flowapi.FLOW_ENDPOINTS` for exactly that reason.
-
-
-# A workspace name is optional everywhere and defaults to the shared library, the
-# same way it does on the MCP surface for a caller with no name of its own.
-# The write endpoints need a different sentence. Falling back to `global` is
-# right for a read and is a *refusal* for a write, so advertising the same
-# default on both would hand a generated client a 400 it had no way to see
-# coming. It is still not `required`, because a caller naming itself through
-# the Sf-Workspace header legitimately omits it.
+# The /flows, /files, secrets and site-data operations are written by hand:
+# their bodies are documents and names, not an action's arguments.
 def _mcp_tools() -> tuple[dict, dict]:
     """The MCP side of each ``/flows`` and ``/files`` endpoint.
 
     Each is an extension key and its value: ``x-mcp-tool`` for an action, and
-    ``x-mcp-resource`` for a read, which over MCP is a resource at that URI —
-    read directly, or through ``read_resource`` by a client that cannot
-    (§F3.6).
-
-    Imported here rather than at module scope: ``routes`` loads this module,
-    and the flow and file trees are not needed until a document is built.
-    Reading the constants is still the point — a second
-    hand-written copy of these names is how the wiki ends up generating a page
-    for a tool nobody can call.
+    ``x-mcp-resource`` for a read, which over MCP is a resource at that URI.
+    Read from the modules' constants, imported here because ``routes`` loads
+    this module and the flow and file trees are not needed until a document is
+    built.
     """
     from ..flows import api as flowapi
     from ..http import files as files_module
@@ -724,8 +643,6 @@ def _flow_paths(prefix: str = "") -> dict:
             if response
             else {"type": "object"}
         )
-        # `name` is the path and the workspace is a header, so neither is a body
-        # field any more.
         request = _without(request, "name", "workspace", "session_id")
         has_body = method in ("post", "put")
         operation = {
@@ -760,19 +677,8 @@ def _flow_paths(prefix: str = "") -> dict:
     return paths
 
 
-# ---------------------------------------------------------------------------
-# The /files surface, written by hand for the same reason /flows is: these take
-# a file name and a workspace, not an action's arguments, so there is no tool
-# schema to derive them from. `test_kept_files.py` holds the path list to
-# `files.FILE_ENDPOINTS` so a new one cannot go undocumented.
-
-# path -> (operationId, summary, description, request, response). Every one of
-# these dials the Grid, so they all carry its failure modes; deleting a kept
-# file never leaves this server, and is deliberately not here — it is an
-# operator action on the admin surface, with no tool and so no endpoint.
 # An operation whose commonest 400 is not the shared one, by its `FILE_ROUTES`
-# key. The downloads listing has nothing to do with DATA_DIR, and is refused
-# when no session is open (spec 2026-10-29-session-uris, ruling 8).
+# key. The downloads listing is refused when no session is open.
 _FILE_400 = {
     "downloads": (
         "No session is open in this workspace: a download lives only as long "
@@ -823,7 +729,7 @@ def _file_paths(prefix: str = "") -> dict:
             "parameters": [*_named_in_path(template), *WORKSPACE_PARAMETERS],
             "summary": summary,
             "description": description,
-            # The downloads listing is the session's (ruling 9).
+            # The downloads listing is the session's.
             "tags": ["browser" if template.startswith("/browser") else "files"],
             "responses": responses,
         }
@@ -900,12 +806,7 @@ def _site_data_paths(prefix: str = "") -> dict:
 
 
 def _secret_paths(prefix: str = "") -> dict:
-    """The secrets catalogue: one read, which is `secret://secrets` over MCP.
-
-    Missing from this document from the day the route was added, and so from
-    the wiki too — the one readable resource an HTTP caller could not discover
-    (Copilot, #39).
-    """
+    """The secrets catalogue: one read, which is `secret://secrets` over MCP."""
     from .. import secrets
 
     return {
@@ -943,12 +844,9 @@ def _hoisted(schema: dict) -> tuple[dict, dict]:
     """A schema with its ``$defs`` lifted into ``components/schemas``.
 
     Pydantic writes a nested model as ``$ref: '#/$defs/ValueFrom'`` with the
-    definition alongside. A ``$ref`` resolves against the **document root**, and
-    once the schema is a component there is no ``$defs`` there — so the
-    reference points at nothing and a strict reader rejects the whole document.
-
-    Lifting rather than inlining, so a model used by two actions is described
-    once and a generated client gets one class for it.
+    definition alongside, and a ``$ref`` resolves against the document root,
+    where there is no ``$defs``. Lifted, not inlined, so a model two actions
+    use is described once.
     """
     definitions = schema.pop("$defs", None)
     if not definitions:
