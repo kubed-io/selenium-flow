@@ -310,8 +310,9 @@ class Grid:
 
     def ping(self, session_id: str) -> bool:
         """The keep-alive's one command: `is_alive`'s request, sent briefly,
-        which the Grid counts as activity. A failure is raised for the monitor
-        to log."""
+        which the Grid counts as activity. A request that died on a dropped
+        pooled connection is sent again on a fresh one, since it never reached
+        the Grid; any other failure is raised for the monitor to log."""
         return self._alive(session_id, timeout=SHOWN_TIMEOUT, quiet=False)
 
     def _alive(self, session_id: str, *, timeout: float, quiet: bool) -> bool:
@@ -624,7 +625,9 @@ def _asked(driver, script: str):
 
 def in_frame(driver) -> bool:
     """Whether the session is switched into a frame. WebDriver has no command
-    for it, so the page is asked."""
+    for it, so the page is asked. It is reported because a forgotten frame
+    switch makes every later locator fail for a reason that looks nothing like
+    the cause."""
     return bool(_asked(driver, IN_FRAME))
 
 
