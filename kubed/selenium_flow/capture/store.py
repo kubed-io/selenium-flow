@@ -477,14 +477,14 @@ class Capture:
 
     # ---- the readers ---------------------------------------------------------
 
-    def mark(self, workspace: str) -> Mark | None:
+    def _read(self, workspace: str, view: Callable[..., object], *args):
+        """``view(buffer, *args)`` under the lock; None with no buffer."""
         with self._lock:
             buffer = self._cache.get(workspace)
-            return (
-                None
-                if buffer is None
-                else Mark(buffer.errors_total, buffer.failed_total)
-            )
+            return None if buffer is None else view(buffer, *args)
+
+    def mark(self, workspace: str) -> Mark | None:
+        return self._read(workspace, lambda b: Mark(b.errors_total, b.failed_total))
 
     def caused(self, workspace: str, since: Mark) -> dict:
         """What landed since ``since``: page errors and hinted failures."""
@@ -502,22 +502,16 @@ class Capture:
         self, workspace: str, *, level: str = "all", pages: int = 1
     ) -> dict | None:
         level, pages = views.check_level(level), views.check_pages(pages)
-        with self._lock:
-            buffer = self._cache.get(workspace)
-            return None if buffer is None else views.console(buffer, level, pages)
+        return self._read(workspace, views.console, level, pages)
 
     def network(
         self, workspace: str, *, filter: str = "all", pages: int = 1
     ) -> dict | None:
         filter, pages = views.check_filter(filter), views.check_pages(pages)
-        with self._lock:
-            buffer = self._cache.get(workspace)
-            return None if buffer is None else views.network(buffer, filter, pages)
+        return self._read(workspace, views.network, filter, pages)
 
     def request(self, workspace: str, id: str) -> dict | None:
-        with self._lock:
-            buffer = self._cache.get(workspace)
-            return None if buffer is None else views.request(buffer, id)
+        return self._read(workspace, views.request, id)
 
     def known(self, workspace: str, id: str) -> bool:
         """Whether request ``id`` is kept in ``workspace``'s capture, whatever
@@ -527,9 +521,7 @@ class Capture:
             return buffer is not None and id in buffer.index
 
     def counts(self, workspace: str) -> dict | None:
-        with self._lock:
-            buffer = self._cache.get(workspace)
-            return None if buffer is None else views.counts(buffer)
+        return self._read(workspace, views.counts)
 
     def request_for(self, session_id: str, id: str) -> Located | None:
         """Where request ``id`` of the workspace ``session_id`` is open in
