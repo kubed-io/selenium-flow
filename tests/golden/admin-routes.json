@@ -170,6 +170,11 @@
     "admin_flow"
   ],
   [
+    "PUT",
+    "/admin/workspaces/{key}/flows/{name}/tags",
+    "admin_flow_tags"
+  ],
+  [
     "WS",
     "/admin/workspaces/{key}/live/socket",
     "admin_live_socket"

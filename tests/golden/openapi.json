@@ -1448,6 +1448,16 @@
             "minItems": 1,
             "type": "array"
           },
+          "tags": {
+            "description": "Tags that group this flow, at most 20. A tag is 1 to 50 characters of lowercase letters, digits, :, _, -, / and ., starting with a letter or a digit; case does not matter and a tag is saved lowercase. Read workspace://current/tags and reuse a tag already in use before making up a new one. Tags never decide where a flow applies: sites and paths do.",
+            "items": {
+              "maxLength": 50,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
           "timeout": {
             "description": "Seconds the whole run may take before no further step starts. Defaults to 120; a step already running is bounded by its own wait_timeout.",
             "minimum": 1,
@@ -1770,6 +1780,16 @@
             },
             "type": "array"
           },
+          "tags": {
+            "description": "Tags that group this flow, at most 20. A tag is 1 to 50 characters of lowercase letters, digits, :, _, -, / and ., starting with a letter or a digit; case does not matter and a tag is saved lowercase. Read workspace://current/tags and reuse a tag already in use before making up a new one. Tags never decide where a flow applies: sites and paths do.",
+            "items": {
+              "maxLength": 50,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
           "timeout": {
             "description": "Seconds the whole run may take before no further step starts. Defaults to 120; a step already running is bounded by its own wait_timeout.",
             "minimum": 1,
@@ -1861,6 +1881,16 @@
           },
           "step_count": {
             "type": "integer"
+          },
+          "tags": {
+            "description": "Tags that group this flow, at most 20. A tag is 1 to 50 characters of lowercase letters, digits, :, _, -, / and ., starting with a letter or a digit; case does not matter and a tag is saved lowercase. Read workspace://current/tags and reuse a tag already in use before making up a new one. Tags never decide where a flow applies: sites and paths do.",
+            "items": {
+              "maxLength": 50,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
           },
           "workspace": {
             "type": "string"
@@ -5046,6 +5076,13 @@
             ],
             "type": "string"
           },
+          "tags": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "The tags in use on the flows this workspace is offered, its own and global's, each with how many carry it, in tag order. Empty when no flow has one.",
+            "type": "object"
+          },
           "url": {
             "description": "The page it is on.",
             "type": [
@@ -5430,7 +5467,7 @@
         "x-mcp-tool": "end_browser"
       },
       "get": {
-        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nconfig is this workspace's own settings, each with its value and its source (default or workspace). Only an admin changes them, at config_url when the server has one.\n\nReading this never opens a browser: live is false when no session is open.",
+        "description": "The workspace this client named, and the session (browser) open in it.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nconfig is this workspace's own settings, each with its value and its source (default or workspace). Only an admin changes them, at config_url when the server has one.\n\ntags maps each tag in use on this workspace's flows, and the global flows it is offered, to how many carry it: reuse one when you tag a flow.\n\nReading this never opens a browser: live is false when no session is open.",
         "operationId": "currentWorkspace",
         "parameters": [
           {
@@ -8656,6 +8693,16 @@
                       "$ref": "#/components/schemas/FlowStep"
                     },
                     "minItems": 1,
+                    "type": "array"
+                  },
+                  "tags": {
+                    "description": "Tags that group this flow, at most 20. A tag is 1 to 50 characters of lowercase letters, digits, :, _, -, / and ., starting with a letter or a digit; case does not matter and a tag is saved lowercase. Read workspace://current/tags and reuse a tag already in use before making up a new one. Tags never decide where a flow applies: sites and paths do.",
+                    "items": {
+                      "maxLength": 50,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 20,
                     "type": "array"
                   },
                   "timeout": {

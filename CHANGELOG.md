@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- A workspace can have a `workspace.yaml`, written only by the admin (the admin UI's new Config tab, or `/admin/workspaces/{key}/config`). A workspace with one is kept and never expires. While the file is invalid, every call naming the workspace is refused until an admin fixes it.
+- A workspace's config can choose which `global` flows it offers by tag, with `flows.global`: rows of comma-joined tags, where a flow must carry every tag of a row and passing any row is enough.
+- Flows take `tags`. The admin UI's Flows tab shows them, filters by them and offers the tags in use as you add one. `workspace://current` carries the tags in use.
+- `workspace://current/{part}` reads one key of the context, such as `workspace://current/tags` or `workspace://current/config`.
+- The skill has a section on managing a workspace, for guiding a person to change its config.
+- Fixed: a browser whose keep-alive pings all failed is reported `reaped`, not `lost`, when the Grid reaps it. The cause is now measured from the last ping the Grid answered.
+- Fixed: YAML nested deeply enough to crash the parser is refused in the admin's flow save, instead of taking the server down.
 - **BREAKING:** `grid.url` defaults to `http://localhost:4444`; a deployment whose Grid is elsewhere sets `GRID_URL`.
 - The OpenAPI document's first server is `/`, the server it was fetched from.
 - A secret's value comes back as `[secret:name/key]` in every result and error on the sites it is allowed on, typed or not.
