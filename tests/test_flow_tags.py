@@ -388,6 +388,37 @@ def test_a_nested_tags_key_is_not_the_flows(client, server):
     )
 
 
+def on_disk(server, name="login", key=NAMED) -> bytes:
+    return server.flows._path(key, name).read_bytes()
+
+
+@pytest.mark.parametrize("block", ["", "tags:\n- old\n", "tags: [old]\n"])
+def test_a_crlf_flow_keeps_its_line_endings(client, server, block):
+    before = FILE.replace("# where it applies\n", block + "# where it applies\n")
+    server.flows.write_text(NAMED, "login", before.replace("\n", "\r\n"))
+    response = put_tags(client, "login", ["new"])
+    assert response.status_code == 200, response.text
+    after = FILE.replace("# where it applies\n", "tags:\n- new\n# where it applies\n")
+    assert on_disk(server) == after.replace("\n", "\r\n").encode()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"name": "login", "steps": []}\n',
+        "# a JSON flow\n{name: login,\n  steps: []}\n",
+    ],
+)
+def test_a_flow_stored_as_a_flow_style_mapping_is_refused_saying_why(
+    client, server, text
+):
+    server.flows.write_text(NAMED, "login", text)
+    response = put_tags(client, "login", ["smoke"])
+    assert response.status_code == 400
+    assert "flow-style mapping" in response.json()["error"]
+    assert on_disk(server) == text.encode()
+
+
 def test_a_bad_tag_is_refused_and_nothing_is_written(client, server):
     server.flows.write_text(NAMED, "login", FILE)
     response = put_tags(client, "login", ["fine", "not fine"])

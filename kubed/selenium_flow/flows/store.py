@@ -501,7 +501,9 @@ class FlowStore(WorkspaceLayout):
         """One flow exactly as it sits on disk, comments and key order kept, or
         None if it is not there."""
         try:
-            return self._path(workspace, name).read_text(encoding="utf-8")
+            # newline="": its line endings as written, never translated.
+            with self._path(workspace, name).open(encoding="utf-8", newline="") as file:
+                return file.read()
         except FileNotFoundError:
             return None
 

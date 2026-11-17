@@ -131,7 +131,7 @@ def summary(name: str, workspace: str, document: dict) -> dict:
 
 def _top_key(line: str) -> str | None:
     """The top-level key ``line`` opens, or None."""
-    found = re.match(r"([A-Za-z_][\w-]*)[ \t]*:(?:[ \t]|$)", line)
+    found = re.match(r"([A-Za-z_][\w-]*)[ \t]*:(?:[ \t]|\r?$)", line)
     return found.group(1) if found else None
 
 
@@ -151,6 +151,14 @@ def _block(lines: list[str], start: int) -> int:
     return taken
 
 
+def _flow_style(text: str) -> bool:
+    """Whether the document's top-level mapping is written ``{...}``."""
+    for event in yaml.parse(text, Loader=_LOADER):
+        if isinstance(event, yaml.MappingStartEvent):
+            return bool(event.flow_style)
+    return False
+
+
 def with_tags(text: str, tags: list[str]) -> str:
     """``text`` with its top-level ``tags`` set to ``tags``, every other line
     kept byte for byte: the block is replaced, or added after ``description``
@@ -161,11 +169,20 @@ def with_tags(text: str, tags: list[str]) -> str:
     document = view(text)
     if not isinstance(document, dict):
         raise ValueError("a flow document must be a YAML mapping")
+    if _flow_style(text):
+        raise ValueError(
+            "this flow is stored as a flow-style mapping, such as JSON, which has "
+            "no lines of its own to set tags on; edit its YAML instead"
+        )
+    newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines(keepends=True)
     if lines and not lines[-1].endswith("\n"):
-        lines[-1] += "\n"
+        lines[-1] += newline
     keys = {_top_key(line): at for at, line in enumerate(lines)}
-    block = dump({"tags": tags}).splitlines(keepends=True) if tags else []
+    block = [
+        line.replace("\n", newline)
+        for line in (dump({"tags": tags}).splitlines(keepends=True) if tags else [])
+    ]
     if "tags" in keys:
         at = keys["tags"]
         lines[at : _block(lines, at)] = block
