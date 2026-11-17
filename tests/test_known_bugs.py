@@ -253,35 +253,6 @@ def test_the_settings_tab_does_not_show_credentials_in_capabilities():
     assert "hunter2" not in json.dumps(shown)
 
 
-# ---- capture ------------------------------------------------------------------
-
-
-@bug("the first call after capture.ttl of quiet has no hint: the mark is None")
-def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
-    from kubed.selenium_flow.capture.store import Capture
-
-    from .capture_events import log
-    from .fakes import FakeMonitor, build
-
-    now = [1000.0]
-    capture = Capture(ttl=10, clock=lambda: now[0])
-    workspaces = build(capture, FakeMonitor())
-    now[0] += 60
-
-    def click(session_id):
-        capture.ingest(
-            "ws",
-            session_id,
-            *log("Uncaught TypeError", type="javascript", level="error"),
-        )
-        return {"url": "https://a.test/", "title": "A"}
-
-    result = workspaces.act(
-        Caller("ws", "query"), click, tool="interact", surface="mcp"
-    )
-    assert result["page"]["errors"] == 1
-
-
 # ---- plugin and protocol -------------------------------------------------------
 
 

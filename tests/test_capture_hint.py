@@ -149,6 +149,26 @@ def test_the_first_call_after_a_pause_holds_capture_again_before_it_acts(capture
     assert order == [("attach", "ws", sid, "capture", "chrome"), "act"]
 
 
+def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
+    now = [1000.0]
+    capture = Capture(ttl=10, clock=lambda: now[0])
+    workspaces = build(capture, FakeMonitor())
+    now[0] += 60
+
+    def click(session_id):
+        capture.ingest(
+            "ws",
+            session_id,
+            *log("Uncaught TypeError", type="javascript", level="error"),
+        )
+        return {"url": "https://a.test/", "title": "A"}
+
+    result = workspaces.act(
+        Caller("ws", "query"), click, tool="interact", surface="mcp"
+    )
+    assert result["page"]["errors"] == 1
+
+
 def test_a_held_or_unowed_capture_is_not_attached_again(captured_ws):
     workspaces, _, monitor = captured_ws
     sid = workspaces.store.get("ws").session_id
