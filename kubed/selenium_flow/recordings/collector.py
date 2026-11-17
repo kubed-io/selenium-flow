@@ -118,15 +118,11 @@ def _millis(value) -> int:
     finite or not between 1970 and the year 3000 is refused here, so the note
     is skipped, rather than stopping the boot (``1e999``) or every later sweep
     (``1e20``, which ``name_for`` cannot format)."""
-    if isinstance(value, bool):
-        raise ValueError("not a timestamp")
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ValueError("not a timestamp")
+    if isinstance(value, float) and math.isfinite(value):
         value = int(value)
     elif isinstance(value, str) and value.strip().isdigit():
         value = int(value.strip())
-    elif not isinstance(value, int):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError("not a timestamp")
     if not 0 <= value < LATEST_MS:
         raise ValueError("not a timestamp")
