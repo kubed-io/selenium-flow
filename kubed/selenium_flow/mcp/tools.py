@@ -251,6 +251,27 @@ def _as_image(result: dict) -> Image | ToolResult:
     return ToolResult(content=[image.to_image_content()], structured_content=told)
 
 
+def _forwarding(body: Callable[[dict], object]):
+    """A declaration's body replaced by ``body(arguments)``.
+
+    The arguments are every parameter by name, defaults applied, so a tool's
+    signature is written once, as its schema.
+    """
+
+    def wrap(declaration):
+        signature = inspect.signature(declaration)
+
+        @functools.wraps(declaration)
+        def tool(*args, **kwargs):
+            given = signature.bind(*args, **kwargs)
+            given.apply_defaults()
+            return body(dict(given.arguments))
+
+        return tool
+
+    return wrap
+
+
 def register(
     mcp: FastMCP,
     actions: Actions,
@@ -315,19 +336,13 @@ def register(
         """Publish a declaration whose body is ``act``, shaped by ``shape``."""
         row = capability(name)
 
-        def bind(declaration):
-            signature = inspect.signature(declaration)
+        def body(arguments: dict):
+            result = act(row, arguments)
+            return shape(result) if shape else result
 
-            @functools.wraps(declaration)
-            def tool(*args, **kwargs):
-                given = signature.bind(*args, **kwargs)
-                given.apply_defaults()
-                result = act(row, dict(given.arguments))
-                return shape(result) if shape else result
-
-            return publish(tool, name, description)
-
-        return bind
+        return lambda declaration: publish(
+            _forwarding(body)(declaration), name, description
+        )
 
     def own(name: str, *, description: str | None = None, task=None):
         """Publish a declaration whose body is its own; ``task`` for one that
@@ -335,6 +350,9 @@ def register(
         return lambda fn: publish(fn, name, description, task)
 
     @own("open_session")
+    @_forwarding(
+        lambda arguments: workspaces.open_browser(clients.caller(), **arguments)
+    )
     def open_session(
         url: str | None = None,
         browser: Browser = None,
@@ -395,23 +413,6 @@ def register(
         your args and prefs are added to selenium-flow's, and the result's ignored
         lists any of yours that lost.
         """
-        return workspaces.open_browser(
-            clients.caller(),
-            url=url,
-            fresh=fresh,
-            restore_site_data=restore_site_data,
-            browser=browser,
-            version=version,
-            width=width,
-            height=height,
-            page_load_timeout=page_load_timeout,
-            script_timeout=script_timeout,
-            insecure=insecure,
-            headless=headless,
-            record=record,
-            capture=capture,
-            capabilities=capabilities,
-        )
 
     @action("network_body")
     def network_body(id: RequestId) -> dict:
