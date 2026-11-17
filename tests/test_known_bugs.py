@@ -204,13 +204,6 @@ def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
 # ---- browser actions ----------------------------------------------------------
 
 
-@bug("an empty text is refused as 'the file is required'")
-def test_an_empty_text_file_can_be_uploaded(actions, scripted):
-    scripted()
-    result = actions.upload_file("abc", selector={"css": "input"}, text="")
-    assert result["bytes"] == 0
-
-
 @bug(
     "Actions.write types the string None for text=None, and POST /browser/write passes it"
 )

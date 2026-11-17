@@ -1211,3 +1211,8 @@ def test_an_unreadable_frame_index_is_refused(actions, scripted):
         actions.frame("abc", "switch", index="abc")
     assert ("switch_to", "frame", 0) not in driver.log
 
+
+def test_an_empty_text_file_can_be_uploaded(actions, scripted):
+    scripted()
+    result = actions.upload_file("abc", selector={"css": "input"}, text="")
+    assert result["bytes"] == 0

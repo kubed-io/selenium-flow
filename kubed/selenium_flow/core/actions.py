@@ -965,6 +965,8 @@ class Actions:
             )
             if v
         ]
+        if not sources and text is not None:
+            sources = ["text"]  # an empty text file is still a file
         if not sources:
             raise ValueError(
                 "the file is required: pass text for a text file, content for "
@@ -978,13 +980,13 @@ class Actions:
 
         # Resolved before connecting: unusable input is a 400 about the input.
         raw = None
-        if text is not None:
+        if sources == ["text"]:
             raw = str(text).encode("utf-8")
             name = safe_name(filename, mime_type, default_extension=".txt")
-        elif content is not None:
+        elif sources == ["content"]:
             raw = content if isinstance(content, bytes) else _decode(content)
             name = safe_name(filename, mime_type)
-        elif file is not None:
+        elif sources == ["file"]:
             if self.read_file is None:
                 raise ValueError(
                     "file is not available on this server: the flow store is "
