@@ -96,6 +96,26 @@ def test_over_the_cap_the_origins_visited_longest_ago_go_first():
     assert saved["skipped"] == [{"site": OLD, "reason": sd.LEFT_OUT}]
 
 
+def test_the_cap_sizes_each_origin_once_however_many_go(monkeypatch):
+    """Over the cap the payload is sized once and evicted by subtracting:
+    400 origins of 20 kB, nearly all left out, serialise about the payload
+    once. Re-serialising it per eviction took 1.2 s here."""
+    blob = {"blob": "x" * 20_000}
+    others = {f"https://site-{i:03d}.example.com": blob for i in range(400)}
+    cap = captured(local=blob, others=others)
+    written, real = [], sd.json.dumps
+
+    def dumps(*args, **kwargs):
+        text = real(*args, **kwargs)
+        written.append(len(text))
+        return text
+
+    monkeypatch.setattr(sd.json, "dumps", dumps)
+    _, saved = sd.snapshot({}, cap, [visit(o) for o in others], NOW)
+    assert len(saved["skipped"]) > 300
+    assert sum(written) < 2 * len(real(cap))
+
+
 def test_the_pages_own_storage_is_the_last_to_go():
     big = {"blob": "x" * (sd.MAX_BYTES - 1000)}
     history = [visit(APP), visit(SSO, NOW - 10)]

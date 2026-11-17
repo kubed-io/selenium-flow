@@ -239,6 +239,30 @@ def test_a_yaml_file_that_is_not_a_mapping_reads_as_missing(store, tmp_path):
     assert store.get("bot", "list") is None
 
 
+@pytest.mark.skipif(os.scandir not in os.supports_fd, reason="lists by path, checking each entry")
+def test_a_listing_resolves_no_path_per_entry(store, monkeypatch):
+    """Files, Screenshots and the flow revision list a folder in one scandir
+    pass, reusing each entry's stat. A realpath per file to refuse a link was
+    67 ms of the 100 ms 142 screenshots took."""
+    resolved, real = [], Path.resolve
+
+    def resolve(self, *args, **kwargs):
+        resolved.append(self)
+        return real(self, *args, **kwargs)
+
+    def listing(n):
+        for i in range(n):
+            store.write_file("bot", f"report-{i:03d}.pdf", b"x")
+            store.save("bot", f"flow-{i:03d}", {"steps": []})
+        resolved.clear()
+        assert len(store.files("bot")) == n
+        store.revision("bot")
+        return len(resolved)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    assert listing(2) == listing(40)
+
+
 # ---- parsing, which every listing pays for per flow (§F4.19) -----------------
 
 
