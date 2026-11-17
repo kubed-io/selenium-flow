@@ -815,9 +815,8 @@ class Monitor:
         ``subscribed``: `live.pages.Pages`) that what the subscribe re-sent is
         behind it. Subscribing ``browsingContext.contextCreated`` re-sends it
         for every context already open, on both browsers, on a first hold as on
-        a hold again; flushed first, unless
-        the hold already was or nothing new was subscribed. Capture does not
-        ask, and costs nothing here."""
+        a hold again; flushed first, unless the hold already was or nothing new
+        was subscribed. Capture does not ask, and costs nothing here."""
         told = [
             r for r in reasons if callable(getattr(self.sinks[r], "subscribed", None))
         ]

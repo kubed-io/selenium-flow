@@ -32,7 +32,8 @@ call that queued during one.
 Weak: a hold lives only while a call holds or waits for it, or a flow run is
 under way on its browser, so a browser nobody is driving costs nothing.
 
-Process-local, Redis store or not: the server runs as one replica.
+Process-local, Redis store or not: the server runs as one replica (a second
+replica would need a lock in the store).
 """
 
 from __future__ import annotations
@@ -50,9 +51,9 @@ class Turns:
 
     `threading.RLock` hands off to nobody: a flow releasing between two steps
     re-acquires microseconds later, and a call queued during step one could
-    wait the whole run. Here each acquire takes
-    a ticket and waits for its number, so a call queued during a step runs
-    before the next one. The thread that holds it may take it again freely.
+    wait the whole run. Here each acquire takes a ticket and waits for its
+    number, so a call queued during a step runs before the next one. The thread
+    that holds it may take it again freely.
     """
 
     __slots__ = ("_abandoned", "_changed", "_depth", "_next", "_owner", "_serving")

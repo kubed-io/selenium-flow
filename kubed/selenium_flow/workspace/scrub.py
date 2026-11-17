@@ -522,8 +522,8 @@ class Scrubber:
     def resource(self, workspace: str, value):
         """A resource's text, or an answer built of plain values (a dict, a
         list), scrubbed with what the workspace kept and every leashed secret:
-        a resource read has no before and after. It writes
-        nothing, and takes no browser's slot. With nothing to look for the
+        a resource read has no before and after. It
+        writes nothing, and takes no browser's slot. With nothing to look for the
         value comes back as it is, the same object, unscanned.
         """
         if self._catalogue is None or value is None or value == "":
@@ -649,10 +649,9 @@ class Scrubber:
         ``new`` takes it as `opened` gives it (whoever held it is finished
         with), but fails safe: everything the holder held (its sets and kept
         forms) becomes ``new``'s kept forms, so nothing masked before is
-        unmasked after. Its
-        origins are unknown until built for ``new``. ``old`` is finished with
-        either way, and never takes the slot again. Calling it again for the
-        holder changes nothing.
+        unmasked after. Its origins are unknown until built for ``new``. ``old``
+        is finished with either way, and never takes the slot again. Calling it
+        again for the holder changes nothing.
 
         A park the slot did not become is claimed too, as kept forms, in every
         branch: ``new`` may have taken the free slot implicitly before this
