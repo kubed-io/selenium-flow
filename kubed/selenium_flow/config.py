@@ -82,19 +82,29 @@ class Section(BaseModel):
 
 class FromFile(Section):
     file: str
+    masked: bool = True
 
 
 class FromEnv(Section):
     env: str
+    masked: bool = True
 
 
 class FromValue(Section):
     value: SecretStr
+    masked: bool = True
+
+
+class KeySettings(Section):
+    """Settings for a key a directory provides; its value stays the directory's."""
+
+    masked: bool
 
 
 # The key present is the discriminator. Each member forbids extra keys, so
-# `{file, env}` and `{}` match none of them and are refused.
-KeyRef = FromFile | FromEnv | FromValue
+# `{file, env}` and `{}` match none of them and are refused. `masked: false`
+# leaves the key's value out of the scrub, for a value that is not secret.
+KeyRef = FromFile | FromEnv | FromValue | KeySettings
 
 
 class SecretEntry(Section):

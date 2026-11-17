@@ -47,7 +47,14 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlsplit
 
-from .config import FromEnv, FromFile, FromValue, SecretEntry, SecretsSettings
+from .config import (
+    FromEnv,
+    FromFile,
+    FromValue,
+    KeySettings,
+    SecretEntry,
+    SecretsSettings,
+)
 from .names import InvalidName, valid_name
 from .redaction import Forms
 from .urls import host_of, scope_origin, scope_origin_of
@@ -121,6 +128,11 @@ def declared_origin(line: str) -> str | None:
         # Always a mistake, and the same site would read as two origins.
         return None
     return scope_origin_of(parts)
+
+
+def masked(entry: dict, key: str) -> bool:
+    """Whether the scrub masks this key's value: unless set `masked: false`."""
+    return (entry.get("key_sources") or {}).get(key, {}).get("masked") is not False
 
 
 def _usable(entry: dict) -> bool:
@@ -428,16 +440,21 @@ class Catalogue:
                     from_config.add(name)
                 key_owners = dict(owners.get(name, {}))
                 key_sources = dict(entry["key_sources"])
-                for key, ref in conf.keys.items():
-                    key_owners[key] = ref
-                    key_sources[key] = self.config.describe(ref)
-                entry["keys"] = sorted(key_owners)
-                entry["key_sources"] = key_sources
                 unresolved = []
                 for key, ref in sorted(conf.keys.items()):
+                    if not isinstance(ref, KeySettings):
+                        key_owners[key] = ref
+                        key_sources[key] = self.config.describe(ref)
+                    elif key not in key_owners:
+                        unresolved.append({"key": key, "reason": NO_SUCH_KEY})
+                        continue
+                    if not ref.masked:
+                        key_sources[key] = {**key_sources[key], "masked": False}
                     reason = self.config.unresolved(ref)
                     if reason:
                         unresolved.append({"key": key, "reason": reason})
+                entry["keys"] = sorted(key_owners)
+                entry["key_sources"] = key_sources
                 inline = sorted(
                     k for k, ref in conf.keys.items() if isinstance(ref, FromValue)
                 )
@@ -563,6 +580,8 @@ class Catalogue:
             if not _usable(entry) or not wanted(entry):
                 continue
             for key in entry["keys"]:
+                if not masked(entry, key):
+                    continue
                 try:
                     value = self.value(name, key)
                 except Exception as exc:  # noqa: BLE001 - one key must not fail all
@@ -611,6 +630,9 @@ def from_settings(
 
 LIST_URI = "secret://secrets"
 
+# A `keys` entry with only settings, naming a key no directory has.
+NO_SUCH_KEY = "no directory provides it"
+
 # A listing entry's `refused`, with `{fix}` naming the source to fix.
 UNLEASHED = "no allowed sites are declared, so it cannot be used: {fix}"
 UNPARSED = "its allowed sites do not parse, so it cannot be used: {fix}"
@@ -646,7 +668,7 @@ LIST_DESCRIPTION = (
     "there. One that carries `refused` cannot be used at all until an operator "
     "fixes it, and the sentence says how. "
     "A value you typed comes back as [secret:name/key] in every later read on "
-    "its sites."
+    "its sites, unless its key_sources entry says masked: false."
 )
 
 

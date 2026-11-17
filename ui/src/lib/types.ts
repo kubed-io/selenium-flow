@@ -115,7 +115,7 @@ export interface Secret {
   allowed_urls?: string[]
   allowed_urls_rejected?: string | string[]
   origins?: { source: 'filesystem' | 'config'; location: string }[]
-  key_sources?: Record<string, { from: 'filesystem' | 'file' | 'env' | 'value'; name?: string; path?: string }>
+  key_sources?: Record<string, { from: 'filesystem' | 'file' | 'env' | 'value'; name?: string; path?: string; masked?: boolean }>
   keys_unresolved?: { key: string; reason: string }[]
   inline_keys?: string[]
 }
