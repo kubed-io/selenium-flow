@@ -22,6 +22,7 @@ from typing import Annotated, Any, Literal
 import yaml
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     JsonValue,
@@ -39,6 +40,31 @@ from .urls import without_userinfo
 
 # Marks a field that only the config file may set: structure, not a value.
 FILE_ONLY = "file_only"
+
+
+def _parts(value, sep: str):
+    """A list given as one string, split on ``sep``, each part trimmed and a
+    blank one dropped. A non-string element, or a value that is neither a
+    string nor a list, is left for pydantic's list[str] check to refuse."""
+    if isinstance(value, str):
+        value = value.split(sep)
+    if not isinstance(value, list):
+        return value
+    return [
+        part.strip() if isinstance(part, str) else part
+        for part in value
+        if not (isinstance(part, str) and not part.strip())
+    ]
+
+
+# NoDecode: pydantic-settings would otherwise JSON-decode a list read from env,
+# and `SECRETS_DIRS=/a:/b` is not JSON.
+CommaList = Annotated[list[str], NoDecode, BeforeValidator(lambda v: _parts(v, ","))]
+# A blank entry is dropped, so `dirs: [""]` is no dirs and never
+# FilesystemSource("") on the cwd.
+PathList = Annotated[
+    list[str], NoDecode, BeforeValidator(lambda v: _parts(v, os.pathsep))
+]
 
 
 class Section(BaseModel):
@@ -116,7 +142,7 @@ class OidcSettings(Section):
     jwks_uri: str | None = Field(
         None, description="Where the issuer publishes its signing keys."
     )
-    roles: Annotated[list[str], NoDecode] = Field(
+    roles: CommaList = Field(
         default_factory=list,
         description="A JWT must hold one of these roles; empty checks none.",
     )
@@ -129,23 +155,10 @@ class OidcSettings(Section):
             "The admin UI's public client; setting it offers Sign in with OIDC."
         ),
     )
-    admin_roles: Annotated[list[str], NoDecode] = Field(
+    admin_roles: CommaList = Field(
         default_factory=list,
         description="A JWT from the admin UI holding one of these is the admin.",
     )
-
-    @field_validator("roles", "admin_roles", mode="before")
-    @classmethod
-    def _split(cls, value):
-        if isinstance(value, str):
-            value = value.split(",")
-        if not isinstance(value, list):
-            return value
-        return [
-            part.strip() if isinstance(part, str) else part
-            for part in value
-            if not (isinstance(part, str) and not part.strip())
-        ]
 
     @field_validator("issuer", "jwks_uri")
     @classmethod
@@ -341,9 +354,7 @@ class RecordingSettings(Section):
 
 
 class SecretsSettings(Section):
-    # NoDecode: pydantic-settings would otherwise JSON-decode a list read from
-    # env, and `SECRETS_DIRS=/a:/b` is not JSON.
-    dirs: Annotated[list[str], NoDecode] = Field(
+    dirs: PathList = Field(
         default_factory=list, description="Directories of secrets. First match wins."
     )
     entries: Annotated[dict[str, SecretEntry], NoDecode] = Field(
@@ -351,25 +362,6 @@ class SecretsSettings(Section):
         description="Secrets defined in the config file.",
         json_schema_extra={FILE_ONLY: True},
     )
-
-    @field_validator("dirs", mode="before")
-    @classmethod
-    def _split(cls, value):
-        if isinstance(value, str):
-            value = value.split(os.pathsep)
-        if not isinstance(value, list):
-            return value  # pydantic's list[str] check refuses it
-        # A blank string entry is dropped, so `dirs: [""]` is no dirs, as an
-        # unset SECRETS_DIRS is, and never FilesystemSource("") on the cwd. A
-        # non-string element is left for pydantic's list[str] check to report.
-        result = []
-        for part in value:
-            if isinstance(part, str):
-                part = part.strip()
-                if not part:
-                    continue
-            result.append(part)
-        return result
 
     @field_validator("entries")
     @classmethod
@@ -391,26 +383,13 @@ class McpSettings(Section):
 
 
 class SecuritySettings(Section):
-    frame_ancestors: Annotated[list[str], NoDecode] = Field(
+    frame_ancestors: CommaList = Field(
         default_factory=list,
         description=(
             "Origins allowed to frame the admin page, e.g. a Nextcloud or "
             "Grafana host; empty forbids framing."
         ),
     )
-
-    @field_validator("frame_ancestors", mode="before")
-    @classmethod
-    def _split(cls, value):
-        if isinstance(value, str):
-            value = value.split(",")
-        if not isinstance(value, list):
-            return value
-        return [
-            part.strip() if isinstance(part, str) else part
-            for part in value
-            if not (isinstance(part, str) and not part.strip())
-        ]
 
     @field_validator("frame_ancestors")
     @classmethod
