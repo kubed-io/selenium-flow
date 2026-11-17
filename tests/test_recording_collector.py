@@ -12,20 +12,12 @@ from kubed.selenium_flow.names import RECORDINGS_DIR
 from kubed.selenium_flow.recordings import collector as collector_module
 from kubed.selenium_flow.recordings import mp4
 
-from .fakes import patch_os
+from .fakes import Clock, patch_os
 
 pytestmark = pytest.mark.unit
 
 GID = "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d"
 BODY = b"\x00\x00\x00\x10moof" + b"\x00" * 100
-
-
-class Clock:
-    def __init__(self, now=1_791_500_000.0):
-        self.now = now
-
-    def __call__(self):
-        return self.now
 
 
 class Watcher:

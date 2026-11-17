@@ -324,7 +324,7 @@ def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
     from kubed.selenium_flow.capture.store import Capture
 
     from .capture_events import log
-    from .test_capture_hint import FakeMonitor, build
+    from .fakes import FakeMonitor, build
 
     now = [1000.0]
     capture = Capture(ttl=10, clock=lambda: now[0])

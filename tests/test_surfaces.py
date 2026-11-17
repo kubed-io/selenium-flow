@@ -6,7 +6,6 @@ other breaks that quietly, so it is asserted here rather than trusted.
 """
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +19,8 @@ from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import mirror
+
+from .fakes import KeyDriver
 
 pytestmark = pytest.mark.unit
 
@@ -268,7 +269,7 @@ def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypa
     instead, which is where a model that guessed wrong is looking (§F3.5)."""
     from kubed.selenium_flow.core.keys import KEY_NAMES
 
-    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: KeyDriver())
     with pytest.raises(ValueError) as refused:
         actions.press_key("abc", "Enterr")
     assert all(name in str(refused.value) for name in KEY_NAMES)
@@ -277,24 +278,6 @@ def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypa
 def test_actions_reject_a_missing_session_id(actions):
     with pytest.raises(ValueError, match="session_id is required"):
         actions._at("", None)
-
-
-class _Driver:
-    """Just enough driver to send a key at something."""
-
-    current_url = "https://example.test/"
-    title = "t"
-
-    @property
-    def switch_to(self):
-        # What has focus: press_key with no selector sends there (#135).
-        return SimpleNamespace(active_element=self)
-
-    def send_keys(self, *_):
-        pass
-
-    def execute_script(self, *_):
-        return False
 
 
 @pytest.mark.parametrize(
@@ -325,7 +308,7 @@ def test_only_a_key_that_can_submit_waits_for_a_navigation(
 
     called = []
     monkeypatch.setattr(actions_module.browser, "settled", lambda *a, **k: called.append(a))
-    monkeypatch.setattr(actions, "_at", lambda *a, **k: _Driver())
+    monkeypatch.setattr(actions, "_at", lambda *a, **k: KeyDriver())
 
     actions.press_key("abc", key)
     assert bool(called) is waits

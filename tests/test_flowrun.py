@@ -15,7 +15,7 @@ from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
 from kubed.selenium_flow.flows.template import FlowError
 
-from .fakes import FakeActions, FakeClock
+from .fakes import FakeActions, FakeClock, Vault
 
 pytestmark = pytest.mark.unit
 
@@ -29,28 +29,6 @@ SIMPLE = [
     {"tool": "write", "args": {"selector": {"css": "#email"}, "text": "a@b.c"}},
     {"tool": "interact", "args": {"action": "click", "selector": {"css": "button"}}},
 ]
-
-
-class Vault:
-    """Just enough catalogue to hand `secrets.bind` one value.
-
-    The guarded-value tests below used to reach this state through a `writeOnly`
-    parameter. There is no such thing now — a parameter is text and non-secret
-    by definition (§F1.38) — so the thing that must not leak is a secret, which
-    is what these were always really about.
-    """
-
-    def __init__(self, value="hunter2"):
-        self.secret = value
-
-    def entry(self, name):
-        return {"name": name, "keys": ["password"], "allowed_urls": [], "restricted": True}
-
-    def allows(self, name, url):
-        return True
-
-    def value(self, name, key):
-        return self.secret
 
 
 SECRET_STEP = {"name": "nextcloud", "key": "password"}
@@ -1721,7 +1699,7 @@ def test_a_run_scrubs_each_step_with_the_origins_it_began_and_ended_on(monkeypat
     from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
     from .conftest import RecordingActions
-    from .test_secret_scope import FakeCatalogue
+    from .fakes import FakeCatalogue
 
     a, b = "https://a.test", "https://b.test"
     catalogue = FakeCatalogue({a: {IN_SCOPE_ID: IN_SCOPE}, b: {}})
@@ -1802,7 +1780,7 @@ def _progress_run(monkeypatch, broken=False):
     from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
     from .conftest import RecordingActions
-    from .test_secret_scope import FakeCatalogue
+    from .fakes import FakeCatalogue
 
     catalogue = FakeCatalogue({"https://a.test": {IN_SCOPE_ID: IN_SCOPE}})
     workspaces = Workspaces(RecordingActions(), MemoryStore(), catalogue=catalogue)

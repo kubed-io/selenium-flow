@@ -1,25 +1,15 @@
-import asyncio
-
 import pytest
 
 from kubed.selenium_flow.live.control import HANDED_BACK, HELD, Controls
-from kubed.selenium_flow.live.tunnel import BROWSER_ENDED, NOBODY, Tunnel
+from kubed.selenium_flow.live.tunnel import BROWSER_ENDED, NOBODY
 from kubed.selenium_flow.live.tunnels import Tunnels
 from kubed.selenium_flow.monitor.events import SessionEnded
 
-from .fakes import FakePeer
+from .fakes import Clock, held
 
 pytestmark = pytest.mark.unit
 
 T = 1_793_109_731.0  # 14:02 UTC
-
-
-class Clock:
-    def __init__(self, now=T):
-        self.now = now
-
-    def __call__(self):
-        return self.now
 
 
 def at_once(_grid_id):
@@ -35,25 +25,6 @@ def hint(tunnels, workspace):
     """The sentence an agent's result would carry about control, or None."""
     notice = tunnels.controls.notice(workspace)
     return None if notice is None else notice["hint"]
-
-
-def held(tunnels, workspace, who, mode, grid_id="g1"):
-    """A viewer of ``workspace`` in ``mode``, asked through the registry as the
-    tunnel asks once it pipes. With no call running, Control is requested and
-    the grant lands once the pages are followed (ruling 27): run here to its
-    end on a loop of its own, since the callers are plain tests."""
-    tunnel = Tunnel(FakePeer(), who=who, workspace=workspace, session="s", grace=1)
-    tunnels.add(grid_id, tunnel)
-    if mode == "control":
-
-        async def granted():
-            tunnel.mode = tunnel.on_ask()
-            episode = tunnels.controls._episodes.get(workspace)
-            if episode is not None and episode.pending is not None:
-                await asyncio.wait({episode.pending})
-
-        asyncio.run(granted())
-    return tunnel
 
 
 def watch(tunnel):
@@ -81,7 +52,7 @@ def test_admin_and_open_read_as_a_person_once():
 
 
 def test_handed_back_is_said_once_after_the_last_controller_goes():
-    clock = Clock()
+    clock = Clock(T)
     tunnels = registry(clock)
     back = held(tunnels, "w1", "drk", "control")
     gone = held(tunnels, "w1", "kim", "control")
@@ -114,7 +85,7 @@ def test_a_tunnel_ending_hands_back_before_it_is_discarded():
 
 
 def test_a_new_take_forgets_an_unsaid_hand_back():
-    clock = Clock()
+    clock = Clock(T)
     tunnels = registry(clock)
     a = held(tunnels, "w1", "drk", "control")
     tunnels.discard("g1", a)

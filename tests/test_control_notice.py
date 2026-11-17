@@ -26,8 +26,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace import locks
 
 from .conftest import http
-from .fakes import FakePeer
-from .test_live_tunnels import held
+from .fakes import FakePeer, held
 
 pytestmark = pytest.mark.unit
 

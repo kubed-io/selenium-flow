@@ -16,8 +16,6 @@ from kubed.selenium_flow.workspace.calls import Calls
 from kubed.selenium_flow.workspace.origins import Origins
 from kubed.selenium_flow.workspace.scrub import Scrubber
 
-from .test_flowdoc import step_schema_map  # noqa: F401 - a fixture
-
 pytestmark = pytest.mark.unit
 
 REFERENCE = {"name": "nextcloud", "key": "password"}
@@ -79,7 +77,7 @@ def direct(args, schemas):
     ids=["save", "run", "direct"],
 )
 async def test_every_entry_point_refuses_the_same_arguments_with_the_rules_words(
-    rule, entry, wording, step_schema_map  # noqa: F811 - the fixture
+    rule, entry, wording, step_schema_map
 ):
     refused = entry(dict(BAD[rule]), step_schema_map)
     assert getattr(wording, rule) in str(refused)

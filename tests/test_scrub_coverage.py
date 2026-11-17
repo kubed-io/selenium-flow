@@ -598,7 +598,7 @@ def _scrubbed_server(monkeypatch, scopes, *, name=NAMED):
     from kubed.selenium_flow.workspace.workspaces import Workspaces
 
     from .conftest import RecordingActions, calling_as
-    from .test_secret_scope import FakeCatalogue
+    from .fakes import FakeCatalogue
 
     catalogue = FakeCatalogue(scopes) if scopes is not None else None
     workspaces = Workspaces(RecordingActions(), MemoryStore(), catalogue=catalogue)

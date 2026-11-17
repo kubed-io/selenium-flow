@@ -24,8 +24,7 @@ from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import Workspace
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
-from .test_capture_hint import Anywhere, FakeMonitor
-from .test_workspace_monitor import Actions as MonitorActions
+from .fakes import Anywhere, FakeMonitor, WorkspaceActions
 
 pytestmark = pytest.mark.unit
 
@@ -53,7 +52,7 @@ class Gate:
         return faults.Controlled(REFUSED)
 
 
-class Acting(MonitorActions):
+class Acting(WorkspaceActions):
     """What the hosts drive, recording every action that reached the browser."""
 
     def __init__(self):

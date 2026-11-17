@@ -8,6 +8,8 @@ import pytest
 from kubed.selenium_flow.faults import BidiUnavailable, Controlled
 from kubed.selenium_flow.live.control import Controls, Gate, Waited, said
 
+from .fakes import Clock
+
 pytestmark = pytest.mark.unit
 
 T = 1_793_113_931.0  # 15:12 UTC
@@ -19,14 +21,6 @@ REQUESTED = (
     "{who} asked for control of this browser at {at} UTC. Call await_control "
     "(POST /browser/await-control), which returns when they hand back."
 )
-
-
-class Clock:
-    def __init__(self, now=T):
-        self.now = now
-
-    def __call__(self):
-        return self.now
 
 
 class Behind:
@@ -59,7 +53,7 @@ def passed():
 
 @pytest.fixture
 def clock():
-    return Clock()
+    return Clock(T)
 
 
 @pytest.fixture
@@ -233,7 +227,7 @@ async def test_a_grant_that_fails_for_one_tunnel_still_grants_the_others(
 
 
 async def test_the_refusal_says_who_and_when():
-    controls = Controls(behind=Behind(), clock=Clock())
+    controls = Controls(behind=Behind(), clock=Clock(T))
     admin = FakeTunnel("admin")
     controls.ask(admin)
     await until(lambda: admin.granted)

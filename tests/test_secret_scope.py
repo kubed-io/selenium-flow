@@ -29,60 +29,13 @@ from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 from .conftest import RecordingActions
+from .fakes import Clock, FakeCatalogue
 
 pytestmark = pytest.mark.unit
 
 A = "https://a.test"
 B = "https://b.test"
 WAIT = 5  # seconds a test waits on a future that is already on its way
-
-
-class FakeCatalogue:
-    """Answers `Forms.of` from ``{origin: {(name, key): value}}``, and counts.
-
-    ``calls`` holds the reads that can touch a value; ``revisions`` counts the
-    cheap `revision()` calls separately.
-    """
-
-    def __init__(self, scopes: dict, *, gate: threading.Event | None = None):
-        self.scopes = scopes
-        self.calls: dict = {"forms_for": [], "leashed": 0}
-        self.revisions = 0
-        self._revision = 1
-        self.gate = gate
-        self.fail_forms_for = False
-        self.fail_leashed = False
-
-    def rotate(self, scopes: dict) -> None:
-        self.scopes = scopes
-        self._revision += 1
-
-    def revision(self) -> int:
-        self.revisions += 1
-        return self._revision
-
-    def _forms(self, secrets_: dict) -> Forms:
-        forms = Forms()
-        for ident, value in secrets_.items():
-            forms = forms | Forms.of(value, ident)
-        return forms
-
-    def forms_for(self, origin: str) -> Forms:
-        self.calls["forms_for"].append(origin)
-        if self.gate is not None:
-            self.gate.wait(WAIT)
-        if self.fail_forms_for:
-            raise OSError("cannot read alpha-11")
-        return self._forms(self.scopes.get(origin, {}))
-
-    def leashed(self) -> Forms:
-        self.calls["leashed"] += 1
-        if self.fail_leashed:
-            raise OSError("cannot read alpha-11 either")
-        every: dict = {}
-        for scoped in self.scopes.values():
-            every.update(scoped)
-        return self._forms(every)
 
 
 class FakeCapture:
@@ -764,14 +717,6 @@ def test_scrub_failed_says_the_fixed_sentence():
 # --- fix round 2: taking the slot explicitly, and a slot that heals ------------
 
 
-class Clock:
-    def __init__(self):
-        self.now = 1000.0
-
-    def __call__(self) -> float:
-        return self.now
-
-
 def test_opened_takes_the_slot_from_a_browser_never_forgotten():
     """A workspace that lost its record cannot name g1 to forget it."""
     seen = []
@@ -825,7 +770,7 @@ def test_opened_twice_keeps_the_scrubbers_state(make):
 
 
 def test_a_slot_left_held_heals_after_the_ttl():
-    clock = Clock()
+    clock = Clock(1000.0)
     seen = []
     o = Origins(ttl=10, clock=clock)
     o.listen(seen.append)
@@ -840,7 +785,7 @@ def test_a_slot_left_held_heals_after_the_ttl():
 
 
 def test_a_scrubber_slot_left_held_heals_after_the_ttl(make):
-    clock = Clock()
+    clock = Clock(1000.0)
     cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
     s = make(cat, ttl=10, clock=clock)
     s.build("w", "g1", A).result(WAIT)
@@ -904,7 +849,7 @@ def test_a_slot_taken_implicitly_has_an_unknown_frame():  # ruling 15, fails clo
 
 
 def test_a_slot_evicted_and_taken_again_is_framed():
-    clock = Clock()
+    clock = Clock(1000.0)
     o = Origins(ttl=10, clock=clock)
     o.opened("w", "g")
     o.framed("w", "g", True)
@@ -959,7 +904,7 @@ def test_carry_on_a_free_slot_gives_it(make):
 
 
 def test_a_browser_carried_from_is_stale(make):
-    clock = Clock()
+    clock = Clock(1000.0)
     cat = FakeCatalogue({A: {("a", "password"): "alpha-11"}})
     s = make(cat, ttl=10, clock=clock)
     s.build("w", "g1", A).result(WAIT)

@@ -24,7 +24,7 @@ from kubed.selenium_flow.live.tunnel import (
 from kubed.selenium_flow.live.tunnels import Tunnels
 from kubed.selenium_flow.monitor.events import SessionEnded
 
-from .fakes import FakePeer
+from .fakes import Clock, FakePeer
 from .test_live_tunnels import hint
 
 pytestmark = pytest.mark.unit
@@ -79,14 +79,6 @@ async def page(peer, client_init=b"\x01"):
     return first
 
 
-class Clock:
-    def __init__(self):
-        self.now = 1000.0
-
-    def __call__(self):
-        return self.now
-
-
 class Passed:
     """`locks.behind` whose answer a test flips."""
 
@@ -105,7 +97,7 @@ def make(viewer=None, **kw):
     viewer = viewer or FakePeer()
     node = FakePeer()
     kw.setdefault("grace", 5)
-    kw.setdefault("clock", Clock())
+    kw.setdefault("clock", Clock(1000.0))
     tunnel = Tunnel(
         viewer, who="drk", workspace="w1", session="session started X", **kw
     )
@@ -309,7 +301,7 @@ async def test_presence_and_control_input_keep_it_and_watch_input_does_not():
 
 
 async def test_touch_is_called_at_most_once_a_heartbeat():
-    clock = Clock()
+    clock = Clock(1000.0)
     touches = []
     tunnel, viewer, node, dial = make(
         clock=clock, touch=lambda: touches.append(clock.now)

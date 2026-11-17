@@ -24,7 +24,7 @@ from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.server import SeleniumMCP
 
-from .conftest import calling_as
+from .conftest import calling_as, log_lines
 from .fakes import ScriptedDriver
 
 pytestmark = pytest.mark.unit
@@ -235,41 +235,10 @@ def opens_to(server, monkeypatch, failure: str):
     return driver
 
 
-class Capture(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.records: list[tuple[int, str, bool]] = []
-
-    def emit(self, record):
-        self.records.append(
-            (record.levelno, self.format(record), record.exc_info is not None)
-        )
-
-
-@pytest.fixture
-def mcp_log():
-    """FastMCP's logger does not propagate, so it is listened to directly."""
-    from kubed.selenium_flow.mcp.failures import FASTMCP_LOGGER
-
-    handler = Capture()
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger = logging.getLogger(FASTMCP_LOGGER)
-    logger.addHandler(handler)
-    yield handler.records
-    logger.removeHandler(handler)
-
-
 @pytest.fixture
 def routes_log():
-    handler = Capture()
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger = logging.getLogger("kubed.selenium_flow.routes")
-    level = logger.level
-    logger.setLevel(logging.DEBUG)
-    logger.addHandler(handler)
-    yield handler.records
-    logger.removeHandler(handler)
-    logger.setLevel(level)
+    with log_lines("kubed.selenium_flow.routes", logging.DEBUG) as lines:
+        yield lines
 
 
 async def open_over_mcp(server, monkeypatch) -> str:

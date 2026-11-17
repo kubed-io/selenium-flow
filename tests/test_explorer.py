@@ -9,10 +9,10 @@ import re
 
 import pytest
 from fastmcp import Client
-from mcp_types import Request, RequestParams
-from pydantic import ConfigDict, TypeAdapter
 
 from kubed.selenium_flow.mcp import agents, skill
+
+from .fakes import request
 
 pytestmark = pytest.mark.unit
 
@@ -50,16 +50,6 @@ SKILL_URI = "skill://selenium-flow/SKILL.md"
 HEADINGS = ["Found", "Flows used", "Flows saved", "Couldn't", "Browser"]
 QUOTED_URI = re.compile(r"`([a-z]+://[^`]+)`")
 QUOTED_NAME = re.compile(r"`([a-z_]+)`")
-
-
-class ExtensionParams(RequestParams):
-    model_config = ConfigDict(extra="allow")
-
-
-async def request(client, method, **params):
-    return await client.session.send_request(
-        Request(method=method, params=ExtensionParams(**params)), TypeAdapter(dict)
-    )
 
 
 def shipped() -> agents.Agent:

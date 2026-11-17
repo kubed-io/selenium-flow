@@ -18,28 +18,11 @@ from kubed.selenium_flow.names import FILES_DIR, RECORDINGS_DIR
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.workspaces import STDIO_NAME
 
-from .fakes import patch_os
+from .fakes import FakeActions, FakeGrid, FakeWorkspaces, patch_os
 
 pytestmark = pytest.mark.unit
 
 S = "desktop"
-
-
-class Grid:
-    def files(self, _sid):
-        return []
-
-    def read_file(self, _sid, _name):
-        return b""
-
-
-class Actions:
-    grid = Grid()
-
-
-class FakeWorkspaces:
-    def browser(self, _name):
-        return ""
 
 
 @pytest.fixture
@@ -56,14 +39,14 @@ def test_addresses():
 
 
 def test_the_root_names_a_third_folder(store):
-    root = files.root(Actions(), FakeWorkspaces(), store, None, S)
+    root = files.root(FakeActions(FakeGrid()), FakeWorkspaces(browser=""), store, None, S)
     named = {f["name"]: f for f in root["folders"]}
     assert named["recordings"]["count"] == 1
     assert named["recordings"]["uri"] == "workspace://files/recordings"
 
 
 def test_a_recording_entry_is_a_file_entry_with_keep_with(store):
-    listing = files.folder(Actions(), FakeWorkspaces(), store, None, S, RECORDINGS_DIR)
+    listing = files.folder(FakeActions(FakeGrid()), FakeWorkspaces(browser=""), store, None, S, RECORDINGS_DIR)
     entry = listing["files"][0]
     assert entry["content_type"] == "video/mp4" and entry["image"] is False
     assert entry["keep_with"] == 'keep_file("workspace://files/recordings/rec-20261008-1403.mp4")'
@@ -71,7 +54,7 @@ def test_a_recording_entry_is_a_file_entry_with_keep_with(store):
 
 
 def test_keeping_a_recording_moves_it_into_files(store):
-    kept = files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
+    kept = files.keep(FakeActions(FakeGrid()), FakeWorkspaces(browser=""), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
     assert kept["uri"] == "workspace://files/rec-20261008-1403.mp4"
     assert store.files(S, RECORDINGS_DIR) == []
     assert [f["name"] for f in store.files(S, FILES_DIR)] == ["rec-20261008-1403.mp4"]
@@ -89,7 +72,7 @@ def test_a_video_is_served_from_disk_with_range_and_no_sandbox(store):
     from fastmcp import FastMCP
 
     mcp = FastMCP("t")
-    signed.mount(mcp, Actions(), store, None, "")
+    signed.mount(mcp, FakeActions(FakeGrid()), store, None, "")
     client = TestClient(mcp.http_app())
     path = links.recording_path(S, "rec-20261008-1403.mp4")
     resp = client.get(path, headers={"Range": "bytes=0-9"})
@@ -105,9 +88,9 @@ def test_a_video_is_served_from_disk_with_range_and_no_sandbox(store):
 def test_a_kept_video_in_files_is_served_the_same_way(store):
     from fastmcp import FastMCP
 
-    files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
+    files.keep(FakeActions(FakeGrid()), FakeWorkspaces(browser=""), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
     mcp = FastMCP("t")
-    signed.mount(mcp, Actions(), store, None, "")
+    signed.mount(mcp, FakeActions(FakeGrid()), store, None, "")
     resp = TestClient(mcp.http_app()).get(
         links.kept_path(S, "rec-20261008-1403.mp4"), headers={"Range": "bytes=0-0"}
     )
@@ -118,7 +101,7 @@ def test_a_missing_recording_is_404(store):
     from fastmcp import FastMCP
 
     mcp = FastMCP("t")
-    signed.mount(mcp, Actions(), store, None, "")
+    signed.mount(mcp, FakeActions(FakeGrid()), store, None, "")
     resp = TestClient(mcp.http_app()).get(links.recording_path(S, "nope.mp4"))
     assert resp.status_code == 404
 
@@ -199,12 +182,12 @@ def test_a_storage_fault_reading_the_recording_is_not_a_missing_recording(store,
     5xx), never the caller-fixable 'no recording called'."""
     _fault_on(monkeypatch, "stat", "rec-20261008-1403.mp4", OSError(errno.EIO, "EIO"))
     with pytest.raises(OSError):
-        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
+        files.keep(FakeActions(FakeGrid()), FakeWorkspaces(browser=""), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
 
 
 def test_a_recording_that_is_not_there_is_still_a_no_recording_error(store):
     with pytest.raises(ValueError, match="no recording called"):
-        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/gone.mp4", S)
+        files.keep(FakeActions(FakeGrid()), FakeWorkspaces(browser=""), store, "workspace://files/recordings/gone.mp4", S)
 
 
 def test_keeping_a_recording_that_cannot_be_removed_leaves_it_where_it_was(store, monkeypatch):
@@ -217,7 +200,7 @@ def test_keeping_a_recording_that_cannot_be_removed_leaves_it_where_it_was(store
 
     monkeypatch.setattr(Path, "unlink", unlink)
     with pytest.raises(PermissionError):
-        files.keep(Actions(), FakeWorkspaces(), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
+        files.keep(FakeActions(FakeGrid()), FakeWorkspaces(browser=""), store, "workspace://files/recordings/rec-20261008-1403.mp4", S)
     assert store.files(S, FILES_DIR) == []
     assert [f["name"] for f in store.files(S, RECORDINGS_DIR)] == ["rec-20261008-1403.mp4"]
 
@@ -226,7 +209,7 @@ def _client(store):
     from fastmcp import FastMCP
 
     mcp = FastMCP("t")
-    signed.mount(mcp, Actions(), store, None, "")
+    signed.mount(mcp, FakeActions(FakeGrid()), store, None, "")
     return TestClient(mcp.http_app())
 
 

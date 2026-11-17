@@ -32,8 +32,8 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.workspace.store import Workspace
 
-from .conftest import NAMED, TOKEN
-from .fakes import FakeActions, FakeGrid
+from .conftest import TOKEN
+from .fakes import FakeActions, FakeGrid, FakeWorkspaces
 
 pytestmark = pytest.mark.unit
 
@@ -79,27 +79,6 @@ def live(kept_server):
         KEY, Workspace(session_id="abc").visited("https://x/")
     )
     return kept_server
-
-
-class FakeWorkspaces:
-    """A workspace manager double: only what `listing` actually reads.
-
-    `browser` is what a listing asks for — the Grid id of a LIVE browser, or ""
-    — because a listing must keep answering after the browser is gone, which is
-    the whole point of keeping a file.
-    """
-
-    def __init__(self, **status):
-        self.status = status
-
-    def describe(self, name=None):
-        return dict(self.status)
-
-    def browser(self, name):
-        return self.status.get("session_id", "") if self.status.get("live") else ""
-
-    def name(self):
-        return NAMED
 
 
 # ---- the store ---------------------------------------------------------------
@@ -259,7 +238,7 @@ def test_a_grid_failure_is_not_hidden(store):
 
     with pytest.raises(RuntimeError):
         files.sections(
-            FakeActions(Broken()), FakeWorkspaces(session_id="abc", live=True), store, TOKEN, WORKSPACE
+            FakeActions(Broken()), FakeWorkspaces("abc"), store, TOKEN, WORKSPACE
         )
 
 
@@ -275,7 +254,7 @@ def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
             raise AssertionError(f"dialled the Grid for reaped {session_id!r}")
 
     got = files.sections(
-        FakeActions(Reaped()), FakeWorkspaces(session_id="dead", live=False), store, TOKEN, WORKSPACE
+        FakeActions(Reaped()), FakeWorkspaces(browser=""), store, TOKEN, WORKSPACE
     )
     assert [f["name"] for f in got["files"]] == ["kept.pdf"]
     assert got["downloads"] == []
@@ -284,7 +263,7 @@ def test_the_listing_ignores_a_browser_the_grid_has_reaped(store):
 def test_the_listing_still_uses_a_browser_that_is_live(store):
     got = files.sections(
         FakeActions(FakeGrid(DOWNLOADS)),
-        FakeWorkspaces(session_id="abc", live=True),
+        FakeWorkspaces("abc"),
         store,
         TOKEN,
         WORKSPACE,
@@ -295,7 +274,7 @@ def test_the_listing_still_uses_a_browser_that_is_live(store):
 def test_with_no_store_only_downloads_are_listed():
     got = files.sections(
         FakeActions(FakeGrid(DOWNLOADS)),
-        FakeWorkspaces(session_id="abc", live=True),
+        FakeWorkspaces("abc"),
         None,
         TOKEN,
         WORKSPACE,

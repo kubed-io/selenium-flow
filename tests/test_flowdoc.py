@@ -7,27 +7,9 @@ author can fix while they are still looking at the thing they wrote.
 
 import pytest
 
-from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
+from kubed.selenium_flow.flows.document import InvalidFlow, validate
 
 pytestmark = pytest.mark.unit
-
-
-@pytest.fixture
-async def step_schema_map(server):
-    """The real tool schemas, built the way production builds them.
-
-    From ENDPOINTS rather than from a listing — a listing is shaped per request
-    and, since flows gained tools of their own, would have offered `save_flow`
-    as a valid step. `flowapi.RUNNABLE` refuses that at run time, so a looser
-    map here would have let validation and execution disagree.
-    """
-    from kubed.selenium_flow.core.capabilities import ENDPOINTS
-
-    tools = {}
-    for name in sorted(set(ENDPOINTS.values())):
-        full = await server.mcp.get_tool(name)
-        tools[name] = full.parameters or {}
-    return step_schemas(tools)
 
 
 def flow(**overrides):

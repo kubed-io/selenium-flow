@@ -124,27 +124,6 @@ async def test_the_flow_schema_has_no_reference_it_cannot_resolve(server):
 # ---- failures that are not about argument shape --------------------------------
 
 
-class Capture(logging.Handler):
-    def __init__(self):
-        super().__init__()
-        self.records = []
-
-    def emit(self, record):
-        self.records.append((record.levelno, self.format(record)))
-
-
-@pytest.fixture
-def log():
-    from kubed.selenium_flow.mcp.failures import FASTMCP_LOGGER
-
-    handler = Capture()
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    logger = logging.getLogger(FASTMCP_LOGGER)
-    logger.addHandler(handler)
-    yield handler.records
-    logger.removeHandler(handler)
-
-
 def failing(server, exc):
     def act(*_args, **_kwargs):
         raise exc
@@ -160,39 +139,39 @@ async def test_a_caller_reads_the_failure_not_seleniums_stack_dump(server):
     assert said == "Error calling tool 'extract': no such window"
 
 
-async def test_a_credential_in_a_failure_reaches_neither_caller_nor_log(server, log):
+async def test_a_credential_in_a_failure_reaches_neither_caller_nor_log(server, mcp_log):
     """#36 scrubbed this for HTTP callers only; the MCP surface quoted `str(exc)`
     and logged the raw traceback."""
     failing(server, ConnectionError("could not reach http://user:hunter2@grid:4444/wd"))
     said = await refused(server, "extract", {})
     assert "hunter2" not in said
-    assert log and not any("hunter2" in text for _, text in log)
+    assert mcp_log and not any("hunter2" in text for _, text, _ in mcp_log)
     # Ours, so the operator still gets the frames — scrubbed, not dropped.
-    level, text = log[-1]
+    level, text, _ = mcp_log[-1]
     assert level == logging.ERROR and "Traceback" in text
 
 
-async def test_a_callers_mistake_is_one_warning_line_not_a_traceback(server, log):
+async def test_a_callers_mistake_is_one_warning_line_not_a_traceback(server, mcp_log):
     """A refused save is the caller's to fix; the pod log is for our faults."""
     await refused(
         server,
         "save_flow",
         {"name": "x", "steps": [{"tool": "navigate", "args": {"url": "u"}}], "timeout": 0},
     )
-    level, text = log[-1]
+    level, text, _ = mcp_log[-1]
     assert level == logging.WARNING
     assert "timeout must be a whole number" in text
     assert "Traceback" not in text
 
 
-async def test_a_refused_argument_shape_is_one_warning_line_too(server, log):
+async def test_a_refused_argument_shape_is_one_warning_line_too(server, mcp_log):
     """FastMCP logs an argument refusal itself, as a warning with no traceback,
     before this module's filter could see it - so it must stay that way rather
     than be read as a fault (Copilot, #38)."""
     await refused(server, "interact", {"action": "click", "css": "button.go"})
-    assert log, "nothing was logged for the refusal"
-    assert all(level == logging.WARNING for level, _ in log)
-    assert not any("Traceback" in text for _, text in log)
+    assert mcp_log, "nothing was logged for the refusal"
+    assert all(level == logging.WARNING for level, _, _ in mcp_log)
+    assert not any("Traceback" in text for _, text, _ in mcp_log)
 
 
 async def test_a_call_that_carries_a_secret_is_not_told_it_needs_text(server):
@@ -212,7 +191,7 @@ async def test_a_call_that_carries_a_secret_is_not_told_it_needs_text(server):
 
 
 async def test_a_failed_read_says_it_in_errors_words_to_either_reader(
-    server, log, monkeypatch
+    server, mcp_log, monkeypatch
 ):
     """FastMCP quotes a resource's exception verbatim, and a Grid failure names
     the Grid's URL — which reached a caller in #39's live check. A client's own
@@ -233,11 +212,11 @@ async def test_a_failed_read_says_it_in_errors_words_to_either_reader(
     for said in (str(direct.value), str(through_tool.value)):
         assert "hunter2" not in said and "user:" not in said, said
         assert "Error reading resource 'test://boom'" in said
-    assert not any("hunter2" in text for _, text in log)
+    assert not any("hunter2" in text for _, text, _ in mcp_log)
 
 
 async def test_a_read_the_caller_got_wrong_is_one_warning_line(
-    server, log, monkeypatch
+    server, mcp_log, monkeypatch
 ):
     from fastmcp import Client
 
@@ -247,15 +226,15 @@ async def test_a_read_the_caller_got_wrong_is_one_warning_line(
     async with Client(server.mcp) as client:
         with pytest.raises(MCPError):
             await client.read_resource("flow://flows/nope")
-    reads = [(level, text) for level, text in log if "Error reading resource" in text]
-    assert reads, log
+    reads = [(level, text) for level, text, _ in mcp_log if "Error reading resource" in text]
+    assert reads, mcp_log
     level, text = reads[-1]
     assert level == logging.WARNING and "Traceback" not in text
 
 
 
 async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(
-    server, log, monkeypatch
+    server, mcp_log, monkeypatch
 ):
     """The URI is the caller's, and it was quoted verbatim into the error and
     into FastMCP's log line (Copilot, #40).
@@ -283,7 +262,7 @@ async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(
     assert missing.value is not None
     for said in (str(found.value), str(through_tool.value)):
         assert "hunter2" not in said, said
-    assert not any("hunter2" in text for _, text in log), log
+    assert not any("hunter2" in text for _, text, _ in mcp_log), mcp_log
 
 
 async def test_a_resource_that_is_not_there_is_resource_not_found(server, monkeypatch):

@@ -12,7 +12,6 @@ import pytest
 from selenium.common.exceptions import WebDriverException
 
 from kubed.selenium_flow import faults
-from kubed.selenium_flow.core import actions as actions_module
 from kubed.selenium_flow.core.actions import (
     CANNOT_TYPE,
     IN_A_FRAME,
@@ -24,33 +23,9 @@ from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .conftest import manager
-from .fakes import ScriptedDriver, ScriptedElement
+from .fakes import FocusedDriver, element
 
 pytestmark = pytest.mark.unit
-
-
-class FocusedDriver(ScriptedDriver):
-    """A driver whose focused element is answered in turn, one per context."""
-
-    def __init__(self, in_frame=False, **kw):
-        super().__init__(**kw)
-        self.__dict__["answers"] = []
-        self.__dict__["in_frame"] = in_frame
-
-    def execute_script(self, script, *args):
-        if script == actions_module.FOCUSED:
-            self.log.append(("focused",))
-            return self.answers.pop(0) if self.answers else None
-        if "window.top" in script:
-            self.log.append(("in_frame",))
-            return self.in_frame
-        return super().execute_script(script, *args)
-
-
-def element(log, tag="textarea"):
-    found = ScriptedElement(log)
-    found.tag = tag
-    return found
 
 
 @pytest.fixture

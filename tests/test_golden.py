@@ -37,9 +37,9 @@ from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
 from .conftest import NAMED, TOKEN, RecordingActions, calling_as
-from .fakes import FakeActions, FakeClock, FakeGrid
+from .fakes import FakeActions, FakeClock, FakeGrid, Vault
 from .golden_tools import compare, normalised
-from .test_flowrun import SECRET_STEP, SIMPLE, Vault, flow
+from .test_flowrun import SECRET_STEP, SIMPLE, flow
 
 pytestmark = pytest.mark.unit
 

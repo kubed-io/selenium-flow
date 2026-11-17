@@ -9,7 +9,6 @@ import hashlib
 import logging
 
 import pytest
-import yaml
 from fastmcp import Client, FastMCP
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
 from mcp.shared.exceptions import MCPError
@@ -17,10 +16,7 @@ from mcp_types import (
     INVALID_PARAMS,
     METHOD_NOT_FOUND,
     PaginatedRequestParams,
-    Request,
-    RequestParams,
 )
-from pydantic import ConfigDict, TypeAdapter
 
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import skill_extension
@@ -31,26 +27,12 @@ from kubed.selenium_flow.mcp.skill_extension import (
 )
 from kubed.selenium_flow.server import SeleniumMCP
 
+from .fakes import header, request
+
 pytestmark = pytest.mark.unit
 
 SKILL_URI = "skill://selenium-flow/SKILL.md"
 MANIFEST_URI = "skill://selenium-flow/_manifest"
-
-
-class ExtensionParams(RequestParams):
-    model_config = ConfigDict(extra="allow")
-
-
-async def request(client, method, **params):
-    return await client.session.send_request(
-        Request(method=method, params=ExtensionParams(**params)), TypeAdapter(dict)
-    )
-
-
-def header(text: str) -> object:
-    lines = text.splitlines()
-    end = next(i for i, line in enumerate(lines[1:], start=1) if line.rstrip() == "---")
-    return yaml.safe_load("\n".join(lines[1:end]))
 
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
