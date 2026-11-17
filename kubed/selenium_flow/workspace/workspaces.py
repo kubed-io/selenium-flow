@@ -72,6 +72,7 @@ from ..urls import (
 from . import locks
 from . import settings as settings_module
 from .calls import Calls, told
+from .config import Configs
 from .origins import OriginChanged, Origins
 from .scrub import Scrubber
 from .store import DEFAULT_TTL_SECONDS, MemoryStore, Workspace, WorkspaceStore
@@ -152,6 +153,8 @@ CONTEXT_KEYS = (
     "captured",
     "site_data",
     "guidance",
+    "config",
+    "config_url",
 )
 WORKSPACE_HEADER = "sf-workspace"
 # Claude.ai's connectors can send only allowlisted header names, and
@@ -383,6 +386,7 @@ class Workspaces:
         control=None,
         hints: Callable[[str, str], list[dict]] | None = None,
         catalogue=None,
+        configs: Configs | None = None,
         tags: Callable[[str], dict[str, int]] | None = None,
     ):
         self.actions = actions
@@ -417,6 +421,8 @@ class Workspaces:
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
         # is hinted. Asked only by `_hint`, never inside a store write.
         self.hints = hints
+        # Each workspace's own config (`workspace.config`): none without one.
+        self.configs = configs if configs is not None else Configs(None)
         # The tags in use in a workspace's flows (`FlowStore.tags_in_use`), or
         # None with no flow store.
         self.tags = tags
@@ -510,6 +516,10 @@ class Workspaces:
         }
         if self.skill_available:
             status["guidance"] = guidance.pointer("WORKSPACES.md")
+        if self.configs.enabled:
+            status["config"] = self.configs.rows(self.configs.load(name))
+            if url := self.configs.url(name):
+                status["config_url"] = url
         if self.tags is not None:
             try:
                 status["tags"] = self.tags(name)

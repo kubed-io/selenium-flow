@@ -672,7 +672,9 @@ LIST_DESCRIPTION = (
 )
 
 
-def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
+def register(
+    mcp, catalogue, token: str | None, prefix: str = "", configs=None
+) -> None:
     """Serve the catalogue as a resource and one endpoint."""
     from starlette.responses import JSONResponse
 
@@ -700,7 +702,10 @@ def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
         if not auth.authorized(request, token):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         try:
-            return JSONResponse(listing(Caller.from_request(*values_of(request))))
+            caller = Caller.from_request(*values_of(request))
+            if configs is not None and caller.named:
+                configs.check(caller.named)
+            return JSONResponse(listing(caller))
         except Exception as exc:  # noqa: BLE001 - errors.py decides what it means
             return JSONResponse(
                 {"error": faults.message(exc)}, status_code=errors.status_for(exc)

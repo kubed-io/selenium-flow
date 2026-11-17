@@ -34,6 +34,8 @@ export type SetBy = 'config' | 'client' | 'caller'
 
 export interface WorkspaceRow {
   key: string
+  /** A workspace with a config: it never expires. */
+  kept?: boolean
   name?: string | null
   owner?: string | null
   browser?: string | null
@@ -90,7 +92,8 @@ export interface FilesResponse {
   browser?: boolean
 }
 
-export interface FlowSummary { name: string; step_count: number; shared?: boolean; tags?: string[] }
+/** `offered`: the admin's listing only, false for a global flow this workspace's filter does not offer. */
+export interface FlowSummary { name: string; step_count: number; shared?: boolean; tags?: string[]; offered?: boolean }
 export interface FlowsListing { enabled: boolean; flows?: FlowSummary[]; workspace?: string; rev?: string | number | null }
 
 /** A stored flow, as edited by a person: nothing about its shape is guaranteed (§F1.6). */
@@ -141,6 +144,14 @@ export interface SettingRow {
   source: SettingSource
   sensitive?: boolean
   set?: boolean
+}
+/** A workspace's config, as `GET /admin/workspaces/{key}/config` answers it. */
+export interface ConfigPayload {
+  text: string | null
+  config: Record<string, { value: unknown; source: 'default' | 'workspace' }>
+  /** Why the file is refused, else null. */
+  error: string | null
+  kept: boolean
 }
 export interface SettingsSection { name: string; description: string; settings: SettingRow[] }
 export interface SettingsPayload { sections: SettingsSection[] }

@@ -31,6 +31,7 @@ from ...names import (
 )
 from ...site_data import snapshot as site_data
 from ...workspace.calls import told
+from ...workspace.store import Workspace
 from ...workspace.workspaces import Caller
 from .. import answer, links
 
@@ -367,9 +368,15 @@ def mount(
         shared_rev = (
             revision(flow_store, GLOBAL_WORKSPACE) if flow_store is not None else ""
         )
+        configs = workspaces.configs
+        # A workspace kept by its config is listed with no record, as one that
+        # has never opened a browser.
+        entries = sorted(records.items(), key=_recency, reverse=True) + [
+            (name, Workspace()) for name in configs.kept_names() if name not in records
+        ]
 
         rows = []
-        for key, record in sorted(records.items(), key=_recency, reverse=True):
+        for key, record in entries:
             sid = record.session_id
             live = bool(sid) and sid in running
             downloads = None
@@ -424,6 +431,7 @@ def mount(
                 {
                     "key": key,
                     **owner_label(key),
+                    "kept": configs.kept(key),
                     "session_id": sid or None,
                     "attached": bool(sid),
                     "live": live,

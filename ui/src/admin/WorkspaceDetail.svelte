@@ -14,10 +14,12 @@
   import RequestPane from './RequestPane.svelte'
   import SessionPane from './SessionPane.svelte'
   import HistoryPane from './HistoryPane.svelte'
+  import ConfigPane from './ConfigPane.svelte'
+  import { ApiError } from './api'
   import type { Live } from './live.svelte'
   import SiteDataPane from './SiteDataPane.svelte'
   import Modal from './Modal.svelte'
-  import type { ModalSpec } from './modal'
+  import { Shown, type ModalSpec } from './modal'
   import { go, hashes, replace, type Tab } from './router.svelte'
   import { WorkspaceModel } from './workspace.svelte'
 
@@ -118,6 +120,7 @@
   }
 
   onMount(() => {
+    void m.loadConfig()
     void (async () => {
       await m.loadFiles()
       if (destroyed) return
@@ -218,6 +221,33 @@
     }
   }
 
+  /* The config's YAML, read again first: the copy on screen can be old. A
+     refusal stays in the editor, under what was typed. */
+  let configDraft = $state('')
+  let configRefusal = $state<string | null>(null)
+  async function editConfig() {
+    try {
+      await m.loadConfig()
+    } catch { /* the pane says why */ }
+    configDraft = m.config?.text ?? ''
+    configRefusal = null
+    ask({
+      title: 'Edit ' + (m.row.name || key) + ' config', body: configEditor, data: null, confirm: 'Save',
+      onconfirm: async () => {
+        refuseIfGone()
+        try {
+          m.showConfig(await api(workspacePath(key, '/config'), 'PUT', { text: configDraft }))
+          // Which global flows are offered may have changed.
+          if (!destroyed) void reloadFlows()
+        } catch (err) {
+          if (!(err instanceof ApiError) || err.status !== 400) throw err
+          configRefusal = err.message
+          throw new Shown(err.message)
+        }
+      },
+    })
+  }
+
   /* Ending drops the browser, not the workspace: its next open carries on. */
   async function endBrowser() {
     if (!confirm('End this browser? The workspace and its context are kept — whatever the browser was holding is lost.')) return
@@ -281,6 +311,12 @@
   const flowsTotal = $derived(!m.flows || m.flowsBlanked ? '' : m.flows.enabled ? String((m.flows.flows || []).length) : 'off')
 </script>
 
+{#snippet configEditor()}
+  <div class="small muted mono">{key}/workspace.yaml</div>
+  <textarea class="yaml" spellcheck="false" bind:value={configDraft}></textarea>
+  {#if configRefusal}<p class="small error refusal">{configRefusal}</p>{/if}
+{/snippet}
+
 {#snippet deleteBody(name: string)}
   <p>This removes it from Files for good. There is no undo.</p>
   <ul class="names"><li>{name}</li></ul>
@@ -318,6 +354,12 @@
   </div>
   <!-- Blank until this workspace's row arrives, from its load or a push. -->
   <div id="detailHeader">{#if m.headed}<WorkspaceSummary data={m.row} />{/if}</div>
+  {#if m.config?.error}
+    <div id="configInvalid" class="card row">
+      <span class="grow small">This workspace's config is invalid: {m.config.error}. Calls naming it are refused until it is fixed.</span>
+      <button type="button" class="danger" onclick={editConfig}>Edit YAML</button>
+    </div>
+  {/if}
 
   <div class="tabs subtabs" id="workspaceTabs" role="tablist">
     <button id="tabSession" role="tab" aria-selected={tab === 'session'} onclick={() => go(hashes.workspace(key))}>Session</button>
@@ -325,6 +367,7 @@
     <button id="tabFlows" role="tab" aria-selected={tab === 'flows'} onclick={() => go(hashes.flows(key))}>Flows <span id="flowsTotal" class="count">{flowsTotal}</span></button>
     <button id="tabSiteData" role="tab" aria-selected={tab === 'site-data'} onclick={() => go(hashes.siteData(key))}>Site data <span id="siteDataTotal" class="count">{siteDataTotal}</span></button>
     <button id="tabHistory" role="tab" aria-selected={tab === 'history'} onclick={() => go(hashes.history(key))}>History <span id="historyTotal" class="count">{historyTotal}</span></button>
+    <button id="tabConfig" role="tab" aria-selected={tab === 'config'} onclick={() => go(hashes.config(key))}>Config</button>
     <button id="tabConsole" role="tab" aria-selected={tab === 'console'} aria-disabled={captureOff} title={captureOff ? CAPTURE_OFF : undefined} class:muted={captureOff}
             onclick={() => { if (!captureOff) go(hashes.pageConsole(key)) }}>Console <span id="consoleTotal" class="count">{consoleTotal}</span></button>
     <button id="tabNetwork" role="tab" aria-selected={tab === 'network'} aria-disabled={captureOff} title={captureOff ? CAPTURE_OFF : undefined} class:muted={captureOff}
@@ -352,6 +395,7 @@
   </div>
   <SiteDataPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} {site} hidden={tab !== 'site-data'} />
   <HistoryPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} hidden={tab !== 'history'} />
+  <ConfigPane {m} hidden={tab !== 'config'} onedit={editConfig} />
   <!-- Not kept mounted: leaving the tab is what closes a live stream. -->
   {#if tab === 'live'}
     <div id="paneLive">
@@ -378,6 +422,10 @@
     </div>
   {/if}
 </div>
+
+<style>
+  #configInvalid { margin-top: 12px; border-color: var(--warn); color: var(--warn); }
+</style>
 
 <!-- An each of one, keyed by the viewer, not {#if}: a viewer's props must
      stay bound to it. An action still finishing after its viewer closed reads

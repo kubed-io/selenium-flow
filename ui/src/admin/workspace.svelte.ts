@@ -1,7 +1,7 @@
 import type { Api } from './api'
 import { workspacePath } from './api'
 import { Latest } from './latest'
-import type { FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, HistoryPayload, WorkspaceRow, SiteDataPayload, WorkspacesPayload } from '../lib/types'
+import type { ConfigPayload, FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, HistoryPayload, WorkspaceRow, SiteDataPayload, WorkspacesPayload } from '../lib/types'
 
 /* Handed to a workspace that has not answered yet, or whose load failed: the
    clears must never act on a previous workspace's names. */
@@ -50,6 +50,9 @@ export class WorkspaceModel {
   siteDataError = $state<string | null>(null)
   history = $state.raw<HistoryPayload | null>(null)
   historyError = $state<string | null>(null)
+  /* The workspace's config; null until its first load answers. */
+  config = $state.raw<ConfigPayload | null>(null)
+  configError = $state<string | null>(null)
   flowDoc = $state.raw<FlowDoc | null>(null)
   flowDocError = $state<{ name: string; message: string } | null>(null)
 
@@ -65,6 +68,8 @@ export class WorkspaceModel {
   #fileLoads = new Latest()
   #flowLoads = new Latest()
   #docLoads = new Latest()
+  #configLoads = new Latest()
+  #shownKept: boolean | undefined = undefined
   #disposed = false
   readonly key: string
   #api: Api
@@ -177,6 +182,22 @@ export class WorkspaceModel {
     )
   }
 
+  loadConfig(): Promise<void> {
+    if (this.#disposed) return Promise.resolve()
+    return this.#configLoads.run(
+      (signal) => this.#api<ConfigPayload>(workspacePath(this.key, '/config'), 'GET', undefined, signal),
+      (data) => this.showConfig(data),
+      (e) => { this.configError = e.message },
+    )
+  }
+
+  /* What a load or a save answered. */
+  showConfig(data: ConfigPayload) {
+    this.config = data
+    this.configError = null
+    this.#shownKept = data.kept
+  }
+
   loadFlow(name: string): Promise<void> {
     if (this.#disposed) return Promise.resolve()
     return this.#docLoads.run(
@@ -222,6 +243,8 @@ export class WorkspaceModel {
       void this.loadHistory()
     }
     this.filesBlanked = false
+    // A file written or removed on disk moves `kept`.
+    if (row.kept !== undefined && this.#shownKept !== undefined && row.kept !== this.#shownKept) void this.loadConfig()
   }
 
   /* Final: a caller still holding the model after its workspace left loads nothing. */
@@ -232,5 +255,6 @@ export class WorkspaceModel {
     this.#siteLoads.abort()
     this.#historyLoads.abort()
     this.#docLoads.abort()
+    this.#configLoads.abort()
   }
 }

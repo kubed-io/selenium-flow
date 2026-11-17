@@ -138,7 +138,13 @@ def catalogue(store, workspace: str, every: bool = False) -> dict:
     if not own_are_shared:
         offer = store.offered(workspace)
         for summary in store.summaries(GLOBAL_WORKSPACE):
-            if every or offer(summary.get(flowtags.TAGS, ())):
+            offered = offer(summary.get(flowtags.TAGS, ()))
+            if every:
+                # The admin sees every one, and which this workspace is offered.
+                entries[summary["name"]] = {
+                    **summary, "shared": True, "offered": offered
+                }
+            elif offered:
                 entries[summary["name"]] = {**summary, "shared": True}
     for summary in store.summaries(workspace):
         entries[summary["name"]] = {**summary, "shared": own_are_shared}
@@ -766,6 +772,7 @@ def _routes(
         return await answer_module.answer(
             request, token, f"flows/{what}", call, log, named=False,
             scrubbed=workspaces.scrubbed if scrub else None,
+            configs=workspaces.configs,
         )
 
     @mcp.custom_route(flows_root, methods=["GET"], name="flows_list")

@@ -1,7 +1,7 @@
 /* The hash, not the history API: every other path under this mount is a real
    endpoint, and a history route would need a catch-all that answers a mistyped
    API call with HTML. A hash never reaches the server. */
-export type Tab = 'session' | 'files' | 'flows' | 'site-data' | 'history' | 'console' | 'network' | 'live'
+export type Tab = 'session' | 'files' | 'flows' | 'site-data' | 'history' | 'config' | 'console' | 'network' | 'live'
 export type Route =
   | { view: 'list' }
   | { view: 'console' }
@@ -9,7 +9,7 @@ export type Route =
   | { view: 'settings' }
   | { view: 'workspace'; key: string; tab: Tab; flow: string | undefined; site: string | undefined; request: string | undefined }
 
-const TABS: readonly string[] = ['session', 'files', 'flows', 'site-data', 'history', 'console', 'network', 'live']
+const TABS: readonly string[] = ['session', 'files', 'flows', 'site-data', 'history', 'config', 'console', 'network', 'live']
 
 export function parse(hash: string): Route {
   const [view, key, tab, rest] = hash.replace(/^#\/?/, '').split('/')
@@ -50,6 +50,8 @@ export const hashes = {
   siteData: (key: string) => '#/workspaces/' + enc(key) + '/site-data',
   site: (key: string, host: string) => '#/workspaces/' + enc(key) + '/site-data/' + enc(host),
   history: (key: string) => '#/workspaces/' + enc(key) + '/history',
+  /* The server's `config_url` is this hash on the admin page. */
+  config: (key: string) => '#/workspaces/' + enc(key) + '/config',
   pageConsole: (key: string) => '#/workspaces/' + enc(key) + '/console',
   network: (key: string) => '#/workspaces/' + enc(key) + '/network',
   live: (key: string) => '#/workspaces/' + enc(key) + '/live',

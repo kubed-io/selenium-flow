@@ -35,6 +35,8 @@ FILES_DIR = "files"
 SCREENSHOTS_DIR = "screenshots"
 RECORDINGS_DIR = "recordings"
 FOLDERS = (FILES_DIR, SCREENSHOTS_DIR, RECORDINGS_DIR)
+# A workspace's own config, in the root of its folder beside them.
+CONFIG_FILE = "workspace.yaml"
 
 # The names a file in Files can never take, since workspace://files/<name> would
 # then mean a folder, or meant one (`downloads`). One arriving under one

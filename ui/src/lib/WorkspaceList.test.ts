@@ -68,3 +68,10 @@ test('an unlisted row shows capture as on (ruling 5)', () => {
   expect(screen.getByText('● capture')).toBeInTheDocument()
   expect(screen.queryByText('capture paused')).toBeNull()
 })
+
+test('a workspace with a config has a kept pill (UI-74)', () => {
+  const { container } = render(WorkspaceList, { data: { workspaces: [{ key: 'a', kept: true }, { key: 'b', kept: false }] } })
+  const [kept, plain] = container.querySelectorAll('.card')
+  expect(kept.querySelector('.pill.kept')).toHaveTextContent('kept')
+  expect(plain.querySelector('.pill.kept')).toBeNull()
+})
