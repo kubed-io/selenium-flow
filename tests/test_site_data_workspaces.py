@@ -254,18 +254,17 @@ def test_a_failed_call_stamps_called_at(named_caller):  # ruling 15
     assert m.store.get(NAMED).called_at > 1.0
 
 
-def test_a_run_that_fails_to_start_after_a_reap_says_so(named_caller, tmp_path, monkeypatch):
+def test_a_run_that_fails_to_start_after_a_reap_says_so(named_caller, tmp_path):
     from kubed.selenium_flow.flows import api as flowapi
 
     store, m = flow_world(tmp_path, [{"tool": "navigate", "args": {"url": "https://w.example.com/"}}])
+    store.save(NAMED, "needs-who", {
+        "parameters": {"properties": {"who": {"type": "string"}}, "required": ["who"]},
+        "steps": [{"tool": "navigate", "args": {"url": "https://w.example.com/${who}"}}],
+    })
     reaped(m)
-
-    def refuse(*_args, **_kwargs):
-        raise ValueError("the flow cannot start")
-
-    monkeypatch.setattr(flowapi, "run_one", refuse)
-    with pytest.raises(ValueError) as exc:
-        flowapi.run_for(store, m.actions, m, NAMED, "login")
+    with pytest.raises(ValueError) as exc:  # the required parameter is missing
+        flowapi.run_for(store, m.actions, m, NAMED, "needs-who")
     assert faults.REOPENED["lost"] in faults.message(exc.value)
 
 
