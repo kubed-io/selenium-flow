@@ -172,6 +172,15 @@ class Passed:
 
 
 PICTURE, INPUT, NEVER = "picture", "input", "never"
+# The client messages whose length is fixed: their kind and whole length, by type.
+FIXED = {
+    0: (PICTURE, 20),
+    3: (PICTURE, 10),
+    150: (PICTURE, 10),
+    4: (INPUT, 8),
+    5: (INPUT, 6),
+    250: (NEVER, 4),
+}
 
 
 class Gate:
@@ -218,16 +227,8 @@ class Gate:
         """
         buf = self._buffer
         kind = buf[0]
-        if kind == 0:
-            return PICTURE, 20
-        if kind in (3, 150):
-            return PICTURE, 10
-        if kind == 4:
-            return INPUT, 8
-        if kind == 5:
-            return INPUT, 6
-        if kind == 250:
-            return NEVER, 4
+        if kind in FIXED:
+            return FIXED[kind]
         if kind == 2:
             if len(buf) < 4:
                 return PICTURE, None
