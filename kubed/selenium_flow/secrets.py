@@ -62,8 +62,10 @@ RESERVED_PREFIX = "_"
 DESCRIPTION = "_description"
 ALLOWED_URLS = "_allowed_urls"
 
-# Only the listing is cached. A value is read every time it is used, so a
-# rotated credential is never served from memory.
+# Long enough that a listing is not a directory walk per call, short enough that
+# a secret an operator adds shows up without a restart. Only the listing is
+# cached. A value is read every time it is used, so a rotated credential is
+# never served from memory.
 CACHE_SECONDS = 30
 
 

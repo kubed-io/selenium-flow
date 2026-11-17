@@ -36,8 +36,9 @@ def configure_logging(level: str) -> None:
     propagation. In a pod there is no TTY, so Rich wraps at 80 columns, and Loki
     stores each physical line as its own entry, so its handlers go and it
     propagates. It logs every tool's arguments at DEBUG (scripts, typed text,
-    upload content), while WARNING still quiets it. Filters on its child
-    loggers stay, as they belong to the logger and not to a handler.
+    upload content), so DEBUG never opens it, while WARNING still quiets it.
+    Filters on its child loggers stay, as they belong to the logger and not to
+    a handler.
     """
     logging.basicConfig(level=level)
     # The root's level, not ``level``: basicConfig does nothing when the root
