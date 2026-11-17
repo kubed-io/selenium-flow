@@ -466,6 +466,8 @@ def _check_params(
             allowed
             and isinstance(value, str)
             and not (in_flow and references(value))
+            # A blank optional choice is unset, as `tools._blank_is_unset` has it.
+            and not (not value.strip() and "null" in _types(properties[name]))
             and value.strip().lower() not in {str(a).lower() for a in allowed}
         ):
             problems.append(

@@ -335,3 +335,9 @@ def test_a_503_over_mcp_is_one_warning_line_as_it_is_over_http():
     QuietCallerMistakes().filter(record)
     assert record.levelno == logging.WARNING
     assert "Traceback" not in record.getMessage()
+
+
+async def test_a_blank_browser_beside_another_bad_argument_is_not_a_problem(server):
+    said = await refused(server, "open_session", {"browser": "", "headless": "maybe"})
+    assert "headless" in said
+    assert "browser" not in said
