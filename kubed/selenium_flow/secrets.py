@@ -1,10 +1,8 @@
 """The secrets an agent may bind, and the one thing it may never do with them.
 
-A secret here is **a directory of files**: the directory is the secret's name,
-each file is a key, and the file's content is the value. That is exactly how
-Kubernetes projects a Secret into a pod, and it is also what somebody makes by
-hand on a laptop — so one reader serves both and there is no adapter between
-them (saga §F1.18).
+A secret is a directory of files: the directory is the secret's name, each file
+is a key, and the file's content is the value. That is how Kubernetes projects a
+Secret into a pod, and what somebody makes by hand on a laptop.
 
 ```
 <a directory on SECRETS_DIRS>/
@@ -15,37 +13,29 @@ them (saga §F1.18).
     _allowed_urls       # optional, one origin per line, and not a key
 ```
 
-``SECRETS_DIRS`` is PATH-like — ``/run/secrets:/etc/selenium-flow/secrets`` — so
-a deployment points at the service account's automounted directory *and* its own
-mounts, and a laptop points wherever it likes. First match wins, as with PATH.
+``SECRETS_DIRS`` is PATH-like (``/run/secrets:/etc/selenium-flow/secrets``),
+and the first match wins.
 
-``secrets.entries`` in the config file is the second source: an overlay, not a
-replacement. It can add a description or a leash over a directory's secret, swap
-in one key read from an env var or a file, or define a whole secret with no
-directory behind it at all. A key it names always wins over the same key from a
-directory, and an ``allowed_urls`` it names always replaces the directory's
-leash entirely — a broken one included, because the config was validated at
-boot and this one parses.
+``secrets.entries`` in the config file is an overlay. It can add a description
+or a leash over a directory's secret, swap in one key read from an env var or a
+file, or define a whole secret with no directory behind it. A key it names wins
+over the same key from a directory, and an ``allowed_urls`` it names replaces
+the directory's leash entirely, a broken one included.
 
-**No caller ever sees a value.** This module hands out names, keys, descriptions
-and allowed URLs; a value is read and is never returned, never cached by this
-module and never logged. `value()` exists for the binding path (E9) and has no
-surface of its own.
+No caller sees a value. This module hands out names, keys, descriptions and
+allowed URLs; a value is never returned, never cached by this module and never
+logged. `value()` is for the binding path and has no surface of its own.
 
-§F1.23's rule that a value is read only at the moment it is bound has three
-more read paths (spec 2026-11-14-secret-scope, ruling 12), all through
-`forms_for` and `leashed` and all feeding the scrubber: **activation** (a
-browser arrives on an origin a secret is allowed on), **rotation** (`revision`
-moved, so the current origin's set is rebuilt) and the **unknown-origin
-fail-closed read** (`leashed`, every usable secret). What they read is held, as
-forms, in process memory for that workspace's browser only: never written,
-logged, put in a record or returned.
+Besides the bind, a value is read on three paths, all through `forms_for` and
+`leashed` and all feeding the scrubber: activation (a browser arrives on an
+origin a secret is allowed on), rotation (`revision` moved, so the current
+origin's set is rebuilt) and the unknown-origin fail-closed read (`leashed`,
+every usable secret). What they read is held, as forms, in process memory for
+that workspace's browser only: never written, logged, put in a record or
+returned.
 
-That guarantee is precise and worth stating in its limits, because a security
-feature that overstates itself is worse than none: **the value never passes
-through the model on its way in.** Once it has been typed into a page,
-`execute_script` can read it back off that page, and nothing here can prevent
-that (§F1.24).
+The limit: the value never passes through the model on its way in. Once it has
+been typed into a page, `execute_script` can read it back off that page.
 """
 
 from __future__ import annotations
@@ -65,51 +55,39 @@ from .workspace import locks
 
 log = logging.getLogger(__name__)
 
-# Metadata, not keys. The prefix is deliberate: a Kubernetes Secret key must
-# match [-._a-zA-Z0-9]+ and may not begin with an underscore, so nothing
-# arriving from a real k8s mount can collide with one of these.
+# Metadata, not keys. A Kubernetes Secret key must match [-._a-zA-Z0-9]+ and
+# may not begin with an underscore, so nothing from a real k8s mount collides
+# with one of these.
 RESERVED_PREFIX = "_"
 DESCRIPTION = "_description"
 ALLOWED_URLS = "_allowed_urls"
 
-# Long enough that a listing is not a directory walk per call, short enough that
-# a secret added by an operator shows up without a restart. Only the catalogue
-# is cached; a value is read at the moment it is used, every time, so a rotated
-# credential is never served from memory after it stopped being valid (§F1.23).
+# Only the listing is cached. A value is read every time it is used, so a
+# rotated credential is never served from memory.
 CACHE_SECONDS = 30
 
 
 def origin(url: str) -> str:
-    """Scheme, host and port — what an allowed-URL check compares.
+    """Scheme, host and port: what an allowed-URL check compares.
 
-    Origins, never substrings. ``https://nextcloud.example.com.evil.com``
-    contains ``nextcloud.example.com``, and a substring check is exactly how
-    that gets through (§F1.27). The rule is `urls.scope_origin`, the one the
-    scrub keys the secrets in scope on, so the two cannot drift apart; a URL
-    that will not parse has no origin, and is allowed nowhere.
+    Origins, never substrings: ``https://nextcloud.example.com.evil.com``
+    contains ``nextcloud.example.com``. The rule is `urls.scope_origin`, which
+    the scrub keys the secrets in scope on too; a URL that will not parse has no
+    origin, and is allowed nowhere.
     """
     return scope_origin(url)
 
 
 def _origin(parts) -> str:
-    """Scheme, host and port from an already-split URL: `urls.scope_origin_of`,
-    which says why it is built from `hostname` and `port` and never `netloc`."""
+    """`origin` for a URL already split by `urlsplit`."""
     return scope_origin_of(parts)
 
 
 def _shown(line: str) -> str:
-    """A rejected permission line, safe to publish.
+    """A rejected `_allowed_urls` line, safe to publish in `/secrets`.
 
-    An operator needs to see *which* line is wrong. They do not need anything it
-    carries, and `/secrets` is a place a credential must never appear — so this
-    **rebuilds** the line from its harmless parts rather than echoing it with
-    the bad part taken out.
-
-    That distinction is the whole fix. Removing userinfo still published the
-    path and query, and `https://host/login?token=hunter2` is exactly the shape
-    a credential arrives in — so the branch that refuses a line for carrying one
-    was handing it back. What went missing is *named*, never quoted: the reason
-    a line was refused is enough to correct it.
+    Rebuilt from its origin, with whatever was dropped named and never quoted:
+    a line is often refused for carrying a credential in its userinfo or query.
     """
     try:
         parts = urlsplit((line or "").strip())
@@ -129,11 +107,8 @@ def _shown(line: str) -> str:
 def declared_origin(line: str) -> str | None:
     """One line of ``_allowed_urls`` as an origin, or None if it is not one.
 
-    A path is **refused**, not trimmed. §F1.27 compares origins, so
-    ``https://host/admin`` and ``https://host/`` are the same permission —
-    quietly widening the first into the second makes the file say less than its
-    author wrote, and open question #12 settled that a rule which quietly means
-    less than it says is worse than no rule.
+    A path is refused: trimmed to its origin, ``https://host/admin`` would allow
+    the whole of ``https://host/``.
     """
     text = (line or "").strip()
     if not text:
@@ -142,18 +117,17 @@ def declared_origin(line: str) -> str | None:
     if not parts.scheme or not parts.netloc:
         return None
     # No `params` here: that is urlparse's ParseResult, not urlsplit's
-    # SplitResult — a `;` segment lands in `path` for this one.
+    # SplitResult. A `;` segment lands in `path` for this one.
     if parts.path.strip("/") or parts.query or parts.fragment:
         return None
     if parts.username or parts.password:
-        # Credentials in a permission line are always a mistake, and accepting
-        # them would mean the same site reads as two different origins.
+        # Always a mistake, and the same site would read as two origins.
         return None
     return _origin(parts)
 
 
 class SecretSource(Protocol):
-    """Somewhere secrets come from. Kubernetes is the second one (E8)."""
+    """Somewhere secrets come from."""
 
     kind: str
 
@@ -175,10 +149,9 @@ class FilesystemSource:
     def _dir(self, name: str) -> Path:
         """One secret's directory, refusing anything that leaves the root.
 
-        Same rule the flow store settled on: the resolved path must *be* the
-        path we asked for, so nothing below the root may traverse a link. The
-        root itself is resolved first and so may be one — pointing SECRETS_DIRS
-        at a mount is the whole point.
+        The resolved path must be the path asked for, so nothing below the root
+        may traverse a link. The root is resolved first and so may be one:
+        SECRETS_DIRS points at mounts.
         """
         root = self.root.resolve()
         expected = root / valid_name(name, "secret name")
@@ -195,10 +168,7 @@ class FilesystemSource:
                 return []
             entries = list(self.root.iterdir())
         except OSError as exc:
-            # "Unreadable is absent" is a promise this module makes and did not
-            # keep: a PermissionError here propagated through Catalogue._entries
-            # and took down the whole catalogue rather than skipping one
-            # directory.
+            # Unreadable means absent; raising here would fail the whole catalogue.
             log.warning("could not list %s: %s", self.root, exc)
             return []
         found = []
@@ -219,11 +189,8 @@ class FilesystemSource:
         return sorted(found)
 
     def _files(self, name: str) -> dict[str, Path]:
-        """Every readable file in one secret, keyed by filename.
-
-        One level deep, always: a Kubernetes mount is exactly one level, and
-        recursing would invent a shape nothing else produces.
-        """
+        """Every readable file in one secret, keyed by filename, one level deep
+        as a Kubernetes mount is."""
         try:
             directory = self._dir(name)
         except InvalidName:
@@ -257,10 +224,8 @@ class FilesystemSource:
         keys = sorted(k for k in files if not k.startswith(RESERVED_PREFIX))
         described = self._read(files[DESCRIPTION]) if DESCRIPTION in files else ""
 
-        # Whether a leash was DECLARED, kept separately from what it resolved
-        # to. A file that exists but parses to nothing must not read as "no
-        # restriction" — that is one typo turning a leashed credential into an
-        # unleashed one, silently.
+        # Declared is kept apart from what it resolved to: a file that parses to
+        # nothing must not read as no restriction.
         declared = ALLOWED_URLS in files
         raw = self._read(files[ALLOWED_URLS]) if declared else ""
         allowed, rejected = [], []
@@ -271,10 +236,7 @@ class FilesystemSource:
             if parsed:
                 allowed.append(parsed)
             else:
-                # Never the line itself: a rejected line may be rejected
-                # *because* it carries credentials, and publishing it in
-                # /secrets would hand them back — undoing the check that
-                # refused it.
+                # Never the line: it may be rejected for carrying credentials.
                 rejected.append(_shown(line.strip()))
 
         entry = {
@@ -287,9 +249,7 @@ class FilesystemSource:
             "key_sources": {k: {"from": "filesystem"} for k in keys},
         }
         if rejected:
-            # Published rather than logged and forgotten: the listing is where
-            # an operator finds out their leash does not work, and the secret is
-            # unusable until they fix it.
+            # The listing is where an operator finds out the leash does not work.
             entry["allowed_urls_rejected"] = rejected
         return entry
 
@@ -312,12 +272,8 @@ class FilesystemSource:
         return tuple(stamps)
 
     def value(self, name: str, key: str) -> str | None:
-        """One value, read now and returned to exactly one caller.
-
-        Never cached: a rotated credential must not be served from memory after
-        it stopped working. Reserved names are refused rather than read, so a
-        bind cannot reach `_allowed_urls` and discover its own leash.
-        """
+        """One value, read now. Reserved names are refused, so a bind cannot
+        read `_allowed_urls`."""
         if key.startswith(RESERVED_PREFIX):
             return None
         path = self._files(name).get(key)
@@ -391,14 +347,11 @@ class ConfigEntries:
 class Catalogue:
     """Every source, as one list of secrets.
 
-    Sources are consulted in order and **the first match wins**, the way PATH
-    resolves a command. The entry says which source and which directory it came
-    from, because "why am I getting the wrong password" is otherwise
-    unanswerable.
+    Sources are consulted in order and the first match wins, the way PATH
+    resolves a command. The entry says which source and directory it came from.
 
     Filesystem secrets are visible to every workspace: a directory carries no
-    labels, and inventing a scoping convention for it would mean two mechanisms
-    doing one job (§F1.22). Workspace scoping arrives with Kubernetes in E8.
+    labels to scope it by.
     """
 
     def __init__(self, sources: list[SecretSource], ttl: int = CACHE_SECONDS,
@@ -426,25 +379,16 @@ class Catalogue:
         return None
 
     def _snapshot(self) -> tuple[dict, dict, int]:
-        """Every secret, and which source each of its keys came from, read together.
+        """Every secret, the source of each of its keys, and the revision.
 
-        **One snapshot, because the two are one fact.** The entry carries the
-        policy — which URLs a secret may be used on — and the owners are where
-        each key's value will be read from. Resolved separately they could
-        disagree: the listing was cached while a value was read live, so a name
-        appearing in a higher-priority directory during the TTL meant the old
-        secret's leash was checked and the new secret's value was returned.
+        The entries and the owners come from one read, so a bind checks the
+        leash of the same secret whose value it returns. Owners are per key:
+        `secrets.entries` can replace one key of a directory's secret and leave
+        the others to the filesystem.
 
-        A bind is a policy and a value about the same secret, or it is nothing.
-
-        The third part is the **revision**: a hash of the stamps of every usable
-        secret's key files and of its leash, so it moves when a key is rotated
-        or an origin is added to or taken from `allowed_urls`, and, being made
-        here, at most every `CACHE_SECONDS`.
-
-        Owners are per key, not per secret: `secrets.entries` can replace one
-        key of a directory's secret while leaving its other keys owned by the
-        filesystem, so "who owns this name" is not one answer.
+        The revision is a hash of the stamps of every usable secret's key files
+        and of its leash, so it moves when a key is rotated or `allowed_urls`
+        changes, at most every `CACHE_SECONDS`.
         """
         now = self._clock()
         if self._cache is not None and now < self._cache[0]:
@@ -565,10 +509,8 @@ class Catalogue:
     def value(self, name: str, key: str) -> str | None:
         """One value, for the binding path. No surface reaches this.
 
-        The value itself is read now rather than cached — a rotated password
-        should be the one that gets typed, and keeping credentials in memory to
-        make a check atomic would be a poor trade. What the snapshot fixes is
-        *which secret and which owner*, not what is inside it.
+        Read now, so a rotated password is the one typed. The snapshot fixes
+        which secret and which owner, not what is inside it.
         """
         _, owners, _ = self._snapshot()
         owner = owners.get(name, {}).get(key)
@@ -589,12 +531,8 @@ class Catalogue:
     def allows(self, name: str, url: str) -> bool:
         """Whether this secret may be used on the page the browser is on.
 
-        **No declaration means nowhere.** Every secret names its sites, and one
-        that does not carries `refused` in its listing entry.
-
-        **A declaration that does not parse means nowhere.** One typo in a
-        metadata file must not leave an unleashed credential. A broken leash is
-        still a leash.
+        No leash, or one that does not parse, means nowhere; such a secret
+        carries `refused` in its listing entry.
         """
         entry = self.entry(name)
         if entry is None:
@@ -605,8 +543,8 @@ class Catalogue:
         return bool(allowed) and origin(url) in allowed
 
     def revision(self) -> int:
-        """Moves when a usable secret's key file is replaced (ruling 10), or its
-        leash names other origins.
+        """Moves when a usable secret's key file is replaced, or its leash names
+        other origins.
 
         A stat-based hash computed with the listing, so it lags a rotation by at
         most `CACHE_SECONDS`. It carries no value.
@@ -636,28 +574,21 @@ class Catalogue:
         return forms
 
     def forms_for(self, origin_: str) -> Forms:
-        """Every form of every secret allowed on this origin, read now.
-
-        One of ruling 12's three read paths (see `bind`): origin activation, and
-        rotation, which rebuilds the current origin's set. The values are held by
-        the caller in process memory for one browser, never written, logged,
-        recorded or returned; only a `Forms` leaves.
+        """Every form of every secret allowed on this origin, read now: origin
+        activation, and rotation rebuilding the current origin's set.
 
         ``origin_`` is an origin already, as `urls.scope_origin` spells it, and
-        is compared as it is with the leash's lines, spelt the same way: parsed
-        again, an IPv6 host, unbracketed there, is no origin at all, and a
-        secret `allows` would type would be in scope nowhere.
+        is compared as it is with the leash's lines: parsed again, an IPv6 host,
+        unbracketed there, is no origin at all, and a secret `allows` would type
+        would be in scope nowhere.
         """
         if not isinstance(origin_, str) or not origin_:
             return Forms()
         return self._forms(lambda entry: origin_ in (entry.get("allowed_urls") or []))
 
     def leashed(self) -> Forms:
-        """Every form of every usable secret: the unknown-origin fail-closed read.
-
-        The third of ruling 12's read paths. A refused secret has no scope and is
-        never read.
-        """
+        """Every form of every usable secret: the unknown-origin fail-closed
+        read. A refused secret has no scope and is never read."""
         return self._forms(lambda entry: True)
 
 
@@ -675,19 +606,12 @@ def from_settings(
 
 
 # ---------------------------------------------------------------------------
-# The surface. One read, and nothing else — see §F1.31.
-#
-# There is deliberately no get-one, no create, no update and no delete. A
-# catalogue is the only question an agent has about secrets ("what may I
-# bind?"), and the answer to every other one is that this server does not do
-# that: an agent that could write a secret could write one whose _allowed_urls
-# it chose.
+# The surface: one read. No get-one, create, update or delete: an agent that
+# could write a secret could write one whose _allowed_urls it chose.
 
 LIST_URI = "secret://secrets"
 
-# What a listing entry's `refused` says, with `{fix}` naming the source the
-# secret came from. A secret that cannot be used is published with the reason
-# and the way out, because the listing is where an operator looks.
+# A listing entry's `refused`, with `{fix}` naming the source to fix.
 UNLEASHED = "no allowed sites are declared, so it cannot be used: {fix}"
 UNPARSED = "its allowed sites do not parse, so it cannot be used: {fix}"
 
@@ -762,26 +686,18 @@ def register(mcp, catalogue, token: str | None, prefix: str = "") -> None:
 
 
 # ---------------------------------------------------------------------------
-# Binding: the one path that reads a value, and the only one there will be.
+# Binding: the one path that returns a value.
 
-# Which actions may have a secret bound into them, and nothing else (§F1.28).
-#
-# Not `execute_script`: a script is arbitrary code, and a bindable argument
-# there is an exfiltration API with extra steps. Not `navigate`: a secret in a
-# URL lands in browser history, the referrer header, and this server's own
-# workspace record, which is stored in Redis. Not `press_key`, which has no value
-# to carry. `upload_file` says "not yet" rather than "never" — a credentials
-# file is a plausible later case.
-# Said by both surfaces that can meet a server with no catalogue — the listing
-# and the bind — and raised as two different exception types, which is why it
-# was written twice and why the two could drift.
+# Raised by the listing and by the bind, as different exception types.
 OFF = (
     "secrets are not enabled on this server: it was started with no "
     "secrets.dirs and no secrets.entries, so there is nowhere to read them from"
 )
 
+# Only `write` types a value into a field. `execute_script` could read it back,
+# and `navigate` would put it in history, the referrer and the workspace record.
 BINDABLE = {"write"}
-NOT_YET = {"upload_file"}
+NOT_YET = {"upload_file"}  # a credentials file is a plausible later case
 
 
 class Refused(ValueError):
@@ -800,15 +716,11 @@ def check(catalogue, reference, tool: str = "write") -> dict:
     asks it first, and `binding.bind_into` asks it before the page is read, so
     a refused secret costs no WebDriver round trip.
     """
-    # Shape-checked here, not only in the typed MCP parameter: the HTTP surface
-    # passes raw JSON straight in, so a bare string reached `.get` and
-    # raised AttributeError, which `errors.status_for` could only read as a 500
-    # — our failure, for a caller's malformed request.
+    # The HTTP surface passes raw JSON in, so the shape is checked here too, by
+    # the flow validator's rule: a reference with a field this reads nothing
+    # from asks for a different binding than the one that would run.
     from .flows.document import reference_problems
 
-    # The validator's rule, not a copy of it: a reference with a field this
-    # reads nothing from is a request for a different binding than the one that
-    # would run.
     problems = reference_problems(reference)
     if problems:
         raise Refused("; ".join(problems))
@@ -837,8 +749,7 @@ def check(catalogue, reference, tool: str = "write") -> dict:
             f"{', '.join(entry['keys']) or 'none'}"
         )
     if entry.get("refused"):
-        # Loudest of anything here: a secret is being asked for and cannot be
-        # used until an operator fixes its leash. Identifiers only.
+        # Identifiers only.
         log.warning(
             "REFUSED binding secret %s/%s: no usable allowed sites",
             entry.get("name") or "?", key,
@@ -850,40 +761,22 @@ def check(catalogue, reference, tool: str = "write") -> dict:
 def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") -> str:
     """The value a `secret` reference names, or refuse.
 
-    **The only function in this package that returns a secret value**, and it
-    returns it to exactly one caller: whichever surface is about to type it into
-    a field. It is not cached, not logged, and not put in any result.
+    The only function in this package that returns a secret value, to the one
+    surface about to type it into a field. Read fresh, so a rotated credential
+    is the one typed; not cached, not logged, and not put in any result.
 
-    It still reads fresh at the moment it types, so a rotated credential is the
-    one typed. It has a second reader now: the scrubber (Task 5), which reads
-    through `Catalogue.forms_for` and `leashed` on ruling 12's three paths
-    (activation, rotation, unknown-origin fail-closed) so that a value allowed
-    on a page is masked wherever it appears, typed or not. That reader holds
-    forms in process memory for one browser and returns no bare value.
-
-    ``url`` is the page the browser is **actually on**, read at the moment of
-    the bind. Checking anything else would check a permission against a page
-    other than the one receiving the keystroke. In a frame it is the top page
-    and then the frame's origin (`binding.receiving`), and **each** must be
-    allowed: the frame is a tightening, so nothing the top-page check refused
-    can pass. A refusal names the first one that is not. A secret with no usable
-    leash is refused before any page is considered (`check`).
+    ``url`` is the page the browser is on, read at the moment of the bind. In a
+    frame it is the top page and then the frame's origin (`binding.receiving`),
+    and each must be allowed, so the frame only tightens. A refusal names the
+    first one that is not. A secret with no usable leash is refused before any
+    page is considered (`check`).
     """
     entry = check(catalogue, reference, tool)
     name, key = reference["name"], reference["key"]
 
-    # What the audit lines below name the secret by. Taken from the catalogue's
-    # own record rather than from the caller's reference, which is both safer
-    # and more accurate: it is the secret that was *resolved*, spelled as the
-    # source spells it, instead of the string a request asked with.
-    #
-    # `name` and `key` are IDENTIFIERS — "nextcloud" and "password" — never the
-    # credential, and an audit line without them says nothing useful. Reading
-    # them off the entry is also what stops a scanner reading every field of a
-    # caller-supplied `{"secret": ...}` object as the secret itself: the entry
-    # is built from the source's own listing, so nothing here is derived from
-    # the request. `test_the_audit_trail_never_contains_a_value` captures this
-    # logger and proves the value never joins them.
+    # The audit lines name the secret as the catalogue resolved it, so nothing
+    # they log comes from the request, and a scanner does not read a field of
+    # the caller's `{"secret": ...}` as the secret itself.
     known = entry.get("name") or "?"
     known_key = next((k for k in entry["keys"] if k == key), "?")
 
@@ -891,9 +784,6 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
     for here in pages:
         if catalogue.allows(name, here):
             continue
-        # Logged loudest of anything here: something tried to use a credential
-        # on a page its owner did not allow, which is the event an operator most
-        # wants to know about.
         log.warning(
             "REFUSED binding secret %s/%s on %s: not an allowed site",
             known, known_key, origin(here) or "an unknown page",
@@ -902,9 +792,8 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
         raise Refused(
             f"the secret {name!r} may not be used on "
             f"{origin(here) or 'this page'}. It allows: "
-            # True of both sources of a leash: a directory's `_allowed_urls`
-            # that fails to parse, and a config `allowed_urls: []` — declared,
-            # and immediately exhausted.
+            # A directory's `_allowed_urls` that does not parse, or a config
+            # `allowed_urls: []`.
             + (allowed or "nowhere — its allowed_urls list is empty or does not parse")
         )
 
@@ -916,9 +805,7 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
             else f"the secret {name!r} has no readable value for {key!r}"
         )
 
-    # The audit trail: what was used, where, by which action. Never the value —
-    # these are the identifiers it was looked up by, and `value` above is
-    # deliberately not among the arguments.
+    # The audit trail: what was used, where, by which action. Never `value`.
     log.info(
         "bound secret %s/%s on %s for %s",
         known, known_key, " in ".join(reversed([origin(p) for p in pages])), tool,
@@ -929,27 +816,23 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
 def perform_write(
     catalogue, actions, workspaces, name: str, kwargs: dict, *, surface: str = "mcp"
 ) -> dict:
-    """A whole bound write — resolve, type, redact, remember — on either surface.
+    """A whole bound write (resolve, type, redact, remember) on either surface.
 
-    Deliberately NOT routed through ``Workspaces.act``. That touches the workspace
-    with the URL the action returned, and ``submit=True`` can land the browser
-    on ``?q=<what was typed>`` — so the shared wrapper would persist the
-    credential into the workspace record before anything had a chance to redact
-    it. Everything else about a write is identical, which is exactly why this
-    lives in one place: two copies of a redaction are one copy that is older.
-    It settles like any other action, through ``Workspaces.settle``, with the page
-    withheld when the value reached it.
+    Not routed through ``Workspaces.act``, which touches the workspace with the
+    URL the action returned: ``submit=True`` can land the browser on
+    ``?q=<what was typed>``, and the record would hold the credential before it
+    was redacted. It settles like any other action, through
+    ``Workspaces.settle``, with the page withheld when the value reached it.
 
-    The page read, the leash check and the keystrokes are ONE turn on the
-    browser (`workspace.locks`): another call navigating or switching frames
-    between the check and the typing would type the value somewhere the leash
-    never saw (Copilot, #52).
+    The page read, the leash check and the keystrokes are one turn on the
+    browser (`workspace.locks`), so no other call can navigate or switch frames
+    between the check and the typing.
 
-    It is a call like any other (`workspace.calls`), said from inside that turn,
-    and refused there while a person holds the browser (`faults.Controlled`):
-    the value's every spelling is handed to capture *before* the keystrokes, so
-    a page that echoes it is masked from its first event (ruling 13), and with
-    capture on the result carries ``page`` like `Workspaces.act`'s.
+    It is a call like any other (`workspace.calls`), begun inside that turn and
+    refused there while a person holds the browser (`faults.Controlled`). The
+    value's every spelling is handed to capture before the keystrokes, so a page
+    that echoes it is masked from its first event, and with capture on the
+    result carries ``page`` like `Workspaces.act`'s.
     """
     from . import binding
 
@@ -959,12 +842,11 @@ def perform_write(
     failure = None
     try:
         with locks.driving(resolved):
-            # Where the browser was before the call: the scrub checks the secrets
-            # in scope there as well as where it landed (spec
-            # 2026-11-14-secret-scope, ruling 11).
+            # The scrub checks the secrets in scope where the browser was before
+            # the call as well as where it landed.
             before = workspaces.origins.current(name, resolved)
             # Refused here while a person holds the browser: after the turn,
-            # before the page is read or the call is begun (live control, ruling 32).
+            # before the page is read.
             begun = calls.begin(name, resolved, browser=kind, tool="write")
             try:
                 given, guarded = binding.bind_into(
@@ -982,10 +864,10 @@ def perform_write(
                 calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
                 failure = exc
             if failure is not None:
-                # Scrubbed in place, never swallowed nor rewrapped, so it keeps its
-                # type and its status (ruling 23): an action puts its arguments in
-                # its error text. Outside the `except`, so a scrub that fails is
-                # never chained to the original.
+                # Scrubbed in place, never swallowed or rewrapped, so it keeps its
+                # type and status: an action puts its arguments in its error
+                # text. Outside the `except`, so a failed scrub is never chained
+                # to the original.
                 _scrub_typed(failure, hidden)
                 workspaces.scrubber.error(name, resolved, failure, [before, None])
                 raise failure
@@ -997,14 +879,10 @@ def perform_write(
             shown, carried = workspaces.scrubber.result(
                 name, resolved, shown, [before, after]
             )
-        # Only remember a page no value reached, typed or in scope there (ruling
-        # 21); a later reattach would navigate to it. Touched either way.
-        # Withholding the page must not also stop the clock: `touch` slides the
-        # TTL, and skipping it entirely let a workspace expire *because* its URL
-        # was correctly kept out of the store.
-        #
-        # The first call after a silent reopen says what came back: `settle` puts
-        # that on `shown`.
+        # Only remember a page no value reached, typed or in scope there: a
+        # later reattach would navigate to it. `settle` touches either way, so a
+        # withheld page still slides the TTL, and puts on `shown` what a silent
+        # reopen brought back.
         safe = None if carried else binding.safe_url(result, hidden)
         workspaces.settle(name, shown, url=safe, browser=resolved)
         if page is not None:
