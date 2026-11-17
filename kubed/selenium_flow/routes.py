@@ -1,29 +1,13 @@
-"""The HTTP surface: the same capabilities, as REST.
+"""The HTTP surface: the browser actions as REST, the probes and the spec.
 
-Served alongside ``/mcp`` so a caller that is not an MCP client — an n8n HTTP
-Request node, a shell script, a health probe — can drive the browser without
-speaking JSON-RPC. The handlers call ``actions.py`` through the same
-``Workspaces`` the tools use, so the two surfaces cannot disagree about what
-an operation does *or* about whose browser it does it to.
+The handlers go through the same ``Workspaces`` the tools use, so both surfaces
+agree on what an action does and whose browser it does it to. Each action's
+path and method are columns of its row in ``core/capabilities.py``; a tool is a
+verb and a route a path plus a method, so neither is derived from the other.
 
-**Paths and methods are declared, not derived** (§F2.13). Generating this
-surface from the tool list produced RPC wearing URLs — ``POST /flows/get`` for
-what is plainly ``GET /flows/{name}`` — because a tool is a verb with arguments
-while a resource is a path plus a method. Each browser action's path and method
-are columns of its row in ``core/capabilities.py``, and every row is mounted
-here. What the two surfaces still share is what matters: the bodies and the
-results come from the same action signatures, so neither can accept something
-the other refuses.
-
-**The workspace is who is calling, never a body field and never a path
-segment** — ``Sf-Workspace`` or ``?workspace=``, read by
-``Caller.from_request``. A browser is addressed by naming yourself, which is why
-there is one browser resource here rather than one per id: ``POST /browser``
-opens *yours*.
-
-The one place a workspace appears in a path is ``/admin``, which is the same
-rule from the other side: the token holder looking across workspaces is the
-only role that addresses them as resources.
+The workspace is who is calling (``Sf-Workspace`` or ``?workspace=``), never a
+body field or a path segment, so there is one browser resource: ``POST
+/browser`` opens yours. Only ``/admin`` puts a workspace in a path.
 """
 
 from __future__ import annotations
@@ -53,22 +37,16 @@ from .workspace.workspaces import Caller, Workspaces
 
 log = logging.getLogger(__name__)
 
-# `/ready` remembers the Grid's answer this long: a kubelet, a load balancer
-# and anyone with curl all hit it unauthenticated, and each hit dialled the Grid
-# twice. Read at call time, so a test can swap the clock.
+# `/ready` remembers the Grid's answer this long, since anyone may call it and
+# each call dials the Grid twice. Read at call time, so a test can swap the clock.
 READY_TTL = 2.0
 clock = time.monotonic
 
 def mount(value: str | None) -> str:
     """``ROUTE_PREFIX`` as a path segment every route hangs off, or "" for root.
 
-    **The whole server moves, not the browser endpoints** (§F1.11). It used to
-    rename `/browser` while `/mcp`, `/admin` and `/files` stayed fixed, which is
-    backwards: nobody wants the browser endpoints called something else, and
-    everybody eventually wants the server mounted under a path.
-
-    `/` and `""` both mean root, because `/` is what an operator types when they
-    mean "no prefix" and a literal `/` would make every path start `//`.
+    `/` means root too: it is what an operator types for "no prefix", and kept
+    literally every path would start `//`.
     """
     text = str(value or "").strip().strip("/")
     return f"/{text}" if text else ""
@@ -86,29 +64,13 @@ def register(
 ) -> None:
     """Register the ops endpoints, the spec, and the browser resource on ``mcp``.
 
-    ``prefix`` is where the **whole server** is mounted, and every tree is fixed
-    beneath it (§F1.11) — the spec included, because a person reading it in a
-    browser should find it where everything else lives.
-
-    **The four ops endpoints are the only things served twice** — `/health`,
-    `/started`, `/ready` and `/info`: under the prefix like the rest, and at the
-    root whatever the prefix is. A probe that 404s after a config change is the
-    failure §F1.11 named, and a kubelet is not the one who chose the mount.
+    Everything hangs under ``prefix``. The four ops endpoints also answer at
+    the root, because a kubelet did not choose the mount.
     """
     browser_root = f"{prefix}/browser"
     live = live if live is not None else LiveSettings()
 
-    # ---- the ops endpoints -------------------------------------------------
-    #
-    # One endpoint per question, rather than one endpoint answering several.
-    # `/openapi.json` was being used as a liveness probe in this cluster, which
-    # it is not: it happens to be unauthenticated and cheap, so it stood in for
-    # a probe that did not exist. These are that probe, and each says exactly
-    # one thing (Dr K).
-    #
-    # All four answer at the root AS WELL as under the mount, because their
-    # reader is a kubelet or a load balancer that did not choose the mount —
-    # and a probe that 404s after a config change is the failure §F1.11 named.
+    # ---- the ops endpoints: one question each -------------------------------
 
     def ops_route(path: str, name: str):
         """Bind one ops endpoint at the root and under the mount."""
@@ -125,23 +87,17 @@ def register(
 
     @ops_route("/health", "health")
     async def health(_request: Request) -> JSONResponse:
-        """**Liveness**: is this process still working?
+        """Liveness: is this process still working?
 
-        Deliberately says nothing about the Grid. A liveness probe that failed
-        on a Grid outage would restart every replica for a fault in another
-        service, which is the one thing a liveness probe must never do — and it
-        is why this cluster was probing `/openapi.json` instead.
+        Says nothing about the Grid: a probe that failed on a Grid outage would
+        restart every replica for another service's fault.
         """
         return JSONResponse({"status": "ok"})
 
     @ops_route("/started", "started")
     async def started(_request: Request) -> JSONResponse:
-        """**Startup**: has this process finished coming up?
-
-        It answers only once the routes are registered, which is the whole
-        question a startup probe asks. Separate from `/health` because they
-        differ in what a failure means: not yet, versus no longer.
-        """
+        """Startup: has this process finished coming up? It answers once the
+        routes are registered."""
         return JSONResponse({"status": "started"})
 
     # [when, body, status] of the last Grid answer, ok or failing alike.
@@ -149,22 +105,18 @@ def register(
 
     @ops_route("/ready", "ready")
     async def ready(_request: Request) -> JSONResponse:
-        """**Readiness**: can this process serve a request right now?
+        """Readiness: can this process serve a request right now?
 
-        This is the one that depends on the Grid, because a server that cannot
-        reach one can accept a call and do nothing with it. A 503 here takes the
-        pod out of the Service and leaves it running, which is what a Grid
-        outage should cost.
+        The one that asks the Grid. A 503 takes the pod out of the Service and
+        leaves it running.
         """
         now = clock()
         if answered and now - answered[0] < READY_TTL:
             return JSONResponse(answered[1], status_code=answered[2])
         grid = urls.public_url(actions.grid.url)
         try:
-            # In a thread: both are synchronous `requests` calls, and a Grid
-            # that has gone away blocks until it times out. On the event loop
-            # that stall would take `/health` — and every other request — down
-            # with it, which is the outage this split exists to survive.
+            # In a thread: a Grid that has gone away blocks these synchronous
+            # calls until they time out, and on the loop `/health` would stall too.
             status = await run_in_threadpool(actions.grid.status)
             ready = bool(status["value"]["ready"])
             running = await run_in_threadpool(actions.grid.session_count)
@@ -188,12 +140,8 @@ def register(
 
     @ops_route("/info", "info")
     async def info(_request: Request) -> JSONResponse:
-        """What this process **is** — version, where it is mounted, what is on.
-
-        Not a probe: the question an operator asks when a call went somewhere
-        unexpected. The Grid is named without its credentials, which `GRID_URL`
-        may carry and which this answers to anyone (`urls.public_url`).
-        """
+        """What this process is: version, mount, the Grid without its
+        credentials, and the workspace store. Not a probe."""
         from .spec.builder import _version
 
         return JSONResponse(
@@ -219,12 +167,8 @@ def register(
 
     @mcp.custom_route(f"{prefix}/openapi.yaml", methods=["GET"], name="openapi_yaml")
     async def openapi_yaml(_request: Request) -> Response:
-        """The HTTP surface as OpenAPI 3.1.
-
-        Unauthenticated, like /health: it is a description of the API, not a way
-        into it, and a client that cannot read the contract before presenting a
-        token is needlessly awkward to work with.
-        """
+        """The HTTP surface as OpenAPI 3.1. Unauthenticated: it describes the
+        API and opens nothing."""
         return Response(
             yaml.safe_dump(await spec(), sort_keys=False, width=100),
             media_type="application/yaml",
@@ -237,13 +181,8 @@ def register(
 
     # ---- the browser this caller holds ------------------------------------
     #
-    # One resource, not one per browser id. Which browser is a question about
-    # who is asking, and the answer is in the header or the query string.
-    #
-    # Opening and ending it are the two capabilities with no path of their own.
-    # The workspace manager serves them rather than `workspaces.act`, because it is
-    # where a browser is made and let go, so their calls are written here; they
-    # are mounted with every other row, at the method the row declares.
+    # Opening and ending it have no path of their own and are served by the
+    # workspace manager, not `workspaces.act`, so their calls are written here.
 
     def opened(caller, body):
         """Open a session in this workspace, or pick up the one it was using."""
@@ -257,9 +196,7 @@ def register(
 
     def ended(caller, _body):
         """Quit the browser, keeping the workspace and what it was doing."""
-        # The browser that was ended is deliberately NOT reported: the Grid's
-        # id is how a browser is reached, not part of what a caller is told
-        # (E18). Returning it here was the one place that leaked (Copilot, #34).
+        # The Grid id is never reported: it is how a browser is reached.
         workspaces.end_browser(caller)
         return {"success": True, "workspace": caller.name}
 
@@ -271,25 +208,21 @@ def register(
     @mcp.custom_route(browser_root, methods=["GET"], name="browser_status")
     async def browser_status(request: Request) -> JSONResponse:
         """What this workspace is and whether it holds a browser. Opens nothing."""
-        # Reported as named by `request` on this surface, as it always has been,
-        # where MCP says `query` or `header` (M36): a divergence to settle on
-        # its own, not inside a refactor. With a token configured only a token
-        # holder gets here, so it is the admin; an open server has no principal.
+        # Named by `request` here, where MCP says `query` or `header`. With a
+        # token only its holder gets here, the admin; an open server has none.
         return await _answer(request, token, "status", lambda caller, _body: (
             workspaces.describe(
                 Caller(caller.name, "request", principal=ADMIN if token else None)
             )
         ))
 
-    # The same two reads the resources make, beside them the way `/files` is
-    # beside its own. Literal route first, so the listing is never the template.
+    # The literal route first, so the listing is never taken for the template.
     @mcp.custom_route(f"{prefix}/site-data", methods=["GET"], name="site_data_list")
     async def site_data_list(request: Request) -> JSONResponse:
         """The sites this workspace has saved data for. Never a value."""
         return await answer_module.answer(
             request, token, "site-data/list",
             lambda caller, _body: resources.site_listing(workspaces, caller.name), log,
-            # A site's words, as `workspace://site-data` is (ruling 16).
             scrubbed=workspaces.scrubbed,
         )
 
@@ -306,11 +239,10 @@ def register(
             scrubbed=workspaces.scrubbed,
         )
 
-    # The calls that wait, each a body of its own, awaited on the loop: a long
-    # poll holding one of the worker threads would starve every other call
-    # while it waited (live control spec, ruling 30).
+    # Awaited on the loop: a long poll holding a worker thread would starve
+    # every other call while it waited.
     async def awaited(caller, _body):
-        """Wait for the person to hand back, up to `live.await_cap` (ruling 15)."""
+        """Wait for the person to hand back, up to `live.await_cap`."""
         return await control_module.await_control(
             workspaces.control, workspaces, caller.name,
             cap=live.await_cap, surface="http",
@@ -335,12 +267,7 @@ def register(
 
 
 async def _answer(request, token, what, call) -> JSONResponse:
-    """Authorise, name the workspace, run ``call``, and turn a failure into JSON.
-
-    The decision itself lives in ``http.answer``, shared with the flows and
-    files trees so a refusal reads the same whichever one produced it. This
-    passes our own logger, so a record still names this module.
-    """
+    """``http.answer.answer`` with this module's logger."""
     return await answer_module.answer(request, token, what, call, log)
 
 
@@ -355,31 +282,19 @@ def _bind(mcp, token, route, http_method, name, what, call) -> None:
 def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) -> None:
     """Bind one action to ``<prefix>/<route>``, at the method its row declares."""
     method = getattr(actions, row.method)
-    # `session_id` is the Grid's, supplied by the workspace manager. It was never
-    # a field a caller filled in and now it is not one it could.
-    #
-    # `library_arg` is the same story for a different reason: it names the
-    # *caller*, not the action, and only a flow run is allowed to supply it
-    # (Copilot, #41). Dropped the same way an unknown field is — silently,
-    # below — rather than refused, so a request naming another workspace's
-    # library over HTTP just falls back to its own, the way naming none at
-    # all always has.
+    # `session_id` comes from the workspace manager, and `library_arg` names the
+    # caller, which only a flow run may supply. Both are dropped like any
+    # unknown field, so naming another workspace's library falls back to one's own.
     accepted = set(inspect.signature(method).parameters) - {
         "session_id",
         row.library_arg,
     }
-    # `secret` is not an argument of the action — resolving it needs the secret
-    # catalogue, which the behaviour layer deliberately cannot see. It is still
-    # a parameter of the *capability*, so this surface has to accept it or the
-    # two surfaces differ in what they can do, which is the one divergence this
-    # package does not allow. It is dropped from `accepted` by that same
-    # signature check, so without this an HTTP caller's binding vanished
-    # silently while the published spec advertised it.
+    # `secret` is a parameter of `write` the capability, not of the action:
+    # resolving it needs the catalogue, which the action cannot see.
     binds = row.name == "write"
     if binds:
-        # `read_back` is an internal switch for a bound write, not a request
-        # field: accepting it would let a caller ask for `value: null` with no
-        # binding, which neither MCP nor the published spec offers.
+        # `read_back` is a bound write's internal switch: accepted, it would let
+        # a caller ask for `value: null` with no binding.
         accepted = (accepted | {"secret"}) - {"read_back"}
     path = row.route
     route = f"{prefix}/{path}" + ("/{action}" if row.in_path else "")
@@ -387,14 +302,13 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
     @mcp.custom_route(route, methods=[row.http_method], name=f"browser_{path}")
     async def handler(request: Request) -> JSONResponse:
         def call(caller, body):
-            # Unknown keys are dropped rather than refused: a caller sending a
-            # field a newer version accepts should not be a hard failure.
+            # Unknown keys are dropped, so a field a newer version accepts is
+            # no failure.
             kwargs = {k: v for k, v in body.items() if k in accepted}
             if row.in_path:
                 kwargs["action"] = request.path_params["action"]
             if binds and kwargs.get("secret") is not None:
-                # Its own path, because a bound write must not let the shared
-                # wrapper store the page it landed on. See secrets.perform_write.
+                # A bound write must not let `act` store the page it landed on.
                 return secrets_module.perform_write(
                     catalogue, actions, workspaces, caller.name, kwargs,
                     surface="http",
