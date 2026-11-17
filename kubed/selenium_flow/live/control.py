@@ -392,6 +392,13 @@ class Controls:
             del self._unsaid[workspace]
         return Waited("handed_back", episode)
 
+    def put_back(self, workspace: str, episode: Episode) -> None:
+        """Make a hand-back `wait` spent unsaid again, for a waiter that never
+        answered; not once the workspace has moved on or the server stops."""
+        if self.stopped or workspace in self._episodes or workspace in self._unsaid:
+            return
+        self._unsaid[workspace] = episode
+
 
 # ---- await_control ---------------------------------------------------------------
 
@@ -499,8 +506,15 @@ async def await_control(
     if waited.kind == "still":
         return _still(episode)
     told = None if episode is None else handed(episode)
-    summary = await anyio.to_thread.run_sync(
-        functools.partial(workspaces.handed_back, name, told, surface=surface)
-    )
+    try:
+        summary = await anyio.to_thread.run_sync(
+            functools.partial(workspaces.handed_back, name, told, surface=surface)
+        )
+    except asyncio.CancelledError:
+        # A task is marked cancelled a moment before its coroutine is, so a
+        # hand-back can wake a wait nobody will read: the next call says it.
+        if waited.kind == "handed_back":
+            controls.put_back(name, episode)
+        raise
     summary["message"] = _message(episode, summary)
     return summary

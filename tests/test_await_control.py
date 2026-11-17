@@ -29,7 +29,13 @@ from kubed.selenium_flow.config import ConfigError, Settings, load
 from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
 from kubed.selenium_flow.http import answer as answer_module
-from kubed.selenium_flow.live.control import ENDED, NOBODY, STILL, STOPPING
+from kubed.selenium_flow.live.control import (
+    ENDED,
+    NOBODY,
+    STILL,
+    STOPPING,
+    await_control,
+)
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import waiting
 from kubed.selenium_flow.server import SeleniumMCP
@@ -346,6 +352,34 @@ async def test_a_cancelled_wait_leaves_the_episode_holding(server, named, monkey
         # Nobody heard it: the hand-back is still to be said.
         assert server.controls.notice("w1")["state"] == "handed_back"
 
+
+
+async def test_a_hand_back_heard_by_a_wait_being_cancelled_is_still_to_be_said(
+    server, monkeypatch
+):
+    """A task is marked cancelled before its coroutine is: a hand-back landing
+    in between wakes the wait, and the cancel lands while the page is read."""
+    tunnel = await hold(server)
+    reading, release = threading.Event(), threading.Event()
+
+    def outline(_sid, **_kw):
+        reading.set()
+        release.wait(SOON)
+        return dict(OUTLINE)
+
+    monkeypatch.setattr(server.actions, "outline", outline)
+    async with asyncio.timeout(SOON):
+        waiter = asyncio.create_task(
+            await_control(server.controls, server.workspaces, "w1", cap=None)
+        )
+        await asyncio.sleep(0)
+        hand_back(tunnel)
+        assert await asyncio.to_thread(reading.wait, SOON)
+        waiter.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+    assert server.controls.notice("w1")["state"] == "handed_back"
 
 @contextmanager
 def turn_held():
