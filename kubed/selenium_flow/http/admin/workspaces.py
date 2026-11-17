@@ -31,6 +31,7 @@ from ...names import (
 )
 from ...site_data import snapshot as site_data
 from ...workspace.calls import told
+from ...workspace.store import Workspace
 from ...workspace.workspaces import Caller
 from .. import answer, links
 
@@ -113,6 +114,12 @@ def revision(flow_store, workspace: str) -> str:
     except Exception:  # noqa: BLE001 - never worth failing a listing
         log.info("could not read the flow revision for %s", workspace)
         return ""
+
+
+def flows_revision(own: str, shared: str, config: str) -> str:
+    """The flow panel's stamp: both libraries, and the config when there is
+    one, which says which shared flows are offered."""
+    return f"{own}+{shared}" + (f"+{config}" if config else "")
 
 
 def library(key: str) -> str:
@@ -367,9 +374,15 @@ def mount(
         shared_rev = (
             revision(flow_store, GLOBAL_WORKSPACE) if flow_store is not None else ""
         )
+        configs = workspaces.configs
+        # A workspace kept by its config is listed with no record, as one that
+        # has never opened a browser.
+        entries = sorted(records.items(), key=_recency, reverse=True) + [
+            (name, Workspace()) for name in configs.kept_names() if name not in records
+        ]
 
         rows = []
-        for key, record in sorted(records.items(), key=_recency, reverse=True):
+        for key, record in entries:
             sid = record.session_id
             live = bool(sid) and sid in running
             downloads = None
@@ -420,10 +433,14 @@ def mount(
                 [record.site_data.get("saved_at"), [s["site"] for s in listed["sites"]]]
             )
             visited = site_data.history_hosts(record.history)
+            config_rev = configs.revision(workspace) if workspace else ""
             rows.append(
                 {
                     "key": key,
                     **owner_label(key),
+                    "kept": configs.kept(key),
+                    # A hand edit too: the Config tab and its banner reload.
+                    "config_rev": config_rev,
                     "session_id": sid or None,
                     "attached": bool(sid),
                     "live": live,
@@ -470,9 +487,12 @@ def mount(
                     # None when flows are off, which is not zero.
                     "flows_count": (len(flow_names) if stores else None),
                     # This workspace's library and the shared one: the panel
-                    # lists both.
+                    # lists both. And its config, which says which shared
+                    # flows are offered.
                     "flows_rev": (
-                        revision(flow_store, workspace) + "+" + shared_rev
+                        flows_revision(
+                            revision(flow_store, workspace), shared_rev, config_rev
+                        )
                         if stores
                         else None
                     ),

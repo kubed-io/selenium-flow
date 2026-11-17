@@ -13,11 +13,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ...flows import api as flowapi
+from ...flows import library as flowlib
+from ...flows import tags as flowtags
 from ...flows import template
 from ...flows.shape import Shape
 from ...names import GLOBAL_WORKSPACE, library_of, valid_name
 from .. import answer
-from .workspaces import library, revision
+from .workspaces import flows_revision, library, revision
 
 log = logging.getLogger(__name__)
 
@@ -45,10 +47,12 @@ def _uses(document: dict) -> dict[str, list[int]]:
     return uses
 
 
-def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
+def mount(mcp, flow_store, schemas, prefix, guarded, changes, configs=None) -> None:
     """Mount the flow catalogue, the editor's read/write/delete, and move.
 
     ``changes`` marks the routes that change what the workspace list shows.
+    ``configs`` is every workspace's config, whose revision the listing's
+    carries.
     """
 
     def enabled() -> None:
@@ -74,12 +78,16 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         # redundant refresh, where the other order would pair old summaries
         # with the new revision and the page would never repaint.
         rev = await run_in_threadpool(
-            lambda: revision(flow_store, workspace)
-            + "+"
-            + revision(flow_store, GLOBAL_WORKSPACE)
+            lambda: flows_revision(
+                revision(flow_store, workspace),
+                revision(flow_store, GLOBAL_WORKSPACE),
+                configs.revision(workspace) if configs is not None else "",
+            )
         )
         try:
-            payload = await run_in_threadpool(flowapi.catalogue, flow_store, workspace)
+            payload = await run_in_threadpool(
+                flowapi.catalogue, flow_store, workspace, True
+            )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"flows for {key}", log)
         return JSONResponse(
@@ -112,7 +120,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             if request.method in ("GET", "DELETE"):
                 # The flow as resolved: this workspace's, else the shared one.
                 found = await run_in_threadpool(
-                    flowapi.read_one, flow_store, workspace, name
+                    flowapi.read_one, flow_store, workspace, name, True
                 )
                 where = found["workspace"]
                 if request.method == "GET":
@@ -137,6 +145,39 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
             return answer.refused(exc, f"flow {name} for {key}", log)
 
     @mcp.custom_route(
+        f"{prefix}/admin/workspaces/{{key}}/flows/{{name}}/tags",
+        methods=["PUT"],
+        name="admin_flow_tags",
+    )
+    @guarded
+    @changes
+    async def admin_flow_tags(request: Request) -> JSONResponse:
+        """Set one flow's tags where it lives, rewriting only its top-level
+        `tags` in the stored text."""
+        key = request.path_params["key"]
+        name = request.path_params["name"]
+        try:
+            workspace = library(key)
+            enabled()
+            body = await answer.read_body(request)
+            tags = flowtags.read(body.get("tags") if isinstance(body, dict) else None)
+            found = await run_in_threadpool(
+                flowapi.read_one, flow_store, workspace, name, True
+            )
+            where = found["workspace"]
+            text = await run_in_threadpool(flow_store.read_text, where, name)
+            if text is None:  # pragma: no cover - read_one just found it
+                raise ValueError(f"no flow called {name!r} in {where}")
+            rewritten = flowlib.with_tags(text, tags)
+            flowlib.check_size(rewritten)
+            await run_in_threadpool(flow_store.write_text, where, name, rewritten)
+            return JSONResponse(
+                {"saved": True, "workspace": where, "name": name, "tags": tags}
+            )
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return answer.refused(exc, f"tags of {name} for {key}", log)
+
+    @mcp.custom_route(
         f"{prefix}/admin/workspaces/{{key}}/flows/{{name}}/move",
         methods=["POST"],
         name="admin_move_flow",
@@ -156,7 +197,7 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
                 body.get("to") if isinstance(body, dict) else None, "workspace name"
             )
             found = await run_in_threadpool(
-                flowapi.read_one, flow_store, workspace, name
+                flowapi.read_one, flow_store, workspace, name, True
             )
             source = found["workspace"]
             if source == target:

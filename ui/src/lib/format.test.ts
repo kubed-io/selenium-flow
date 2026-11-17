@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { browserState, windowSize, captureFact, ago, idle, browserMark, bytes, clock, countsText, duration, flowParams, glyphFor, leaf, metaLine, plural, readable, safeHref, until, workspaceLabel, stepSummary } from './format'
+import { browserState, windowSize, captureFact, ago, idle, browserMark, bytes, clock, countsText, duration, span, flowParams, glyphFor, leaf, metaLine, plural, readable, safeHref, until, workspaceLabel, stepSummary } from './format'
 
 describe('format', () => {
   test('idle timeout: seconds, then where it came from; nothing when unknown (spec ruling 11)', () => {
@@ -154,4 +154,13 @@ test('browserState: open, idle, unknown', () => {
   expect(browserState({ key: 'k', attached: true, grid_listed: false })).toBe('unknown')
   expect(browserState({ key: 'k', attached: true, grid_listed: true })).toBe('idle')
   expect(browserState({ key: 'k' })).toBe('idle')
+})
+
+test('span says a length of time in its largest whole unit', () => {
+  expect(span(86400)).toBe('a day')
+  expect(span(2 * 86400)).toBe('2 days')
+  expect(span(3600)).toBe('an hour')
+  expect(span(36 * 3600)).toBe('36 hours')
+  expect(span(90 * 60)).toBe('90 minutes')
+  expect(span(45)).toBe('45 seconds')
 })

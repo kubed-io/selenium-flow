@@ -67,6 +67,11 @@ class Controlled(Exception):
         super().__init__(message)
 
 
+class Conflict(Exception):
+    """The request is fine, and what the server holds refuses it: a 409. Its
+    message says what has to change first."""
+
+
 class NoSession(ValueError):
     """The caller's workspace has no session open: a 400, since the fix is the
     caller's — call ``open_session`` — unless the call says otherwise

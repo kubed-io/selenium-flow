@@ -225,51 +225,124 @@ def test_a_reap_with_no_site_data_is_said_once(named_caller):  # ruling 2
     assert "reopened" not in m.act(Caller(NAMED), lambda s: {"url": URL})
 
 
-@pytest.mark.parametrize("keep_alive, grid_timeout, seconds, cause", [
-    (900, 300, 899, "lost"), (900, 300, 900, "reaped"),
-    (0, 300, 299, "lost"), (0, 300, 300, "reaped"),
-    (0, None, 299, "lost"), (0, None, 300, "reaped"),
-    (120, 300, 200, "lost"),  # the longer of the two (ruling 14)
+@pytest.mark.parametrize("grid_timeout, seconds, cause", [
+    (300, 299, "lost"), (300, 300, "reaped"),
+    (None, 299, "lost"), (None, 300, "reaped"),
 ])
-def test_the_cause_is_judged_by_the_window(named_caller, keep_alive, grid_timeout, seconds, cause):
-    m = Workspaces(SiteActions(), MemoryStore(), keep_alive=keep_alive, monitor=FakeMonitor())
-    m.booted = 0.0  # the idle spell was this process's
+def test_the_cause_is_judged_by_the_window(named_caller, grid_timeout, seconds, cause):
+    m = Workspaces(SiteActions(), MemoryStore(), monitor=FakeMonitor())
     m.open_browser(Caller(NAMED))
     idle(m, seconds, grid_timeout)
     reaped(m)
     assert m.act(Caller(NAMED), lambda s: {"url": URL})["reopened"]["cause"] == cause
 
 
-def test_a_reap_with_no_keep_alive_running_is_reaped_not_lost():
-    workspaces = Workspaces(RecordingActions(), keep_alive=900)
+async def pinged_workspaces(answer):
+    """A workspace whose browser the real monitor pinged twice, the Grid
+    answering ``answer``; returns the manager and the browser's id."""
+    from kubed.selenium_flow.monitor.events import LocalBus
+    from kubed.selenium_flow.monitor.monitor import LISTING_TICK, Monitor
+
+    from .fakes import Clock
+    from .test_monitor import Listing, Pings
+
+    clock, listing = Clock(), Listing()
+    monitor = Monitor(
+        LocalBus(), listing=listing, ping=Pings(answer), keep_alive=900,
+        clock=clock, tick=LISTING_TICK,
+    )
+    workspaces = Workspaces(RecordingActions(), monitor=monitor)
     workspaces.open_browser(Caller(NAMED), url="https://a.test/")
+    session_id = workspaces.store.get(NAMED).session_id
+    listing.running[session_id] = 300
+    for _ in range(2):
+        clock.now += 240
+        await monitor.look()
+    return workspaces, session_id
+
+
+def gone_after(workspaces, idle_for, pinged_for=None):
+    """The record's last call and open were ``idle_for`` seconds ago, its last
+    answered ping ``pinged_for``; the Grid then reaps the browser and a call
+    reopens it. Returns the cause the reopen noted."""
     now = time.time()
     workspaces.store.update(
         NAMED,
         lambda r: replace(
-            r, grid_timeout=300, called_at=now - 500, opened_at=now - 600
+            r,
+            grid_timeout=300,
+            called_at=now - idle_for,
+            opened_at=now - idle_for - 100,
+            **({} if pinged_for is None else {"pinged_at": now - pinged_for}),
         ),
     )
     workspaces.actions.grid.alive.clear()
     workspaces.resolve(NAMED)
-    assert workspaces.store.get(NAMED).reopened["cause"] == "reaped"
+    return workspaces.store.get(NAMED).reopened["cause"]
 
 
-def test_activity_before_this_process_began_is_judged_without_the_keep_alive():
-    """Nothing in this process kept the browser alive through a restart."""
-    workspaces = Workspaces(RecordingActions(), keep_alive=900, monitor=FakeMonitor())
-    workspaces.open_browser(Caller(NAMED), url="https://a.test/")
-    now = time.time()
-    workspaces.booted = now - 100
-    workspaces.store.update(
-        NAMED,
-        lambda r: replace(
-            r, grid_timeout=300, called_at=now - 500, opened_at=now - 600
-        ),
-    )
-    workspaces.actions.grid.alive.clear()
-    workspaces.resolve(NAMED)
-    assert workspaces.store.get(NAMED).reopened["cause"] == "reaped"
+async def test_a_reap_after_every_keep_alive_ping_failed_is_reaped():
+    """The keep-alive was owed but never reached the browser, so the node's own
+    timeout is the window that applied."""
+    workspaces, _ = await pinged_workspaces(ConnectionError("grid down"))
+    assert workspaces.store.get(NAMED).pinged_at == 0
+    assert gone_after(workspaces, 500) == "reaped"
+
+
+async def test_a_browser_pinged_until_shortly_before_the_reap_is_judged_from_the_ping():
+    workspaces, _ = await pinged_workspaces(True)
+    assert workspaces.store.get(NAMED).pinged_at > 0
+    # idle 500 s, but the Grid answered a ping 100 s ago: the node's clock had
+    # not run out, so something else took it.
+    assert gone_after(workspaces, 500, pinged_for=100) == "lost"
+
+
+async def test_a_browser_whose_last_answered_ping_is_older_than_the_timeout_was_reaped():
+    workspaces, _ = await pinged_workspaces(True)
+    assert gone_after(workspaces, 500, pinged_for=310) == "reaped"
+
+
+async def test_a_ping_the_grid_answered_false_is_not_recorded():
+    workspaces, _ = await pinged_workspaces(False)
+    assert workspaces.store.get(NAMED).pinged_at == 0
+
+
+async def test_a_ping_is_recorded_on_the_record_that_holds_the_session_and_moves_no_call():
+    workspaces, session_id = await pinged_workspaces(True)
+    called = workspaces.store.get(NAMED).called_at
+    workspaces.pinged(NAMED, "another-browser")
+    before = workspaces.store.get(NAMED).pinged_at
+    workspaces.pinged(NAMED, session_id)
+    record = workspaces.store.get(NAMED)
+    assert record.pinged_at >= before and record.called_at == called
+    stale = replace(record, pinged_at=0.0)
+    workspaces.store.set(NAMED, stale)
+    workspaces.pinged(NAMED, "another-browser")
+    assert workspaces.store.get(NAMED).pinged_at == 0.0
+
+
+async def test_a_ping_for_a_session_the_record_no_longer_holds_writes_nothing():
+    workspaces, _ = await pinged_workspaces(True)
+    entry = workspaces.store._data[NAMED]
+    workspaces.pinged(NAMED, "another-browser")
+    assert workspaces.store._data[NAMED] is entry
+
+
+async def test_the_servers_monitor_records_a_ping_on_the_workspace(open_server):
+    """Through the wiring `SeleniumMCP` builds, not one a test makes."""
+    from .fakes import Clock
+    from .test_monitor import Listing, Pings
+
+    clock = Clock()
+    monitor = open_server.monitor
+    monitor.ping, monitor.keep_alive, monitor.clock = Pings(True), 900, clock
+    monitor.listing = Listing({"s1": 300})
+    open_server.workspaces.remember(NAMED, "s1", "", {})
+    monitor.opened(NAMED, "s1", "chrome", 300)
+    clock.now += 240
+    await monitor.look()
+    assert open_server.store.get(NAMED).pinged_at > 0
+
 
 def test_an_open_counts_as_activity_for_the_cause(named_caller):  # ruling 14
     """Last called yesterday, opened 10 s ago: a browser gone now was lost."""

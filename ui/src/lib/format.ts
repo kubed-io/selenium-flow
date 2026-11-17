@@ -131,6 +131,14 @@ export function until(expiry: number, now = Date.now()): string {
   return Math.round(s / (365 * 86400)) + ' y'
 }
 
+/* A length of time in its largest whole unit: "a day", "36 hours", "90 minutes". */
+export function span(seconds: number): string {
+  const units: [number, string][] = [[86400, 'day'], [3600, 'hour'], [60, 'minute']]
+  const [size, word] = units.find(([n]) => seconds >= n && seconds % n === 0) ?? [1, 'second']
+  const n = seconds / size
+  return n === 1 ? (word === 'hour' ? 'an hour' : 'a ' + word) : plural(n, word)
+}
+
 /* A moment as a clock time when it is today, else as a date. */
 export function clock(ms: number, now = Date.now()): string {
   const d = new Date(ms)

@@ -1,6 +1,11 @@
 [
   [
     "DELETE",
+    "/admin/workspaces/{key}/config",
+    "admin_config"
+  ],
+  [
+    "DELETE",
     "/admin/workspaces/{key}/files/{name}",
     "admin_delete_file"
   ],
@@ -58,6 +63,11 @@
     "GET",
     "/admin/workspaces",
     "admin_workspaces"
+  ],
+  [
+    "GET",
+    "/admin/workspaces/{key}/config",
+    "admin_config"
   ],
   [
     "GET",
@@ -151,8 +161,18 @@
   ],
   [
     "PUT",
+    "/admin/workspaces/{key}/config",
+    "admin_config"
+  ],
+  [
+    "PUT",
     "/admin/workspaces/{key}/flows/{name}",
     "admin_flow"
+  ],
+  [
+    "PUT",
+    "/admin/workspaces/{key}/flows/{name}/tags",
+    "admin_flow_tags"
   ],
   [
     "WS",

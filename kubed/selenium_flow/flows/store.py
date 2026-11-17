@@ -25,6 +25,8 @@ import shutil
 import stat
 import threading
 import uuid
+from collections import Counter
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -32,6 +34,7 @@ import yaml
 from cachetools import LRUCache
 
 from ..names import (
+    CONFIG_FILE,
     FILES_DIR,
     FOLDERS,
     GLOBAL_WORKSPACE,
@@ -51,6 +54,7 @@ from .shape import Shape
 
 if TYPE_CHECKING:
     from ..config import DataSettings
+    from .tags import Filter
 
 # The store's old logger name: operators filter logs by it.
 log = logging.getLogger("kubed.selenium_flow.flows.library")
@@ -227,6 +231,15 @@ class WorkspaceLayout:
         """Somewhere inside one workspace's directory, with the name validated."""
         return self._resolved(valid_name(workspace, "workspace name"), *parts)
 
+    def config_path(self, workspace: str) -> Path:
+        """Where a workspace's own config is. The folder is checked and the
+        file is not: its reader opens it without following a link."""
+        return self._workspace_dir(workspace) / CONFIG_FILE
+
+    def write_config(self, workspace: str, text: str) -> None:
+        """Replace a workspace's config whole. The caller validates it first."""
+        _replace(self.config_path(workspace), text)
+
     def workspaces(self) -> list[str]:
         """Every workspace with a directory, for the admin view."""
         if not self.root.is_dir():
@@ -242,6 +255,18 @@ class Placed(NamedTuple):
     hint: dict  # {name, uri, description, parameters, required[, shared]}
 
 
+class Library(NamedTuple):
+    """What one library's flows say, read once per revision."""
+
+    names: frozenset[str]
+    placed: tuple[Placed, ...]
+    tags: tuple[tuple[str, tuple[str, ...]], ...]  # (name, its tags), tagged only
+
+
+def _every(tags: Iterable[str]) -> bool:
+    return True
+
+
 class FlowStore(WorkspaceLayout):
     """A workspace's flow documents: YAML files under ``<workspace>/flows``."""
 
@@ -251,6 +276,9 @@ class FlowStore(WorkspaceLayout):
         # per version however many workspaces ask. No TTL.
         self._hints: LRUCache = LRUCache(maxsize=LIBRARIES)
         self._hints_lock = threading.Lock()
+        # A workspace's `flows.global` filter, or None for every flow
+        # (`workspace.config.Configs.global_filter`, wired at boot).
+        self.global_filter: Callable[[str], Filter | None] = lambda _workspace: None
 
     def _flows_dir(self, workspace: str) -> Path:
         return self._workspace_dir(workspace, FLOWS_DIR)
@@ -311,17 +339,52 @@ class FlowStore(WorkspaceLayout):
         library's `revision`, so a warm call reads no file; the caller gets a
         copy.
         """
-        names, own = self._placed(workspace)
-        found = [p for p in own if p.places.applies(url)]
+        own = self._library(workspace)
+        found = [p for p in own.placed if p.places.applies(url)]
         if workspace != GLOBAL_WORKSPACE:
-            _, shared = self._placed(GLOBAL_WORKSPACE)
+            shared = self._library(GLOBAL_WORKSPACE)
+            offered = self._shared_offered(workspace, own, shared)
             found += [
-                p for p in shared if p.name not in names and p.places.applies(url)
+                p for p in shared.placed if p.name in offered and p.places.applies(url)
             ]
         return [copy.deepcopy(p.hint) for p in found[:HINT_CAP]]
 
-    def _placed(self, library: str) -> tuple[frozenset[str], tuple[Placed, ...]]:
-        """Every flow name in ``library``, and the flows that declare places.
+    def offered(self, workspace: str) -> Callable[[Iterable[str]], bool]:
+        """Which `global` flows ``workspace`` is offered, as a test of a flow's
+        tags: its config's `flows.global`, else every one of them."""
+        found = self.global_filter(workspace)
+        return _every if found is None else found.passes
+
+    def _shared_offered(self, workspace: str, own: Library, shared: Library) -> set:
+        """The names of the `global` flows ``workspace`` is offered: those it
+        has no flow of the same name for, that `offered` lets through."""
+        offer = self.offered(workspace)
+        tagged = dict(shared.tags)
+        return {
+            name
+            for name in shared.names
+            if name not in own.names and offer(tagged.get(name, ()))
+        }
+
+    def tags_in_use(self, workspace: str) -> dict[str, int]:
+        """``{tag: count}`` over the flows ``workspace`` is offered, in tag order.
+
+        Built from each library's cache, so a warm read parses no flow.
+        """
+        own = self._library(workspace)
+        counts = Counter(tag for _, carried in own.tags for tag in carried)
+        if workspace != GLOBAL_WORKSPACE:
+            shared = self._library(GLOBAL_WORKSPACE)
+            offered = self._shared_offered(workspace, own, shared)
+            counts.update(
+                tag for name, carried in shared.tags if name in offered
+                for tag in carried
+            )
+        return dict(sorted(counts.items()))
+
+    def _library(self, library: str) -> Library:
+        """Every flow name in ``library``, the flows that declare places, and
+        each tagged flow's tags.
 
         Cached under the library's `revision`. The stat and the build run
         outside the lock; two threads may build the same version, and either
@@ -332,12 +395,15 @@ class FlowStore(WorkspaceLayout):
             cached = self._hints.get(library)
         if cached is not None and cached[0] == stamp:
             return cached[1]
-        names, placed = [], []
+        names, placed, tagged = [], [], []
         for name in self.names(library):
             doc = self._loaded(library, name)
             if doc is None:
                 continue
             names.append(name)
+            shape = Shape(doc)
+            if shape.tags:
+                tagged.append((name, tuple(shape.tags)))
             try:
                 places = Places.parse(doc)
             except ValueError:
@@ -349,7 +415,6 @@ class FlowStore(WorkspaceLayout):
                 continue
             if places is None:
                 continue
-            shape = Shape(doc)
             description = doc.get("description")
             hint = {
                 "name": name,
@@ -361,7 +426,7 @@ class FlowStore(WorkspaceLayout):
             if library == GLOBAL_WORKSPACE:
                 hint["shared"] = True
             placed.append(Placed(name, places, hint))
-        answer = (frozenset(names), tuple(placed))
+        answer = Library(frozenset(names), tuple(placed), tuple(tagged))
         with self._hints_lock:
             self._hints[library] = (stamp, answer)
         return answer
@@ -436,7 +501,9 @@ class FlowStore(WorkspaceLayout):
         """One flow exactly as it sits on disk, comments and key order kept, or
         None if it is not there."""
         try:
-            return self._path(workspace, name).read_text(encoding="utf-8")
+            # newline="": its line endings as written, never translated.
+            with self._path(workspace, name).open(encoding="utf-8", newline="") as file:
+                return file.read()
         except FileNotFoundError:
             return None
 

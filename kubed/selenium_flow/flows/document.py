@@ -19,6 +19,7 @@ from collections.abc import Collection
 from .. import binding
 from ..binding import SECRET_ARG
 from . import places
+from . import tags as flowtags
 from .shape import NAMES_NO_TOOL, NOT_A_STEP, Shape
 from .template import PARAM_REFERENCE, listed, references
 
@@ -47,7 +48,9 @@ TIMEOUT = "timeout"
 
 # What a caller may say in a flow document, beside its name. The HTTP save and
 # the published schema read these; a test holds the MCP save tool to them.
-DOCUMENT_KEYS = ("description", "sites", "paths", "parameters", TIMEOUT, "steps")
+DOCUMENT_KEYS = (
+    "description", flowtags.TAGS, "sites", "paths", "parameters", TIMEOUT, "steps",
+)
 
 # Shown in save_flow's schema and description, flow://schema and the HTTP
 # save's body.
@@ -643,6 +646,11 @@ def validate(document, schemas: dict) -> dict:
         )
     if "description" in document and not isinstance(document["description"], str):
         problems.append("description must be a string")
+    if document.get(flowtags.TAGS) is not None:
+        try:
+            flowtags.read(document[flowtags.TAGS])
+        except ValueError as exc:
+            problems.append(str(exc))
 
     try:
         declared_timeout(document)

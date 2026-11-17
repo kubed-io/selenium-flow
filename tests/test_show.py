@@ -108,7 +108,7 @@ def test_every_row_matches_its_own_display_form():
 
 @pytest.mark.parametrize(
     "uri",
-    ["flow://flows/", "workspace://current/x", "secret://secrets/demo",
+    ["flow://flows/", "workspace://current/x/y", "secret://secrets/demo",
      "skill://other/SKILL.md", "workspace://files/screenshots/a/b",
      "workspace://site-data/a/b"],
 )

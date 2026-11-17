@@ -1170,6 +1170,21 @@
           "items": {},
           "type": "array"
         },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tags that group this flow, at most 20. A tag is 1 to 50 characters of lowercase letters, digits, :, _, -, / and ., starting with a letter or a digit; case does not matter and a tag is saved lowercase. Read workspace://current/tags and reuse a tag already in use before making up a new one. Tags never decide where a flow applies: sites and paths do."
+        },
         "timeout": {
           "anyOf": [
             {

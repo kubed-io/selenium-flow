@@ -36,7 +36,20 @@ DESCRIPTION = (
     "network (open_session(capture=true)); capturing is whether that is "
     "happening right now \u2014 false while it is paused, until the next call; "
     "captured counts what was kept since the last navigation. " + CAPTURE_KEPT + "\n\n"
+    "config is this workspace's own settings, each with its value and its "
+    "source (default or workspace). Only an admin changes them, at config_url "
+    "when the server has one.\n\n"
+    "tags maps each tag in use on this workspace's flows, and the global flows "
+    "it is offered, to how many carry it: reuse one when you tag a flow.\n\n"
     "Reading this never opens a browser: live is false when no session is open."
+)
+
+PART_DESCRIPTION = (
+    "One key of workspace://current, as {workspace, <part>: value}: for "
+    "instance workspace://current/url or workspace://current/grid_timeout. It "
+    "is null when the workspace has nothing for that key. A name that is not a "
+    "key is refused, and the refusal lists them. Built as workspace://current "
+    "is, and reading it never opens a browser."
 )
 
 
@@ -51,6 +64,15 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     )
     def current_workspace_resource() -> dict:
         return workspaces.describe(clients.caller())
+
+    @mcp.resource(
+        f"{RESOURCE_URI}/{{part}}",
+        name="Current Workspace, one part",
+        description=PART_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def current_workspace_part_resource(part: str) -> dict:
+        return workspaces.describe_part(clients.caller(), part)
 
     @mcp.resource(
         site_data.LIST_URI,

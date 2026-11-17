@@ -48,6 +48,11 @@ def _exactly(form: str, component: str) -> View:
 # it. Every URI the server serves has a row (tests/test_show_inventory.py).
 VIEWS: tuple[View, ...] = (
     _exactly("workspace://current", "context"),
+    View(
+        "workspace://current/{part}",
+        re.compile(r"workspace://current/[^/]+"),
+        "document",
+    ),
     _exactly("workspace://site-data", "sites"),
     View(
         "workspace://site-data/{site}",

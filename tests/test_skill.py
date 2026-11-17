@@ -119,6 +119,15 @@ def test_the_one_session_contract_has_a_reference():
         assert not (SKILL_DIR / "references" / gone).is_file(), gone
 
 
+def test_flows_says_to_reuse_a_tag_in_use():
+    """An agent sets tags while writing a flow, so the page it reads then sends
+    it to the tags already in use before it makes one up."""
+    body = (SKILL_DIR / "references/FLOWS.md").read_text()
+    section = body.split("## Tags", 1)[1].split("\n## ", 1)[0]
+    assert "workspace://current/tags" in section
+    assert "only when none fits" in section
+
+
 async def test_each_reference_is_its_own_resource(server):
     """Listed individually rather than hidden behind the manifest, so a client
     can link straight to the one it needs."""

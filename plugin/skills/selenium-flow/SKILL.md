@@ -118,6 +118,7 @@ resources gets the tools `read_resource(uri)` and `list_resources()`.
 | URI | Is |
 |---|---|
 | `workspace://current` | what you hold: page, browser, window, `live`, `in_frame` |
+| `workspace://current/{part}` | one key of that, for instance `url` or `grid_timeout`; null when there is none |
 | `workspace://files` | Files, each file with a link, and the two folders below |
 | `workspace://files/{name}` | one file in Files |
 | `workspace://files/screenshots` | screenshots not kept yet |

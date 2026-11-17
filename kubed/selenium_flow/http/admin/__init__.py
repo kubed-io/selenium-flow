@@ -6,7 +6,7 @@ REST routes that drive browsers stay token-only. The signed links serve
 whatever renders a URL and cannot send a header.
 
 One module per tab: ``page`` (the shell), ``workspaces`` (the list and its live
-stream), ``site_data`` (history and saved site data), ``files``, ``flows``,
+stream), ``site_data`` (history and saved site data), ``files``, ``flows``, ``config``,
 ``capture`` (console, network and the live tail), ``live`` (the live view's
 socket onto a browser's VNC stream), and ``signed`` (the file links).
 """
@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse
 
 from .. import answer, auth, links
 from . import capture as capture_tab
+from . import config as config_tab
 from . import files, flows, page, signed, site_data
 from . import live as live_view
 from . import workspaces as workspace_list
@@ -101,7 +102,15 @@ def register(
         mcp, actions, workspaces, flow_store, token, prefix, link_ttl,
         broadcast.compute, guarded, broadcast.changes,
     )
-    flows.mount(mcp, flow_store, schemas, prefix, guarded, broadcast.changes)
+    flows.mount(
+        mcp, flow_store, schemas, prefix, guarded, broadcast.changes,
+        configs=workspaces.configs if workspaces is not None else None,
+    )
+    if workspaces is not None:
+        config_tab.mount(
+            mcp, workspaces.configs, prefix, guarded, broadcast.changes,
+            ttl=getattr(workspaces.store, "ttl", None),
+        )
     if capture is not None:
         capture_tab.mount(
             mcp, actions, workspaces, capture, token, prefix, guarded, door

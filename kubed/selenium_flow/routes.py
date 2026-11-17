@@ -218,6 +218,7 @@ def register(
                 Caller(caller.name, "request", principal=ADMIN if token else None)
             ),
             log,
+            configs=workspaces.configs,
         )
 
     # The literal route first, so the listing is never taken for the template.
@@ -227,7 +228,7 @@ def register(
         return await answer_module.answer(
             request, token, "site-data/list",
             lambda caller, _body: resources.site_listing(workspaces, caller.name), log,
-            scrubbed=workspaces.scrubbed,
+            scrubbed=workspaces.scrubbed, configs=workspaces.configs,
         )
 
     @mcp.custom_route(
@@ -241,6 +242,7 @@ def register(
             lambda caller, _body: resources.one_site(workspaces, caller.name, site),
             log,
             scrubbed=workspaces.scrubbed,
+            configs=workspaces.configs,
         )
 
     # Awaited on the loop: a long poll holding a worker thread would starve
@@ -261,21 +263,27 @@ def register(
             _bind(
                 mcp, token, f"{browser_root}/{row.route}", row.http_method,
                 f"browser_{row.route}", row.route, waiting[row.name],
+                workspaces.configs,
             )
             continue
         if row.route:
             _add(mcp, actions, workspaces, token, browser_root, row, catalogue)
             continue
         what, name, call = on_the_resource[row.name]
-        _bind(mcp, token, browser_root, row.http_method, name, what, call)
+        _bind(
+            mcp, token, browser_root, row.http_method, name, what, call,
+            workspaces.configs,
+        )
 
 
-def _bind(mcp, token, route, http_method, name, what, call) -> None:
+def _bind(mcp, token, route, http_method, name, what, call, configs) -> None:
     """Mount ``call`` at ``route`` for one method, through ``http.answer``."""
 
     @mcp.custom_route(route, methods=[http_method], name=name)
     async def handler(request: Request) -> JSONResponse:
-        return await answer_module.answer(request, token, what, call, log)
+        return await answer_module.answer(
+            request, token, what, call, log, configs=configs
+        )
 
 
 def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) -> None:
@@ -323,4 +331,6 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
                 and (lambda name: getattr(actions, row.closed)(name, **kwargs)),
             )
 
-        return await answer_module.answer(request, token, path, call, log)
+        return await answer_module.answer(
+            request, token, path, call, log, configs=workspaces.configs
+        )

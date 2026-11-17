@@ -34,6 +34,8 @@ export type SetBy = 'config' | 'client' | 'caller'
 
 export interface WorkspaceRow {
   key: string
+  /** A workspace with a config: it never expires. */
+  kept?: boolean
   name?: string | null
   owner?: string | null
   browser?: string | null
@@ -58,6 +60,8 @@ export interface WorkspaceRow {
   flows_rev?: string | number | null
   site_data_count?: number | null
   site_data_rev?: string | null
+  /** Moves whenever the workspace's config file does; "" with none. */
+  config_rev?: string
   history_count?: number | null
   history_rev?: string | null
   opened_by?: { kind: 'admin' | 'oidc'; username?: string | null } | null
@@ -90,7 +94,8 @@ export interface FilesResponse {
   browser?: boolean
 }
 
-export interface FlowSummary { name: string; step_count: number; shared?: boolean }
+/** `offered`: the admin's listing only, false for a global flow this workspace's filter does not offer. */
+export interface FlowSummary { name: string; step_count: number; shared?: boolean; tags?: string[]; offered?: boolean }
 export interface FlowsListing { enabled: boolean; flows?: FlowSummary[]; workspace?: string; rev?: string | number | null }
 
 /** A stored flow, as edited by a person: nothing about its shape is guaranteed (§F1.6). */
@@ -141,6 +146,16 @@ export interface SettingRow {
   source: SettingSource
   sensitive?: boolean
   set?: boolean
+}
+/** A workspace's config, as `GET /admin/workspaces/{key}/config` answers it. */
+export interface ConfigPayload {
+  text: string | null
+  config: Record<string, { value: unknown; source: 'default' | 'workspace' }>
+  /** Why the file is refused, else null. */
+  error: string | null
+  kept: boolean
+  /** How long the store keeps a workspace with no config, in seconds; null when unknown. */
+  ttl?: number | null
 }
 export interface SettingsSection { name: string; description: string; settings: SettingRow[] }
 export interface SettingsPayload { sections: SettingsSection[] }

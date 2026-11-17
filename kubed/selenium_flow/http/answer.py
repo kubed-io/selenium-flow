@@ -169,6 +169,7 @@ async def answer(
     *,
     named: bool = True,
     scrubbed: Callable | None = None,
+    configs=None,
 ) -> JSONResponse:
     """Authorise, read the body, name the workspace, run ``call``, shape a failure.
 
@@ -181,6 +182,10 @@ async def answer(
     page's words without being a call on the browser (site data, files, flow
     documents): the answer and its failure are checked for secrets in the
     worker thread. Only for a synchronous ``call``.
+
+    ``configs`` is `workspace.config.Configs`: a request that names a
+    workspace whose config is refused is answered with that 409 before
+    ``call`` runs.
     """
     if not auth.authorized(request, token):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -197,6 +202,9 @@ async def answer(
             caller = replace(caller, principal=ADMIN)
         if named:
             _ = caller.name  # its refusal, if it has one, before the call
+        if configs is not None and configs.enabled and caller.named:
+            # A stat, off the loop; a long poll after it holds no thread.
+            await run_in_threadpool(configs.check, caller.named)
         # A synchronous call runs in a worker thread: on the loop one `assert`
         # waiting 900s stalled every other request. An `async def` call is
         # awaited on the loop and takes no thread, so a long poll never queues

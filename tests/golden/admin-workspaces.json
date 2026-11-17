@@ -10,6 +10,7 @@
       "capture_ttl": 10800,
       "captured": null,
       "capturing": false,
+      "config_rev": "",
       "counts": {
         "downloads": 0,
         "files": 0,
@@ -27,6 +28,7 @@
       "history_count": 1,
       "history_rev": "[[\"https://app.example.com\", \"https://app.example.com/y\"]]",
       "insecure": false,
+      "kept": false,
       "key": "reopened",
       "live": true,
       "name": "reopened",
@@ -53,6 +55,7 @@
       "capture_ttl": 10800,
       "captured": null,
       "capturing": false,
+      "config_rev": "",
       "counts": {
         "downloads": 0,
         "files": 0,
@@ -70,6 +73,7 @@
       "history_count": 1,
       "history_rev": "[[\"https://app.example.com\", \"https://app.example.com/x\"]]",
       "insecure": false,
+      "kept": false,
       "key": "live",
       "live": true,
       "name": "live",
@@ -96,6 +100,7 @@
       "capture_ttl": 10800,
       "captured": null,
       "capturing": false,
+      "config_rev": "",
       "counts": {
         "downloads": null,
         "files": 0,
@@ -113,6 +118,7 @@
       "history_count": 1,
       "history_rev": "[[\"https://app.example.com\", \"https://app.example.com/x\"]]",
       "insecure": false,
+      "kept": false,
       "key": "sited",
       "live": false,
       "name": "sited",
@@ -139,6 +145,7 @@
       "capture_ttl": 10800,
       "captured": null,
       "capturing": false,
+      "config_rev": "",
       "counts": {
         "downloads": null,
         "files": 0,
@@ -159,6 +166,7 @@
       "history_count": 1,
       "history_rev": "[[\"https://mail.example.org\", \"https://mail.example.org/inbox\"]]",
       "insecure": false,
+      "kept": false,
       "key": "detached",
       "live": false,
       "name": "detached",

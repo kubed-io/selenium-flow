@@ -37,7 +37,6 @@ def test_a_server_built_from_settings_uses_them(tmp_path):
     assert server.skill is None
     assert server.workspaces.defaults == {"browser": "firefox"}
     assert server.monitor.keep_alive == 600
-    assert server.workspaces.keep_alive == 600
     assert server.monitor.ping == server.grid.ping
     from kubed.selenium_flow.monitor.monitor import KEEPALIVE
     assert KEEPALIVE not in server.monitor.sinks

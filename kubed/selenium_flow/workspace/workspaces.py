@@ -72,6 +72,7 @@ from ..urls import (
 from . import locks
 from . import settings as settings_module
 from .calls import Calls, told
+from .config import Configs
 from .origins import OriginChanged, Origins
 from .scrub import Scrubber
 from .store import DEFAULT_TTL_SECONDS, MemoryStore, Workspace, WorkspaceStore
@@ -127,6 +128,34 @@ REPLACED_BEFORE_SAVE = (
 )
 
 NAME_PARAM = "workspace"
+
+# Every key `workspace://current` can carry, whether or not this workspace has
+# a value for it: the parts `workspace://current/{part}` answers. A key the
+# context gains is added here.
+CONTEXT_KEYS = (
+    "workspace",
+    "named_by",
+    "principal",
+    "browser",
+    "url",
+    "live",
+    "recording",
+    "capture",
+    "capturing",
+    "in_frame",
+    "window",
+    "grid_timeout",
+    "version",
+    "store",
+    "settings",
+    "tags",
+    "flows_here",
+    "captured",
+    "site_data",
+    "guidance",
+    "config",
+    "config_url",
+)
 WORKSPACE_HEADER = "sf-workspace"
 # Claude.ai's connectors can send only allowlisted header names, and
 # `x-workspace` is one where `sf-workspace` is not. Read only when
@@ -356,8 +385,9 @@ class Workspaces:
         channels=None,
         control=None,
         hints: Callable[[str, str], list[dict]] | None = None,
-        keep_alive: int = 0,
         catalogue=None,
+        configs: Configs | None = None,
+        tags: Callable[[str], dict[str, int]] | None = None,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
@@ -372,6 +402,9 @@ class Workspaces:
         # Who announces each session opened and ended (`monitor.Monitor`), or
         # None, which announces nothing: a unit test's manager.
         self.monitor = monitor
+        if monitor is not None:
+            # A ping the Grid answered is activity the reap clock counts.
+            monitor.answered = self.pinged
         # What the held connections' events are kept in (`capture.Capture`), or
         # None when capture is not set up; and how a BiDi channel to a session's
         # browser is opened (`bidi.Channels`).
@@ -388,13 +421,11 @@ class Workspaces:
         # (`FlowStore.flows_here`), or None with no flow store: then nothing
         # is hinted. Asked only by `_hint`, never inside a store write.
         self.hints = hints
-        # Seconds a browser is kept alive past its last call (`session.keep_alive`);
-        # 0 keeps nothing. With the node's own timeout it is the window a reopen
-        # is judged against: idle past it is a reap, inside it a lost browser.
-        self.keep_alive = keep_alive
-        # When this manager began: no monitor of this process kept a browser
-        # alive through activity before it.
-        self.booted = time.time()
+        # Each workspace's own config (`workspace.config`): none without one.
+        self.configs = configs if configs is not None else Configs(None)
+        # The tags in use in a workspace's flows (`FlowStore.tags_in_use`), or
+        # None with no flow store.
+        self.tags = tags
         # Where each workspace's browser is, and the secrets in scope there.
         # ``catalogue`` is the secrets catalogue, duck-typed (`forms_for`,
         # `leashed`, `revision`), or None with secrets off: then every answer is
@@ -450,6 +481,18 @@ class Workspaces:
         """
         return self.scrubber.resource(caller.name, self._described(caller))
 
+    def describe_part(self, caller: Caller, part: str) -> dict:
+        """One key of `describe`, as ``{workspace, <part>: value}``: null when
+        this workspace's context leaves it out. A part that is no key of the
+        context is a ValueError naming them."""
+        if part not in CONTEXT_KEYS:
+            raise ValueError(
+                f"no part {part!r} in workspace://current; the parts are "
+                + ", ".join(CONTEXT_KEYS)
+            )
+        whole = self.describe(caller)
+        return {"workspace": whole["workspace"], part: whole.get(part)}
+
     def _described(self, caller: Caller) -> dict:
         """`describe`, before the scrub."""
         name = caller.name
@@ -469,9 +512,22 @@ class Workspaces:
             "version": None,
             "store": self.kind,
             "settings": {},
+            "tags": {},
         }
         if self.skill_available:
             status["guidance"] = guidance.pointer("WORKSPACES.md")
+        if self.configs.enabled:
+            status["config"] = self.configs.rows(self.configs.load(name))
+            if url := self.configs.url(name):
+                status["config_url"] = url
+        if self.tags is not None:
+            try:
+                status["tags"] = self.tags(name)
+            except Exception as exc:  # noqa: BLE001 - status must never fail
+                log.warning(
+                    "tags for workspace %s could not be read: %s",
+                    name, type(exc).__name__,
+                )
         record = self.store.get(name)
         if record is None:
             return status
@@ -690,23 +746,26 @@ class Workspaces:
 
     def _cause(self, record: Workspace, now: float) -> str:
         """Why a browser is gone: ``reaped`` when the workspace sat idle for the
-        window, ``lost`` when it was in use, so something else ended it.
+        node's timeout (the one read at the open; the default when it did not
+        say), ``lost`` when it was in use, so something else ended it.
 
-        The window is the longer of the Grid's own timeout (the node's, as read
-        at the open; the default when it did not say) and ``keep_alive``, which
-        counts only when a monitor of this process kept the browser alive since
-        its last activity: never with no monitor, nor for activity before this
-        process began. An open is activity, so idleness is measured from the
-        later of the last call and the open.
+        Idleness is measured from the latest of the last call, the open and the
+        last ping the Grid answered: each is activity to the node.
         """
-        last = max(record.called_at, record.opened_at)
-        kept = (
-            self.keep_alive
-            if self.monitor is not None and last >= self.booted
-            else 0
-        )
-        window = max(record.grid_timeout or DEFAULT_TIMEOUT, kept)
+        last = max(record.called_at, record.opened_at, record.pinged_at)
+        window = record.grid_timeout or DEFAULT_TIMEOUT
         return "reaped" if now - last >= window else "lost"
+
+    def pinged(self, name: str, session_id: str) -> None:
+        """Record a keep-alive ping the Grid answered, on the record that still
+        holds that session. Never a call: ``called_at`` stays."""
+
+        def mark(r: Workspace) -> Workspace | None:
+            if r.session_id != session_id:
+                return None
+            return replace(r, pinged_at=time.time())
+
+        self.store.update(name, mark)
 
     def _recorded(self, name: str, settings: dict) -> dict:
         """The arguments a recorded open adds: the video's name, and a note

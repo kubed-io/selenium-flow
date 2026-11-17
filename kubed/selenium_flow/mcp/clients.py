@@ -15,14 +15,19 @@ this order:
 from __future__ import annotations
 
 from dataclasses import replace
+from urllib.parse import urlsplit
 
+import anyio
 from fastmcp.exceptions import ToolError
 from fastmcp.server import dependencies
 from fastmcp.server.dependencies import get_access_token, get_context
 from fastmcp.server.middleware import Middleware
+from mcp.shared.exceptions import MCPError
+from mcp_types import INVALID_PARAMS
 
 from .. import faults
 from ..principal import Principal
+from ..urls import without_userinfo
 from ..workspace.workspaces import WORKSPACE_ALIAS, WORKSPACE_HEADER, Caller, values_of
 
 _OFF = ("off", "false", "0", "no", "none")
@@ -187,6 +192,57 @@ class Carry(Middleware):
                         f"Error calling tool {name!r}: {faults.message(refusal)}"
                     ) from refusal
                 headers.append((key, named.encode()))
+        return await call_next(context)
+
+
+class Refused(Middleware):
+    """Refuse every call, read and prompt that names a workspace whose config
+    is refused (`workspace.config`), before anything it would do. A
+    ``skill://`` read is not refused.
+
+    Here, where the name is read, so no tool or resource can forget to: a
+    broken file may be one that locks the workspace, and ignoring it would
+    unlock it. A caller that names no workspace, or names it badly, passes on
+    to be answered as it would be.
+    """
+
+    def __init__(self, configs):
+        self.configs = configs
+
+    async def _refusal(self) -> Exception | None:
+        if not self.configs.enabled:
+            return None
+        named = caller(client="")
+        if named.refusal is not None or not named.named:
+            return None
+        return await anyio.to_thread.run_sync(self.configs.refusal, named.named)
+
+    async def on_call_tool(self, context, call_next):
+        refusal = await self._refusal()
+        if refusal is not None:
+            name = context.message.name
+            raise ToolError(f"Error calling tool {name!r}: {faults.message(refusal)}")
+        return await call_next(context)
+
+    async def on_read_resource(self, context, call_next):
+        uri = str(getattr(context.message, "uri", ""))
+        # The skill ships in the image and holds nothing of a workspace; it is
+        # what tells a refused agent what to do.
+        if urlsplit(uri).scheme == "skill":
+            return await call_next(context)
+        refusal = await self._refusal()
+        if refusal is not None:
+            uri = without_userinfo(uri)
+            raise MCPError(
+                code=INVALID_PARAMS,
+                message=f"Error reading resource {uri!r}: {faults.message(refusal)}",
+            )
+        return await call_next(context)
+
+    async def on_get_prompt(self, context, call_next):
+        refusal = await self._refusal()
+        if refusal is not None:
+            raise MCPError(code=INVALID_PARAMS, message=faults.message(refusal))
         return await call_next(context)
 
 

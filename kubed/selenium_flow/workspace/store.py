@@ -123,6 +123,10 @@ class Workspace:
     # When this workspace's last call ended, in wall time; 0.0 before any. It
     # is what tells a reap (idle past the window) from a lost browser.
     called_at: float = 0.0
+    # When the Grid last answered a keep-alive ping for the held browser, in
+    # wall time; 0.0 before any. To the node a ping is activity, so it moves the
+    # reap clock like a call does.
+    pinged_at: float = 0.0
     # Who opened the browser this workspace holds, {"kind", "username"}, for
     # the admin list. Shown, never consulted.
     opened_by: dict | None = None
@@ -224,6 +228,7 @@ class Workspace:
                 site_data=site_data if isinstance(site_data, dict) else {},
                 reopened=reopened if isinstance(reopened, dict) else {},
                 called_at=_seconds(data.get("called_at")),
+                pinged_at=_seconds(data.get("pinged_at")),
                 opened_by=_opener(data.get("opened_by")),
                 grid_timeout=_timeout(data.get("grid_timeout")),
                 window_seen=_size(data.get("window_seen")),
@@ -404,6 +409,10 @@ def _visits(raw) -> list[dict]:
     ]
 
 
+def _never(_key: str) -> bool:
+    return False
+
+
 class WorkspaceStore(Protocol):
     """Maps a caller key to its workspace: the record of what it was doing, and
     the session (the live browser) it holds, if any."""
@@ -412,6 +421,9 @@ class WorkspaceStore(Protocol):
     # How long an entry is kept: things derived from a store keep its retention
     # (`pointer.matching`).
     ttl: int
+    # Whether a key's record is written with no expiry: its workspace has a
+    # config (`workspace.config.Configs.kept`). Asked once per write.
+    kept: Callable[[str], bool]
 
     def get(self, key: str) -> Workspace | None: ...
 
@@ -438,6 +450,10 @@ class WorkspaceStore(Protocol):
     ) -> tuple[Workspace | None, Any]: ...
 
     def delete(self, key: str) -> None: ...
+
+    # Apply the expiry `kept` says now to a key's record, if it has one, without
+    # writing the record: a config saved or removed changes it at once.
+    def retain(self, key: str) -> None: ...
 
     # Optional, for the admin view only: the MCP surface never lists workspaces.
     # A store that cannot enumerate cheaply may leave these out, and the admin
@@ -488,6 +504,7 @@ class MemoryStore(_Writes):
         self._data: dict[str, tuple[float, Workspace]] = {}
         self._ttl = ttl
         self._clock = clock
+        self.kept: Callable[[str], bool] = _never
         # One lock per key, held only while someone is using it, so a workspace
         # named once does not keep a lock for the life of the process.
         self._guard = threading.Lock()
@@ -523,23 +540,35 @@ class MemoryStore(_Writes):
                 if not held[1]:
                     del self._locks[key]
 
+    def _deadline(self, key: str) -> float:
+        return math.inf if self.kept(key) else self._clock() + self._ttl
+
     def set(self, key: str, record: Workspace) -> None:
+        deadline = self._deadline(key)
         # Under the key's lock, so a plain write cannot land inside an update.
         with self._locked(key):
-            self._data[key] = (self._clock() + self._ttl, record)
+            self._data[key] = (deadline, record)
 
     def upsert(self, key: str, fn: Create) -> Workspace | None:
+        deadline = self._deadline(key)
         with self._locked(key):
             current = self.get(key)
             changed = fn(current)
             if changed is None:
                 return current
-            self._data[key] = (self._clock() + self._ttl, changed)
+            self._data[key] = (deadline, changed)
             return changed
 
     def delete(self, key: str) -> None:
         with self._locked(key):
             self._data.pop(key, None)
+
+    def retain(self, key: str) -> None:
+        deadline = self._deadline(key)
+        with self._locked(key):
+            current = self.get(key)
+            if current is not None:
+                self._data[key] = (deadline, current)
 
     def records(self) -> dict[str, Workspace]:
         """Every live workspace, keyed the way it is stored.
@@ -576,6 +605,7 @@ class RedisStore(_Writes):
         self._redis = client
         self._prefix = prefix
         self._ttl = ttl
+        self.kept: Callable[[str], bool] = _never
 
     @property
     def client(self):
@@ -599,8 +629,12 @@ class RedisStore(_Writes):
             return None
         return Workspace.from_json(value)
 
+    def _ex(self, key: str) -> int | None:
+        # A SET without EX also drops the expiry the key had.
+        return None if self.kept(key) else self._ttl
+
     def set(self, key: str, record: Workspace) -> None:
-        self._redis.set(self._k(key), record.to_json(), ex=self._ttl)
+        self._redis.set(self._k(key), record.to_json(), ex=self._ex(key))
 
     def upsert(self, key: str, fn: Create) -> Workspace | None:
         """WATCH, read, MULTI, write: EXEC refuses if another replica wrote the
@@ -610,6 +644,7 @@ class RedisStore(_Writes):
         from redis.exceptions import WatchError  # optional dependency, as above
 
         k = self._k(key)
+        ex = self._ex(key)
         with self._redis.pipeline() as pipe:
             for _ in range(UPDATE_RETRIES):
                 try:
@@ -621,7 +656,7 @@ class RedisStore(_Writes):
                         pipe.unwatch()
                         return current
                     pipe.multi()
-                    pipe.set(k, changed.to_json(), ex=self._ttl)
+                    pipe.set(k, changed.to_json(), ex=ex)
                     pipe.execute()
                     return changed
                 except WatchError:
@@ -633,6 +668,14 @@ class RedisStore(_Writes):
 
     def delete(self, key: str) -> None:
         self._redis.delete(self._k(key))
+
+    def retain(self, key: str) -> None:
+        # Both are no-ops on an absent key.
+        ex = self._ex(key)
+        if ex is None:
+            self._redis.persist(self._k(key))
+        else:
+            self._redis.expire(self._k(key), ex)
 
     def records(self) -> dict[str, Workspace]:
         """Every live workspace, keyed the way it is stored.

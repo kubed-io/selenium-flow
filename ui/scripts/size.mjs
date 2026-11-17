@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs'
 const OUT = new URL('../../kubed/selenium_flow/http/static/', import.meta.url)
 // admin raised 45 -> 50 KB: carries E3's Console and Network tabs.
 // admin raised 50 -> 55 KB: carries #83's Live tab.
-const BUDGET = { admin: 55 * 1024, app: 110 * 1024, live: 64 * 1024 }
+// admin raised 55 -> 60 KB: carries the Config tab.
+const BUDGET = { admin: 60 * 1024, app: 110 * 1024, live: 64 * 1024 }
 let over = false
 for (const surface of /** @type {const} */ (['admin', 'app', 'live'])) {
   // live is one file, loaded rather than inlined.
