@@ -506,3 +506,18 @@ def test_every_allowance_still_names_a_log_line():
             if _is_log_call(node):
                 used |= {(where, n) for n in _grid_ids_formatted(node)}
     assert set(NOT_A_GRID_ID) <= used
+
+
+def test_no_log_line_writes_a_traceback_unscrubbed():
+    """`exc_info` and `log.exception` print the frames as they are, and a frame
+    can quote a URL's userinfo: `faults.formatted` is the scrubbed traceback."""
+    found = []
+    for path in sorted(PACKAGE.rglob("*.py")):
+        where = str(path.relative_to(REPO))
+        for node in ast.walk(ast.parse(path.read_text(), str(path))):
+            if _is_log_call(node) and (
+                node.func.attr == "exception"
+                or any(k.arg in ("exc_info", "stack_info") for k in node.keywords)
+            ):
+                found.append(f"{where}:{node.lineno}")
+    assert found == [], f"log lines writing a raw traceback: {found}"

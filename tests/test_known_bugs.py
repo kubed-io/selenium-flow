@@ -316,24 +316,6 @@ def test_a_503_over_mcp_is_one_warning_line_as_it_is_over_http():
     assert "Traceback" not in record.getMessage()
 
 
-@bug(
-    "log.debug(exc_info=True) in core/ writes frames that can quote a Grid URL's userinfo"
-)
-def test_a_failure_logged_with_a_traceback_is_scrubbed_of_credentials(actions, caplog):
-    import logging
-    from types import SimpleNamespace
-
-    def refuse(session_id):
-        raise ConnectionError("cannot reach http://drk:hunter2@grid.test:4444/session")
-
-    actions.pointers = SimpleNamespace(get=refuse)
-    with caplog.at_level(logging.DEBUG, logger="kubed.selenium_flow.core.actions"):
-        actions._pointer("abc")
-    assert caplog.records
-    formatter = logging.Formatter()
-    assert all("hunter2" not in formatter.format(r) for r in caplog.records)
-
-
 # ---- config -------------------------------------------------------------------
 
 

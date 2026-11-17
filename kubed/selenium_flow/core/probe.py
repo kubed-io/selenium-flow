@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 
+from ..faults import formatted
 from . import js
 
 log = logging.getLogger(__name__)
@@ -349,6 +350,6 @@ def explain(driver, target, element=None) -> str:
                 break
         return text
     # Broad on purpose: a diagnosis must never outrank the failure it decorates.
-    except Exception:
-        log.debug("could not probe %r", target, exc_info=True)
+    except Exception as exc:  # noqa: BLE001 - see the comment above
+        log.debug("could not probe %r:\n%s", target, formatted(exc))
         return ""

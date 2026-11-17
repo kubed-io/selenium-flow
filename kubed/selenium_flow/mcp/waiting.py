@@ -31,6 +31,7 @@ import anyio
 from fastmcp.utilities.tasks import TaskConfig
 from fastmcp_tasks import TasksExtension
 
+from ..faults import formatted
 from . import progress
 
 log = logging.getLogger(__name__)
@@ -73,8 +74,8 @@ async def _beat(ctx, cap: float | None, message: Callable[[], str]) -> None:
         value = max(time.monotonic() - started, last + 1e-6)
         try:
             await ctx.report_progress(value, cap, message())
-        except Exception:
-            log.debug("progress notification not sent", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - a lost notification is not a failed wait
+            log.debug("progress notification not sent:\n%s", formatted(exc))
         last = value
         await anyio.sleep(progress.HEARTBEAT)
 

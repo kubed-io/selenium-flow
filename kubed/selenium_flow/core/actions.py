@@ -28,7 +28,7 @@ from selenium.webdriver.common.print_page_options import PrintOptions
 from ..bidi.connection import BidiError, MessageTooBig
 from ..capture import NETWORK_URI
 from ..errors import GONE, UNAVAILABLE
-from ..faults import BidiUnavailable, NotFound, ScriptTimedOut
+from ..faults import BidiUnavailable, NotFound, ScriptTimedOut, formatted
 from ..faults import message as failure_text
 from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..redaction import clip
@@ -296,8 +296,8 @@ class Actions:
         """Where the pointer is in this browser, or None if we never sent it."""
         try:
             return self.pointers.get(session_id)
-        except Exception:  # not knowing is a state here, not a failure
-            log.debug("could not read the pointer", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - not knowing is a state here, not a failure
+            log.debug("could not read the pointer:\n%s", formatted(exc))
             return None
 
     def _moved(self, session_id: str, at) -> None:
@@ -307,8 +307,8 @@ class Actions:
                 self.pointers.forget(session_id)
             else:
                 self.pointers.set(session_id, at[0], at[1])
-        except Exception:  # see `_pointer`
-            log.debug("could not record the pointer", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - see `_pointer`
+            log.debug("could not record the pointer:\n%s", formatted(exc))
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -694,8 +694,8 @@ class Actions:
             # A dead browser or an unreachable Grid keeps its own status and
             # fix in `errors.py`; swallowed, `drag` would blame the geometry.
             raise
-        except Exception:  # the gesture outranks the move
-            log.debug("could not move the pointer onto the target", exc_info=True)
+        except Exception as exc:  # noqa: BLE001 - the gesture outranks the move
+            log.debug("could not move the pointer onto the target:\n%s", formatted(exc))
             # A move that failed part-way leaves the pointer somewhere unknown,
             # and a glide plotted from a wrong origin crosses the wrong elements.
             self._moved(session_id, None)
@@ -1341,7 +1341,7 @@ class Actions:
                 )
             except OSError as exc:
                 # The error names a path under DATA_DIR: for the log only.
-                log.error("a print could not be kept", exc_info=exc)
+                log.error("a print could not be kept:\n%s", formatted(exc))
                 raise RuntimeError(
                     f"the print could not be kept ({type(exc).__name__})"
                 ) from None

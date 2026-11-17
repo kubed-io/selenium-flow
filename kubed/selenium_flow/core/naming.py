@@ -12,6 +12,8 @@ import logging
 import mimetypes
 from pathlib import PurePosixPath
 
+from ..faults import formatted
+
 log = logging.getLogger(__name__)
 
 
@@ -91,5 +93,5 @@ def _why_unsaved(exc: BaseException) -> str:
     """
     if isinstance(exc, ValueError):
         return str(exc)
-    log.warning("a capture could not be kept", exc_info=exc)
+    log.warning("a capture could not be kept:\n%s", formatted(exc))
     return f"the capture could not be kept ({type(exc).__name__})"

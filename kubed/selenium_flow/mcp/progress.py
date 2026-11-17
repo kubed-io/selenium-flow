@@ -19,6 +19,8 @@ import time
 
 import anyio
 
+from ..faults import formatted
+
 log = logging.getLogger(__name__)
 
 # Well inside the shortest idle window any client is known to use.
@@ -81,8 +83,8 @@ async def _tick(ctx, watch: Watch) -> None:
             value = max(value, last + 1e-6)
             try:
                 await ctx.report_progress(value, watch.total or None, message)
-            except Exception:  # a lost notification is not a failed run
-                log.debug("progress notification not sent", exc_info=True)
+            except Exception as exc:  # noqa: BLE001 - a lost notification is not a failed run
+                log.debug("progress notification not sent:\n%s", formatted(exc))
             sent_step, sent_at, last = watch.number, now, value
         await anyio.sleep(LOOK)
 
