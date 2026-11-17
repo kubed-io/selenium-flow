@@ -19,7 +19,7 @@ import time
 
 import anyio
 
-from ..faults import formatted
+from ..faults import Traceback
 
 log = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ async def _tick(ctx, watch: Watch) -> None:
             try:
                 await ctx.report_progress(value, watch.total or None, message)
             except Exception as exc:  # noqa: BLE001 - a lost notification is not a failed run
-                log.debug("progress notification not sent:\n%s", formatted(exc))
+                log.debug("progress notification not sent:\n%s", Traceback(exc))
             sent_step, sent_at, last = watch.number, now, value
         await anyio.sleep(LOOK)
 

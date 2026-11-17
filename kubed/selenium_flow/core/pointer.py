@@ -22,7 +22,7 @@ import time
 from selenium.webdriver.common.actions.action_builder import ActionBuilder
 from selenium.webdriver.common.actions.mouse_button import MouseButton
 
-from ..faults import formatted
+from ..faults import Traceback
 from . import js
 
 log = logging.getLogger(__name__)
@@ -96,20 +96,20 @@ class RedisPointers:
             return float(point[0]), float(point[1])
         # An unreachable Redis means the position is unknown, never a failure.
         except Exception as exc:  # noqa: BLE001 - see the comment above
-            log.debug("could not read the pointer:\n%s", formatted(exc))
+            log.debug("could not read the pointer:\n%s", Traceback(exc))
             return None
 
     def set(self, session_id: str, x: float, y: float) -> None:
         try:
             self._client.set(self._k(session_id), json.dumps([x, y]), ex=self._ttl)
         except Exception as exc:  # noqa: BLE001 - see `get`
-            log.debug("could not record the pointer:\n%s", formatted(exc))
+            log.debug("could not record the pointer:\n%s", Traceback(exc))
 
     def forget(self, session_id: str) -> None:
         try:
             self._client.delete(self._k(session_id))
         except Exception as exc:  # noqa: BLE001 - see `get`
-            log.debug("could not clear the pointer:\n%s", formatted(exc))
+            log.debug("could not clear the pointer:\n%s", Traceback(exc))
 
 
 def matching(store):
@@ -201,7 +201,7 @@ def _nudge_point(driver, element, start) -> tuple[bool, tuple[int, int] | None]:
         answer = driver.execute_script(NUDGE_JS, element, at[0], at[1], NUDGE) or {}
     # Best effort: not knowing costs one hover that does nothing.
     except Exception as exc:  # noqa: BLE001 - see the comment above
-        log.debug("could not work out a nudge point:\n%s", formatted(exc))
+        log.debug("could not work out a nudge point:\n%s", Traceback(exc))
         return False, None
     away = answer.get("away")
     return bool(answer.get("inside")), ((int(away[0]), int(away[1])) if away else None)

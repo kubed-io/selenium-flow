@@ -249,6 +249,19 @@ def formatted(exc: BaseException) -> str:
     return without_userinfo(text)
 
 
+class Traceback:
+    """`formatted(exc)`, built when a log line is written: a debug line that is
+    not shown must not cost a traceback."""
+
+    __slots__ = ("exc",)
+
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+
+    def __str__(self) -> str:
+        return formatted(self.exc)
+
+
 def message(exc: BaseException) -> str:
     """One actionable line, without the driver's internals.
 

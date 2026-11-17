@@ -120,7 +120,29 @@ def test_a_failure_logged_with_a_traceback_is_scrubbed_of_credentials(actions, c
         actions._pointer("abc")
     assert caplog.records
     formatter = logging.Formatter()
-    assert all("hunter2" not in formatter.format(r) for r in caplog.records)
+    said = "\n".join(formatter.format(r) for r in caplog.records)
+    assert "hunter2" not in said
+    assert "Traceback" in said and "ConnectionError" in said
+
+
+def test_a_debug_traceback_is_not_built_when_debug_is_off(actions, caplog, monkeypatch):
+    import logging
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow import faults
+
+    built = []
+    monkeypatch.setattr(
+        faults.traceback, "format_exception", lambda *a, **k: built.append(a) or []
+    )
+
+    def refuse(session_id):
+        raise ConnectionError("redis is down")
+
+    actions.pointers = SimpleNamespace(get=refuse)
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.core.actions"):
+        assert actions._pointer("abc") is None
+    assert built == []
 
 
 def test_a_redis_failure_is_logged_without_its_credentials(caplog):
