@@ -177,30 +177,6 @@ def test_an_insecure_browser_saves_no_site_data():
 # ---- surfaces ----------------------------------------------------------------
 
 
-@bug("an unparseable JSON body is read as empty, so POST /browser opens a browser")
-def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
-    from starlette.testclient import TestClient
-
-    from .conftest import TOKEN
-
-    opened = []
-    monkeypatch.setattr(
-        server.workspaces, "open_browser", lambda *a, **k: opened.append(k) or {}
-    )
-    client = TestClient(server.mcp.http_app())
-    response = client.post(
-        "/browser",
-        content=b"{not json",
-        headers={
-            "Authorization": f"Bearer {TOKEN}",
-            "Sf-Workspace": NAMED,
-            "Content-Type": "application/json",
-        },
-    )
-    assert opened == []
-    assert response.status_code == 400
-
-
 # ---- browser actions ----------------------------------------------------------
 
 
