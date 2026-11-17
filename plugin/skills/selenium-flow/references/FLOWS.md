@@ -143,6 +143,14 @@ same as `#/`; and an entry without `#` matches every screen, so `/` covers a who
 hash-routed app. Leave both out and the flow is never named. A run is never
 refused for being elsewhere.
 
+## Tags
+
+`tags` group flows, such as `["auth:ldap", "smoke"]`. Before you set them, read
+`workspace://current/tags`, the tags in use with how many flows carry each, and
+reuse one. Make up a new tag only when none fits. A tag is saved lowercase, and
+`:` or `/` in one is structure for a person, never split. Tags never decide where
+a flow applies: `sites` and `paths` do.
+
 ## Say what must be true
 
 A flow that carries on when the page is not what it expected reports a success it
