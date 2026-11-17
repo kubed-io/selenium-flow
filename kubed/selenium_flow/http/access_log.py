@@ -9,16 +9,12 @@ from starlette.routing import compile_path
 
 
 class RouteTemplates(logging.Filter):
-    """Rewrites uvicorn's access line to the route that answered, not the path.
+    """Rewrites uvicorn's access line to the route template that answered.
 
-    A workspace name is the address of a browser anyone with the token can then
-    drive, and it rides in the query (``?workspace=``) *and* in paths:
-    ``/admin/workspaces/<name>/history``, ``/kept/<name>/...``; a signed link's
-    ``sig`` opens a file. An access line
-    quotes the whole request target into every pod log and into Loki, so it
-    says ``/admin/workspaces/{key}/history`` instead. A path no route serves keeps
-    only its first segment, so nothing unknown leaks either. Method and status
-    stay: an operator still sees what was asked for and how it went.
+    A workspace name rides in the query and in paths, and it is the address of
+    a browser; a signed link's ``sig`` opens a file. So the line says
+    ``/admin/workspaces/{key}/history``, and a path no route serves keeps only
+    its first segment. Method and status stay.
     """
 
     def __init__(self, routes=()):

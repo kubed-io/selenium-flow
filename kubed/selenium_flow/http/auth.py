@@ -1,20 +1,13 @@
 """Who may come in: the server's token, and the doors that also take a JWT.
 
-`authorized` asks "does this request carry the server's token?" for the routes
-that take nothing else — the action endpoints and the secrets listing. It used
-to be answered by two hand-rolled copies of the same header parsing that had
-already drifted in shape; answering it in one place is what lets the
-comparison below be careful exactly once.
+`authorized` checks the server's token for the routes that take nothing else:
+the action endpoints and the secrets listing. The admin API and its event
+stream ask `AdminDoor`: the token, or a JWT the admin UI signed in for with the
+configured OIDC issuer, holding an admin role. `/mcp`'s verifiers are built here
+too, and one `OidcVerifier` serves both doors.
 
-The admin API and its event stream ask `AdminDoor` instead: the token, or a JWT
-the admin UI signed in for with the configured OIDC issuer, holding an admin
-role (spec 2026-10-09-admin-oidc). `/mcp`'s verifiers are built here too, and
-one `OidcVerifier` serves both doors.
-
-This is the *bearer* half of the server's auth. The other half is `links.py`,
-which signs a URL for one file so it can be opened by something that cannot send
-a header at all. The split is deliberate: this module answers "are you the
-operator?", `links.py` answers "may this one URL be fetched?".
+`links.py` is the other half: a signed URL for something that cannot send a
+header.
 """
 
 from __future__ import annotations
@@ -44,9 +37,7 @@ def presented(request: Request) -> str:
     """The credential this request is offering, as a bare string.
 
     Accepts ``Authorization: Bearer <token>`` and a bare ``Authorization:
-    <token>``. The first is what MCP clients send; the second is what a curl or
-    an n8n credential field usually ends up sending, and rejecting it would buy
-    nothing but support questions.
+    <token>``, which is what curl or an n8n credential field often sends.
     """
     header = request.headers.get("authorization", "")
     scheme, _, value = header.partition(" ")
@@ -58,16 +49,9 @@ def presented(request: Request) -> str:
 def authorized(request: Request, token: str | None) -> bool:
     """Whether ``request`` may proceed.
 
-    No token configured means the server is deliberately open — that is a
-    supported deployment (a private network, or a sidecar), not a
-    misconfiguration to fail closed on.
-
-    The comparison is :func:`hmac.compare_digest` rather than ``==``. Python's
-    string equality returns as soon as two bytes differ, so the time it takes
-    leaks how long a common prefix was, and these routes are reachable by anyone
-    who can reach the port — which is enough to recover a token a byte at a
-    time. ``links.py`` already took this care for signatures; the token itself
-    had been compared with ``==`` in two separate copies of this check.
+    No token configured is an open server, a supported deployment. The token
+    is compared in constant time: ``==`` returns at the first differing byte,
+    and its timing recovers a token a byte at a time.
     """
     if not token:
         return True
@@ -84,17 +68,15 @@ NBF_LEEWAY = 60
 CLIENT_ID = "selenium-flow"
 
 # Seconds between JWKS fetch attempts. Without one, any bearer with an unknown
-# kid, on any path, is a GET to the issuer. Keycloak signs with a newly added
-# higher-priority key at once, so a rotation can cost up to one floor of
-# refusals for the new kid: the accepted price of closing that amplifier.
+# kid is a GET to the issuer. Keycloak signs with a newly added key at once, so
+# a rotation can cost up to one floor of refusals for the new kid.
 JWKS_REFETCH_FLOOR = 60
 
-# FastMCP 4.1 floors JWKS refreshes itself (`jwks_refresh_interval`, 30 s by
-# default), but records the attempt and fetches under a lock, unshielded: a
-# first caller cancelled mid-fetch takes the fetch with it, and everyone waiting
-# is refused for the whole interval. So that floor is set to 0 (refresh on every
-# miss, its documented off) and `OidcVerifier._fetch_jwks` is the one floor on
-# every FastMCP. 4.0 has no such parameter, so it is passed only where it exists.
+# FastMCP 4.1 floors JWKS refreshes itself (`jwks_refresh_interval`), but fetches
+# under a lock, unshielded: a first caller cancelled mid-fetch takes the fetch
+# with it, and everyone waiting is refused for the whole interval. So that floor
+# is set to 0 (its documented off) and `OidcVerifier._fetch_jwks` is the one
+# floor. 4.0 has no such parameter, so it is passed only where it exists.
 _TAKES_REFRESH_INTERVAL = (
     "jwks_refresh_interval" in inspect.signature(JWTVerifier.__init__).parameters
 )
@@ -154,14 +136,11 @@ class OidcVerifier(JWTVerifier):
         self._last_fetch: asyncio.Future | None = None
 
     async def _fetch_jwks(self) -> dict[str, Any]:
-        # JWTVerifier calls this on every cache miss and caches what it returns
-        # in the calling task; its caller turns the ValueError into a refusal
-        # and keeps the cached keys. On 4.0 a burst awaits the one fetch in
-        # progress here; on 4.1 FastMCP's lock lets misses in one at a time, and
-        # those after the fetch get its body back. Either way a valid token at
-        # cold start is not refused by the floor. Shielded, so a caller's
-        # cancellation does not cancel the fetch; and kept, not cleared, so a
-        # body its cancelled caller never cached still answers the floor.
+        # JWTVerifier calls this on every cache miss and turns the ValueError
+        # into a refusal. A burst awaits the one fetch in progress, and misses
+        # inside the floor get its body back, so a valid token at cold start is
+        # not refused. Shielded, so a caller's cancellation does not cancel the
+        # fetch; kept, so a body its cancelled caller never cached still answers.
         fetch = self._last_fetch
         if fetch is not None and not fetch.done():
             return await asyncio.shield(fetch)
@@ -178,10 +157,8 @@ class OidcVerifier(JWTVerifier):
     async def verify_jwt(self, token: str) -> PrincipalToken | None:
         """Signature, iss, aud, exp and nbf: everything but a role.
 
-        The admin door asks this and applies its own roles (spec
-        2026-10-09-admin-oidc, ruling 5); `/mcp` asks `verify_token`, which
-        adds `oidc.roles`. One instance serves both, so one JWKS cache and one
-        refetch floor.
+        The admin door asks this and applies its own roles; `/mcp` asks
+        `verify_token`, which adds `oidc.roles`.
         """
         verified = await super().verify_token(token)
         if verified is None:
@@ -227,7 +204,7 @@ NOT_ADMIN = "this sign-in does not hold an admin role"
 
 class Refused(Exception):
     """The admin door's no: 401 for a credential it does not know, 403 for one it
-    knows that is not enough (spec 2026-10-09-admin-oidc, ruling 6)."""
+    knows that is not enough."""
 
     def __init__(self, status: int, reason: str):
         super().__init__(reason)
