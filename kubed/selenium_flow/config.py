@@ -21,6 +21,7 @@ from typing import Annotated, Any, Literal
 
 import yaml
 from pydantic import (
+    AfterValidator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -64,6 +65,10 @@ CommaList = Annotated[list[str], NoDecode, BeforeValidator(lambda v: _parts(v, "
 # FilesystemSource("") on the cwd.
 PathList = Annotated[
     list[str], NoDecode, BeforeValidator(lambda v: _parts(v, os.pathsep))
+]
+# A path setting, where blank is unset.
+OptionalPath = Annotated[
+    str | None, AfterValidator(lambda v: (v or "").strip() or None)
 ]
 
 
@@ -264,18 +269,13 @@ class RedisSettings(Section):
 
 
 class DataSettings(Section):
-    dir: str | None = Field(
+    dir: OptionalPath = Field(
         None,
         description=(
             "Where workspaces and recordings live. Unset turns flows, kept files "
             "and recordings off."
         ),
     )
-
-    @field_validator("dir")
-    @classmethod
-    def _blank_is_off(cls, value):
-        return (value or "").strip() or None
 
 
 class CaptureSettings(Section):
@@ -294,7 +294,7 @@ class LiveSettings(Section):
     enabled: bool = Field(
         True, description="Offer the admin UI's live view of a browser."
     )
-    password_file: str | None = Field(
+    password_file: OptionalPath = Field(
         None,
         description="The file holding the Grid's VNC password, read at every connect.",
     )
@@ -315,17 +315,12 @@ class LiveSettings(Section):
         ),
     )
 
-    @field_validator("password_file")
-    @classmethod
-    def _blank_is_unset(cls, value):
-        return (value or "").strip() or None
-
 
 class RecordingSettings(Section):
     enabled: bool = Field(
         False, description="The Grid's recordings reach recording.dir."
     )
-    dir: str | None = Field(
+    dir: OptionalPath = Field(
         None,
         description="Where the Grid's recordings arrive. Unset is data.dir/recordings.",
     )
@@ -346,11 +341,6 @@ class RecordingSettings(Section):
         description="Seconds a finished recording sits unchanged before it is "
         "filed, so its transport is done with it.",
     )
-
-    @field_validator("dir")
-    @classmethod
-    def _blank_is_unset(cls, value):
-        return (value or "").strip() or None
 
 
 class SecretsSettings(Section):
