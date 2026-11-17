@@ -383,18 +383,12 @@ def mount(
             # directory. Without one, it must not be shown the shared library's.
             workspace = library_of(key)
             stores = flow_store is not None and workspace is not None
-            flow_names = named(flow_store.names, workspace) if stores else []
-            shots = (
-                named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), workspace)
-                if stores
-                else []
-            )
-            recs = (
-                named(lambda s: flow_store.files(s, RECORDINGS_DIR), workspace)
-                if stores
-                else []
-            )
-            kept = named(flow_store.files, workspace) if stores else []
+            flow_names = shots = recs = kept = []
+            if stores:
+                flow_names = named(flow_store.names, workspace)
+                shots = named(lambda s: flow_store.files(s, SCREENSHOTS_DIR), workspace)
+                recs = named(lambda s: flow_store.files(s, RECORDINGS_DIR), workspace)
+                kept = named(flow_store.files, workspace)
             counts = {
                 "downloads": len(downloads) if downloads is not None else None,
                 "screenshots": len(shots) if stores else None,
