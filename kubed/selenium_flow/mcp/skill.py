@@ -30,17 +30,23 @@ SKILL_NAME = "selenium-flow"
 ENTRY = "SKILL.md"
 
 
-def skill_path() -> Path:
-    """The skill directory, installed or in a source checkout.
+def plugin_folder(module: str, *parts: str) -> Path:
+    """``plugin/<parts>`` beside ``module``, else at the root of a source checkout.
 
-    ``plugin/`` is at the repo root, and pyproject maps it beside this module in
-    a wheel; a source checkout falls back to the root.
+    ``plugin/`` is at the repo root, and pyproject maps it beside the modules of
+    ``mcp/`` in a wheel. ``module`` is the caller's ``__file__``.
     """
-    packaged = Path(__file__).parent / PLUGIN_DIR / SKILLS_DIR / SKILL_NAME
+    here = Path(module).parent
+    packaged = here.joinpath(PLUGIN_DIR, *parts)
     if packaged.is_dir():
         return packaged
-    # parents[3] because this module lives in mcp/: package, kubed, repo root.
-    return Path(__file__).parents[3] / PLUGIN_DIR / SKILLS_DIR / SKILL_NAME
+    # Up from mcp/: the package, kubed, the repo root.
+    return here.parents[2].joinpath(PLUGIN_DIR, *parts)
+
+
+def skill_path() -> Path:
+    """The skill directory, installed or in a source checkout."""
+    return plugin_folder(__file__, SKILLS_DIR, SKILL_NAME)
 
 
 def load() -> SkillProvider | None:

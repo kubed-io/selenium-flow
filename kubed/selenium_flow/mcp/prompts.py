@@ -23,9 +23,10 @@ from fastmcp.exceptions import PromptError
 from fastmcp.prompts import Prompt, PromptArgument
 from pydantic import Field
 
+from .skill import plugin_folder
+
 log = logging.getLogger(__name__)
 
-PLUGIN_DIR = "plugin"
 PROMPTS_DIR = "prompts"
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
@@ -59,11 +60,7 @@ class FilePrompt(Prompt):
 
 def prompts_path() -> Path:
     """The prompts directory, installed or in a source checkout."""
-    packaged = Path(__file__).parent / PLUGIN_DIR / PROMPTS_DIR
-    if packaged.is_dir():
-        return packaged
-    # parents[3] because this module lives in mcp/: package, kubed, repo root.
-    return Path(__file__).parents[3] / PLUGIN_DIR / PROMPTS_DIR
+    return plugin_folder(__file__, PROMPTS_DIR)
 
 
 def _split(text: str) -> tuple[dict, str] | None:

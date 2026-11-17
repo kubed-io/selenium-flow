@@ -25,11 +25,11 @@ from pydantic import Field
 
 from . import frontmatter
 from .extensions import AdvertiseLegacyExtensions, complete
+from .skill import plugin_folder
 
 log = logging.getLogger(__name__)
 
 EXTENSION_ID = "io.modelcontextprotocol/agents"
-PLUGIN_DIR = "plugin"
 AGENTS_DIR = "agents"
 META_KEY = "io.kubed/agent"
 # No notifications/agents/list_changed is ever sent.
@@ -54,11 +54,7 @@ def agents_path() -> Path:
     not ``agents/``, so a wheel that ships ``plugin/`` without ``agents/`` never
     falls back to a ``plugin/agents`` another distribution could own.
     """
-    packaged = Path(__file__).parent / PLUGIN_DIR
-    if packaged.is_dir():
-        return packaged / AGENTS_DIR
-    # parents[3] because this module lives in mcp/: package, kubed, repo root.
-    return Path(__file__).parents[3] / PLUGIN_DIR / AGENTS_DIR
+    return plugin_folder(__file__) / AGENTS_DIR
 
 
 def routing_hint(model: object) -> dict | None:
