@@ -243,27 +243,27 @@ def test_post_browser_takes_version_and_capabilities(open_server, monkeypatch):
             "/browser",
             {"capabilities": {"browserName": "firefox"}},
             "browserName cannot be sent in capabilities: use browser= instead",
-            id="owned-capability",
+            id="post-browser-refuses-an-owned-capability-naming-the-option",
         ),
         pytest.param(
             "/browser/interact/click",
             {"selector": {"xpath": "//a", "css": "a"}},
             "not both",
-            id="both-selectors",
+            id="naming-both-elements-is-a-400-rather-than-a-silent-choice",
         ),
-        pytest.param("/browser/dialog", {"action": "shout"}, "shout", id="dialog-unknown-action"),
+        pytest.param("/browser/dialog", {"action": "shout"}, "shout", id="dialog-rejects-an-unknown-action"),
         pytest.param(
             "/browser/dialog",
             {"action": "send_text"},
             "text is required",
-            id="dialog-send-text-without-text",
+            id="dialog-send-text-requires-text",
         ),
         # Switching without saying which frame is a caller mistake, not a default.
         pytest.param(
-            "/browser/frame", {"action": "switch"}, "selector", id="frame-switch-without-target"
+            "/browser/frame", {"action": "switch"}, "selector", id="frame-switch-needs-a-target"
         ),
         pytest.param(
-            "/browser/press-key", {"key": "banana"}, "unknown key", id="press-key-unknown-key"
+            "/browser/press-key", {"key": "banana"}, "unknown key", id="press-key-rejects-an-unknown-key"
         ),
     ],
 )
@@ -305,14 +305,14 @@ def test_unknown_keys_are_dropped_rather_than_rejected(open_client):
             {"selector": {"xpath": "//a"}},
             "karate",
             ("click", "hover", "scroll_to"),
-            id="interact",
+            id="interact-rejects-an-unknown-action",
         ),
         pytest.param(
             "/browser/frame",
             {"action": "sideways"},
             "sideways",
             ("switch", "parent", "default"),
-            id="frame",
+            id="frame-rejects-an-unknown-action",
         ),
     ],
 )

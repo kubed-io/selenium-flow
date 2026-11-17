@@ -66,18 +66,18 @@ async def test_lifecycle_tools_are_not_steps(step_schema_map):
         # It would end the caller's browser, and it would bake the browser choice
         # into a document whose whole point is running on either.
         pytest.param(
-            "not a step", [{"tool": "open_session", "args": {}}], id="opens-its-own-browser"
+            "not a step", [{"tool": "open_session", "args": {}}], id="a-flow-that-opens-its-own-browser-is-refused"
         ),
         # `text` is not `required` in write's schema — it can arrive as a binding
         # instead — so the validator has to know what the schema cannot say.
         pytest.param(
             "write needs 'text'",
             [{"tool": "write", "args": {"selector": {"css": "#a"}}}],
-            id="missing-required-parameter",
+            id="a-missing-required-parameter-is-refused",
         ),
         # A schema cannot say "exactly one of xpath or css" without a oneOf, so
         # this was saving cleanly and failing at run time.
-        pytest.param("needs an element", [{"tool": "extract", "args": {}}], id="no-element"),
+        pytest.param("needs an element", [{"tool": "extract", "args": {}}], id="a-step-with-no-element-is-refused-at-save"),
         # One selector names one element. A flow is YAML somebody may have written
         # by hand, so this is checked at save as well as by the model at run time —
         # a document that saves cleanly and fails later is the split save-time
@@ -85,7 +85,7 @@ async def test_lifecycle_tools_are_not_steps(step_schema_map):
         pytest.param(
             "not both",
             [{"tool": "extract", "args": {"selector": {"css": "a", "xpath": "//a"}}}],
-            id="both-selectors",
+            id="a-step-naming-both-selectors-is-refused-at-save",
         ),
         # A script is arbitrary code, and a bound secret inside one is an
         # exfiltration API with extra steps.
@@ -97,7 +97,7 @@ async def test_lifecycle_tools_are_not_steps(step_schema_map):
                     "args": {"script": "x", "secret": {"name": "n", "key": "k"}},
                 }
             ],
-            id="secret-outside-write",
+            id="a-secret-may-only-be-bound-into-write",
         ),
         # The leash is checked against the page the browser is on. A step that
         # navigates first would be checked against the page it is leaving.
@@ -113,24 +113,24 @@ async def test_lifecycle_tools_are_not_steps(step_schema_map):
                     },
                 }
             ],
-            id="secret-and-navigation",
+            id="a-step-that-binds-a-secret-may-not-also-navigate",
         ),
         pytest.param(
             "supplied by the run",
             [{"tool": "navigate", "args": {"url": "x", "session_id": "s"}}],
-            id="session-id",
+            id="a-step-naming-session-id-is-refused",
         ),
         pytest.param(
             "wait_timeout should be integer",
             [{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": "soon"}}],
-            id="wrong-type",
+            id="a-wrong-type-is-caught-before-the-browser-sees-it",
         ),
         # In Python True is an int, so the obvious check accepts `clear: true`
         # where a timeout belongs.
         pytest.param(
             "wait_timeout should be integer",
             [{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": True}}],
-            id="boolean-as-integer",
+            id="a-boolean-does-not-pass-as-an-integer",
         ),
     ],
 )
@@ -186,7 +186,7 @@ async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
         pytest.param(
             {"type": "object", "properties": {"email": {"type": "string"}}},
             [{"tool": "write", "args": {"selector": {"css": "#email"}, "text": "${email}"}}],
-            id="typed-parameter",
+            id="a-step-may-take-its-value-from-a-declared-parameter",
         ),
         # A step and a direct tool call are the same thing written twice: there is
         # no step-level key for a value, so nothing has to be kept in step with the
@@ -195,7 +195,7 @@ async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
         pytest.param(
             {"type": "object", "properties": {"email": {}}},
             [{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "${email}"}}],
-            id="in-the-argument-itself",
+            id="a-steps-args-are-the-calls-arguments-with-no-exception",
         ),
         # A parameter is text, so a flow can vary where it goes as well as what it
         # types.
@@ -206,7 +206,7 @@ async def test_an_action_that_needs_no_element_is_left_alone(step_schema_map):
                 {"tool": "write", "args": {"selector": {"css": "#u"}, "text": "${who}"}},
                 {"tool": "extract", "args": {"selector": {"css": "[data-user=${who}]"}}},
             ],
-            id="any-argument-of-any-action",
+            id="a-parameter-reaches-any-argument-of-any-action",
         ),
     ],
 )
@@ -227,14 +227,14 @@ async def test_a_declared_parameter_may_be_referenced(step_schema_map, parameter
                     },
                 }
             ],
-            id="from-a-secret",
+            id="a-step-may-take-its-value-from-a-secret",
         ),
         # `$${` is a literal `${`. Without the escape there would be no way to
         # type one, and a page that genuinely wants `${x}` in a field is not exotic —
         # it is every templating tutorial on the internet.
         pytest.param(
             [{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "$${notaparam}"}}],
-            id="escaped-sigil",
+            id="an-escaped-sigil-is-not-a-reference",
         ),
         # `write` requires text; supplying it from a secret is supplying it.
         pytest.param(
@@ -244,7 +244,7 @@ async def test_a_declared_parameter_may_be_referenced(step_schema_map, parameter
                     "args": {"selector": {"css": "#p"}, "secret": {"name": "n", "key": "password"}},
                 }
             ],
-            id="reference-satisfies-required",
+            id="a-reference-satisfies-a-required-parameter",
         ),
     ],
 )
@@ -294,7 +294,7 @@ async def test_a_reference_is_found_wherever_it_sits(step_schema_map):
         pytest.param(
             "names no parameter",
             [{"tool": "write", "args": {"selector": {"css": "#e"}, "text": "${}"}}],
-            id="empty-reference",
+            id="an-empty-reference-says-what-to-write",
         ),
         # Two fields, never one dotted string — a Kubernetes key is routinely
         # `tls.crt`, so there is no split point to find.
@@ -306,12 +306,12 @@ async def test_a_reference_is_found_wherever_it_sits(step_schema_map):
                     "args": {"selector": {"css": "#p"}, "secret": {"name": "nextcloud"}},
                 }
             ],
-            id="secret-without-key",
+            id="a-secret-reference-needs-a-name-and-a-key",
         ),
         pytest.param(
             "unknown step key",
             [{"tool": "navigate", "args": {"url": "x"}, "retries": 3}],
-            id="unknown-step-key",
+            id="an-unknown-step-key-is-refused",
         ),
         pytest.param(
             "already used",
@@ -319,12 +319,12 @@ async def test_a_reference_is_found_wherever_it_sits(step_schema_map):
                 {"tool": "navigate", "args": {"url": "a"}, "id": "go"},
                 {"tool": "navigate", "args": {"url": "b"}, "id": "go"},
             ],
-            id="duplicate-id",
+            id="step-ids-must-be-unique-because-they-name-a-step",
         ),
         pytest.param(
             r"step 1 \(sign-in\)",
             [{"tool": "write", "args": {"selector": {"css": "#a"}}, "id": "sign-in"}],
-            id="id-in-the-error",
+            id="an-id-puts-itself-in-the-error-so-you-can-find-the-step",
         ),
     ],
 )
@@ -395,7 +395,7 @@ async def test_on_error_takes_two_values(step_schema_map):
 @pytest.mark.parametrize(
     ("refusal", "steps"),
     [
-        pytest.param("non-empty", [], id="no-steps"),
+        pytest.param("non-empty", [], id="a-flow-with-no-steps-is-refused"),
         # It was specified as a step key and nothing could honour it: a Selenium
         # call blocks, and the actions that can be bounded already take wait_timeout
         # in their own params. A key that parses and then does nothing is worse than
@@ -403,7 +403,7 @@ async def test_on_error_takes_two_values(step_schema_map):
         pytest.param(
             "unknown step key timeout",
             [{"tool": "navigate", "args": {"url": "x"}, "timeout": 5}],
-            id="step-timeout",
+            id="a-step-timeout-is-refused-rather-than-ignored",
         ),
         # `frame` is not simply selector-optional: switch needs xpath, css or
         # index, and `actions.frame` refuses that call at run time — so treating the
@@ -411,7 +411,7 @@ async def test_on_error_takes_two_values(step_schema_map):
         pytest.param(
             "needs an element",
             [{"tool": "frame", "args": {"action": "switch"}}],
-            id="frame-switch-without-target",
+            id="switching-to-a-frame-still-needs-a-target",
         ),
         # The schema permits null so a secret can supply the value instead, so
         # "present" is not the question — `Actions.write` would type the string
@@ -419,7 +419,7 @@ async def test_on_error_takes_two_values(step_schema_map):
         pytest.param(
             "write needs 'text'",
             [{"tool": "write", "args": {"selector": {"css": "#p"}, "text": None}}],
-            id="null-text",
+            id="a-null-text-is-not-a-supplied-value",
         ),
     ],
 )
@@ -458,10 +458,10 @@ async def test_every_problem_is_reported_at_once(step_schema_map):
     [
         pytest.param(
             [{"tool": "extract", "args": {"selector": {"css": "h1"}, "wait_timeout": 5}}],
-            id="wait-timeout",
+            id="wait-timeout-is-the-per-step-bound-and-is-accepted",
         ),
         pytest.param(
-            [{"tool": "frame", "args": {"action": "switch", "index": 0}}], id="frame-by-index"
+            [{"tool": "frame", "args": {"action": "switch", "index": 0}}], id="switching-by-index-needs-no-selector"
         ),
     ],
 )
