@@ -704,6 +704,13 @@ async def test_parameters_that_are_a_list_are_refused(step_schema_map):
     assert caught.value.problems == ["parameters must be a JSON Schema object"]
 
 
+@pytest.mark.parametrize("properties", [[], None, "email"])
+async def test_properties_that_are_not_an_object_are_refused(step_schema_map, properties):
+    with pytest.raises(InvalidFlow) as caught:
+        validate(flow(parameters={"properties": properties}), step_schema_map)
+    assert caught.value.problems == ["parameters.properties must be an object"]
+
+
 async def test_an_integer_key_in_args_is_a_problem_not_a_crash(step_schema_map):
     """`args: {1: x, url: ...}` — YAML reads the key as an int (D19)."""
     document = flow(steps=[{"tool": "navigate", "args": {1: "x", "url": "https://a.test/"}}])
