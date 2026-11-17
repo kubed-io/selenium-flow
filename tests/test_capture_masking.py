@@ -421,40 +421,6 @@ def test_an_authorization_without_a_token_learns_nothing(value):
 # ---- what masking costs (R1-1) ----------------------------------------------------
 
 
-def traced() -> bool:
-    """Whether a tracer is timing this process too: coverage (CI runs every
-    interpreter with ``--cov``), a debugger, a profiler. A wall-clock pin
-    measures the tracer then, not the masking."""
-    import sys
-
-    if sys.gettrace() is not None:
-        return True
-    monitoring = getattr(sys, "monitoring", None)  # 3.12+: coverage's sysmon core
-    if monitoring is not None and any(monitoring.get_tool(i) for i in range(6)):
-        return True
-    coverage = sys.modules.get("coverage")
-    return bool(coverage and coverage.Coverage.current())
-
-
-@pytest.fixture
-def untraced():
-    """For a wall-clock pin: skipped under a tracer. The form-build and scan
-    counts are the guards that hold everywhere."""
-    if traced():
-        pytest.skip("a wall-clock pin: a tracer is running")
-
-
-def test_a_wall_clock_pin_knows_when_it_is_traced():
-    import sys
-
-    before = sys.gettrace()
-    sys.settrace(lambda *a: None)
-    try:
-        assert traced()
-    finally:
-        sys.settrace(before)
-
-
 def worst_masker():
     """A session at its budgets, every value spelt as many ways as an echo can
     (eleven) and every spelling ASCII: a form with a character the text cannot
@@ -511,14 +477,14 @@ def test_a_bound_secret_holding_a_nul_is_still_masked_in_a_header():
     assert header["value"] == f"1 {MASK} 2"
 
 
-def test_the_worst_case_request_event_stays_cheap(untraced):
-    """The pin: a request event at the forms budget, its 32 headers of 600
-    characters and a 2 kB URL, runs on the server's main loop. Measured at
-    about 0.6 ms on the machine that set the budget (16 + 48 forms); the
-    bound is generous for a slow runner, and still fails at the 256 forms the
-    budget replaced (3.3 ms there)."""
-    import time as clock
-
+def test_the_worst_case_request_event_stays_within_its_budgets(monkeypatch):
+    """A request event runs on the server's main loop, and what it costs there
+    is one `find` pass per form over each text it scans. At the forms budget
+    (16 + 48 forms, each tier over by one value at most), an event with 32
+    headers of 600 characters and a 2 kB URL scans its headers once, cut to
+    the bytes a side keeps, and its URL; the 256 forms the budget replaced
+    fail the first assert."""
+    from kubed.selenium_flow.capture import AUTH_FORMS, COOKIE_FORMS, masking
     from kubed.selenium_flow.capture.store import Capture
 
     from .capture_events import nav_started, req
@@ -530,13 +496,12 @@ def test_the_worst_case_request_event_stays_cheap(untraced):
     held.masker = worst_masker()
     headers = [(f"x-header-{i}", f"{i}-" + "v" * 600) for i in range(32)]
     url = "https://a.test/p?" + "q" * 2000
-    times = []
-    for i in range(30):
-        event = req(f"r{i}", url, headers=headers)
-        started = clock.perf_counter()
-        capture.ingest("ws", "s1", *event)
-        times.append(clock.perf_counter() - started)
-    assert sorted(times)[len(times) // 2] < 0.002
+    reads, real = [], masking._scan
+    monkeypatch.setattr(masking, "_scan", lambda read, s: reads.append(len(read)) or real(read, s))
+    capture.ingest("ws", "s1", *req("r1", url, headers=headers))
+    assert len(forms_of(held.masker)) < 2 * (AUTH_FORMS + COOKIE_FORMS)
+    assert len(reads) <= 3
+    assert sum(reads) < HEADER_BYTES + TEXT_CAP
 
 
 # ---- fix round 2 ------------------------------------------------------------------
@@ -596,10 +561,7 @@ def b64(n, seed):
 def send(m, pairs, auth=None, host=None):
     """What one request event asks of a masker: its BiDi cookies, then its
     headers, for ``(name, value)`` cookie pairs, to ``host`` when one is
-    given (each cookie's BiDi ``domain`` is then ``.<host>``). Returns how
-    long it took."""
-    import time as clock
-
+    given (each cookie's BiDi ``domain`` is then ``.<host>``)."""
     raw = [{"name": n, "value": {"type": "string", "value": v}} for n, v in pairs]
     if host:
         raw = [{**c, "domain": "." + host} for c in raw]
@@ -608,14 +570,12 @@ def send(m, pairs, auth=None, host=None):
     if auth:
         headers.append({"name": "Authorization", "value": {"type": "string", "value": "Bearer " + auth}})
     url = f"https://{host}/" if host else ""
-    started = clock.perf_counter()
     m.cookies(raw, url)
     m.headers(headers, url)
-    return clock.perf_counter() - started
 
 
 def request_event(m, cookies, auth=None):
-    return send(m, [(f"c{i}", v) for i, v in enumerate(cookies)], auth)
+    send(m, [(f"c{i}", v) for i, v in enumerate(cookies)], auth)
 
 
 STEADY = ([b64(120, i) for i in range(6)], b64(3000, 99))   # 6 cookies, a 3 kB JWT
@@ -635,8 +595,10 @@ STEADY_CASES = pytest.mark.parametrize(
 
 
 def events(m, sets, rounds):
-    """``rounds`` passes over ``sets``, each one request event; their times."""
-    return [request_event(m, cookies, auth) for _ in range(rounds) for cookies, auth in sets]
+    """``rounds`` passes over ``sets``, each one request event."""
+    for _ in range(rounds):
+        for cookies, auth in sets:
+            request_event(m, cookies, auth)
 
 
 @STEADY_CASES
@@ -655,26 +617,6 @@ def test_once_learned_an_event_builds_no_forms(monkeypatch, sets):
     monkeypatch.setattr(m, "_sort", lambda: sorted_.append(1) or real_sort())
     events(m, sets, 5)
     assert built == [] and sorted_ == []
-
-
-@pytest.mark.parametrize(
-    ("sets", "bound"),
-    [([STEADY], 0.05), ([(BIG_COOKIES, None)], 0.2), ([(MANY_COOKIES, None)], 0.2),
-     ([(HOST_A, None), (HOST_B, None)], 0.1)],
-    ids=["known", "8x4kB", "60 small", "two hosts"],
-)
-def test_a_learned_or_full_tier_costs_little_per_event(untraced, sets, bound):
-    """The pin, the median of 100 events in ms, with a generous bound for a
-    slow runner. Measured on the machine that wrote it: 0.010, 0.027, 0.045
-    and 0.019 ms, where the code each replaced cost 0.27 (known, e3ab0c2),
-    1.70 (8x4kB), 1.74 (60 small) and 0.14 (two hosts, 09f981b). The bound
-    fails all but the last clearly; for two hosts the guard that does is
-    `test_once_learned_an_event_builds_no_forms`. 8x4kB hashes 32 kB of
-    cookies an event, so its bound stays round 3's."""
-    m = Masker()
-    events(m, sets, 3)
-    times = sorted(events(m, sets, 100 // len(sets)))
-    assert times[len(times) // 2] * 1000 < bound
 
 
 # ---- fix round 4: past the budget, the cookies that matter most are held -----------
