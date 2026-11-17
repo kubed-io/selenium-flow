@@ -220,17 +220,18 @@ def mount(
             # Held, not merely requested: the agent's call may still be running.
             if not tunnels.controls.controlling(key, who):
                 return JSONResponse({"error": NEEDS_CONTROL}, status_code=409)
+            # Read before typing, so the audit line never depends on a store
+            # that may fail once the text is in.
+            record = await run_in_threadpool(workspaces.store.get, key)
             done = await run_in_threadpool(workspaces.paste, key, text)
+            session = audit.session_label(record.opened_at if record else 0)
+            audit.pasted(who, key, session, done["typed"])
         except Exception as exc:  # noqa: BLE001 - every failure is an answer
             if _ours(exc):
                 return answer.refused(exc, "paste", log)
             status = errors.status_for(exc)
             log.info("paste refused (%s): %s", status, type(exc).__name__)
             return JSONResponse({"error": PASTE_FAILED}, status_code=status)
-        # The store may be Redis: read it in the threadpool, never on the loop.
-        record = await run_in_threadpool(workspaces.store.get, key)
-        session = audit.session_label(record.opened_at if record else 0)
-        audit.pasted(who, key, session, done["typed"])
         return JSONResponse(done)
 
     async def admit(websocket: WebSocket, key: str) -> str | None:
