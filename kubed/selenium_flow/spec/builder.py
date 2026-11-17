@@ -177,16 +177,7 @@ async def build_spec(
                     "content": _request_content(action, request_name),
                 },
                 "responses": {
-                    "200": {
-                        "description": "The action succeeded.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": f"#/components/schemas/{response_name}"
-                                }
-                            }
-                        },
-                    },
+                    "200": _answer("The action succeeded.", _ref(response_name)),
                     # Split by what the caller should do (errors.py).
                     "400": _error(
                         "The request cannot succeed as sent — a missing field, "
@@ -239,21 +230,10 @@ async def build_spec(
             "tags": ["browser"],
             "requestBody": {
                 "required": False,
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": f"#/components/schemas/{request_name}"}
-                    }
-                },
+                "content": _json(_ref(request_name)),
             },
             "responses": {
-                "200": {
-                    "description": summary,
-                    "content": {
-                        "application/json": {
-                            "schema": {"$ref": f"#/components/schemas/{response_name}"}
-                        }
-                    },
-                },
+                "200": _answer(summary, _ref(response_name)),
                 "400": _error(RESOURCE_400.get(action, RESOURCE_400[""])),
                 "401": _error("Missing or wrong bearer token."),
                 "409": _error(CONTROLLED),
@@ -273,14 +253,9 @@ async def build_spec(
         "description": status.DESCRIPTION,
         "tags": ["browser"],
         "responses": {
-            "200": {
-                "description": "The workspace's current state. Opens nothing.",
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": "#/components/schemas/WorkspaceStatus"}
-                    }
-                },
-            },
+            "200": _answer(
+                "The workspace's current state. Opens nothing.", _ref("WorkspaceStatus")
+            ),
             "400": _error("No workspace named, or two names given."),
             "401": _error("Missing or wrong bearer token."),
         },
@@ -338,25 +313,11 @@ async def build_spec(
         ),
     )
     for name, summary, description, schema_name, grid in ops:
-        answers = {
-            "200": {
-                "description": summary,
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": f"#/components/schemas/{schema_name}"}
-                    }
-                },
-            }
-        }
+        answers = {"200": _answer(summary, _ref(schema_name))}
         if grid:
-            answers["503"] = {
-                "description": "The Grid is unreachable or not ready.",
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": "#/components/schemas/Ready"}
-                    }
-                },
-            }
+            answers["503"] = _answer(
+                "The Grid is unreachable or not ready.", _ref("Ready")
+            )
         paths[f"{prefix}/{name}"] = {
             "get": {
                 "operationId": name,
@@ -442,9 +403,7 @@ def _request_content(action: str, request_name: str) -> dict:
     Everything takes JSON. Uploading also takes a multipart form, so a file is
     sent as a file instead of base64 in JSON.
     """
-    content = {
-        "application/json": {"schema": {"$ref": f"#/components/schemas/{request_name}"}}
-    }
+    content = _json(_ref(request_name))
     if action == "upload_file":
         content["multipart/form-data"] = {
             "schema": {
@@ -565,13 +524,22 @@ NOT_FOUND = {
 }
 
 
+def _ref(name: str) -> dict:
+    return {"$ref": f"#/components/schemas/{name}"}
+
+
+def _json(schema: dict) -> dict:
+    """A JSON body of ``schema``, as a request or response ``content``."""
+    return {"application/json": {"schema": schema}}
+
+
+def _answer(description: str, schema: dict) -> dict:
+    """A response with a JSON body."""
+    return {"description": description, "content": _json(schema)}
+
+
 def _error(description: str) -> dict:
-    return {
-        "description": description,
-        "content": {
-            "application/json": {"schema": {"$ref": "#/components/schemas/Error"}}
-        },
-    }
+    return _answer(description, _ref("Error"))
 
 
 def _summary(description: str | None) -> str:
@@ -638,11 +606,7 @@ def _flow_paths(prefix: str = "") -> dict:
             if template.startswith("/schemas")
             else (f"{prefix}/flows{template}")
         )
-        schema = (
-            {"$ref": f"#/components/schemas/{response}"}
-            if response
-            else {"type": "object"}
-        )
+        schema = _ref(response) if response else {"type": "object"}
         request = _without(request, "name", "workspace", "session_id")
         has_body = method in ("post", "put")
         operation = {
@@ -653,10 +617,7 @@ def _flow_paths(prefix: str = "") -> dict:
             "description": description,
             "tags": ["flows"],
             "responses": {
-                "200": {
-                    "description": summary,
-                    "content": {"application/json": {"schema": schema}},
-                },
+                "200": _answer(summary, schema),
                 "400": _error(
                     "The request cannot succeed as sent — an unusable name, "
                     "a flow that does not exist, a document that would not "
@@ -671,7 +632,7 @@ def _flow_paths(prefix: str = "") -> dict:
             operation["responses"]["413"] = _error(TOO_LARGE)
             operation["requestBody"] = {
                 "required": method == "put",
-                "content": {"application/json": {"schema": request}},
+                "content": _json(request),
             }
         paths.setdefault(route, {})[method] = operation
     return paths
@@ -695,14 +656,7 @@ def _file_paths(prefix: str = "") -> dict:
     paths = {}
     for path, (op, summary, description, request, response) in _FILE_OPERATIONS.items():
         responses = {
-            "200": {
-                "description": summary,
-                "content": {
-                    "application/json": {
-                        "schema": {"$ref": f"#/components/schemas/{response}"}
-                    }
-                },
-            },
+            "200": _answer(summary, _ref(response)),
             "400": _error(
                 _FILE_400.get(
                     path,
@@ -737,11 +691,7 @@ def _file_paths(prefix: str = "") -> dict:
             responses["413"] = _error(TOO_LARGE)
             operation["requestBody"] = {
                 "required": False,
-                "content": {
-                    "application/json": {
-                        "schema": _without(request, "name", "workspace", "session_id")
-                    }
-                },
+                "content": _json(_without(request, "name", "workspace", "session_id")),
             }
         paths.setdefault(f"{prefix}{template}", {})[method] = operation
     return paths
@@ -761,14 +711,7 @@ def _site_data_paths(prefix: str = "") -> dict:
                 "description": description,
                 "tags": ["browser"],
                 "responses": {
-                    "200": {
-                        "description": summary,
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": f"#/components/schemas/{schema}"}
-                            }
-                        },
-                    },
+                    "200": _answer(summary, _ref(schema)),
                     "400": _error(
                         "No workspace named, two names given, or no saved data for "
                         "that site. Do not retry it unchanged."
@@ -819,14 +762,9 @@ def _secret_paths(prefix: str = "") -> dict:
                 "description": secrets.LIST_DESCRIPTION,
                 "tags": ["secrets"],
                 "responses": {
-                    "200": {
-                        "description": "Names, keys and sites. Never a value.",
-                        "content": {
-                            "application/json": {
-                                "schema": {"$ref": "#/components/schemas/SecretList"}
-                            }
-                        },
-                    },
+                    "200": _answer(
+                        "Names, keys and sites. Never a value.", _ref("SecretList")
+                    ),
                     "400": _error(
                         "No workspace named, two names given, or a server started "
                         "with no secrets.dirs and no secrets.entries, so there "
