@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ...faults import Conflict
+from ...names import GLOBAL_WORKSPACE
 from ...workspace.config import OFF
 from .. import answer
 from .workspaces import library
@@ -38,6 +39,9 @@ def mount(mcp, configs, prefix, guarded, changes) -> None:
     def answered(workspace: str, method: str, body) -> dict:
         if not configs.enabled:
             raise Conflict(OFF)
+        if workspace == GLOBAL_WORKSPACE:
+            # No caller is named `global`, so a file there would apply to none.
+            raise ValueError("the shared library has no workspace config")
         if method == "PUT":
             text = body.get("text") if isinstance(body, dict) else None
             if not isinstance(text, str):

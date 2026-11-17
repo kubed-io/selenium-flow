@@ -28,7 +28,7 @@ from ..faults import Conflict
 from ..flows.library import load_typed, yaml_complaint
 from ..flows.store import WorkspaceLayout, open_regular
 from ..flows.tags import Filter
-from ..names import CONFIG_FILE, InvalidName
+from ..names import CONFIG_FILE, GLOBAL_WORKSPACE, InvalidName
 
 log = logging.getLogger(__name__)
 
@@ -261,10 +261,15 @@ class Configs:
         return True
 
     def kept_names(self) -> list[str]:
-        """Every workspace kept by a config, by name."""
+        """Every workspace kept by a config, by name. Never the shared library:
+        no caller is named `global`."""
         if self._layout is None:
             return []
-        return [name for name in self._layout.workspaces() if self.kept(name)]
+        return [
+            name
+            for name in self._layout.workspaces()
+            if name != GLOBAL_WORKSPACE and self.kept(name)
+        ]
 
     # -- writes ----------------------------------------------------------------
 

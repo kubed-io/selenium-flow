@@ -195,3 +195,25 @@ def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
     redis.delete(KEY)
     client.put(url(), json={"text": VALID})
     assert f"p:{KEY}" not in fake.data
+
+
+# ---- the shared library has no config ----------------------------------------------
+
+
+def test_the_global_key_is_refused_on_every_route(client, tmp_path):
+    for response in (
+        client.get(url("global"), headers=AUTH),
+        client.put(url("global"), json={"text": VALID}, headers=AUTH),
+        client.delete(url("global"), headers=AUTH),
+    ):
+        assert response.status_code == 400
+        assert "the shared library has no workspace config" in response.json()["error"]
+    assert not (tmp_path / "workspaces" / "global" / CONFIG_FILE).exists()
+
+
+def test_a_global_file_placed_by_hand_lists_no_row(client, data_server, tmp_path):
+    (tmp_path / "workspaces" / "global").mkdir(parents=True)
+    (tmp_path / "workspaces" / "global" / CONFIG_FILE).write_text(VALID)
+    assert data_server.configs.kept_names() == []
+    rows = client.get("/admin/workspaces", headers=AUTH).json()["workspaces"]
+    assert "global" not in [r["key"] for r in rows]
