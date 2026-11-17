@@ -60,6 +60,8 @@ export interface WorkspaceRow {
   flows_rev?: string | number | null
   site_data_count?: number | null
   site_data_rev?: string | null
+  /** Moves whenever the workspace's config file does; "" with none. */
+  config_rev?: string
   history_count?: number | null
   history_rev?: string | null
   opened_by?: { kind: 'admin' | 'oidc'; username?: string | null } | null

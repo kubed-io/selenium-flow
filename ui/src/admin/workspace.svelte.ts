@@ -69,7 +69,8 @@ export class WorkspaceModel {
   #flowLoads = new Latest()
   #docLoads = new Latest()
   #configLoads = new Latest()
-  #shownKept: boolean | undefined = undefined
+  // undefined until a row is seen.
+  #shownConfig: string | undefined = undefined
   #disposed = false
   readonly key: string
   #api: Api
@@ -195,7 +196,6 @@ export class WorkspaceModel {
   showConfig(data: ConfigPayload) {
     this.config = data
     this.configError = null
-    this.#shownKept = data.kept
   }
 
   loadFlow(name: string): Promise<void> {
@@ -243,8 +243,11 @@ export class WorkspaceModel {
       void this.loadHistory()
     }
     this.filesBlanked = false
-    // A file written or removed on disk moves `kept`.
-    if (row.kept !== undefined && this.#shownKept !== undefined && row.kept !== this.#shownKept) void this.loadConfig()
+    // A save, a remove or a hand edit moves it, from this tab or another: the
+    // Config tab and its banner reload. Mount loads the first.
+    const configMoved = this.#shownConfig !== undefined && row.config_rev !== this.#shownConfig
+    this.#shownConfig = row.config_rev
+    if (configMoved) void this.loadConfig()
   }
 
   /* Final: a caller still holding the model after its workspace left loads nothing. */

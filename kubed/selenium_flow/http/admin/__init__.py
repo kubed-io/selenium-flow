@@ -102,7 +102,10 @@ def register(
         mcp, actions, workspaces, flow_store, token, prefix, link_ttl,
         broadcast.compute, guarded, broadcast.changes,
     )
-    flows.mount(mcp, flow_store, schemas, prefix, guarded, broadcast.changes)
+    flows.mount(
+        mcp, flow_store, schemas, prefix, guarded, broadcast.changes,
+        configs=workspaces.configs if workspaces is not None else None,
+    )
     if workspaces is not None:
         config_tab.mount(
             mcp, workspaces.configs, prefix, guarded, broadcast.changes,

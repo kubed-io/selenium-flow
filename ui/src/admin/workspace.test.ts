@@ -208,3 +208,23 @@ test('a Files failure still loads Site data and History: they read the store, no
   const loads = (tab: string) => calls.filter((c) => c.path === '/admin/workspaces/k/' + tab).length
   expect([loads('site-data'), loads('history')]).toEqual([1, 1])
 })
+
+test('a pushed row reloads the config only when config_rev moves: a hand edit reaches the tab and its banner', async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/workspaces/k/files': { body: files() },
+    'GET /admin/workspaces/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+    'GET /admin/workspaces/k/config': { body: { text: null, config: {}, error: null, kept: false, ttl: 86400 } },
+  })
+  const m = new WorkspaceModel('k', api)
+  await m.loadConfig()
+  const loads = () => calls.filter((c) => c.path === '/admin/workspaces/k/config').length
+  const push = (rev: string) => m.onPushed({ workspaces: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, config_rev: rev }] }, () => null, () => {}, () => {})
+  push('')
+  expect(loads()).toBe(1)
+  push('')
+  expect(loads()).toBe(1)
+  push('1-20-5')
+  expect(loads()).toBe(2)
+  push('1-20-5')
+  expect(loads()).toBe(2)
+})

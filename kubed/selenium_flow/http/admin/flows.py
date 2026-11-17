@@ -19,7 +19,7 @@ from ...flows import template
 from ...flows.shape import Shape
 from ...names import GLOBAL_WORKSPACE, library_of, valid_name
 from .. import answer
-from .workspaces import library, revision
+from .workspaces import flows_revision, library, revision
 
 log = logging.getLogger(__name__)
 
@@ -47,10 +47,12 @@ def _uses(document: dict) -> dict[str, list[int]]:
     return uses
 
 
-def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
+def mount(mcp, flow_store, schemas, prefix, guarded, changes, configs=None) -> None:
     """Mount the flow catalogue, the editor's read/write/delete, and move.
 
     ``changes`` marks the routes that change what the workspace list shows.
+    ``configs`` is every workspace's config, whose revision the listing's
+    carries.
     """
 
     def enabled() -> None:
@@ -76,9 +78,11 @@ def mount(mcp, flow_store, schemas, prefix, guarded, changes) -> None:
         # redundant refresh, where the other order would pair old summaries
         # with the new revision and the page would never repaint.
         rev = await run_in_threadpool(
-            lambda: revision(flow_store, workspace)
-            + "+"
-            + revision(flow_store, GLOBAL_WORKSPACE)
+            lambda: flows_revision(
+                revision(flow_store, workspace),
+                revision(flow_store, GLOBAL_WORKSPACE),
+                configs.revision(workspace) if configs is not None else "",
+            )
         )
         try:
             payload = await run_in_threadpool(

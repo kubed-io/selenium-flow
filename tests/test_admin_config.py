@@ -235,3 +235,34 @@ def test_a_global_file_placed_by_hand_lists_no_row(client, data_server, tmp_path
     assert data_server.configs.kept_names() == []
     rows = client.get("/admin/workspaces", headers=AUTH).json()["workspaces"]
     assert "global" not in [r["key"] for r in rows]
+
+
+# ---- the page sees a hand edit -----------------------------------------------------
+
+
+def _row(client):
+    rows = client.get("/admin/workspaces", headers=AUTH).json()["workspaces"]
+    return next(r for r in rows if r["key"] == KEY)
+
+
+def test_the_row_carries_a_config_revision_that_follows_a_hand_edit(
+    client, data_server, tmp_path
+):
+    from kubed.selenium_flow.workspace.store import Workspace
+
+    data_server.store.set(KEY, Workspace())
+    assert _row(client)["config_rev"] == ""
+    client.put(url(), json={"text": VALID}, headers=AUTH)
+    saved = _row(client)
+    assert saved["config_rev"]
+    (tmp_path / "workspaces" / KEY / CONFIG_FILE).write_text("colour: blue\n")
+    edited = _row(client)
+    assert edited["config_rev"] not in ("", saved["config_rev"])
+    assert edited["flows_rev"] != saved["flows_rev"], "the not-offered pills repaint"
+
+
+def test_the_flow_listing_revision_follows_the_config(client, tmp_path):
+    flows = f"/admin/workspaces/{KEY}/flows"
+    before = client.get(flows, headers=AUTH).json()["rev"]
+    client.put(url(), json={"text": VALID}, headers=AUTH)
+    assert client.get(flows, headers=AUTH).json()["rev"] != before

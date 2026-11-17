@@ -116,6 +116,12 @@ def revision(flow_store, workspace: str) -> str:
         return ""
 
 
+def flows_revision(own: str, shared: str, config: str) -> str:
+    """The flow panel's stamp: both libraries, and the config when there is
+    one, which says which shared flows are offered."""
+    return f"{own}+{shared}" + (f"+{config}" if config else "")
+
+
 def library(key: str) -> str:
     """The workspace directory this key owns, or an ``InvalidName`` (a 400).
 
@@ -427,11 +433,14 @@ def mount(
                 [record.site_data.get("saved_at"), [s["site"] for s in listed["sites"]]]
             )
             visited = site_data.history_hosts(record.history)
+            config_rev = configs.revision(workspace) if workspace else ""
             rows.append(
                 {
                     "key": key,
                     **owner_label(key),
                     "kept": configs.kept(key),
+                    # A hand edit too: the Config tab and its banner reload.
+                    "config_rev": config_rev,
                     "session_id": sid or None,
                     "attached": bool(sid),
                     "live": live,
@@ -478,9 +487,12 @@ def mount(
                     # None when flows are off, which is not zero.
                     "flows_count": (len(flow_names) if stores else None),
                     # This workspace's library and the shared one: the panel
-                    # lists both.
+                    # lists both. And its config, which says which shared
+                    # flows are offered.
                     "flows_rev": (
-                        revision(flow_store, workspace) + "+" + shared_rev
+                        flows_revision(
+                            revision(flow_store, workspace), shared_rev, config_rev
+                        )
                         if stores
                         else None
                     ),

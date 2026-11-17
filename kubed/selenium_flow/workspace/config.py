@@ -260,6 +260,17 @@ class Configs:
             return False
         return True
 
+    def revision(self, name: str) -> str:
+        """A token that changes whenever this workspace's file does, written or
+        removed; "" when there is none. One stat, nothing parsed."""
+        if self._layout is None:
+            return ""
+        try:
+            info = os.lstat(self._path(name))
+        except (OSError, InvalidName):
+            return ""
+        return f"{info.st_ino}-{info.st_size}-{info.st_mtime_ns}"
+
     def kept_names(self) -> list[str]:
         """Every workspace kept by a config, by name. Never the shared library:
         no caller is named `global`."""
