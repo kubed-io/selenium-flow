@@ -35,6 +35,22 @@ def yaml_complaint(exc: Exception) -> str:
 _LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
+def load_typed(text: str):
+    """YAML a person typed, parsed by the pure-Python loader.
+
+    libyaml crashes the process on nesting deep enough, well under any size
+    cap; the pure-Python loader runs out of recursion first, which is refused
+    here as a YAMLError. Whatever it accepts is shallow enough for libyaml.
+    """
+    try:
+        return yaml.load(text, Loader=yaml.SafeLoader)
+    except RecursionError:
+        raise yaml.MarkedYAMLError(problem="it nests too deeply") from None
+    except ValueError as exc:
+        # A scalar its resolver cannot construct, such as a 13th month.
+        raise yaml.MarkedYAMLError(problem=f"a value cannot be read: {exc}") from None
+
+
 # Measured in YAML source, since an entry can be any size. A document bigger
 # than all of it is parsed and never kept.
 CACHE_BYTES = 4 * 2**20

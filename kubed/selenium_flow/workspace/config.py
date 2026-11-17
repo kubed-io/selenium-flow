@@ -25,7 +25,7 @@ from cachetools import LRUCache
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ..faults import Conflict
-from ..flows.library import yaml_complaint
+from ..flows.library import load_typed, yaml_complaint
 from ..flows.store import WorkspaceLayout, open_regular
 from ..flows.tags import Filter
 from ..names import CONFIG_FILE, InvalidName
@@ -42,7 +42,6 @@ REFUSED = (
 CAP = 2**20
 # Workspaces whose parsed config is kept.
 CACHED = 1024
-_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 class _Strict(BaseModel):
@@ -98,7 +97,7 @@ def _problems(exc: ValidationError) -> str:
 def parse(text: str) -> WorkspaceConfig:
     """The config ``text`` holds, or a ValueError saying why it is refused."""
     try:
-        data = yaml.load(text, Loader=_LOADER)
+        data = load_typed(text)
     except yaml.YAMLError as exc:
         raise ValueError(f"{CONFIG_FILE} is not YAML: {yaml_complaint(exc)}") from None
     if data is None:

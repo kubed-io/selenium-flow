@@ -258,7 +258,7 @@ async def save_text(
         raise ValueError("yaml is required")
     flowlib.check_size(text)
     try:
-        document = flowlib.parse(text)
+        document = flowlib.load_typed(text)
     except yaml.YAMLError as exc:
         raise ValueError(
             f"that is not valid YAML: {flowlib.yaml_complaint(exc)}"
