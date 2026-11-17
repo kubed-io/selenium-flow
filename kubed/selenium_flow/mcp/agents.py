@@ -32,7 +32,9 @@ EXTENSION_ID = "io.modelcontextprotocol/agents"
 PLUGIN_DIR = "plugin"
 AGENTS_DIR = "agents"
 META_KEY = "io.kubed/agent"
-AGENTS_SETTINGS = {"listChanged": False}
+# No notifications/agents/list_changed is ever sent.
+SETTINGS = {"listChanged": False}
+AGENT_NOT_FOUND = {"reason": "agent_not_found"}
 
 _HINTS = {"opus": "large", "sonnet": "medium", "haiku": "small"}
 _BAD_CATEGORIES = {"Cc", "Cf", "Co", "Cs", "Cn"}
@@ -84,7 +86,7 @@ def _strings(value: object) -> list[str]:
     return []
 
 
-def _build(text: str, skills: Collection[str]) -> Agent | str:
+def parse_agent(text: str, skills: Collection[str]) -> Agent | str:
     """The agent, or the sentence saying why the file is skipped."""
     parsed = frontmatter.split(text)
     if parsed is None:
@@ -146,7 +148,7 @@ def load(base: Path | None = None, skills: Collection[str] = ()) -> list[Agent]:
         except (OSError, UnicodeDecodeError) as exc:
             log.warning("agent file %s is skipped: %s", path.name, exc)
             continue
-        built = _build(text, skills)
+        built = parse_agent(text, skills)
         if isinstance(built, str):
             log.warning("agent file %s is skipped: %s", path.name, built)
         elif built.name in found:
@@ -174,7 +176,7 @@ class AgentsExtension(ServerExtension):
         self._agents = list(agents)
 
     def settings(self) -> dict:
-        return dict(AGENTS_SETTINGS)
+        return dict(SETTINGS)
 
     def methods(self) -> Sequence[MethodBinding]:
         return (
@@ -195,11 +197,11 @@ class AgentsExtension(ServerExtension):
         raise MCPError(
             code=INVALID_PARAMS,
             message="Agent not found",
-            data={"reason": "agent_not_found"},
+            data=dict(AGENT_NOT_FOUND),
         )
 
 
 def register(mcp, agents: Sequence[Agent]) -> None:
     """Serve the agents, declared even when there are none."""
     mcp.add_extension(AgentsExtension(agents))
-    mcp.add_middleware(AdvertiseLegacyExtensions({EXTENSION_ID: AGENTS_SETTINGS}))
+    mcp.add_middleware(AdvertiseLegacyExtensions({EXTENSION_ID: SETTINGS}))
