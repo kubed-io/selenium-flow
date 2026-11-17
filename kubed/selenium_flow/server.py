@@ -137,6 +137,8 @@ class SeleniumMCP:
             self.flows, admin=base + self.prefix if base else ""
         )
         self.store.kept = self.configs.kept
+        # A store that predates `retain` follows at its next write instead.
+        self.configs.retained = getattr(self.store, "retain", self.configs.retained)
         if self.flows is not None:
             self.flows.global_filter = self.configs.global_filter
 

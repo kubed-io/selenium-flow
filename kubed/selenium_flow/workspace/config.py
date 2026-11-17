@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 from urllib.parse import quote
@@ -134,6 +135,9 @@ class Configs:
         self._admin = admin
         self._cache: LRUCache = LRUCache(maxsize=CACHED)
         self._lock = threading.Lock()
+        # Told a workspace's name once its file is saved or removed, so its
+        # record's expiry follows at once (`WorkspaceStore.retain`).
+        self.retained: Callable[[str], None] = lambda _name: None
 
     @property
     def enabled(self) -> bool:
@@ -278,6 +282,7 @@ class Configs:
         self.validate(text)
         self._layout.write_config(name, text)
         log.info("workspace %s: its config was saved (%s)", name, path.name)
+        self.retained(name)
 
     def remove(self, name: str) -> bool:
         """Remove the file. False when there was none."""
@@ -287,6 +292,7 @@ class Configs:
         except FileNotFoundError:
             return False
         log.info("workspace %s: its config was removed", name)
+        self.retained(name)
         return True
 
 

@@ -451,6 +451,10 @@ class WorkspaceStore(Protocol):
 
     def delete(self, key: str) -> None: ...
 
+    # Apply the expiry `kept` says now to a key's record, if it has one, without
+    # writing the record: a config saved or removed changes it at once.
+    def retain(self, key: str) -> None: ...
+
     # Optional, for the admin view only: the MCP surface never lists workspaces.
     # A store that cannot enumerate cheaply may leave these out, and the admin
     # view shows an empty list.
@@ -559,6 +563,13 @@ class MemoryStore(_Writes):
         with self._locked(key):
             self._data.pop(key, None)
 
+    def retain(self, key: str) -> None:
+        deadline = self._deadline(key)
+        with self._locked(key):
+            current = self.get(key)
+            if current is not None:
+                self._data[key] = (deadline, current)
+
     def records(self) -> dict[str, Workspace]:
         """Every live workspace, keyed the way it is stored.
 
@@ -657,6 +668,14 @@ class RedisStore(_Writes):
 
     def delete(self, key: str) -> None:
         self._redis.delete(self._k(key))
+
+    def retain(self, key: str) -> None:
+        # Both are no-ops on an absent key.
+        ex = self._ex(key)
+        if ex is None:
+            self._redis.persist(self._k(key))
+        else:
+            self._redis.expire(self._k(key), ex)
 
     def records(self) -> dict[str, Workspace]:
         """Every live workspace, keyed the way it is stored.

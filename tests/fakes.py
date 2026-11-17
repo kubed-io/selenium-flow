@@ -215,7 +215,8 @@ class Clock:
 
 
 class FakeRedis:
-    """Enough of redis-py for the store: get, mget, set with ex, delete, ping,
+    """Enough of redis-py for the store: get, mget, set with ex, delete, persist,
+    expire, ping,
     scan_iter (bytes keys, as redis-py returns them) and pipeline.
 
     ``data`` holds the bytes by key, ``expiries`` the ``ex`` each was set with,
@@ -248,6 +249,14 @@ class FakeRedis:
 
     def delete(self, key):
         self.data.pop(key, None)
+
+    def persist(self, key):
+        if key in self.data:
+            self.expiries[key] = None
+
+    def expire(self, key, seconds):
+        if key in self.data:
+            self.expiries[key] = seconds
 
     def scan_iter(self, match="*", count=None):
         prefix = match.rstrip("*")

@@ -140,3 +140,58 @@ async def test_no_tool_writes_the_config(data_server):
     tools that write files cannot reach the workspace's root."""
     tools = await data_server.mcp.list_tools()
     assert not [t.name for t in tools if "config" in t.name.lower()]
+
+
+# ---- a save keeps the record now, a remove lets it expire now ----------------------
+
+
+def test_a_save_keeps_an_idle_workspaces_record_at_once(client, data_server):
+    """The record is not written again after the save, and still never expires."""
+    from kubed.selenium_flow.workspace.store import Workspace
+
+    data_server.store.set(KEY, Workspace(session_id="a"))
+    client.put(url(), json={"text": VALID}, headers=AUTH)
+    assert data_server.store._data[KEY][0] == float("inf")
+
+
+def test_a_remove_sets_the_expiry_again_at_once(client, data_server):
+    from kubed.selenium_flow.workspace.store import Workspace
+
+    client.put(url(), json={"text": VALID}, headers=AUTH)
+    data_server.store.set(KEY, Workspace(session_id="a"))
+    client.delete(url(), headers=AUTH)
+    assert data_server.store._data[KEY][0] < float("inf")
+
+
+def test_a_save_or_remove_with_no_record_writes_none(client, data_server):
+    client.put(url(), json={"text": VALID}, headers=AUTH)
+    client.delete(url(), headers=AUTH)
+    assert KEY not in data_server.store._data
+
+
+def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
+    from kubed.selenium_flow.config import Settings
+    from kubed.selenium_flow.server import SeleniumMCP
+    from kubed.selenium_flow.workspace.store import RedisStore, Workspace
+
+    from .fakes import FakeRedis
+
+    fake = FakeRedis()
+    redis = RedisStore(fake, prefix="p:", ttl=60)
+    server = SeleniumMCP(
+        Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            auth={"token": TOKEN},
+            data={"dir": str(tmp_path)},
+        ),
+        store=redis,
+    )
+    redis.set(KEY, Workspace(session_id="a"))
+    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client.put(url(), json={"text": VALID})
+    assert fake.expiries[f"p:{KEY}"] is None
+    client.delete(url())
+    assert fake.expiries[f"p:{KEY}"] == 60
+    redis.delete(KEY)
+    client.put(url(), json={"text": VALID})
+    assert f"p:{KEY}" not in fake.data
