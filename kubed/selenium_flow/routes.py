@@ -210,11 +210,15 @@ def register(
         """What this workspace is and whether it holds a browser. Opens nothing."""
         # Named by `request` here, where MCP says `query` or `header`. With a
         # token only its holder gets here, the admin; an open server has none.
-        return await _answer(request, token, "status", lambda caller, _body: (
-            workspaces.describe(
+        return await answer_module.answer(
+            request,
+            token,
+            "status",
+            lambda caller, _body: workspaces.describe(
                 Caller(caller.name, "request", principal=ADMIN if token else None)
-            )
-        ))
+            ),
+            log,
+        )
 
     # The literal route first, so the listing is never taken for the template.
     @mcp.custom_route(f"{prefix}/site-data", methods=["GET"], name="site_data_list")
@@ -266,17 +270,12 @@ def register(
         _bind(mcp, token, browser_root, row.http_method, name, what, call)
 
 
-async def _answer(request, token, what, call) -> JSONResponse:
-    """``http.answer.answer`` with this module's logger."""
-    return await answer_module.answer(request, token, what, call, log)
-
-
 def _bind(mcp, token, route, http_method, name, what, call) -> None:
-    """Mount ``call`` at ``route`` for one method, through ``_answer``."""
+    """Mount ``call`` at ``route`` for one method, through ``http.answer``."""
 
     @mcp.custom_route(route, methods=[http_method], name=name)
     async def handler(request: Request) -> JSONResponse:
-        return await _answer(request, token, what, call)
+        return await answer_module.answer(request, token, what, call, log)
 
 
 def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) -> None:
@@ -324,4 +323,4 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
                 and (lambda name: getattr(actions, row.closed)(name, **kwargs)),
             )
 
-        return await _answer(request, token, path, call)
+        return await answer_module.answer(request, token, path, call, log)
