@@ -33,6 +33,20 @@ def yaml_complaint(exc: Exception) -> str:
 # libyaml when the wheel has it: the pure-Python parser is ten times slower,
 # and a listing parses every stored flow.
 _LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+# libyaml crashes the whole process, in a worker thread, somewhere past 25,000
+# levels of nesting, and a level costs at least a character. Text this short
+# cannot get near it; longer text goes to the pure-Python loader (`load_typed`).
+LIBYAML_CHARS = 8 * 1024
+
+
+def _fast(text: str) -> bool:
+    return _LOADER is not yaml.SafeLoader and len(text) <= LIBYAML_CHARS
+
+
+def _load(text: str):
+    """``text`` parsed by libyaml when it is short enough to be safe, else by
+    the pure-Python loader, which refuses deep nesting as a YAMLError."""
+    return yaml.load(text, Loader=_LOADER) if _fast(text) else load_typed(text)
 
 
 def load_typed(text: str):
@@ -64,7 +78,7 @@ ENTRY_BYTES = 1024
     condition=threading.Condition(),
 )
 def _parsed(text: str) -> tuple[int, object]:
-    return len(text.encode()) + ENTRY_BYTES, yaml.load(text, Loader=_LOADER)
+    return len(text.encode()) + ENTRY_BYTES, _load(text)
 
 
 def view(text: str):
@@ -153,7 +167,7 @@ def _block(lines: list[str], start: int) -> int:
 
 def _flow_style(text: str) -> bool:
     """Whether the document's top-level mapping is written ``{...}``."""
-    for event in yaml.parse(text, Loader=_LOADER):
+    for event in yaml.parse(text, Loader=_LOADER if _fast(text) else yaml.SafeLoader):
         if isinstance(event, yaml.MappingStartEvent):
             return bool(event.flow_style)
     return False
@@ -198,7 +212,7 @@ def with_tags(text: str, tags: list[str]) -> str:
     if tags:
         expected["tags"] = tags
     try:
-        reread = yaml.load(rewritten, Loader=_LOADER)
+        reread = _load(rewritten)
     except yaml.YAMLError:
         reread = None
     if reread != expected:
