@@ -1,9 +1,8 @@
 """The one WebDriver BiDi client: a `Connection` per browser, held on an event
 loop, and the `Channel` worker threads drive it through.
 
-Capture, site data and the session monitor all speak BiDi through this package
-(capture spec, ruling 1). It sits below every other layer: no protocol
-library, no Selenium (`tests/test_boundaries.py`).
+Capture, site data and the session monitor all speak BiDi through this package.
+It imports no protocol layer and no Selenium (`tests/test_boundaries.py`).
 """
 
 from __future__ import annotations

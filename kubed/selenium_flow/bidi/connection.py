@@ -1,30 +1,27 @@
 """One WebDriver BiDi connection to one session's browser, and its dispatcher.
 
-Everything that speaks BiDi — capture, site data, the monitor — goes through a
-`Connection` (capture spec, ruling 1), on ``websockets``' asyncio client. This
-is the only module that imports it (`tests/test_boundaries.py`).
+Everything that speaks BiDi goes through a `Connection`, on ``websockets``'
+asyncio client. This is the only module that imports it
+(`tests/test_boundaries.py`).
 
-**A socket is a channel, never a liveness signal.** Measured against the
-cluster's Grid (session monitor spec, Verify first): a held socket stays open
-after its session is deleted and after the Grid reaps it, and a command sent on
-it is never answered. The hub still answers its pings, so a ping proves the
-hub, never the browser. A command that gets no reply is the sign of a zombie
-socket, not of a session to declare gone, and a connection is closed when the
-reason it was held ends.
+A socket is a channel, never a liveness signal. Against the Grid, a held
+socket stays open after its session is deleted and after the Grid reaps it,
+and a command sent on it is never answered. The hub still answers its pings,
+so a ping proves the hub, never the browser. A command that gets no reply is
+the sign of a zombie socket, not of a session to declare gone, and a
+connection is closed when the reason it was held ends.
 
-**Nothing runs on the read loop** (ruling 8). The reader parses and routes: a
-reply resolves the command waiting on its id, and an event is queued for each
-subscriber that asked for it. Each subscriber has its own bounded queue,
-drained by its own task, overflow dropped and counted. A slow subscriber on the
-receive path would starve every reply behind it — a site-data command or a
-spare tab's intercept answer would wait on a page flooding the console — so the
-reader never waits on one.
+Nothing runs on the read loop. The reader parses and routes: a reply resolves
+the command waiting on its id, and an event is queued for each subscriber that
+asked for it, on the subscriber's own bounded queue drained by its own task,
+overflow dropped and counted. A slow subscriber on the receive path would
+starve every reply behind it (a site-data command or a spare tab's intercept
+answer would wait on a page flooding the console).
 
-**A connection closes clean** (ruling 7): it unsubscribes every subscription it
-made and removes every intercept and data collector it added before the socket
-goes, so Firefox's fan-out never floods another socket, no body outlives its
-reader, and no request waits on an intercept whose answerer has gone (a spare
-tab whose save was cut off by the close).
+A connection closes clean: it unsubscribes every subscription it made and
+removes every intercept and data collector it added before the socket goes,
+so Firefox's fan-out never floods another socket, no body outlives its reader,
+and no request waits on an intercept whose answerer has gone.
 """
 
 from __future__ import annotations
@@ -62,14 +59,13 @@ QUEUE_BYTES = 32 * 2**20
 # How many of a subscriber's most recent lags it keeps.
 LAGS_KEPT = 1000
 # Seconds `flush` sleeps between its round trip and its barriers. Zero while
-# `session.status` alone is a flush (capture spec, Verify first 2).
+# `session.status` alone is a flush.
 FLUSH_GRACE = 0.0
 # Frames the reader routes before it gives the loop a turn. A burst the socket
 # already holds is read without suspending, so without this the reader would
 # queue a whole TCP read before any subscriber ran.
 READ_TURN = 64
-# Seconds of events one subscriber handles in a turn before it yields. A turn
-# per event let a burst fill the queue while the reader routed whole reads.
+# Seconds of events one subscriber handles in a turn before it yields.
 DRAIN_TURN = 0.005
 
 
@@ -86,11 +82,11 @@ TOO_BIG = (
 
 class MessageTooBig(BidiUnavailable):
     """A frame was larger than the connection takes, and it closed: every
-    command waiting on it gets this rather than a plain ConnectionError.
+    command waiting on it gets this in place of a ConnectionError.
 
-    The channel failing, so a 503 wherever it reaches a caller (errors.py);
-    a caller that knows better, `network_body`, catches it first. Which frame
-    it was is not known: Firefox fans every event out to every socket."""
+    A 503 wherever it reaches a caller (errors.py); `network_body` catches it
+    first. Which frame it was is not known: Firefox fans every event out to
+    every socket."""
 
 
 class BidiError(Exception):
@@ -107,9 +103,9 @@ Handler = Callable[[str, dict], Awaitable[None] | None]
 
 def dial(url: str, *, max_size: int | None = None):
     """Open a socket to the Grid: the one place one is opened, pinged and
-    given its limits (live view spec, ruling 12). Awaitable; a `Connection`
-    and a `Socket` both come through here. ``max_size`` is `MAX_MESSAGE`
-    unless given, read when called."""
+    given its limits. Awaitable; a `Connection` and a `Socket` both come
+    through here. ``max_size`` is `MAX_MESSAGE` unless given, read when
+    called."""
     return ws_connect(
         url,
         open_timeout=OPEN_TIMEOUT,
@@ -171,7 +167,7 @@ class Subscriber:
 
     ``deliver`` is the reader's side and never awaits. The subscriber's own task
     pops each event and calls ``handler(method, params)``, awaiting what it
-    returns when that is awaitable — a batch at a time, for up to
+    returns when that is awaitable, a batch at a time for up to
     ``DRAIN_TURN`` seconds, then a turn for everyone else. Made on the loop it
     serves.
     """
@@ -542,7 +538,7 @@ class Connection:
                 frames += 1
                 if frames % READ_TURN == 0:
                     # A buffered burst is read without suspending: let the
-                    # subscribers drain between slices of it (ruling 8).
+                    # subscribers drain between slices of it.
                     await asyncio.sleep(0)
                 try:
                     message = json.loads(raw)
