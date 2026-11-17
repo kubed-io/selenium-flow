@@ -299,7 +299,7 @@ jobs:
         cat body.md >> "$GITHUB_STEP_SUMMARY"
 
     - name: Create Release
-      uses: softprops/action-gh-release@v3.0.3
+      uses: softprops/action-gh-release@v3.0.4
       with:
         token: ${{ steps.app-token.outputs.token }}
         name: ${{ needs.version.outputs.tag }}
