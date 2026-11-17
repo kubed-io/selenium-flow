@@ -44,6 +44,7 @@ def test_a_workspace_with_no_file_reads_as_defaults(client):
         "config": {"flows.global": {"value": None, "source": "default"}},
         "error": None,
         "kept": False,
+        "ttl": 86400,
     }
 
 
@@ -55,6 +56,7 @@ def test_put_writes_the_text_as_given_and_answers_what_it_now_is(client, tmp_pat
         "config": {"flows.global": {"value": ["shop,login"], "source": "workspace"}},
         "error": None,
         "kept": True,
+        "ttl": 86400,
     }
     assert (tmp_path / "workspaces" / KEY / CONFIG_FILE).read_text() == VALID
     assert client.get(url(), headers=AUTH).json()["text"] == VALID
@@ -98,6 +100,22 @@ def test_delete_removes_the_file_and_the_workspace_expires_again(client, tmp_pat
     assert response.status_code == 200
     assert response.json()["kept"] is False
     assert not (tmp_path / "workspaces" / KEY / CONFIG_FILE).exists()
+
+
+def test_the_answer_carries_how_long_an_unkept_workspace_lasts(tmp_path):
+    from kubed.selenium_flow.config import Settings
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    server = SeleniumMCP(
+        Settings(
+            grid={"url": "http://grid.invalid:4444"},
+            auth={"token": TOKEN},
+            data={"dir": str(tmp_path)},
+            workspace={"ttl": 3600},
+        )
+    )
+    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    assert client.get(url()).json()["ttl"] == 3600
 
 
 def test_the_list_says_kept_as_soon_as_a_config_is_saved(client):

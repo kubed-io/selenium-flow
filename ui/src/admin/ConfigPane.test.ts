@@ -15,8 +15,9 @@ const SET = {
   config: { 'flows.global': { value: ['login, nextcloud', 'smoke'], source: 'workspace' } },
   error: null,
   kept: true,
+  ttl: 86400,
 }
-const UNSET = { text: null, config: { 'flows.global': { value: null, source: 'default' } }, error: null, kept: false }
+const UNSET = { text: null, config: { 'flows.global': { value: null, source: 'default' } }, error: null, kept: false, ttl: 86400 }
 const BROKEN = { ...UNSET, text: 'colour: blue\n', error: '`colour` is not a setting workspace.yaml holds: it holds flows.global', kept: true }
 
 function setup(config: unknown, tab: Tab = 'config', routes = {}) {
@@ -63,6 +64,12 @@ test('unset reads every global flow, from the default, and says it expires (UI-7
   expect(setting).toHaveTextContent('every global flow')
   expect(setting.querySelector('.pill.src.default')).toHaveTextContent('default')
   expect(container.querySelector('#paneConfig')).toHaveTextContent('expires a day after its last use')
+})
+
+test("how long an unkept workspace lasts is the server's workspace.ttl (UI-74)", async () => {
+  const { container } = setup({ ...UNSET, ttl: 3 * 3600 })
+  await found(container, '#paneConfig .setting')
+  expect(container.querySelector('#paneConfig')).toHaveTextContent('expires 3 hours after its last use')
 })
 
 test('a save writes the YAML and shows what it now is (UI-71)', async () => {

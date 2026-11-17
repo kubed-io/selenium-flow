@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { span } from '../lib/format'
   import type { WorkspaceModel } from './workspace.svelte'
 
   let { m, hidden, onedit }: { m: WorkspaceModel; hidden: boolean; onedit: () => void } = $props()
@@ -29,7 +30,7 @@
   {:else}
     <div class="card config-card">
       <div class="row">
-        <span class="grow small muted">{m.config.kept ? 'This workspace has a config, so it never expires.' : 'No config: this workspace expires a day after its last use.'}</span>
+        <span class="grow small muted">{m.config.kept ? 'This workspace has a config, so it never expires.' : m.config.ttl ? `No config: this workspace expires ${span(m.config.ttl)} after its last use.` : 'No config: this workspace expires when unused.'}</span>
         <span class="legend">{#each SOURCES as s, i (s)}{#if i}<span class="small muted">&lt;</span>{/if}<span class={['pill', 'src', s]}>{s}</span>{/each}</span>
         <button type="button" onclick={onedit}>Edit YAML</button>
       </div>

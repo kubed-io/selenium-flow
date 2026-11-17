@@ -22,18 +22,22 @@ from .workspaces import library
 log = logging.getLogger(__name__)
 
 
-def mount(mcp, configs, prefix, guarded, changes) -> None:
-    """Mount `GET`, `PUT` and `DELETE /admin/workspaces/{key}/config`."""
+def mount(mcp, configs, prefix, guarded, changes, ttl=None) -> None:
+    """Mount `GET`, `PUT` and `DELETE /admin/workspaces/{key}/config`.
+
+    ``ttl`` is how long the store keeps a workspace with no config, in seconds.
+    """
 
     def state(workspace: str) -> dict:
-        """What the file is now: as written, as rows, why it is refused, and
-        whether it keeps the workspace."""
+        """What the file is now: as written, as rows, why it is refused,
+        whether it keeps the workspace, and how long one not kept lasts."""
         loaded = configs.load(workspace)
         return {
             "text": configs.read_text(workspace),
             "config": configs.rows(loaded),
             "error": loaded.error,
             "kept": configs.kept(workspace),
+            "ttl": ttl,
         }
 
     def answered(workspace: str, method: str, body) -> dict:

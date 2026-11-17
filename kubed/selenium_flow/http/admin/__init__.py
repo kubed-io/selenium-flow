@@ -105,7 +105,8 @@ def register(
     flows.mount(mcp, flow_store, schemas, prefix, guarded, broadcast.changes)
     if workspaces is not None:
         config_tab.mount(
-            mcp, workspaces.configs, prefix, guarded, broadcast.changes
+            mcp, workspaces.configs, prefix, guarded, broadcast.changes,
+            ttl=getattr(workspaces.store, "ttl", None),
         )
     if capture is not None:
         capture_tab.mount(

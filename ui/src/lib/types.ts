@@ -152,6 +152,8 @@ export interface ConfigPayload {
   /** Why the file is refused, else null. */
   error: string | null
   kept: boolean
+  /** How long the store keeps a workspace with no config, in seconds; null when unknown. */
+  ttl?: number | null
 }
 export interface SettingsSection { name: string; description: string; settings: SettingRow[] }
 export interface SettingsPayload { sections: SettingsSection[] }
