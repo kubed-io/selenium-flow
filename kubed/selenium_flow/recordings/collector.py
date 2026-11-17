@@ -3,9 +3,8 @@
 The queue is the notes on disk (``workspaces/<name>/recordings/.pending/
 <gridId>.json``), written when a recorded browser opens. The engine is one
 task per process, which runs only while a recording is owed and ends when none
-is (AGENTS.md allows a bounded wait for something this server was told to
-expect, never a loop that tidies). The notes survive a restart, so ``start``
-picks up where the last process left off.
+is. The notes survive a restart, so ``start`` picks up where the last process
+left off.
 
 It wakes on a change in the inbox (``watchfiles``: events, or polling on a
 network filesystem) and on a timer, and each time sweeps:
@@ -52,11 +51,7 @@ or the mark's write failing as well as the delete, leaves an unmarked note,
 which the next process can file again.
 
 The notes are read at ``start`` and again each tick until every workspace's
-are read. A storage fault reading one workspace's stops neither the boot nor
-another workspace's recordings: what could be read is owed at once, the fault
-is logged once a streak, and the task runs while any read is owed. The read
-and the merge hold the notes lock, so a read that began before a sweep filed
-and deleted a note cannot put it back.
+are read (`_load`).
 """
 
 from __future__ import annotations
