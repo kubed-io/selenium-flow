@@ -967,3 +967,11 @@ async def test_places_are_checked_with_every_other_problem(step_schema_map):
 async def test_a_flow_with_places_is_valid(step_schema_map):
     document = flow(sites=["localhost:8080", "*.example.com"], paths=["/login", "/apps/*/settings"])
     assert validate(document, step_schema_map)
+
+
+async def test_a_keep_file_step_is_refused_at_save(step_schema_map):
+    """`keep_file` is a files tool, not a browser action: a flow cannot name it."""
+    document = flow(steps=[{"tool": "keep_file", "args": {"uri": "session://downloads/a.txt"}}])
+    with pytest.raises(InvalidFlow, match="keep_file") as caught:
+        validate(document, step_schema_map)
+    assert "step 1" in caught.value.problems[0]
