@@ -1,9 +1,4 @@
-"""The OpenAPI document: its builder, and the schemas it assembles.
-
-Re-exported here so a caller says ``from .spec import build_spec`` without
-caring which half a name lives in — the split is about reading the source, not
-about the surface it presents.
-"""
+"""The OpenAPI document: its builder, and the schemas it assembles."""
 
 from __future__ import annotations
 

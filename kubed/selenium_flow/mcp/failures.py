@@ -1,25 +1,16 @@
-"""What a failed tool call says, to the caller and to the log.
+"""What a failed tool call says, to the caller and to the log, in `errors`' words.
 
-`errors.py` is the one place that decides what a failure means, and the HTTP
-surface has always asked it. The MCP surface never did: FastMCP answered with
-`str(exc)` — Selenium's `Message:` prefix and native stack dump included — and
-logged a full traceback for every caller's mistake, the same as for our own
-faults. So a refused `save_flow` filled the pod log with frames, and the
-credential scrub #36 added reached HTTP callers only.
+FastMCP decides the two in two places:
 
-Two mechanisms, because FastMCP decides two things in two places:
+- the answer is rewritten by `Explained`, a middleware, which sees the failure
+  after FastMCP has wrapped it;
+- the log line is written inside FastMCP before any middleware runs, so it is
+  rewritten by `QuietCallerMistakes`, a filter on that logger.
 
-- **the answer** is rewritten by `Explained`, a middleware, which sees the
-  failure after FastMCP has wrapped it;
-- **the log line** is written *inside* FastMCP before any middleware runs, so it
-  is rewritten by `QuietCallerMistakes`, a filter on that logger.
-
-A refused call gets a sentence naming the shape it wanted. `save_flow` already
-refuses the same mistakes in sentences, because a step's arguments *are* a tool
-call's arguments, so this asks `flows.document.argument_problems` rather than
-growing a second vocabulary — and only if that finds nothing falls back to
-pydantic's messages without their type codes and documentation links. A pilot
-spent six calls on `selector` reading those (§F2.15).
+A call refused for its arguments is answered by
+`flows.document.argument_problems`, the sentences `save_flow` gives a step with
+the same mistake, and only when that finds nothing by pydantic's messages
+without their type codes and documentation links.
 """
 
 from __future__ import annotations
@@ -96,18 +87,16 @@ class Explained(Middleware):
             raise ToolError(f"{FAILED_CALL} {name!r}: {said}") from cause
 
     async def on_read_resource(self, context, call_next):
-        """A read's failure, in `errors`' words — the same rule as a call's.
+        """A read's failure, in `errors`' words, as a call's is.
 
         FastMCP wraps whatever a resource raised as "Error reading resource
         'uri': <str(exc)>", and a Grid failure quotes the Grid's own URL in that
-        text. `read_resource` reads through this too, so the tool and a client's
-        own resource reader get the same sentence (#39's live check).
+        text. `read_resource` reads through this too.
 
-        A caller's mistake — what `errors` makes a 4xx over HTTP, such as
-        ``?pages=9`` — is invalid params (-32602), as any other bad argument
-        is; one that names something not there (a 404) is MCP's resource not
-        found (-32002). Left a `ResourceError`, either went out as an internal
-        error (-32603), which tells a client the server broke.
+        A caller's mistake (a 4xx over HTTP, such as ``?pages=9``) is invalid
+        params (-32602), and one that names something not there (a 404) is
+        MCP's resource not found (-32002). A `ResourceError` would go out as an
+        internal error (-32603).
         """
         try:
             return await call_next(context)
@@ -118,8 +107,7 @@ class Explained(Middleware):
             cause = exc.__cause__
             if cause is None or isinstance(cause, FastMCPError):
                 raise
-            # The URI is the caller's, and a caller can put credentials in one;
-            # it is scrubbed on the same terms as the exception (Copilot, #40).
+            # A caller can put credentials in a URI.
             uri = without_userinfo(str(getattr(context.message, "uri", "")))
             said = f"{FAILED_READ} {uri!r}: {faults.message(cause)}"
             status = errors.status_for(cause)
@@ -141,8 +129,7 @@ class QuietCallerMistakes(logging.Filter):
         exc = record.exc_info[1] if record.exc_info else None
         if exc is None or not str(record.msg).startswith((FAILED_CALL, FAILED_READ)):
             return True
-        # FastMCP wrote this line before any middleware ran, so it quotes the
-        # requested URI as sent — scrubbed here, whichever branch it takes.
+        # FastMCP's line quotes the requested URI as sent.
         said = without_userinfo(record.getMessage())
         if errors.status_for(exc) < 500:
             record.levelno, record.levelname = logging.WARNING, "WARNING"
@@ -156,7 +143,7 @@ class QuietCallerMistakes(logging.Filter):
 
 
 def install(mcp) -> None:
-    """Both halves, on ``mcp`` and on FastMCP's logger — the latter once."""
+    """Both halves, on ``mcp`` and on FastMCP's logger (once)."""
     mcp.add_middleware(Explained())
     logger = logging.getLogger(FASTMCP_LOGGER)
     if not any(isinstance(f, QuietCallerMistakes) for f in logger.filters):

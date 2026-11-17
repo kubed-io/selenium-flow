@@ -1,31 +1,16 @@
 """The embedded skill: how to use this server well, shipped inside it.
 
-An agent that can call the tools still has to decide *when* to screenshot rather
-than extract, how to name its workspace, and what a timeout on a good XPath
-actually means. That knowledge normally lives in whatever prompt the operator
-wrote, which means every deployment reinvents it and none of it travels with the
-version of the server it describes.
+``plugin/skills/selenium-flow/`` is package data, so the guidance ships with the
+version of the server it describes. FastMCP's ``SkillProvider`` serves it at
+``skill://<name>/SKILL.md``, ``skill://<name>/_manifest`` and one URI per
+supporting file, the URIs FastMCP's client helpers (``list_skills``,
+``download_skill``) expect.
 
-So it ships in the wheel. ``plugin/skills/selenium-flow/`` is package data, installed
-with the code and served straight from the installed package, which makes the
-guidance and the tools it describes impossible to version apart.
+SkillProvider takes the skill's name from its folder, not the frontmatter:
+renaming the folder renames the skill.
 
-Serving it is FastMCP's job, not ours: ``SkillProvider`` publishes the skill at
-the URIs the ecosystem already agrees on — ``skill://<name>/SKILL.md`` for the
-instructions, ``skill://<name>/_manifest`` for the file listing, and one URI per
-supporting file. Conform and FastMCP's own client helpers (``list_skills``,
-``download_skill``, ``sync_skills``) work against this server for free; invent a
-prettier URI and the skill is invisible to every one of them.
-
-**The directory name is the skill name.** SkillProvider takes it from the folder,
-not the frontmatter, so ``plugin/skills/selenium-flow/`` is what makes the URI
-``skill://selenium-flow/SKILL.md``. Renaming that directory renames the skill.
-
-A client that cannot read resources reads the same URIs through
-``mirror.read_resource``.
-
-A client that implements the MCP Skills extension also finds the skill through
-``skills/list`` and ``skills/get``; that part is ours, in ``skill_extension``.
+The Skills extension's ``skills/list`` and ``skills/get`` are in
+``skill_extension``.
 """
 
 from __future__ import annotations
@@ -45,36 +30,37 @@ SKILL_NAME = "selenium-flow"
 ENTRY = "SKILL.md"
 
 
-def skill_path() -> Path:
-    """The skill directory, installed or in a source checkout.
+def plugin_folder(module: str, *parts: str) -> Path:
+    """``plugin/<parts>`` beside ``module``, else at the root of a source checkout.
 
-    ``plugin/`` lives at the repo root, where it reads as documentation rather
-    than as buried package data. pyproject maps it into the package at build
-    time, so an installed wheel finds it beside this module; a source checkout
-    has no such copy, hence the fallback to the root.
+    ``plugin/`` is at the repo root, and pyproject maps it beside the modules of
+    ``mcp/`` in a wheel. ``module`` is the caller's ``__file__``.
     """
-    packaged = Path(__file__).parent / PLUGIN_DIR / SKILLS_DIR / SKILL_NAME
+    here = Path(module).parent
+    packaged = here.joinpath(PLUGIN_DIR, *parts)
     if packaged.is_dir():
         return packaged
-    # parents[3] because this module lives in mcp/: package, kubed, repo root.
-    return Path(__file__).parents[3] / PLUGIN_DIR / SKILLS_DIR / SKILL_NAME
+    # Up from mcp/: the package, kubed, the repo root.
+    return here.parents[2].joinpath(PLUGIN_DIR, *parts)
+
+
+def skill_path() -> Path:
+    """The skill directory, installed or in a source checkout."""
+    return plugin_folder(__file__, SKILLS_DIR, SKILL_NAME)
 
 
 def load() -> SkillProvider | None:
     """The packaged skill as a provider, or None if it is not installed.
 
-    Missing package data is not fatal: the tools work without the guidance, so a
-    stripped install should start and say so rather than crash.
+    Missing package data is logged, not fatal: the tools work without it.
     """
     path = skill_path()
     if not (path / ENTRY).is_file():
         log.warning("no packaged skill at %s", path)
         return None
     try:
-        # "resources", not the default "template": with a handful of files
-        # the full enumeration is cheap, and it makes each reference an
-        # individually listed, linkable resource rather than something a client
-        # can only find by reading the manifest first.
+        # "resources", so each supporting file is listed and linkable on its
+        # own instead of found through the manifest.
         return SkillProvider(path, supporting_files="resources")
     except Exception as exc:  # noqa: BLE001 - bad package data must not stop the boot
         log.warning("packaged skill at %s could not be loaded: %s", path, exc)
