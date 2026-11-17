@@ -211,10 +211,10 @@ class Workspace:
                 # of its browser, so the Grid reaps it and the next call opens
                 # afresh; the rest of it stays.
                 session_id=session_id,
-                # A number is read as `called_at` is; anything float() refuses
-                # makes the record a miss.
-                opened_at=(
-                    _seconds(opened_at)
+                # Read as `called_at` is, a string through float() first;
+                # anything float() refuses makes the record a miss.
+                opened_at=_seconds(
+                    opened_at
                     if isinstance(opened_at, (int, float))
                     else float(opened_at)
                 ),
