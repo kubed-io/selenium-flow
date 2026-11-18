@@ -19,7 +19,7 @@ from . import config, routes, secrets
 from .bidi import Channels
 from .capture.store import Capture
 from .config import Settings
-from .core import pointer
+from .core import pointer, tabs
 from .core.actions import Actions
 from .core.browser import Grid
 from .flows import api as flowapi
@@ -103,6 +103,7 @@ class SeleniumMCP:
         self.actions = Actions(
             self.grid,
             pointers=pointers if pointers is not None else pointer.matching(self.store),
+            tabs=tabs.matching(self.store),
         )
         # Applied under every open's own capabilities.
         self.actions.config_capabilities = dict(settings.session.capabilities)

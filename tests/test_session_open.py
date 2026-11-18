@@ -20,6 +20,7 @@ pytestmark = pytest.mark.unit
 
 class Driver:
     session_id = "opened"
+    current_window_handle = "w1"  # a new browser's one tab
     current_url = "about:blank"
     title = ""
 

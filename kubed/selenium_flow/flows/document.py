@@ -719,7 +719,11 @@ def concerns(document) -> list[str]:
     tool = str(first.get("tool") or "")
     args = first.get(ARGS)
     args = args if isinstance(args, dict) else {}
-    if tool in ("navigate", ASSERTION) or args.get("url"):
+    # A `tab` switch's url is text to find a tab by; only `open` loads it.
+    arranges = args.get("url") and (
+        tool != "tab" or str(args.get("action", "list")).strip().lower() == "open"
+    )
+    if tool in ("navigate", ASSERTION) or arranges:
         return []
     return [
         f"this flow starts with {tool or 'a step'} on whatever page the browser "

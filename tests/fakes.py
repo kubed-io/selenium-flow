@@ -8,7 +8,7 @@ import asyncio
 import inspect
 import json
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import ClassVar
@@ -16,14 +16,18 @@ from typing import ClassVar
 import yaml
 from mcp_types import Request, RequestParams
 from pydantic import ConfigDict, TypeAdapter
-from selenium.common.exceptions import UnexpectedAlertPresentException
+from selenium.common.exceptions import (
+    NoSuchWindowException,
+    UnexpectedAlertPresentException,
+)
 
 from kubed.selenium_flow.bidi import CHANNEL_DOWN, BidiError
 from kubed.selenium_flow.core import actions as actions_module
+from kubed.selenium_flow.core import browser as browser_module
 from kubed.selenium_flow.faults import BidiUnavailable, SocketClosed
 from kubed.selenium_flow.live.tunnel import Tunnel
 from kubed.selenium_flow.redaction import Forms
-from kubed.selenium_flow.urls import origin_of
+from kubed.selenium_flow.urls import origin_of, scope_origin
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 MAIN = "main-1"
@@ -181,6 +185,133 @@ class FakeActions:
     def open_session(self, session_id, **kwargs):  # pragma: no cover - refused
         return self._record("open_session", session_id, **kwargs)
 
+    def check_tabs(self, session_id):
+        return {}
+
+
+class RecordingActions:
+    """Counts what was opened and ended, without opening anything.
+
+    Records the *settings* each browser was opened with as well as the count,
+    because "a refresh reopens the same browser it had" is a behaviour several
+    modules depend on and a bare counter cannot express it.
+    """
+
+    def __init__(self):
+        self.opened = 0
+        self.opened_urls = []
+        self.opened_settings = []
+        # Where each open's version came from (`session_caps.build`): beside
+        # the settings, never one of them.
+        self.opened_version_from = []
+        self.closed = []
+        self.grid = FakeGrid()
+        # What `tabs_listed` answers, or raises when it is an exception.
+        self.listing: list[dict] | BaseException = []
+
+    def tabs_listed(self, session_id):
+        if isinstance(self.listing, BaseException):
+            raise self.listing
+        return list(self.listing)
+
+    def open_session(self, url=None, **kwargs):
+        self.opened += 1
+        session_id = f"generated-{self.opened}"
+        self.opened_urls.append(url)
+        self.opened_version_from.append(kwargs.pop("version_from", "call"))
+        self.opened_settings.append(dict(kwargs))
+        self.grid.alive.add(session_id)
+        # What a real open reports for the workspace only: what was sent and
+        # what ran (`actions.OPEN_PRIVATE`). `open_browser` keeps them off
+        # what a caller is told.
+        sent = [
+            {
+                "key": "browserName",
+                "value": kwargs.get("browser") or "chrome",
+                "sources": ["option"],
+            }
+        ]
+        ran = {"version": "100.0", "node": f"node-{self.opened}", "live_view": True}
+        return {
+            "session_id": session_id,
+            "url": url or "about:blank",
+            "sent": sent,
+            "ran": ran,
+        }
+
+    def end_browser(self, session_id):
+        self.closed.append(session_id)
+        self.grid.alive.discard(session_id)
+        return {"success": True, "session_id": session_id}
+
+    def check_tabs(self, session_id):
+        return {}
+
+
+class TabbedActions(RecordingActions):
+    """`RecordingActions` for the tab checks wrapped around every call.
+
+    ``checks`` is what each `check_tabs` answers next, in order: a dict, or an
+    exception that is raised; ``{}`` once it is empty. ``calls`` names every
+    method asked, in order, so a test reads where the checks fell. ``at`` is
+    the page the session is on: where it opened, then where a check moved it.
+    ``do`` answers ``result``, or raises ``raises``; ``page`` answers ``at``,
+    ``write`` ``at`` and the value read back, and ``tab`` ``{"tabs":
+    listing, "tab": ...}`` as a ``list`` does, with the current page.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.checks: list = []
+        self.calls: list[str] = []
+        self.result: dict = {}
+        self.raises: BaseException | None = None
+        self.at: dict = {"url": "https://example.test/", "title": "Example"}
+
+    def open_session(self, url=None, **kwargs):
+        opened = super().open_session(url, **kwargs)
+        self.at = {"url": opened["url"], "title": ""}
+        return opened
+
+    def check_tabs(self, session_id):
+        self.calls.append("check_tabs")
+        found = self.checks.pop(0) if self.checks else {}
+        if isinstance(found, BaseException):
+            raise found
+        if "tab" in found:
+            self.at = {"url": found.get("url"), "title": found.get("title")}
+        return dict(found)
+
+    def do(self, session_id, **kwargs):
+        self.calls.append("do")
+        if self.raises is not None:
+            raise self.raises
+        return dict(self.result)
+
+    def page(self, session_id):
+        self.calls.append("page")
+        return dict(self.at)
+
+    def write(self, session_id, text=None, **kwargs):
+        self.calls.append("write")
+        return {**self.at, "value": text}
+
+    # The tools a flow step names, answered as `do` is.
+    navigate = interact = extract = do
+
+    def tab(self, session_id, action="list", id=None, url=None):
+        self.calls.append("tab")
+        current = next((t["tab"] for t in self.listing if t["current"]), "t1")
+        return {"tabs": list(self.listing), "tab": current, **self.at}
+
+
+def untabbed(server):
+    """``server``, whose calls find no tab to follow: for a server whose Grid
+    is never dialled, so the check around every call (`Workspaces.followed`)
+    would be the only thing that dials it. Returns ``server``."""
+    server.actions.check_tabs = lambda session_id: {}
+    return server
+
 
 def patch_os(monkeypatch, name, replacement):
     """Replace ``os.<name>`` everywhere `pathlib` reaches it, for a storage fault.
@@ -332,6 +463,10 @@ class FakeChannel:
     answer BidiError and raise BidiUnavailable. ``value``, ``workers``,
     ``stuck`` and ``fail`` shape the page script; ``order`` collects "cookie"
     for each cookie set. ``at`` maps a tab to the origin it stands on.
+    ``tree`` is what ``getTree`` answers, a list of ``{"context", "url"}``;
+    when None, the windows of ``windows`` (a driver's ``pages``) in their
+    order, or the one main context without them. ``titles`` maps a context to
+    the title a ``document.title`` evaluation reads there.
     """
 
     def __init__(
@@ -346,6 +481,8 @@ class FakeChannel:
         workers=(),
         stuck=False,
         fail=None,
+        tree=None,
+        titles=None,
     ):
         self.log, self.posts, self.handlers = [], [], {}
         self.cookies, self.set = list(cookies), []
@@ -356,6 +493,9 @@ class FakeChannel:
         )
         self.navigated, self.at, self.tabs = [], {}, 0
         self.bodies = {}  # request id -> network.getData's answer
+        self.tree = tree
+        self.windows = None  # a driver's ``pages``: spare tabs appear there too
+        self.titles = dict(titles or {})
         self.expression = None
         self.ran = False  # whether the page would have evaluated the expression
 
@@ -407,10 +547,24 @@ class FakeChannel:
         return {}
 
     def _browsingContext_getTree(self, params):
+        if self.tree is not None:
+            return {"contexts": [{**c, "children": []} for c in self.tree]}
+        if self.windows is not None:
+            return {
+                "contexts": [
+                    {"context": handle, "url": page[0], "children": []}
+                    for handle, page in self.windows.items()
+                ]
+            }
         return {"contexts": [{"context": MAIN, "children": []}]}
+
+    def _browsingContext_activate(self, params):
+        return {}
 
     def _browsingContext_create(self, params):
         self.tabs += 1
+        if self.windows is not None:
+            self.windows[f"spare-{self.tabs}"] = ("about:blank", "")
         return {"context": f"spare-{self.tabs}"}
 
     def _browsingContext_navigate(self, params):
@@ -419,6 +573,8 @@ class FakeChannel:
         return {}
 
     def _browsingContext_close(self, params):
+        if self.windows is not None:
+            self.windows.pop(params["context"], None)
         return {}
 
     def _network_addIntercept(self, params):
@@ -437,6 +593,9 @@ class FakeChannel:
         return body
 
     def _script_evaluate(self, params):
+        if params["expression"] == "document.title":
+            title = self.titles.get(params["target"]["context"], "")
+            return {"type": "success", "result": {"type": "string", "value": title}}
         expression = self.expression = params["expression"]
         if self.fail:
             return {"type": "exception", "exceptionDetails": {"text": self.fail}}
@@ -469,6 +628,8 @@ class ScriptedElement:
         self.tag = "input"
         self.screenshot_as_base64 = ""
         self.fail_on = {}
+        # Runs after a click: a click that opens or closes a tab.
+        self.on_click = None
 
     @property
     def tag_name(self):
@@ -490,6 +651,8 @@ class ScriptedElement:
 
     def click(self):
         self._do("click")
+        if self.on_click is not None:
+            self.on_click()
 
     def clear(self):
         self._do("clear")
@@ -534,12 +697,42 @@ class _ScriptedSwitch:
 
     def frame(self, target):
         self._driver.log.append(("switch_to", "frame", target))
+        self._driver.__dict__["frames"] += 1
+
+    def window(self, handle):
+        """As a real browser does, even to the window it is on: the session
+        lands at the top page, out of any frame (measured on Chrome and
+        Firefox)."""
+        driver = self._driver
+        driver.log.append(("switch_to", "window", handle))
+        if handle not in driver.pages:
+            raise NoSuchWindowException("no such window")
+        with suppress(NoSuchWindowException):
+            driver._page()  # keep what the window being left showed
+        driver.__dict__["current"], driver.__dict__["_seen"] = handle, None
+        driver.__dict__["frames"] = 0
+
+    def new_window(self, kind="tab"):
+        driver = self._driver
+        number = max(
+            [driver.opened, *(int(h[1:]) for h in driver.pages if h[1:].isdigit())]
+        )
+        handle = f"w{number + 1}"
+        driver.__dict__["opened"] = number + 1
+        driver.log.append(("switch_to", "new_window", kind))
+        with suppress(NoSuchWindowException):
+            driver._page()
+        driver.pages[handle] = ("about:blank", "")
+        driver.__dict__["current"], driver.__dict__["_seen"] = handle, None
+        driver.__dict__["frames"] = 0
 
     def default_content(self):
         self._driver.log.append(("switch_to", "default_content"))
+        self._driver.__dict__["frames"] = 0
 
     def parent_frame(self):
         self._driver.log.append(("switch_to", "parent_frame"))
+        self._driver.__dict__["frames"] = max(0, self._driver.frames - 1)
 
     @property
     def active_element(self):
@@ -561,6 +754,17 @@ class ScriptedDriver:
     ``execute_script`` returns for it, first match winning, else None. ``element``
     is what every locator finds, and ``focused`` what ``switch_to.active_element``
     answers: the same element unless a test sets another.
+
+    ``pages`` maps each open window handle to its ``(url, title)`` and
+    ``current`` is the handle the driver is on: a test opens a popup by adding
+    a handle to ``pages`` and closes one with ``close()``. Reading the url or
+    title of a closed current window raises ``NoSuchWindowException``, as
+    does switching to a window that is not open.
+
+    ``frames`` is how deep in frames the session is: ``switch_to.frame`` goes
+    one deeper, ``switch_to.window`` (to any window, its own too) back to the
+    top, and the page's frame check (`browser.in_frame`) answers it unless a
+    ``scripts`` entry answers first.
     """
 
     PNG = (
@@ -574,7 +778,11 @@ class ScriptedDriver:
     ):
         d = self.__dict__
         d["log"] = []
-        d["_url"], d["_title"], d["dialog"] = url, title, dialog
+        d["pages"] = {"w1": (url, title)}
+        d["_url"], d["_title"], d["_seen"] = url, title, (url, title)
+        d["current"], d["opened"] = "w1", 1
+        d["frames"] = 0
+        d["dialog"] = dialog
         d["scripts"] = dict(scripts or {})
         d["window"] = {"width": window[0], "height": window[1]}
         d["session_id"] = session_id
@@ -587,22 +795,55 @@ class ScriptedDriver:
         self.log.append(("set", name))
         self.__dict__[name] = value
 
+    def _page(self):
+        """The current window's ``(url, title)``.
+
+        ``_url`` and ``_title`` are the current window's page, which subclasses
+        move by writing ``__dict__``; ``pages`` is what a test edits. Whichever
+        changed since the last read wins, ``pages`` when both did.
+        """
+        d = self.__dict__
+        if d["current"] not in d["pages"]:
+            raise NoSuchWindowException("window closed")
+        theirs = d["pages"][d["current"]]
+        mine = theirs if theirs != d["_seen"] else (d["_url"], d["_title"])
+        d["_url"], d["_title"] = mine
+        d["pages"][d["current"]] = d["_seen"] = mine
+        return mine
+
     @property
     def current_url(self):
         self.log.append(("current_url",))
         if self.dialog is not None:
             raise UnexpectedAlertPresentException("dialog open")
-        return self._url
+        return self._page()[0]
 
     @property
     def title(self):
         self.log.append(("title",))
         if self.dialog is not None:
             raise UnexpectedAlertPresentException("dialog open")
-        return self._title
+        return self._page()[1]
+
+    @property
+    def window_handles(self):
+        self.log.append(("window_handles",))
+        return list(self.pages)
+
+    @property
+    def current_window_handle(self):
+        self.log.append(("current_window_handle",))
+        if self.current not in self.pages:
+            raise NoSuchWindowException("window closed")
+        return self.current
+
+    def close(self):
+        self.log.append(("close",))
+        self.pages.pop(self.current, None)
 
     def get(self, url):
         self.log.append(("get", url))
+        self._page()
         self.__dict__["_url"] = url
 
     def execute_script(self, script, *args):
@@ -610,6 +851,8 @@ class ScriptedDriver:
         for needle, value in self.scripts.items():
             if needle in script:
                 return value
+        if script == browser_module.IN_FRAME:
+            return self.frames > 0
         return None
 
     def execute(self, *args, **kwargs):
@@ -768,6 +1011,9 @@ class WorkspaceActions:
         if self.quit_fails:
             raise ConnectionError("grid unreachable")
         self.grid.alive.discard(sid)
+
+    def check_tabs(self, session_id):
+        return {}
 
 
 class PageActions(WorkspaceActions):
@@ -942,6 +1188,24 @@ class FakeCatalogue:
         for scoped in self.scopes.values():
             every.update(scoped)
         return self._forms(every)
+
+
+class BindingCatalogue(FakeCatalogue):
+    """A `FakeCatalogue` a bound write can type from: the secrets of the origin
+    ``on``, each allowed there and nowhere else."""
+
+    def __init__(self, scopes: dict, *, on: str, **kwargs):
+        super().__init__(scopes, **kwargs)
+        self.on = on
+
+    def entry(self, name):
+        return {"name": name, "keys": ["password"], "allowed_urls": [self.on]}
+
+    def allows(self, name, url):
+        return scope_origin(url) == self.on
+
+    def value(self, name, key):
+        return self.scopes[self.on][(name, key)]
 
 
 class Vault:

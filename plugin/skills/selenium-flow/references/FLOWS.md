@@ -86,6 +86,11 @@ step. `open_session`, `end_browser`, `await_control`, `outline`,
 `network_body`, `run_flow`, `save_flow` and the resource tools are not steps,
 and a step names no session.
 
+A step that opens a popup leaves the session on it, so the steps after it act
+there. To reach a tab the flow did not just open, use `tab` with
+`action: switch` and an `id` or a `url`. A flow starts and ends on the session's
+current tab.
+
 ## Parameters
 
 Declare them as JSON Schema and write `${name}` where the value goes:

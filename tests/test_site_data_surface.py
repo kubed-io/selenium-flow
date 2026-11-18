@@ -15,6 +15,7 @@ from kubed.selenium_flow.workspace.store import Workspace
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .conftest import NAMED, TOKEN, calling_as
+from .fakes import untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -106,9 +107,9 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     )
     monkeypatch.setattr(Workspaces, "resolved", lambda self, name, **kw: ("live-id", "chrome"))
     # After the patches: a route binds its action when the server is built.
-    server = SeleniumMCP(
+    server = untabbed(SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
-    )
+    ))
     # The record names the browser `resolve` hands back, as it does for real:
     # a save is kept only by the browser that captured it.
     server.workspaces.store.set(
@@ -160,9 +161,9 @@ def _save_through_the_server(monkeypatch, channel, broken=None):
     page = SimpleNamespace(current_url=f"https://{SITE}/", title="t")
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page)
     monkeypatch.setattr(Workspaces, "resolved", lambda self, name, **kw: ("live-id", "chrome"))
-    server = SeleniumMCP(
+    server = untabbed(SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
-    )
+    ))
     server.actions.channels = channels_for(channel, broken=broken)
     server.workspaces.store.set(NAMED, Workspace().visited(f"https://{SITE}/"))
     client = TestClient(server.mcp.http_app())

@@ -10,6 +10,8 @@ contract has to protect:
 - a broken flow is refused when it is saved, not when it runs.
 """
 
+import json
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -19,6 +21,7 @@ from kubed.selenium_flow.names import GLOBAL_WORKSPACE, STDIO_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN
+from .fakes import untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -28,11 +31,11 @@ GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 @pytest.fixture
 def flow_server(tmp_path, monkeypatch):
     monkeypatch.delenv("DATA_DIR", raising=False)
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         data={"dir": str(tmp_path)},
-    ))
+    )))
     acting_as(monkeypatch, server, NAMED)
     return server
 
@@ -347,11 +350,11 @@ def unkeyed_client(tmp_path, monkeypatch):
     """A client the server cannot identify, which is the ordinary case for an
     n8n HTTP node: no workspace name anywhere, so it reads and runs the shared
     `global` library and has no library of its own to write to."""
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         data={"dir": str(tmp_path)},
-    ))
+    )))
     acting_as(monkeypatch, server, None)
     return TestClient(server.mcp.http_app())
 
@@ -804,3 +807,177 @@ def test_a_missing_flow_is_named_before_a_missing_browser():
     store = SimpleNamespace(get=lambda workspace, name: None)
     with pytest.raises(ValueError, match="no flow called"):
         flowapi.run_for(store, workspaces.actions, workspaces, NAMED, "nope")
+
+
+# ---- a flow follows the tabs its steps open (FLOW-59) -------------------------
+
+
+def _tabbed_run(catalogue, steps, *, actions=None, binds=False, prepare=None):
+    """Run ``steps`` over a `Workspaces` on `TabbedActions`, its browser open on
+    `A`. Returns the workspaces, the actions and the report. ``binds``: the
+    run binds its secrets from ``catalogue`` too. ``prepare(workspaces)`` is
+    called just before the run."""
+    from types import SimpleNamespace
+
+    from kubed.selenium_flow.workspace.store import MemoryStore
+    from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
+
+    from .fakes import TabbedActions
+
+    actions = actions or TabbedActions()
+    workspaces = actions.workspaces = Workspaces(
+        actions, MemoryStore(), catalogue=catalogue
+    )
+    workspaces.open_browser(Caller("w", "query"), url="https://shop.example.test/")
+    actions.calls.clear()
+    document = {"name": "f", "workspace": "w", "steps": steps}
+    store = SimpleNamespace(get=lambda workspace, name: document)
+    if prepare is not None:
+        prepare(workspaces)
+    report = flowapi.run_for(
+        store, actions, workspaces, "w", "f", verbose=True,
+        secrets_catalogue=catalogue if binds else None,
+    )
+    return workspaces, actions, report
+
+
+def test_a_run_reaches_a_popup_its_step_opened_and_leaves_the_session_there():
+    from .fakes import TabbedActions
+
+    popup = "https://sso.example.test/login"
+    seen = []
+
+    class Watching(TabbedActions):
+        def extract(self, session_id, **kwargs):
+            seen.append(self.workspaces.origins.current("w", session_id))
+            return super().extract(session_id, **kwargs)
+
+    actions = Watching()
+    actions.checks = [
+        {},
+        {"opened": [{"tab": "t2", "url": popup}], "tab": "t2", "url": popup,
+         "title": "Sign in", "in_frame": False},
+    ]
+    steps = [
+        {"tool": "interact", "args": {"action": "click", "selector": {"css": "a"}}},
+        {"tool": "extract", "args": {"selector": {"css": "h1"}}},
+    ]
+    workspaces, _, report = _tabbed_run(None, steps, actions=actions)
+    try:
+        assert report["status"] == "ok", report
+        assert report["steps"][0]["result"]["tab"] == "t2"
+        assert seen == ["https://sso.example.test"]
+        assert workspaces.store.get("w").url == popup
+    finally:
+        workspaces.scrubber.close()
+
+
+def test_a_steps_opened_url_is_scrubbed_with_every_leashed_secret():
+    from .fakes import FakeCatalogue, TabbedActions
+
+    shop, other = "https://shop.example.test", "https://c.example.test"
+    actions = TabbedActions()
+    actions.result = {"url": f"{shop}/", "title": "Shop"}
+    actions.checks = [
+        {},
+        {"opened": [{"tab": "t2", "url": f"{other}/?t=gamma-33"}],
+         "tab": "t2", "url": f"{other}/?t=gamma-33", "title": "C", "in_frame": False},
+    ]
+    steps = [{"tool": "interact", "args": {"action": "click", "selector": {"css": "a"}}}]
+    workspaces, _, report = _tabbed_run(
+        FakeCatalogue({other: {("c", "token"): "gamma-33"}, shop: {}}),
+        steps,
+        actions=actions,
+    )
+    try:
+        assert "gamma-33" not in json.dumps(report)
+        assert report["steps"][0]["result"]["opened"][0]["url"] == (
+            f"{other}/?t=[secret:c/token]"
+        )
+    finally:
+        workspaces.scrubber.close()
+
+
+SSO = "https://sso.example.test"
+MOVED_TO_SSO = {"opened": [{"tab": "t2", "url": f"{SSO}/login"}], "tab": "t2",
+                "url": f"{SSO}/login", "title": "Sign in", "in_frame": False}
+
+
+def test_a_tab_step_is_scrubbed_with_every_leashed_secret():
+    """As a single `tab` call is (SEC-40): its result can carry the pages of
+    tabs the step was not on."""
+    from .fakes import FakeCatalogue, TabbedActions
+
+    shop, other = "https://shop.example.test", "https://c.example.test"
+
+    class Switching(TabbedActions):
+        def tab(self, session_id, action="list", id=None, url=None):
+            self.calls.append("tab")
+            return {"tab": "t2", "url": f"{shop}/", "title": "token gamma-33",
+                    "in_frame": False}
+
+    steps = [{"tool": "tab", "args": {"action": "switch", "id": "t2"}}]
+    workspaces, _, report = _tabbed_run(
+        FakeCatalogue({other: {("c", "token"): "gamma-33"}, shop: {}}),
+        steps,
+        actions=Switching(),
+    )
+    try:
+        assert report["status"] == "ok", report
+        assert "gamma-33" not in json.dumps(report)
+        assert report["steps"][0]["result"]["title"] == "token [secret:c/token]"
+    finally:
+        workspaces.scrubber.close()
+
+
+@pytest.mark.parametrize(
+    "allowed_on", [SSO, "https://shop.example.test"], ids=["popup", "opener"]
+)
+def test_a_secret_bound_after_a_move_is_scoped_to_the_popup(allowed_on):
+    """The step began on the popup the check before it moved to, so the leash
+    is read there: allowed on the popup, it types; allowed only on the page
+    the session left, it is refused and nothing is typed."""
+    from .fakes import BindingCatalogue, TabbedActions
+
+    actions = TabbedActions()
+    actions.checks = [dict(MOVED_TO_SSO), {}]
+    catalogue = BindingCatalogue(
+        {allowed_on: {("p", "password"): "pi-314159"}}, on=allowed_on
+    )
+    steps = [{"tool": "write", "args": {
+        "selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"},
+    }}]
+    workspaces, _, report = _tabbed_run(catalogue, steps, actions=actions, binds=True)
+    try:
+        assert "pi-314159" not in json.dumps(report)
+        if allowed_on == SSO:
+            assert report["status"] == "ok", report
+            assert "write" in actions.calls
+        else:
+            assert report["status"] != "ok", report
+            assert "write" not in actions.calls
+    finally:
+        workspaces.scrubber.close()
+
+
+def test_a_step_refused_after_a_move_says_it_moved_before_the_step():
+    from kubed.selenium_flow import faults
+
+    from .fakes import TabbedActions
+
+    def refuse(workspaces):
+        def refused(*args, **kwargs):
+            raise faults.Controlled("a person has control of this browser")
+
+        workspaces.calls.begin = refused
+
+    actions = TabbedActions()
+    actions.checks = [dict(MOVED_TO_SSO)]
+    steps = [{"tool": "extract", "args": {"selector": {"css": "h1"}}}]
+    workspaces, _, report = _tabbed_run(None, steps, actions=actions, prepare=refuse)
+    try:
+        said = json.dumps(report)
+        assert f"The session moved to tab t2 ({SSO}/login) before this call." in said
+        assert "extract" not in actions.calls
+    finally:
+        workspaces.scrubber.close()

@@ -1384,6 +1384,55 @@
     },
     "name": "screenshot"
   },
+  "tab": {
+    "annotations": {
+      "destructive_hint": true,
+      "idempotent_hint": false,
+      "open_world_hint": true,
+      "read_only_hint": false,
+      "title": "Open, switch, close or list tabs"
+    },
+    "description": "List the browser's tabs (the default), open one (loading url in it), switch to one (by id; by url, the newest tab whose URL contains that text; or, with neither, the newest), or close one (id, or the current tab).\n\nEvery other tool acts on the current tab. A popup a page opens becomes the current tab by itself, and when the current tab closes the session goes back to the tab it came from; a result says so with tab, opened and closed. Only the current tab is in front: Chrome does not render a tab that is not, and Firefox slows its timers.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "default": "list",
+          "enum": [
+            "list",
+            "open",
+            "switch",
+            "close"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "name": "tab"
+  },
   "upload_file": {
     "annotations": {
       "destructive_hint": false,

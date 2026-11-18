@@ -77,6 +77,7 @@ GROUPS = [
             "print",
             "execute_script",
             "frame",
+            "tab",
             "dialog",
             "resize",
             "upload_file",

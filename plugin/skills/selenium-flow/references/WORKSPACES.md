@@ -32,13 +32,15 @@ Grid's reaper. The server never invents a name: the caller names the workspace.
 ```json
 {"workspace": "research-bot", "named_by": "query", "browser": "chrome",
  "url": "https://example.com/", "live": true, "in_frame": false,
- "window": "1400x900"}
+ "window": "1400x900",
+ "tabs": [{"tab": "t1", "url": "https://example.com/", "title": "Example", "current": true}]}
 ```
 
 | Field | Means |
 |---|---|
 | `live` | a session is open |
 | `in_frame` | a `frame` switch is in force |
+| `tabs` | each tab with its `tab` id, `url`, `title` and whether it is `current`; reading it never follows a popup |
 | `version` | the browser version that ran |
 | `grid_timeout` | how long the session may sit idle before the Grid ends it; any call restarts the clock |
 | `capture`, `capturing`, `captured` | opened with `capture=true`; recording now (false means paused until the next call); how many console entries and requests are kept |

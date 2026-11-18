@@ -15,6 +15,7 @@ import threading
 import time
 from concurrent.futures import Future
 from dataclasses import replace
+from functools import partial
 
 import pytest
 from selenium.common.exceptions import InvalidSessionIdException, TimeoutException
@@ -29,6 +30,7 @@ from kubed.selenium_flow.workspace.scrub import Scrubber
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
+from . import fakes
 from .conftest import RecordingActions
 from .fakes import Clock, FakeCatalogue
 
@@ -928,17 +930,8 @@ class ScopeActions(RecordingActions):
         return dict(self.written)
 
 
-class BindingCatalogue(FakeCatalogue):
-    """A `FakeCatalogue` a bound write can type from: ``a/password`` on ``A``."""
-
-    def entry(self, name):
-        return {"name": name, "keys": ["password"], "allowed_urls": [A]}
-
-    def allows(self, name, url):
-        return urls.scope_origin(url) == A
-
-    def value(self, name, key):
-        return self.scopes[A][(name, key)]
+# A bound write types `A`'s secrets, on `A` only.
+BindingCatalogue = partial(fakes.BindingCatalogue, on=A)
 
 
 CALLER = Caller("w", "query")
@@ -1295,6 +1288,32 @@ def test_describe_and_captured_are_scrubbed(ws):
     ]))
     assert "alpha-11" not in json.dumps(ws.describe(CALLER))
     assert "[secret:a/password]" in json.dumps(ws.describe(CALLER))
+
+
+def test_the_tabs_in_the_context_are_scrubbed(ws):
+    ws.actions.listing = [
+        {"tab": "t1", "url": f"{A}/", "title": "t", "current": True},
+        {"tab": "t2", "url": f"{B}/?q=alpha-11", "title": "alpha-11", "current": False},
+    ]
+    shown = json.dumps(ws.describe(CALLER)["tabs"])
+    assert "alpha-11" not in shown
+    assert "[secret:a/password]" in shown
+
+
+def test_a_hand_back_scrubs_the_tab_moves_it_keeps(ws):
+    ws.actions.outline = lambda sid, **kw: {
+        "url": f"{A}/?q=alpha-11", "title": "alpha-11", "count": 0, "total": 0,
+        "elements": [],
+        "tab": "t2",
+        "opened": [{"tab": "t2", "url": f"{B}/?q=alpha-11"}],
+        "closed": ["t3"],
+    }
+    summary = ws.handed_back("w", None)
+    shown = json.dumps(summary)
+    assert "alpha-11" not in shown
+    assert summary["tab"] == "t2" and summary["closed"] == ["t3"]
+    assert summary["opened"][0]["tab"] == "t2"
+    assert "[secret:a/password]" in json.dumps(summary["opened"])
 
 
 def test_captured_is_scrubbed_and_its_off_answer_is_not():

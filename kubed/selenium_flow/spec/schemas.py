@@ -123,6 +123,22 @@ RESPONSES = {
                 "type": ["string", "null"],
                 "description": "Window size as WxH, when one is known.",
             },
+            "tabs": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "tab": {"type": "string"},
+                        "url": {"type": ["string", "null"]},
+                        "title": {"type": ["string", "null"]},
+                        "current": {"type": "boolean"},
+                    },
+                },
+                "description": (
+                    "The session's tabs as tab list answers them, read live;"
+                    " empty with no live browser."
+                ),
+            },
             "grid_timeout": {
                 "type": ["integer", "null"],
                 "description": (

@@ -647,7 +647,7 @@ STATUS_TABLE = (
     [(_raised(faults.AssertionFailed), 400), (_raised(faults.NotFound), 404)]
     + [(_raised(faults.BidiUnavailable), 503), (_raised(faults.TooLarge), 413)]
     + [(_raised(faults.NoSession), 400), (_raised(faults.Controlled), 409)]
-    + [(_raised(faults.Conflict), 409)]
+    + [(_raised(faults.Conflict), 409), (faults.TabClosed("t1", "https://a.test/"), 409)]
     + [(faults.NodeRefused("it said no", blamed=True), 400)]
     + [(faults.NodeRefused("it said no", blamed=False), 503)]
     + [(_raised(cls), 400) for cls in errors.CALLER if cls is not faults.AssertionFailed]

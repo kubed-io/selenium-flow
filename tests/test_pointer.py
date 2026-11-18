@@ -495,6 +495,7 @@ def test_opening_a_browser_forgets_where_the_pointer_was(actions, monkeypatch):
 
     class _Driver:
         session_id = "new"
+        current_window_handle = "w1"  # a new browser's one tab
 
         def get_window_size(self):
             return {"width": 800, "height": 600}

@@ -41,6 +41,7 @@ from ..core.actions import (
     ID_LIMIT,
     MOUSE_ACTIONS,
     PRINT_FORMATS,
+    TAB_ACTIONS,
     Actions,
 )
 from ..core.capabilities import CAPABILITIES, PAGE_STATE, Capability, capability
@@ -72,6 +73,7 @@ def _blank_is_unset(value):
 MouseAction = Annotated[Literal[MOUSE_ACTIONS], BeforeValidator(_lowered)]
 DialogAction = Annotated[Literal[DIALOG_ACTIONS], BeforeValidator(_lowered)]
 FrameAction = Annotated[Literal[FRAME_ACTIONS], BeforeValidator(_lowered)]
+TabAction = Annotated[Literal[TAB_ACTIONS], BeforeValidator(_lowered)]
 PrintFormat = Annotated[Literal[PRINT_FORMATS], BeforeValidator(_lowered)]
 Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
 RequestId = Annotated[str, Field(min_length=1, max_length=ID_LIMIT)]
@@ -465,6 +467,27 @@ def register(
         selector: SelectorArg = None,
         index: int | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
+    ) -> dict: ...
+
+    @action(
+        "tab",
+        description=(
+            "List the browser's tabs (the default), open one (loading url in "
+            "it), switch to one (by id; by url, the newest tab whose URL "
+            "contains that text; or, with neither, the newest), or close one "
+            "(id, or the current tab).\n\n"
+            "Every other tool acts on the current tab. A popup a page opens "
+            "becomes the current tab by itself, and when the current tab "
+            "closes the session goes back to the tab it came from; a result "
+            "says so with tab, opened and closed. Only the current tab is in "
+            "front: Chrome does not render a tab that is not, and Firefox "
+            "slows its timers."
+        ),
+    )
+    def tab(
+        action: TabAction = "list",
+        id: str | None = None,
+        url: str | None = None,
     ) -> dict: ...
 
     @action("resize")

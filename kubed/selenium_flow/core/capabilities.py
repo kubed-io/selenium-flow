@@ -218,10 +218,51 @@ FLOWS_HINT = {
 }
 
 
+# What every page result says when the call moved between tabs (ACT-50), each
+# present only when it happened. Before an action's own fields, so `frame`'s
+# `in_frame` and `tab`'s `tab` say it in their own words.
+TAB_HINTS = {
+    "tab": {
+        "type": "string",
+        "description": (
+            "The tab the session is on now (t1, t2, ...). Present only when "
+            "the current tab changed during the call: a popup opened, or the "
+            "current tab closed."
+        ),
+    },
+    "opened": {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "properties": {
+                "tab": {"type": "string"},
+                "url": {"type": ["string", "null"]},
+            },
+        },
+        "description": (
+            "The tabs that opened, each with its URL. Present only when some did."
+        ),
+    },
+    "closed": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "The ids of the tabs that closed. Present only when some did.",
+    },
+    "in_frame": {
+        "type": "boolean",
+        "description": (
+            "False when the session moved to another tab, which leaves any "
+            "frame. Present only when it moved."
+        ),
+    },
+}
+
+
 def _page(**extra) -> dict:
     return {
         "type": "object",
         "properties": {
+            **TAB_HINTS,
             **extra,
             **PAGE_STATE,
             "site_data": SITE_DATA_HINT,
@@ -400,6 +441,8 @@ AWAIT_RESPONSE = {
             "description": "Where the browser is now. Absent when it ended.",
             "properties": PAGE_STATE,
         },
+        # When reading the page followed a popup the person opened.
+        **{key: TAB_HINTS[key] for key in ("tab", "opened", "closed")},
         "visited": {
             "type": "array",
             "description": (
@@ -753,6 +796,44 @@ CAPABILITIES: tuple[Capability, ...] = (
             in_frame={
                 "type": "boolean",
                 "description": "Whether the session is now inside a frame.",
+            },
+        ),
+    ),
+    Capability(
+        name="tab",
+        method="tab",
+        route="tab",
+        http_method="POST",
+        annotations=hints("Open, switch, close or list tabs", destructive=True),
+        response=_page(
+            tabs={
+                "type": "array",
+                "description": "Every tab, in the order they opened. Present for list.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "tab": {"type": "string"},
+                        "url": {"type": ["string", "null"]},
+                        "title": {"type": ["string", "null"]},
+                        "current": {"type": "boolean"},
+                    },
+                },
+            },
+            tab={
+                "type": "string",
+                "description": "The tab the session is on now (t1, t2, ...).",
+            },
+            closed={
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "The ids of the tabs that closed. Present for close.",
+            },
+            in_frame={
+                "type": "boolean",
+                "description": (
+                    "Always false: a tab starts at its top page. Not present "
+                    "for list."
+                ),
             },
         ),
     ),

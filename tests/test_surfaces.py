@@ -73,6 +73,7 @@ EXPECTED = {
     "interact",
     "drag",
     "frame",
+    "tab",
     "resize",
     "dialog",
     "upload_file",

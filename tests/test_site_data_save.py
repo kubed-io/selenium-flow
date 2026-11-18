@@ -13,7 +13,7 @@ from kubed.selenium_flow.site_data import snapshot as sd
 from kubed.selenium_flow.site_data import transfer
 from kubed.selenium_flow.workspace.store import Workspace
 
-from .fakes import FakeChannel
+from .fakes import FakeChannel, untabbed
 from .site_data_fakes import (
     NOW,
     FakeSpare,
@@ -303,7 +303,7 @@ def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monk
 
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page())
     monkeypatch.setattr(Workspaces, "resolved", lambda self, name: ("live-id", "chrome"))
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}))
+    server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})))
     server.actions.channels = channels_for(FakeChannel())
     # Stamped now, not at NOW: the save reads the history as the next write
     # would keep it, and a fixed stamp ages out of the store's TTL.
@@ -358,9 +358,9 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
     tab = Tab()
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: tab)
     monkeypatch.setattr(Grid, "is_alive", lambda self, sid: True)
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)},
-    ))
+    )))
     server.actions.channels = channels_for(FakeChannel())
     server.flows.save(NAMED, "trip", {"steps": [
         {"tool": "navigate", "args": {"url": a + "/"}},

@@ -34,11 +34,13 @@ from .bidi_fakes import (
     FakeBrowser,
     browser_in_thread,  # noqa: F401 - a fixture, offered here
 )
-from .fakes import (  # noqa: F401 - FakePeer is offered here
+from .fakes import (  # noqa: F401 - FakePeer, RecordingActions are offered here
     FakeConnection,
     FakeGrid,
     FakePeer,
+    RecordingActions,
     ScriptedDriver,
+    untabbed,
 )
 
 TOKEN = "test-token-abc123"
@@ -65,29 +67,32 @@ def actions(grid):
     return Actions(grid)
 
 
+# The servers below dial no Grid, so none of them checks for tabs (`untabbed`).
+
+
 @pytest.fixture
 def server():
     """An authenticated server, since that is how it is deployed."""
-    return SeleniumMCP(
+    return untabbed(SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
-    )
+    ))
 
 
 @pytest.fixture
 def open_server():
     """A server with auth disabled, as `docker compose up` runs it."""
-    return SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    return untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"})))
 
 
 @pytest.fixture
 def data_server(tmp_path):
     """An authenticated server with a data directory in ``tmp_path``, so flows
     and kept files have somewhere to go."""
-    return SeleniumMCP(Settings(
+    return untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         data={"dir": str(tmp_path)},
-    ))
+    )))
 
 
 @pytest.fixture
@@ -104,55 +109,6 @@ async def browser():
     """A browser's BiDi end on this test's loop (`tests/bidi_fakes.py`)."""
     async with FakeBrowser() as fake:
         yield fake
-
-
-class RecordingActions:
-    """Counts what was opened and ended, without opening anything.
-
-    Records the *settings* each browser was opened with as well as the count,
-    because "a refresh reopens the same browser it had" is a behaviour several
-    modules depend on and a bare counter cannot express it.
-    """
-
-    def __init__(self):
-        self.opened = 0
-        self.opened_urls = []
-        self.opened_settings = []
-        # Where each open's version came from (`session_caps.build`): beside
-        # the settings, never one of them.
-        self.opened_version_from = []
-        self.closed = []
-        self.grid = FakeGrid()
-
-    def open_session(self, url=None, **kwargs):
-        self.opened += 1
-        session_id = f"generated-{self.opened}"
-        self.opened_urls.append(url)
-        self.opened_version_from.append(kwargs.pop("version_from", "call"))
-        self.opened_settings.append(dict(kwargs))
-        self.grid.alive.add(session_id)
-        # What a real open reports for the workspace only: what was sent and
-        # what ran (`actions.OPEN_PRIVATE`). `open_browser` keeps them off
-        # what a caller is told.
-        sent = [
-            {
-                "key": "browserName",
-                "value": kwargs.get("browser") or "chrome",
-                "sources": ["option"],
-            }
-        ]
-        ran = {"version": "100.0", "node": f"node-{self.opened}", "live_view": True}
-        return {
-            "session_id": session_id,
-            "url": url or "about:blank",
-            "sent": sent,
-            "ran": ran,
-        }
-
-    def end_browser(self, session_id):
-        self.closed.append(session_id)
-        self.grid.alive.discard(session_id)
-        return {"success": True, "session_id": session_id}
 
 
 def http(params=None, headers=None):

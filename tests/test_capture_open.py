@@ -24,6 +24,7 @@ pytestmark = pytest.mark.unit
 
 class StubDriver:
     session_id = "gridstub"
+    current_window_handle = "w1"  # a new browser's one tab
     current_url = "about:blank"
     title = ""
     fails = None  # what the first page raises
@@ -226,6 +227,9 @@ class FakeActions:
 
     def end_browser(self, sid):
         self.grid.alive.discard(sid)
+
+    def check_tabs(self, session_id):
+        return {}
 
 
 class FakeMonitor:

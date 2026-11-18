@@ -14,7 +14,7 @@ export const own = <T>(map: Record<string, T>, key: string): T | undefined =>
    else is refused by the runner, and its ❓ is meant to look wrong. */
 export const TOOL_ICON: Record<string, string> = {
   navigate: '🧭', interact: '👆', drag: '🤜', write: '✍️', press_key: '⌨️',
-  extract: '🔍', execute_script: '📜', screenshot: '📷', frame: '🪟', resize: '📐',
+  extract: '🔍', execute_script: '📜', screenshot: '📷', frame: '🪟', tab: '🗂️', resize: '📐',
   dialog: '💬', upload_file: '📤', print: '🖨️', assert: '✅', save_site_data: '🍪',
 }
 

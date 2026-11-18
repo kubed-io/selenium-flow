@@ -52,6 +52,8 @@ DEFAULT_PREFIX = "selenium-flow:workspace:"
 # No caller key has this shape, but a SCAN of the prefix finds it, so
 # `records()` skips it.
 POINTER_NAMESPACE = "pointer:"
+# So does the tab store, for the same reason.
+TABS_NAMESPACE = "tabs:"
 # Redis's own default: an install with an index convention passes REDIS_DB,
 # and the prefix keeps it safe if not.
 DEFAULT_DB = 0
@@ -686,7 +688,8 @@ class RedisStore(_Writes):
         keys = []
         for raw in self._redis.scan_iter(match=f"{self._prefix}*", count=100):
             key = raw.decode() if isinstance(raw, bytes) else raw
-            if not key.startswith(self._prefix + POINTER_NAMESPACE):
+            skipped = (self._prefix + POINTER_NAMESPACE, self._prefix + TABS_NAMESPACE)
+            if not key.startswith(skipped):
                 keys.append(key)
         if not keys:
             return {}

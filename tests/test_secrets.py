@@ -35,6 +35,8 @@ from kubed.selenium_flow.workspace.calls import Calls
 from kubed.selenium_flow.workspace.origins import Origins
 from kubed.selenium_flow.workspace.scrub import Scrubber
 
+from .fakes import untabbed
+
 pytestmark = pytest.mark.unit
 
 
@@ -336,12 +338,12 @@ def secret_server(tmp_path, monkeypatch):
         password="hunter2",
         **{DESCRIPTION: "Homelab Nextcloud", ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path / "secrets-src")},
         data={"dir": str(tmp_path / "flows")},
-    ))
+    )))
     calling_as(monkeypatch, NAMED)
     return server
 
@@ -409,7 +411,7 @@ async def test_with_no_directories_the_catalogue_says_so():
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"})))
     assert server.secrets is None
     with pytest.raises(MCPError, match=r"secrets\.dirs"):
         await server.mcp.read_resource(secrets.LIST_URI)
@@ -837,11 +839,11 @@ def bound_http(tmp_path, monkeypatch):
         Actions, "page",
         lambda self, sid: {"url": "https://nc.example.com/login", "title": "Log in"},
     )
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
-    ))
+    )))
     # A named workspace holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body.
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("b1", "chrome"))
@@ -999,11 +1001,11 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         tmp_path, "nextcloud", password="[secret:nextcloud/password]",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
-    ))
+    )))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
@@ -1052,11 +1054,11 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         tmp_path, "nextcloud", password="hunter2",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
-    ))
+    )))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
@@ -1094,11 +1096,11 @@ def _direct(tmp_path, monkeypatch, write):
         tmp_path, "nextcloud", password=VALUE,
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
-    ))
+    )))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
@@ -1168,11 +1170,11 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         tmp_path, "nextcloud", password="hunter2",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = SeleniumMCP(Settings(
+    server = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         secrets={"dirs": str(tmp_path)},
-    ))
+    )))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
@@ -1371,6 +1373,17 @@ ALLOWED = "https://nc.example.com"
 ELSEWHERE = "https://evil.test"
 
 
+def write_host():
+    """The `Workspaces` a bound write asks of, for a browser ``b1``: secrets
+    off, nothing recorded, and its tabs never checked."""
+    return SimpleNamespace(
+        resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
+        failed=lambda *a, **k: None, followed=lambda *a, **k: {},
+        _arrived=lambda *a: None,
+        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
+    )
+
+
 @pytest.fixture
 def framed(tmp_path):
     """A real `Actions` on a scripted browser whose top page is allowed, and a
@@ -1399,11 +1412,7 @@ def framed(tmp_path):
         }
         return actions
 
-    held = SimpleNamespace(
-        resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
-        failed=lambda *a, **k: None,
-        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
-    )
+    held = write_host()
 
     def write(frame_origin=None, top=ALLOWED, forged=False):
         return secrets.perform_write(
@@ -1530,11 +1539,7 @@ def test_a_direct_bound_write_never_types_into_a_frame_element(targeting, tag):
 
     catalogue, driver, actions = targeting
     driver.element.tag = tag
-    held = SimpleNamespace(
-        resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
-        failed=lambda *a, **k: None,
-        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
-    )
+    held = write_host()
     with pytest.raises(ValueError) as refused:
         secrets.perform_write(
             catalogue, actions, held, "desktop",
@@ -1567,11 +1572,7 @@ def test_a_flow_step_never_types_a_secret_into_a_frame_element(targeting):
 def test_a_bound_write_into_a_field_still_types(targeting, tag):
     catalogue, driver, actions = targeting
     driver.element.tag = tag
-    held = SimpleNamespace(
-        resolved=lambda name: ("b1", "chrome"), settle=lambda *a, **k: None,
-        failed=lambda *a, **k: None,
-        calls=Calls(), origins=Origins(), scrubber=Scrubber(None, ttl=60),
-    )
+    held = write_host()
     shown = secrets.perform_write(
         catalogue, actions, held, "desktop",
         {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},

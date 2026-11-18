@@ -30,7 +30,7 @@ The browser lives on the Grid, so the server can restart without anyone losing a
 
 ## 🧰 Every action, both ways
 
-Twenty actions, each an MCP tool and an HTTP endpoint with one schema between them. Hand a whole job to an agent, or drive the same steps yourself from an n8n HTTP node.
+Twenty-one actions, each an MCP tool and an HTTP endpoint with one schema between them. Hand a whole job to an agent, or drive the same steps yourself from an n8n HTTP node.
 
 | Action | |
 |---|---|
@@ -47,6 +47,7 @@ Twenty actions, each an MCP tool and an HTTP endpoint with one schema between th
 | [`print`](https://github.com/kubed-io/selenium-flow/wiki/print) | Keep the page as a PDF or as HTML |
 | [`execute_script`](https://github.com/kubed-io/selenium-flow/wiki/execute_script) | Run JavaScript: the escape hatch |
 | [`frame`](https://github.com/kubed-io/selenium-flow/wiki/frame) | Step into an iframe and back out |
+| [`tab`](https://github.com/kubed-io/selenium-flow/wiki/tab) | List, open, switch to and close tabs |
 | [`dialog`](https://github.com/kubed-io/selenium-flow/wiki/dialog) | Answer an alert, confirm or prompt |
 | [`resize`](https://github.com/kubed-io/selenium-flow/wiki/resize) | Change the window at any time |
 | [`upload_file`](https://github.com/kubed-io/selenium-flow/wiki/upload_file) | Put a file into a file input |

@@ -19,6 +19,10 @@ from .urls import without_userinfo
 # (`workspace.calls`).
 PAGE_NOTE = "This call caused "
 
+# How the note begins that says a failed call moved the session to another tab
+# (`note_moved`).
+MOVED_NOTE = "The session moved to tab "
+
 # How the note begins that says a call's browser was replaced before it, and
 # why (`Workspaces.settle`, `Workspaces.failed`).
 REOPEN_NOTE = "The browser was replaced before this call: "
@@ -70,6 +74,55 @@ class Controlled(Exception):
 class Conflict(Exception):
     """The request is fine, and what the server holds refuses it: a 409. Its
     message says what has to change first."""
+
+
+TAB_CLOSED = (
+    "the tab this call was to act on closed before it could act; the session "
+    "is now on {tab} ({url}): call again to act there"
+)
+
+
+class TabClosed(Conflict):
+    """The tab a call was to act on closed before it could act: a 409.
+
+    The session has moved (`Workspaces.followed`), so the same call acts on
+    the tab named here. The URL is a page's, scrubbed as a failed call's
+    error is."""
+
+    def __init__(self, tab: str | None, url: str | None):
+        self.tab = tab
+        self.url = url
+        super().__init__(TAB_CLOSED.format(tab=tab, url=url))
+
+
+def window_gone(exc: BaseException) -> bool:
+    """Whether a driver's failure says the window it acted on is gone.
+
+    By the class's name, since this module imports no Selenium, or by the
+    driver's own ``msg``, as `unresolved` reads it."""
+    if type(exc).__name__ == "NoSuchWindowException":
+        return True
+    said = getattr(exc, "msg", None)
+    return isinstance(said, str) and said.startswith("no such window")
+
+
+def note_moved(
+    exc: BaseException, before: dict, after: dict, *, ran: bool = True
+) -> None:
+    """Say on ``exc`` where the session went, when a tab check before or after
+    the call moved it (`Workspaces.followed`): the check has already kept the
+    move, so no later call reports it. `TabClosed` says so in its own words.
+    ``ran`` is False for a call refused before it began: the move was before
+    it. The note carries a page's URL: add it before the error is scrubbed."""
+    if isinstance(exc, TabClosed):
+        return
+    change = after if "tab" in after else before
+    if "tab" not in change:
+        return
+    url = change.get("url")
+    where = f" ({url})" if url else ""
+    when = "during" if ran else "before"
+    exc.add_note(f"{MOVED_NOTE}{change['tab']}{where} {when} this call.")
 
 
 class NoSession(ValueError):
@@ -279,9 +332,10 @@ def message(exc: BaseException) -> str:
     A Grid refusal is cut to its status and reason: ``raise_for_status`` ends
     with ``for url: <the full URL>``, and ``GRID_URL`` may carry credentials.
 
-    Two notes may follow after a space, the reopen's first: one beginning
-    `REOPEN_NOTE` (`Workspaces.failed`) and one beginning `PAGE_NOTE`
-    (`workspace.calls`). No other note is ever said.
+    Three notes may follow after a space, in this order: one beginning
+    `REOPEN_NOTE` (`Workspaces.failed`), one beginning `MOVED_NOTE`
+    (`note_moved`) and one beginning `PAGE_NOTE` (`workspace.calls`). No
+    other note is ever said.
     """
     text = _said(exc)
     notes = [
@@ -290,8 +344,9 @@ def message(exc: BaseException) -> str:
         if isinstance(note, str)
     ]
     reopened = [note for note in notes if note.startswith(REOPEN_NOTE)]
+    moved = [note for note in notes if note.startswith(MOVED_NOTE)]
     page = [note for note in notes if note.startswith(PAGE_NOTE)]
-    return " ".join([text, *reopened, *page])
+    return " ".join([text, *reopened, *moved, *page])
 
 
 def _said(exc: BaseException) -> str:

@@ -78,6 +78,9 @@ class Actions:
         self.grid.alive.discard(sid)
         return {"success": True}
 
+    def check_tabs(self, session_id):
+        return {}
+
 
 def manager(recorder=None, monitor=None):
     return Workspaces(Actions(), recordings=recorder, monitor=monitor)

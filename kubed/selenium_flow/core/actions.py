@@ -8,8 +8,10 @@ a JSON-safe dict; the browser state lives on the Grid, not in this process.
 from __future__ import annotations
 
 import base64
+import contextlib
 import functools
 import logging
+import re
 import shutil
 import tempfile
 import time
@@ -17,18 +19,27 @@ from pathlib import Path
 
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
+    NoSuchWindowException,
     SessionNotCreatedException,
     TimeoutException,
+    UnexpectedAlertPresentException,
     WebDriverException,
 )
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
-from ..bidi.connection import BidiError, MessageTooBig
+from ..bidi.connection import REPLY_TIMEOUT, BidiError, MessageTooBig
 from ..capture import NETWORK_URI
 from ..errors import GONE, UNAVAILABLE
-from ..faults import BidiUnavailable, NotFound, ScriptTimedOut, Traceback, formatted
+from ..faults import (
+    BidiUnavailable,
+    NotFound,
+    ScriptTimedOut,
+    Traceback,
+    formatted,
+    lost,
+)
 from ..faults import message as failure_text
 from ..names import FILES_DIR, SCREENSHOTS_DIR
 from ..redaction import clip
@@ -36,6 +47,7 @@ from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
 from ..urls import allowed_navigation
 from . import browser, js, pointer, probe, session_caps
+from . import tabs as _tabs
 from .assertion import Assertion, window
 from .browser import Grid
 from .coerce import as_bool, as_int
@@ -56,6 +68,13 @@ from .recipe import (
 INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
 
 log = logging.getLogger(__name__)
+
+NO_TAB = "the browser has no tab left: end_browser ends it"
+# How often a check looks again when a tab vanishes under it.
+MOVE_ATTEMPTS = 3
+# Seconds a browser's tab checks leave BiDi alone after it would not open or
+# answer: a route that hangs costs one check its timeout, not every call.
+TAB_BIDI_BACK_OFF = 30.0
 
 # `network_body`: text is cut at this many bytes; an id is a short string.
 BODY_CAP = 100_000
@@ -212,6 +231,9 @@ DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
 
 FRAME_ACTIONS = ("switch", "parent", "default")
 
+TAB_ACTIONS = ("list", "open", "switch", "close")
+TAB_ID = re.compile(r"^t[1-9][0-9]*$")
+
 
 # What `open_session`'s result carries for the workspace and never for a
 # caller: the Grid's id, what was sent, and what the Grid says ran.
@@ -242,7 +264,9 @@ def _ran(driver) -> dict:
 class Actions:
     """The browser operations, bound to one Grid."""
 
-    def __init__(self, grid: Grid, keep=None, pointers=None, read_file=None):
+    def __init__(
+        self, grid: Grid, keep=None, pointers=None, read_file=None, tabs=None
+    ):
         self.grid = grid
         # `keep`, `read_file` and `visited` are functions because which
         # workspace is calling is not this layer's to see.
@@ -253,6 +277,9 @@ class Actions:
         # Where the pointer is in each browser, keyed by the Grid's session id.
         # Injected so replicas can share it.
         self.pointers = pointers if pointers is not None else pointer.MemoryPointers()
+        # Which tabs each browser has and which one the session is on, keyed
+        # the same way (`tabs.matching`).
+        self.tabs = tabs if tabs is not None else _tabs.MemoryTabs()
         # `read_file(uri, workspace)` reads a file for `upload_file(file=...)`.
         # Absent, naming a file is refused.
         self.read_file = read_file
@@ -263,6 +290,9 @@ class Actions:
         # The rest are wired by the server.
         # Opens a BiDi channel to a session's browser (`bidi.Channels`).
         self.channels = None
+        # When each browser's tab checks may try BiDi again (`_tab_channel`).
+        self.clock = time.monotonic
+        self.tab_bidi_off: dict[str, float] = {}
         # `(session_id, context) -> block`: inside it, capture ignores that
         # browsing context, so a save's spare tab never reaches a caller's log.
         self.hide = None
@@ -314,6 +344,425 @@ class Actions:
                 self.pointers.set(session_id, at[0], at[1])
         except Exception as exc:  # noqa: BLE001 - see `_pointer`
             log.debug("could not record the pointer:\n%s", Traceback(exc))
+
+    # ---- tabs --------------------------------------------------------------
+
+    def check_tabs(self, session_id: str) -> dict:
+        """Bring the stored tabs up to date with the browser's windows.
+
+        A popup becomes the current tab and a closed current tab hands the
+        session back to its opener; the current tab is brought to the front.
+        The answer holds only what happened: ``opened`` (each with its url),
+        ``closed`` and, when the session moved, ``tab``, ``url``, ``title``
+        and ``in_frame``.
+
+        The driver is switched only when it is not on the current tab's
+        window: a switch to the window it is on would throw away its frame.
+        The state is kept before the new tab's page is read, so a page that
+        cannot be read is a null ``url`` and ``title``, never a move forgotten.
+        """
+        with node_answering(), self._tab_channel(session_id) as channel:
+            driver = self.grid.reconnect(session_id)
+            handles, tree = self._windows(session_id, driver, channel)
+            state = self.tabs.get(session_id)
+            current = None
+            if state is None:
+                try:
+                    current = driver.current_window_handle
+                except NoSuchWindowException:
+                    current = None
+            found = _tabs.reconcile(state, handles, current)
+            page: dict = {}
+            for attempt in range(MOVE_ATTEMPTS):
+                try:
+                    if found.moved or len(handles) > 1:
+                        self._onto(driver, found.handle)
+                    self.tabs.set(session_id, found.state)
+                    if found.moved:
+                        page = self._page_of_move(driver)
+                    break
+                except NoSuchWindowException:
+                    # A popup closed itself before we got to it: look again from
+                    # the state as it was, so the tab is reported as closed, or
+                    # not at all when it was never stored.
+                    if attempt == MOVE_ATTEMPTS - 1:
+                        raise
+                    handles, tree = self._windows(session_id, driver, channel)
+                    found = _tabs.reconcile(state, handles, current)
+                    page = {}
+            if found.moved or len(handles) > 1:
+                # A person may have activated another tab since the last call.
+                self._front(session_id, found.handle, tree, channel)
+
+            answer: dict = {}
+            if found.opened:
+                followed = found.state.current
+                answer["opened"] = [
+                    {
+                        "tab": tab,
+                        "url": page.get("url")
+                        if tab == followed and found.moved
+                        else (tree or {}).get(found.state.by_id(tab).handle),
+                    }
+                    for tab in found.opened
+                ]
+            if found.closed:
+                answer["closed"] = found.closed
+            if found.moved:
+                answer.update(
+                    tab=found.state.current,
+                    url=page.get("url"),
+                    title=page.get("title"),
+                    in_frame=False,
+                )
+            return answer
+
+    @contextlib.contextmanager
+    def _tab_channel(self, session_id: str):
+        """One BiDi channel for a whole tab check or `tab` call, or None: no
+        channels, a back-off running, or one that will not open, which starts
+        a back-off."""
+        with contextlib.ExitStack() as stack:
+            channel = None
+            if (
+                self.channels is not None
+                and self.tab_bidi_off.get(session_id, 0.0) <= self.clock()
+            ):
+                try:
+                    channel = stack.enter_context(
+                        self.channels.open_channel(session_id)
+                    )
+                except BidiUnavailable as exc:
+                    self._bidi_failed(session_id, exc)
+            yield channel
+
+    def _bidi_failed(self, session_id: str, exc: Exception) -> None:
+        log.debug("tab checks leave BiDi alone for now: %s", type(exc).__name__)
+        self.tab_bidi_off[session_id] = self.clock() + TAB_BIDI_BACK_OFF
+
+    def _windows(
+        self, session_id: str, driver, channel
+    ) -> tuple[list[str], dict | None]:
+        """The browser's window handles, in the order it lists them, and each
+        one's URL when BiDi listed them (else None).
+
+        From one ``getTree``, since Chrome holds ``window_handles`` while a
+        popup loads a host that never answers; a top-level context's id is its
+        window handle. ``window_handles`` only when BiDi cannot answer.
+        `NotFound` when there is no tab left.
+        """
+        tree = self._contexts(session_id, channel)
+        handles = list(tree) if tree is not None else driver.window_handles
+        if not handles:
+            raise NotFound(NO_TAB)
+        return handles, tree
+
+    @staticmethod
+    def _onto(driver, handle: str) -> None:
+        """Put the driver on ``handle``'s window, switching only when it is on
+        another one (or none): a switch to the window it is on puts the session
+        back at the top page, out of any frame. A ``handle`` that is gone
+        raises `NoSuchWindowException`."""
+        try:
+            here = driver.current_window_handle
+        except NoSuchWindowException:
+            here = None
+        if here != handle:
+            driver.switch_to.window(handle)
+
+    @staticmethod
+    def _page_of_move(driver) -> dict:
+        """The page a check moved the session to: null ``url`` and ``title``
+        when it cannot be read, since the move is already kept. A window gone
+        or a node lost still raises."""
+        try:
+            return browser.page_state(driver)
+        except NoSuchWindowException:
+            raise
+        except WebDriverException as exc:
+            if lost(exc):
+                raise
+            # By type: a driver's text quotes the page's URL.
+            log.info(
+                "the page a tab check moved to was not read: %s", type(exc).__name__
+            )
+            return {"url": None, "title": None}
+
+    def _front(
+        self, session_id: str, handle: str, tree: dict | None, channel
+    ) -> None:
+        """Bring ``handle``'s tab to the front, unless a person holds the browser.
+
+        Chrome does not render a tab that is not in front and Firefox throttles
+        it. Only over BiDi, with ``browsingContext.activate``, which keeps the
+        session's frame, where a classic switch would throw it away (measured
+        on Chrome 152 and Firefox 155). ``tree`` is the check's own listing:
+        with none, or a handle that is not in it, nothing is brought forward.
+        A failure of the BiDi road is a debug line, never a failed call.
+        """
+        if self.control and self.control.refusal(session_id, "tab"):
+            return
+        if channel is None or tree is None or handle not in tree:
+            return
+        try:
+            channel.call("browsingContext.activate", {"context": handle})
+        except (BidiUnavailable, BidiError) as exc:
+            log.debug("could not activate a tab: %s", type(exc).__name__)
+
+    def _contexts(self, session_id: str, channel) -> dict[str, str] | None:
+        """Every top-level browsing context's URL from one ``getTree``, in the
+        order the browser lists them, or None when BiDi cannot answer, which
+        starts a back-off."""
+        if channel is None:
+            return None
+        try:
+            tree = channel.call("browsingContext.getTree", {"maxDepth": 0})
+            return {c["context"]: c.get("url") for c in tree["contexts"]}
+        except (BidiUnavailable, BidiError, KeyError, TypeError) as exc:
+            self._bidi_failed(session_id, exc)
+            return None
+
+    def _listed(
+        self,
+        session_id: str,
+        driver,
+        state: _tabs.TabState,
+        driving: bool = True,
+        *,
+        channel,
+    ) -> list[dict]:
+        """Every tab in id order: ``tab``, ``url``, ``title``, ``current``.
+
+        The current tab is read over classic WebDriver, so null with a dialog
+        open. The others come from one ``getTree`` and a ``document.title``
+        each; a handle that is not a context, or any BiDi failure, is null.
+        ``driving`` is False when the driver is not on the current tab (a read
+        that never moves the session): it is then read as the others are.
+        """
+        known = sorted(state.known, key=lambda k: int(k.tab[1:]))
+        seen: dict[str, tuple[str | None, str | None]] = {}
+        others = [k for k in known if k.tab != state.current or not driving]
+        urls = self._contexts(session_id, channel) if others else None
+        for k in others if urls is not None else ():
+            if k.handle not in urls:
+                continue
+            try:
+                reply = channel.call(
+                    "script.evaluate",
+                    {
+                        "expression": "document.title",
+                        "target": {"context": k.handle},
+                        "awaitPromise": False,
+                    },
+                    timeout=REPLY_TIMEOUT,
+                )
+                value = reply["result"]
+                if value["type"] != "string":
+                    raise TypeError
+                seen[k.tab] = (urls[k.handle], str(value["value"]))
+            except BidiUnavailable as exc:
+                # Down or silent: the next title would only wait as long again.
+                self._bidi_failed(session_id, exc)
+                break
+            except (BidiError, KeyError, TypeError) as exc:
+                log.debug("could not read a tab's title: %s", type(exc).__name__)
+        listed = []
+        for k in known:
+            current = k.tab == state.current
+            if current and driving:
+                page = browser.page_state(driver)
+                url, title = page.get("url"), page.get("title")
+            else:
+                url, title = seen.get(k.tab, (None, None))
+            listed.append(
+                {"tab": k.tab, "url": url, "title": title, "current": current}
+            )
+        return listed
+
+    def tabs_listed(self, session_id: str) -> list[dict]:
+        """The tabs as ``tab list`` answers them, for a read that must not act.
+
+        Never follows a popup, switches a window or brings a tab to the front,
+        and never writes the state: a handle no call has seen yet is left out
+        until the next call follows it, and a browser with no state is listed
+        as the next call would number it, without storing it.
+        """
+        with node_answering(), self._tab_channel(session_id) as channel:
+            driver = self.grid.reconnect(session_id)
+            handles, _ = self._windows(session_id, driver, channel)
+            stored = self.tabs.get(session_id)
+            if stored is None:
+                try:
+                    current = driver.current_window_handle
+                except NoSuchWindowException:
+                    current = None
+                state = _tabs.reconcile(None, handles, current).state
+            else:
+                seen = [h for h in handles if stored.by_handle(h)]
+                state = _tabs.reconcile(stored, seen).state
+            return self._listed(
+                session_id, driver, state, self._driving(driver, state), channel=channel
+            )
+
+    @staticmethod
+    def _driving(driver, state: _tabs.TabState) -> bool:
+        """Whether the driver is on ``state``'s current tab, so that tab's page
+        can be read over classic WebDriver (`_listed`)."""
+        here = state.by_id(state.current)
+        try:
+            return bool(here) and driver.current_window_handle == here.handle
+        except NoSuchWindowException:
+            return False
+        except UnexpectedAlertPresentException:
+            return True
+
+    def tab(self, session_id: str, action="list", id=None, url=None) -> dict:
+        """List the browser's tabs, open one, switch to one or close one.
+
+        ``url`` loads in a tab ``open`` makes and is text to find a tab by for
+        ``switch``: never a navigation of the current tab, so this takes
+        `_reattached`, not `_recipe`.
+        """
+        resolved = str(action).strip().lower()
+        if resolved not in TAB_ACTIONS:
+            raise ValueError(
+                f"unknown action {action!r}; known actions: "
+                f"{', '.join(sorted(TAB_ACTIONS))}"
+            )
+        tab_id = str(id).strip() if id is not None else ""
+        text = url if url is not None and str(url).strip() else None
+        if tab_id and not TAB_ID.match(tab_id):
+            raise ValueError(f"a tab id is t<n>, like t2, not {tab_id!r}")
+        if tab_id and text:
+            raise ValueError("give id or url to say which tab, not both")
+        if resolved == "open" and tab_id:
+            raise ValueError("open takes no id: it makes a new tab")
+        if resolved == "close" and text:
+            raise ValueError("close takes an id, not a url")
+        if resolved == "list" and (tab_id or text):
+            raise ValueError("list takes neither an id nor a url")
+        if resolved == "open" and text:
+            allowed_navigation(text)
+
+        def body(at, channel):
+            driver = at.driver
+            handles, tree = self._windows(session_id, driver, channel)
+            stored = self.tabs.get(session_id)
+            current = None
+            if stored is None:
+                try:
+                    current = driver.current_window_handle
+                except NoSuchWindowException:
+                    current = None
+            state = _tabs.reconcile(stored, handles, current).state
+
+            def unknown(what, among=None):
+                among = among or state
+                listing = ", ".join(
+                    f"{t['tab']} ({t['url'] or 'unknown'})"
+                    for t in self._listed(
+                        session_id,
+                        driver,
+                        among,
+                        self._driving(driver, among),
+                        channel=channel,
+                    )
+                )
+                return ValueError(f"no tab {what}; the tabs are {listing}")
+
+            def vanished(target):
+                """The 400 for a tab that closed as it was switched to: the
+                tabs as they are now. The state is the checks' to keep."""
+                now, _ = self._windows(session_id, driver, channel)
+                return unknown(target.tab, _tabs.reconcile(state, now).state)
+
+            if resolved == "list":
+                self.tabs.set(session_id, state)
+                return {
+                    "tabs": self._listed(session_id, driver, state, channel=channel),
+                    "tab": state.current,
+                }
+
+            if resolved == "open":
+                driver.switch_to.new_window("tab")
+                opened = _tabs.Known(
+                    f"t{state.next}", driver.current_window_handle, state.current
+                )
+                state = _tabs.TabState(
+                    state.next + 1, opened.tab, (*state.known, opened)
+                )
+                # Recorded before the load: a page that fails to load is still a tab.
+                self.tabs.set(session_id, state)
+                if text:
+                    browser.go(driver, text)
+                return {"tab": opened.tab, "in_frame": False}
+
+            if resolved == "switch":
+                if tab_id:
+                    target = state.by_id(tab_id)
+                    if target is None:
+                        raise unknown(tab_id)
+                elif text:
+                    matches = [
+                        t["tab"]
+                        for t in self._listed(
+                            session_id, driver, state, channel=channel
+                        )
+                        if text in (t["url"] or "")
+                    ]
+                    if not matches:
+                        raise unknown(f"with a URL containing {text!r}")
+                    target = state.by_id(max(matches, key=lambda m: int(m[1:])))
+                else:
+                    target = state.newest()
+                # Always, even to the tab it is on: a switch leaves any frame,
+                # as its `in_frame: false` says.
+                try:
+                    driver.switch_to.window(target.handle)
+                except NoSuchWindowException:
+                    raise vanished(target) from None
+                state = _tabs.TabState(state.next, target.tab, state.known)
+                self.tabs.set(session_id, state)
+                self._front(session_id, target.handle, tree, channel)
+                return {"tab": target.tab, "in_frame": False}
+
+            # close
+            target = state.by_id(tab_id or state.current)
+            if target is None:
+                raise unknown(tab_id)
+            if len(state.known) <= 1:
+                raise ValueError(
+                    f"{target.tab} is the last tab: end_browser ends the browser"
+                )
+            if target.tab == state.current:
+                driver.close()
+            else:
+                here = state.by_id(state.current)
+                try:
+                    driver.switch_to.window(target.handle)
+                    try:
+                        driver.close()
+                    finally:
+                        # Back on the current tab whatever the close did.
+                        driver.switch_to.window(here.handle)
+                except NoSuchWindowException:
+                    raise vanished(target) from None
+            handles, tree = self._windows(session_id, driver, channel)
+            left = _tabs.reconcile(state, handles)
+            self._onto(driver, left.handle)
+            self.tabs.set(session_id, left.state)
+            self._front(session_id, left.handle, tree, channel)
+            return {
+                "tab": left.state.current,
+                "closed": left.closed or [target.tab],
+                "in_frame": False,
+            }
+
+        def run(at):
+            with self._tab_channel(session_id) as channel:
+                return body(at, channel)
+
+        return self._reattached().run(session_id, run)
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -458,6 +907,11 @@ class Actions:
         if on_created is not None:
             on_created(session_id)
 
+        # Its one tab is t1 from the start, so a popup its first page opens is
+        # followed and reported by the first call, never numbered as known.
+        handle = driver.current_window_handle
+        self.tabs.set(session_id, _tabs.TabState(2, "t1", (_tabs.Known("t1", handle),)))
+
         if width or height:
             _resize(driver, width, height)
 
@@ -578,6 +1032,8 @@ class Actions:
         """Quit the browser and free its Grid slot; the workspace survives it."""
         self.grid.quit(session_id)
         self._moved(session_id, None)
+        self.tabs.forget(session_id)
+        self.tab_bidi_off.pop(session_id, None)
         return {"success": True, "session_id": session_id}
 
     # ---- navigation --------------------------------------------------------
