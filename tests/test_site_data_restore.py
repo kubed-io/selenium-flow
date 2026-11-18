@@ -219,6 +219,7 @@ def test_the_storage_scripts_fill_and_read_for_real(tmp_path):
 
 class OpenedDriver:
     session_id = "new-1"
+    current_window_handle = "w1"  # a new browser's one tab
     current_url = APP + "/"
     title = "App"
 

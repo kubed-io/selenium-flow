@@ -23,6 +23,7 @@ from selenium.common.exceptions import (
 
 from kubed.selenium_flow.bidi import CHANNEL_DOWN, BidiError
 from kubed.selenium_flow.core import actions as actions_module
+from kubed.selenium_flow.core import browser as browser_module
 from kubed.selenium_flow.faults import BidiUnavailable, SocketClosed
 from kubed.selenium_flow.live.tunnel import Tunnel
 from kubed.selenium_flow.redaction import Forms
@@ -462,9 +463,10 @@ class FakeChannel:
     answer BidiError and raise BidiUnavailable. ``value``, ``workers``,
     ``stuck`` and ``fail`` shape the page script; ``order`` collects "cookie"
     for each cookie set. ``at`` maps a tab to the origin it stands on.
-    ``tree`` is what ``getTree`` answers, a list of ``{"context", "url"}`` (the
-    one main context when None); ``titles`` maps a context to the title a
-    ``document.title`` evaluation reads there.
+    ``tree`` is what ``getTree`` answers, a list of ``{"context", "url"}``;
+    when None, the windows of ``windows`` (a driver's ``pages``) in their
+    order, or the one main context without them. ``titles`` maps a context to
+    the title a ``document.title`` evaluation reads there.
     """
 
     def __init__(
@@ -547,6 +549,13 @@ class FakeChannel:
     def _browsingContext_getTree(self, params):
         if self.tree is not None:
             return {"contexts": [{**c, "children": []} for c in self.tree]}
+        if self.windows is not None:
+            return {
+                "contexts": [
+                    {"context": handle, "url": page[0], "children": []}
+                    for handle, page in self.windows.items()
+                ]
+            }
         return {"contexts": [{"context": MAIN, "children": []}]}
 
     def _browsingContext_activate(self, params):
@@ -688,13 +697,20 @@ class _ScriptedSwitch:
 
     def frame(self, target):
         self._driver.log.append(("switch_to", "frame", target))
+        self._driver.__dict__["frames"] += 1
 
     def window(self, handle):
+        """As a real browser does, even to the window it is on: the session
+        lands at the top page, out of any frame (measured on Chrome and
+        Firefox)."""
         driver = self._driver
         driver.log.append(("switch_to", "window", handle))
+        if handle not in driver.pages:
+            raise NoSuchWindowException("no such window")
         with suppress(NoSuchWindowException):
             driver._page()  # keep what the window being left showed
         driver.__dict__["current"], driver.__dict__["_seen"] = handle, None
+        driver.__dict__["frames"] = 0
 
     def new_window(self, kind="tab"):
         driver = self._driver
@@ -708,12 +724,15 @@ class _ScriptedSwitch:
             driver._page()
         driver.pages[handle] = ("about:blank", "")
         driver.__dict__["current"], driver.__dict__["_seen"] = handle, None
+        driver.__dict__["frames"] = 0
 
     def default_content(self):
         self._driver.log.append(("switch_to", "default_content"))
+        self._driver.__dict__["frames"] = 0
 
     def parent_frame(self):
         self._driver.log.append(("switch_to", "parent_frame"))
+        self._driver.__dict__["frames"] = max(0, self._driver.frames - 1)
 
     @property
     def active_element(self):
@@ -739,7 +758,13 @@ class ScriptedDriver:
     ``pages`` maps each open window handle to its ``(url, title)`` and
     ``current`` is the handle the driver is on: a test opens a popup by adding
     a handle to ``pages`` and closes one with ``close()``. Reading the url or
-    title of a closed current window raises ``NoSuchWindowException``.
+    title of a closed current window raises ``NoSuchWindowException``, as
+    does switching to a window that is not open.
+
+    ``frames`` is how deep in frames the session is: ``switch_to.frame`` goes
+    one deeper, ``switch_to.window`` (to any window, its own too) back to the
+    top, and the page's frame check (`browser.in_frame`) answers it unless a
+    ``scripts`` entry answers first.
     """
 
     PNG = (
@@ -756,6 +781,7 @@ class ScriptedDriver:
         d["pages"] = {"w1": (url, title)}
         d["_url"], d["_title"], d["_seen"] = url, title, (url, title)
         d["current"], d["opened"] = "w1", 1
+        d["frames"] = 0
         d["dialog"] = dialog
         d["scripts"] = dict(scripts or {})
         d["window"] = {"width": window[0], "height": window[1]}
@@ -825,6 +851,8 @@ class ScriptedDriver:
         for needle, value in self.scripts.items():
             if needle in script:
                 return value
+        if script == browser_module.IN_FRAME:
+            return self.frames > 0
         return None
 
     def execute(self, *args, **kwargs):

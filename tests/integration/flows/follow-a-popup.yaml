@@ -1,6 +1,7 @@
 description: >-
   Open a popup from the page, find the session on it and in front, close it, and find the
-  session back where it began — what a real browser does that no fake can show.
+  session back where it began; then, with two tabs open, find a frame switch still held on the
+  next call — what a real browser does that no fake can show.
 parameters:
   type: object
   required: [admin, workspace]
@@ -27,3 +28,20 @@ steps:
   args:
     script: return !location.pathname.endsWith('/health')
     message: The popup closed and the session did not come back to the first tab.
+- tool: tab
+  args: {action: open, url: "${admin}/"}
+- tool: execute_script
+  args:
+    script: >-
+      document.body.appendChild(Object.assign(document.createElement('iframe'),
+      {id: 'inner', srcdoc: '<p>inside</p>'}))
+- tool: frame
+  args: {action: switch, selector: {css: "#inner"}}
+- tool: assert
+  args:
+    script: return window !== window.top
+    message: With two tabs open, a call threw the session's frame switch away.
+- tool: frame
+  args: {action: default}
+- tool: tab
+  args: {action: close}

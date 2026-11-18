@@ -569,6 +569,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
         session_id = "abc"
         current_url = "about:blank"
         title = ""
+        current_window_handle = "w1"  # a new browser's one tab
 
         def get_window_size(self):
             return {"width": 800, "height": 600}
