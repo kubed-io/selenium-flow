@@ -26,7 +26,7 @@ from kubed.selenium_flow.mcp import progress
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN, calling_as
-from .fakes import FakeClock
+from .fakes import FakeClock, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -46,12 +46,14 @@ def slow_server(tmp_path, tmp_path_factory, monkeypatch):
     (secrets_dir / "demo").mkdir()
     (secrets_dir / "demo" / "password").write_text("hunter2")
     (secrets_dir / "demo" / "_allowed_urls").write_text("https://example.test")
-    server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            auth={"token": TOKEN},
-            data={"dir": str(tmp_path)},
-            secrets={"dirs": str(secrets_dir)},
+    server = untabbed(
+        SeleniumMCP(
+            Settings(
+                grid={"url": "http://grid.invalid:4444"},
+                auth={"token": TOKEN},
+                data={"dir": str(tmp_path)},
+                secrets={"dirs": str(secrets_dir)},
+            )
         )
     )
     calling_as(monkeypatch, NAMED)

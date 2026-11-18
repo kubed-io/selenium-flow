@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from .. import binding, faults, secrets
 from ..binding import SECRET_ARG
 from ..core import cancel
+from ..core import tabs as tabs_module
 from ..redaction import Forms, Id
 from ..workspace import locks
 from .document import ARGS, ASSERTION, declared_timeout
@@ -66,6 +67,11 @@ def _ignored(*_args) -> None:
     return None
 
 
+def _no_tabs(_after: bool, _failure: BaseException | None) -> dict:
+    # A run nobody wired: no tab is followed.
+    return {}
+
+
 def _nothing_in_scope(_result) -> Forms:
     # Secrets off, or a run nobody wired.
     return Forms()
@@ -92,6 +98,14 @@ class Hooks:
     inside its turn on the browser; ``error`` is what it raised, or None. A
     step refused before it began is never done.
 
+    ``tabs(after, failure)`` follows the tabs around a step, as a single call
+    does (`Workspaces.followed`): ``tabs(False, None)`` first, before the page
+    is read for a secret, and ``tabs(True, failure)`` right after the action
+    returned or raised, before ``after_step``. It answers what the check found
+    (`Actions.check_tabs`), merged into the step's result. A before-check that
+    raises fails the step without acting; an after-check that raises
+    `faults.TabClosed` replaces the step's failure.
+
     ``in_scope(result)`` after each step, still inside its turn: the forms of
     the secrets allowed where the step ran. ``result`` is the step's raw
     result, or None for a step that raised. The step's line and the run's URL
@@ -104,6 +118,7 @@ class Hooks:
     before_save: Callable[[list[str]], None] = _ignored
     bound: Callable[[Forms], None] = _ignored
     step_done: Callable[[str, BaseException | None], None] = _ignored
+    tabs: Callable[[bool, BaseException | None], dict] = _no_tabs
     in_scope: Callable[[dict | None], Forms] = _nothing_in_scope
 
     @classmethod
@@ -488,6 +503,12 @@ def _drive(run: Run, call: _Call, step: dict, outcome: StepOutcome, method) -> b
     """A step's page read, action and report, on the browser alone (`_take`)."""
     tool = step.get("tool")
     toolbox = call.toolbox
+    # First, so a popup opened since the last step is where this one acts, and
+    # the page a secret is checked against is its page.
+    try:
+        moved = call.hooks.tabs(False, None)
+    except Exception as exc:  # noqa: BLE001 - fails the step as its action would
+        return _unfollowed(run, call, step, outcome, exc)
     try:
         # The page is read only for a step that binds a secret: it costs a
         # WebDriver round trip.
@@ -523,7 +544,20 @@ def _drive(run: Run, call: _Call, step: dict, outcome: StepOutcome, method) -> b
         acting = True
         if tool == SAVE_SITE_DATA:
             call.hooks.before_save(list(run.pages))
-        raw = method(call.session_id, **kwargs)
+        try:
+            raw = method(call.session_id, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - failed after the tabs are checked
+            failure = exc
+        after: dict = {}
+        try:
+            after = call.hooks.tabs(True, failure)
+        except faults.TabClosed as closed:
+            failure = closed
+        if failure is not None:
+            # A move the checks kept is said, or no call would say it.
+            faults.note_moved(failure, moved, after)
+            raise failure
+        raw = tabs_module.merged(raw, moved, after)
         # Before the result is copied: the hook strips the capture from `raw`.
         call.hooks.after_step(tool, raw)
         done = True
@@ -584,6 +618,18 @@ def _failed(
         return True
     run.status = "failed"
     return False
+
+
+def _unfollowed(
+    run: Run, call: _Call, step: dict, outcome: StepOutcome, exc: Exception
+) -> bool:
+    """Fail a step whose tabs could not be checked before it, as its action
+    would have failed. Nothing began, so it has no summary and no hooks."""
+    try:
+        scope = call.hooks.in_scope(None)
+    except Exception as unchecked:  # noqa: BLE001 - fails closed, whatever it was
+        return _unchecked(run, outcome, unchecked)
+    return _failed(run, call, step, outcome, {}, run.seen | scope, exc)
 
 
 def _unchecked(run: Run, outcome: StepOutcome, exc: Exception) -> bool:

@@ -1033,7 +1033,11 @@ class Workspaces:
         Blocking, for the run's worker thread. Raises `faults.ScrubFailed`.
         """
         after = None if result is None else self._arrived(name, session_id, result)
-        return self.scrubber.forms(name, session_id, [before, after])
+        origins = [before, after]
+        if isinstance(result, dict) and ("opened" in result or "tabs" in result):
+            # As `_scrubbed` reads them: the pages of tabs the step was not on.
+            origins.append(None)
+        return self.scrubber.forms(name, session_id, origins)
 
     def _scrubbed(
         self, name: str, session_id: str, result, before: str | None, tool: str = ""

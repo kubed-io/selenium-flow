@@ -289,6 +289,9 @@ class TabbedActions(RecordingActions):
         self.calls.append("write")
         return {**self.at, "value": text}
 
+    # The tools a flow step names, answered as `do` is.
+    navigate = interact = extract = do
+
     def tab(self, session_id, action="list", id=None, url=None):
         self.calls.append("tab")
         current = next((t["tab"] for t in self.tabs_listed if t["current"]), "t1")

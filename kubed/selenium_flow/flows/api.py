@@ -666,6 +666,9 @@ def run_for(
         # The origins the step began and ended on.
         return workspaces.in_scope(workspace, resolved, result, began_on[0])
 
+    def tabs(after, failure):
+        return workspaces.followed(workspace, resolved, failure, after=after)
+
     def step_done(tool, error):
         if begun:
             step_hints.append(
@@ -715,6 +718,7 @@ def run_for(
             before_save=before_save,
             bound=bound,
             step_done=step_done,
+            tabs=tabs,
             in_scope=in_scope,
             stop=stop,
             secrets_catalogue=secrets_catalogue,

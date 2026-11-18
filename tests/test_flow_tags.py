@@ -14,6 +14,7 @@ from kubed.selenium_flow.names import GLOBAL_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, TOKEN, calling_as
+from .fakes import untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -24,11 +25,11 @@ GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     monkeypatch.delenv("DATA_DIR", raising=False)
-    built = SeleniumMCP(Settings(
+    built = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         data={"dir": str(tmp_path)},
-    ))
+    )))
     calling_as(monkeypatch, NAMED)
     return built
 

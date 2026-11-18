@@ -1846,3 +1846,97 @@ def test_the_progress_line_is_scrubbed_with_where_the_step_begins(monkeypatch):
 def test_a_progress_line_that_cannot_be_checked_says_only_the_tool(monkeypatch):
     lines = _progress_run(monkeypatch, broken=True)
     assert lines[0]["summary"] == "navigate"
+
+
+# ---- following tabs (FLOW-59) -------------------------------------------------
+
+
+def test_each_step_checks_the_tabs_before_and_after_it_acts():
+    order = []
+
+    class Ordered(FakeActions):
+        def _record(self, tool, session_id, **kwargs):
+            order.append(tool)
+            return super()._record(tool, session_id, **kwargs)
+
+    def tabs(after, failure):
+        order.append("tabs:after" if after else "tabs:before")
+        return {}
+
+    steps = [
+        {"tool": "navigate", "args": {"url": "https://example.test/"}},
+        {"tool": "extract", "args": {"selector": {"css": "h1"}}},
+    ]
+    run(Ordered(), flow(steps), "b", tabs=tabs)
+    assert order == [
+        "tabs:before", "navigate", "tabs:after",
+        "tabs:before", "extract", "tabs:after",
+    ]
+
+
+def test_the_before_check_runs_before_a_secret_is_checked_against_the_page():
+    order = []
+
+    class Reading(FakeActions):
+        def page(self, session_id):
+            order.append("page")
+            return {"url": "https://example.test/", "title": "t"}
+
+    def tabs(after, failure):
+        order.append("tabs:after" if after else "tabs:before")
+        return {}
+
+    steps = [
+        {
+            "tool": "write",
+            "args": {"selector": {"css": "#p"}, "secret": SECRET_STEP},
+        }
+    ]
+    run(Reading(), flow(steps), "b", catalogue=Vault(), tabs=tabs)
+    assert order[0] == "tabs:before"
+    assert order.index("tabs:before") < order.index("page")
+
+
+def test_a_step_whose_tab_closed_fails_and_its_on_error_applies():
+    def tabs(after, failure):
+        if after and failure is not None:
+            raise faults.TabClosed("t1", "https://example.test/")
+        return {}
+
+    steps = [
+        {"tool": "write", "args": {"selector": {"css": "#a"}, "text": "x"},
+         "onError": "continue"},
+        {"tool": "navigate", "args": {"url": "https://example.test/"}},
+    ]
+    actions = FakeActions(fail_on={"write"})
+    report = run(actions, flow(steps), "b", tabs=tabs)
+    assert [tool for tool, _, _ in actions.calls] == ["write", "navigate"]
+    assert report["steps"][0]["ok"] is False
+    assert "now on t1" in report["steps"][0]["error"]
+    assert report["steps"][1]["ok"] is True
+
+
+def test_a_failing_before_check_fails_the_step_without_acting():
+    def tabs(after, failure):
+        if not after:
+            raise RuntimeError("grid gone")
+        return {}
+
+    actions = FakeActions()
+    report = run(actions, flow(SIMPLE[:1]), "b", tabs=tabs)
+    assert actions.calls == []
+    assert report["status"] == "failed"
+    assert "grid gone" in report["steps"][0]["error"]
+
+
+def test_a_steps_result_carries_what_the_tabs_did():
+    popup = {"tab": "t2", "url": "https://p.example.test/", "title": "P"}
+    opened = [{"tab": "t2", "url": "https://p.example.test/"}]
+
+    def tabs(after, failure):
+        return {"opened": opened, **popup} if after else {}
+
+    report = run(FakeActions(), flow(SIMPLE[:1]), "b", verbose=True, tabs=tabs)
+    result = report["steps"][0]["result"]
+    assert result["tab"] == "t2" and result["opened"] == opened
+    assert result["in_frame"] is False
