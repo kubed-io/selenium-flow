@@ -2,6 +2,8 @@
 
 import pytest
 
+from kubed.selenium_flow import errors, faults
+from kubed.selenium_flow.core import tabs as tabs_module
 from kubed.selenium_flow.core.tabs import (
     Known,
     MemoryTabs,
@@ -13,7 +15,8 @@ from kubed.selenium_flow.core.tabs import (
 )
 from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, Workspace
 
-from .fakes import Clock, FakeRedis
+from . import site_data_fakes
+from .fakes import Clock, FakeChannel, FakeRedis
 
 A = "https://a.example.test/"
 P = "https://pay.example.test/"
@@ -226,3 +229,160 @@ def test_records_skip_tab_state():
     matching(store).set("abc", STATE)
     assert "tabs:abc" not in store.records()
     assert list(store.records()) == ["caller"]
+
+
+# ---- Actions.check_tabs --------------------------------------------------------
+
+LOGIN = "https://sso.example.test/login"
+
+
+def _switches(driver):
+    return [e for e in driver.log if e[:2] == ("switch_to", "window")]
+
+
+def _popup(driver, handle="w2", page=(LOGIN, "Sign in")):
+    driver.pages[handle] = page
+
+
+class _Held:
+    """A control that refuses every tab move on the one browser it holds."""
+
+    def refusal(self, session_id, tool):
+        return faults.Controlled("a person has control of this browser")
+
+
+def test_a_check_on_one_tab_asks_the_browser_once(actions, scripted):
+    driver = scripted()
+    assert actions.check_tabs("abc") == {} and actions.check_tabs("abc") == {}
+    assert driver.names().count("window_handles") == 2
+    assert ("switch_to", "window", "w1") not in driver.log
+
+
+def test_a_popup_is_followed_and_reported(actions, scripted):
+    driver = scripted()
+    actions.check_tabs("abc")
+    _popup(driver)
+    assert actions.check_tabs("abc") == {
+        "opened": [{"tab": "t2", "url": LOGIN}],
+        "tab": "t2",
+        "url": LOGIN,
+        "title": "Sign in",
+        "in_frame": False,
+    }
+    assert ("switch_to", "window", "w2") in driver.log
+    assert actions.tabs.get("abc").current == "t2"
+
+
+def test_a_closed_current_tab_moves_back_to_its_opener(actions, scripted):
+    driver = scripted()
+    actions.check_tabs("abc")
+    _popup(driver)
+    actions.check_tabs("abc")
+    del driver.pages["w2"]
+    assert actions.check_tabs("abc") == {
+        "closed": ["t2"],
+        "tab": "t1",
+        "url": "https://example.test/",
+        "title": "Example",
+        "in_frame": False,
+    }
+    assert _switches(driver)[-1] == ("switch_to", "window", "w1")
+
+
+@pytest.mark.parametrize("by_activate", [True, False])
+def test_the_moved_to_tab_is_brought_to_front(
+    actions, scripted, monkeypatch, by_activate
+):
+    monkeypatch.setattr(tabs_module, "FRONT_BY_ACTIVATE", by_activate)
+    driver = scripted()
+    channel = FakeChannel(tree=[{"context": "w1", "url": ""}, {"context": "w2", "url": LOGIN}])
+    actions.channels = site_data_fakes.channels_for(channel)
+    actions.check_tabs("abc")
+    _popup(driver)
+    actions.check_tabs("abc")
+    activated = [p for m, p in channel.log if m == "browsingContext.activate"]
+    if by_activate:
+        assert activated == [{"context": "w2"}]
+    else:
+        assert activated == []
+        assert _switches(driver) == [("switch_to", "window", "w2")] * 2
+
+
+def test_with_several_tabs_every_check_brings_the_current_one_back_to_front(
+    actions, scripted
+):
+    """A person activated another tab between two calls."""
+    driver = scripted()
+    actions.check_tabs("abc")
+    _popup(driver)
+    actions.check_tabs("abc")
+    driver.__dict__["current"] = "w1"
+    before = len(_switches(driver))
+    assert actions.check_tabs("abc") == {}
+    assert _switches(driver)[before:] == [("switch_to", "window", "w2")]
+    assert driver.current == "w2"
+
+
+def test_no_tab_is_brought_to_front_while_a_person_holds_the_browser(
+    actions, scripted, monkeypatch
+):
+    monkeypatch.setattr(tabs_module, "FRONT_BY_ACTIVATE", True)
+    driver = scripted()
+    channel = FakeChannel(tree=[{"context": "w1", "url": ""}, {"context": "w2", "url": LOGIN}])
+    actions.channels = site_data_fakes.channels_for(channel)
+    actions.check_tabs("abc")
+    actions.control = _Held()
+    _popup(driver)
+    found = actions.check_tabs("abc")
+    assert found["tab"] == "t2"
+    assert ("switch_to", "window", "w2") in driver.log
+    assert [m for m, _ in channel.log if m == "browsingContext.activate"] == []
+    assert actions.check_tabs("abc") == {}  # still holds: no front, no activate
+    assert [m for m, _ in channel.log if m == "browsingContext.activate"] == []
+
+
+def test_a_tab_opened_and_closed_inside_one_call_is_never_reported(actions, scripted):
+    scripted()
+    channel = FakeChannel()
+    actions.channels = site_data_fakes.channels_for(channel)
+    actions.visited = lambda: ["https://other.example.test"]
+    actions.check_tabs("abc")
+    actions.save_site_data("abc")  # its spare context opens and closes inside
+    assert [m for m, _ in channel.log if m == "browsingContext.create"]
+    assert actions.check_tabs("abc") == {}
+
+
+def test_a_bidi_failure_never_fails_a_check(actions, scripted, monkeypatch):
+    monkeypatch.setattr(tabs_module, "FRONT_BY_ACTIVATE", True)
+    driver = scripted()
+    channel = FakeChannel(down={"browsingContext.getTree", "browsingContext.activate"})
+    actions.channels = site_data_fakes.channels_for(channel)
+    actions.check_tabs("abc")
+    _popup(driver, "w2", ("https://one.example.test/", "One"))
+    _popup(driver, "w3", (LOGIN, "Sign in"))
+    assert actions.check_tabs("abc") == {
+        "opened": [{"tab": "t2", "url": None}, {"tab": "t3", "url": LOGIN}],
+        "tab": "t3",
+        "url": LOGIN,
+        "title": "Sign in",
+        "in_frame": False,
+    }
+    assert ("switch_to", "window", "w3") in driver.log
+
+
+def test_ending_a_browser_forgets_its_tabs(actions, scripted, monkeypatch):
+    scripted()
+    monkeypatch.setattr(actions.grid, "quit", lambda session_id: None)
+    actions.check_tabs("abc")
+    assert actions.tabs.get("abc") is not None
+    actions.end_browser("abc")
+    assert actions.tabs.get("abc") is None
+
+
+def test_a_browser_with_no_tab_left_is_a_404(actions, scripted):
+    driver = scripted()
+    driver.pages.clear()
+    with pytest.raises(faults.NotFound) as caught:
+        actions.check_tabs("abc")
+    assert errors.status_for(caught.value) == 404
+    assert "end_browser" in str(caught.value)

@@ -24,6 +24,11 @@ from typing import NamedTuple
 # Long enough to outlive any browser.
 DEFAULT_TTL_SECONDS = 86400
 
+# Measured on the cluster Grid (Chrome 152, Firefox 155): a window handle is its
+# BiDi context id and `switch_to.window` brings the tab to the front, so no
+# BiDi activate is needed.
+FRONT_BY_ACTIVATE = False
+
 
 @dataclass(frozen=True)
 class Known:

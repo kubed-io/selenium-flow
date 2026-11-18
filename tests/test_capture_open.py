@@ -227,6 +227,9 @@ class FakeActions:
     def end_browser(self, sid):
         self.grid.alive.discard(sid)
 
+    def check_tabs(self, session_id):
+        return {}
+
 
 class FakeMonitor:
     def __init__(self):

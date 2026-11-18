@@ -17,6 +17,7 @@ from pathlib import Path
 
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
+    NoSuchWindowException,
     SessionNotCreatedException,
     TimeoutException,
     WebDriverException,
@@ -36,6 +37,7 @@ from ..site_data import snapshot as site_data_snapshot
 from ..site_data import transfer as site_data_transfer
 from ..urls import allowed_navigation
 from . import browser, js, pointer, probe, session_caps
+from . import tabs as _tabs
 from .assertion import Assertion, window
 from .browser import Grid
 from .coerce import as_bool, as_int
@@ -242,7 +244,9 @@ def _ran(driver) -> dict:
 class Actions:
     """The browser operations, bound to one Grid."""
 
-    def __init__(self, grid: Grid, keep=None, pointers=None, read_file=None):
+    def __init__(
+        self, grid: Grid, keep=None, pointers=None, read_file=None, tabs=None
+    ):
         self.grid = grid
         # `keep`, `read_file` and `visited` are functions because which
         # workspace is calling is not this layer's to see.
@@ -253,6 +257,9 @@ class Actions:
         # Where the pointer is in each browser, keyed by the Grid's session id.
         # Injected so replicas can share it.
         self.pointers = pointers if pointers is not None else pointer.MemoryPointers()
+        # Which tabs each browser has and which one the session is on, keyed
+        # the same way (`tabs.matching`).
+        self.tabs = tabs if tabs is not None else _tabs.MemoryTabs()
         # `read_file(uri, workspace)` reads a file for `upload_file(file=...)`.
         # Absent, naming a file is refused.
         self.read_file = read_file
@@ -314,6 +321,98 @@ class Actions:
                 self.pointers.set(session_id, at[0], at[1])
         except Exception as exc:  # noqa: BLE001 - see `_pointer`
             log.debug("could not record the pointer:\n%s", Traceback(exc))
+
+    # ---- tabs --------------------------------------------------------------
+
+    def check_tabs(self, session_id: str) -> dict:
+        """Bring the stored tabs up to date with the browser's windows.
+
+        A popup becomes the current tab and a closed current tab hands the
+        session back to its opener; the current tab is brought to the front.
+        The answer holds only what happened: ``opened`` (each with its url),
+        ``closed`` and, when the session moved, ``tab``, ``url``, ``title``
+        and ``in_frame``.
+        """
+        with node_answering():
+            driver = self.grid.reconnect(session_id)
+            handles = driver.window_handles
+            if not handles:
+                raise NotFound("the browser has no tab left: end_browser ends it")
+            state = self.tabs.get(session_id)
+            current = None
+            if state is None:
+                try:
+                    current = driver.current_window_handle
+                except NoSuchWindowException:
+                    current = None
+            found = _tabs.reconcile(state, handles, current)
+            answer: dict = {}
+            page: dict = {}
+            if found.moved:
+                driver.switch_to.window(found.handle)
+                page = browser.page_state(driver)
+                self._front(session_id, driver, found.handle)
+            elif len(handles) > 1:
+                # A person may have activated another tab since the last call.
+                self._front(session_id, driver, found.handle)
+            self.tabs.set(session_id, found.state)
+
+            if found.opened:
+                followed = found.state.current
+                urls = None
+                if any(tab != followed for tab in found.opened):
+                    urls = self._contexts(session_id)
+                answer["opened"] = [
+                    {
+                        "tab": tab,
+                        "url": page.get("url")
+                        if tab == followed and found.moved
+                        else (urls or {}).get(found.state.by_id(tab).handle),
+                    }
+                    for tab in found.opened
+                ]
+            if found.closed:
+                answer["closed"] = found.closed
+            if found.moved:
+                answer.update(
+                    tab=found.state.current,
+                    url=page.get("url"),
+                    title=page.get("title"),
+                    in_frame=False,
+                )
+            return answer
+
+    def _front(self, session_id: str, driver, handle: str) -> None:
+        """Bring ``handle``'s tab to the front, unless a person holds the browser.
+
+        Chrome does not render a tab that is not in front and Firefox throttles
+        it. A failure of the BiDi road is a debug line, never a failed call.
+        """
+        if self.control and self.control.refusal(session_id, "tab"):
+            return
+        if _tabs.FRONT_BY_ACTIVATE:
+            contexts = self._contexts(session_id)
+            if contexts is not None and handle in contexts:
+                try:
+                    with self.channels.open_channel(session_id) as channel:
+                        channel.call("browsingContext.activate", {"context": handle})
+                    return
+                except (BidiUnavailable, BidiError) as exc:
+                    log.debug("could not activate a tab: %s", type(exc).__name__)
+        driver.switch_to.window(handle)
+
+    def _contexts(self, session_id: str) -> dict[str, str] | None:
+        """Every top-level browsing context's URL from one ``getTree``, or None
+        when BiDi cannot answer."""
+        if self.channels is None:
+            return None
+        try:
+            with self.channels.open_channel(session_id) as channel:
+                tree = channel.call("browsingContext.getTree")
+            return {c["context"]: c.get("url") for c in tree["contexts"]}
+        except (BidiUnavailable, BidiError, KeyError, TypeError) as exc:
+            log.debug("could not read the tabs over BiDi: %s", type(exc).__name__)
+            return None
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -578,6 +677,7 @@ class Actions:
         """Quit the browser and free its Grid slot; the workspace survives it."""
         self.grid.quit(session_id)
         self._moved(session_id, None)
+        self.tabs.forget(session_id)
         return {"success": True, "session_id": session_id}
 
     # ---- navigation --------------------------------------------------------
