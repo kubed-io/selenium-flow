@@ -216,6 +216,35 @@ async def test_it_returns_with_the_summary_the_moment_the_person_hands_back(
     assert server.browser.read == [GRID] and server.browser.opened == 0
 
 
+def test_a_hand_back_keeps_the_tab_moves_its_read_followed(server, monkeypatch):
+    follows = iter([
+        {},
+        {
+            "opened": [{"tab": "t2", "url": "https://pay.example.test/?k=s3cret"}],
+            "closed": ["t3"],
+            "tab": "t2",
+            "url": OUTLINE["url"],
+            "title": "Home",
+            "in_frame": False,
+        },
+    ])
+    monkeypatch.setattr(
+        server.actions, "check_tabs", lambda sid: next(follows, {})
+    )
+    summary = server.workspaces.handed_back("w1", None)
+    assert summary["tab"] == "t2"
+    assert summary["opened"] == [
+        {"tab": "t2", "url": "https://pay.example.test/?k=s3cret"}
+    ]
+    assert summary["closed"] == ["t3"]
+    assert summary["page"] == {"url": OUTLINE["url"], "title": "Home"}
+
+
+def test_a_hand_back_with_no_tab_move_says_none(server):
+    summary = server.workspaces.handed_back("w1", None)
+    assert not {"tab", "opened", "closed"} & set(summary)
+
+
 async def test_the_blocking_call_sends_progress_and_answers_at_the_cap(
     server, named, monkeypatch
 ):

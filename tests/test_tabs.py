@@ -488,6 +488,25 @@ def test_list_names_each_tab_in_opening_order_without_switching(actions, scripte
     assert not [e for e in driver.log if e[:2] == ("switch_to", "window")]
 
 
+def test_reading_the_tabs_never_follows_a_popup(actions, scripted):
+    driver, _ = _two(actions, scripted)
+    _popup(driver, "w3")
+    seen = actions.tabs_listed("abc")
+    assert [t["tab"] for t in seen] == ["t1", "t2"]
+    assert seen[0]["current"] is True
+    assert not _switches(driver)
+    assert actions.tabs.get("abc").next == 3
+    assert actions.check_tabs("abc")["opened"] == [{"tab": "t3", "url": LOGIN}]
+
+
+def test_reading_the_tabs_of_a_browser_nothing_has_seen_seeds_its_state(
+    actions, scripted
+):
+    scripted(url=A, title="Example")
+    assert [t["tab"] for t in actions.tabs_listed("abc")] == ["t1"]
+    assert actions.tabs.get("abc").current == "t1"
+
+
 def test_a_tab_bidi_cannot_read_has_null_url_and_title(actions, scripted):
     _two(actions, scripted, down={"browsingContext.getTree"})
     tabs = actions.tab("abc")["tabs"]

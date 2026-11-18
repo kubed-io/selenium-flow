@@ -205,6 +205,13 @@ class RecordingActions:
         self.opened_version_from = []
         self.closed = []
         self.grid = FakeGrid()
+        # What `tabs_listed` answers, or raises when it is an exception.
+        self.listing: list[dict] | BaseException = []
+
+    def tabs_listed(self, session_id):
+        if isinstance(self.listing, BaseException):
+            raise self.listing
+        return list(self.listing)
 
     def open_session(self, url=None, **kwargs):
         self.opened += 1
@@ -249,7 +256,7 @@ class TabbedActions(RecordingActions):
     the page the session is on: where it opened, then where a check moved it.
     ``do`` answers ``result``, or raises ``raises``; ``page`` answers ``at``,
     ``write`` ``at`` and the value read back, and ``tab`` ``{"tabs":
-    tabs_listed, "tab": ...}`` as a ``list`` does, with the current page.
+    listing, "tab": ...}`` as a ``list`` does, with the current page.
     """
 
     def __init__(self):
@@ -259,7 +266,6 @@ class TabbedActions(RecordingActions):
         self.result: dict = {}
         self.raises: BaseException | None = None
         self.at: dict = {"url": "https://example.test/", "title": "Example"}
-        self.tabs_listed: list[dict] = []
 
     def open_session(self, url=None, **kwargs):
         opened = super().open_session(url, **kwargs)
@@ -294,8 +300,8 @@ class TabbedActions(RecordingActions):
 
     def tab(self, session_id, action="list", id=None, url=None):
         self.calls.append("tab")
-        current = next((t["tab"] for t in self.tabs_listed if t["current"]), "t1")
-        return {"tabs": list(self.tabs_listed), "tab": current, **self.at}
+        current = next((t["tab"] for t in self.listing if t["current"]), "t1")
+        return {"tabs": list(self.listing), "tab": current, **self.at}
 
 
 def untabbed(server):

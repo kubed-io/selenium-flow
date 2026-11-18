@@ -488,6 +488,32 @@ class Actions:
             )
         return listed
 
+    def tabs_listed(self, session_id: str) -> list[dict]:
+        """The tabs as ``tab list`` answers them, for a read that must not act.
+
+        Never follows a popup, switches a window or brings a tab to the front,
+        and never rewrites a state it knows: a handle no call has seen yet is
+        left out until the next call follows it. A browser with no state is
+        seeded, as a ``list`` would.
+        """
+        with node_answering():
+            driver = self.grid.reconnect(session_id)
+            handles = driver.window_handles
+            if not handles:
+                raise NotFound(NO_TAB)
+            stored = self.tabs.get(session_id)
+            if stored is None:
+                try:
+                    current = driver.current_window_handle
+                except NoSuchWindowException:
+                    current = None
+                state = _tabs.reconcile(None, handles, current).state
+                self.tabs.set(session_id, state)
+            else:
+                seen = [h for h in handles if stored.by_handle(h)]
+                state = _tabs.reconcile(stored, seen).state
+            return self._listed(session_id, driver, state)
+
     def tab(self, session_id: str, action="list", id=None, url=None) -> dict:
         """List the browser's tabs, open one, switch to one or close one.
 

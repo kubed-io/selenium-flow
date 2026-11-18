@@ -1290,6 +1290,16 @@ def test_describe_and_captured_are_scrubbed(ws):
     assert "[secret:a/password]" in json.dumps(ws.describe(CALLER))
 
 
+def test_the_tabs_in_the_context_are_scrubbed(ws):
+    ws.actions.listing = [
+        {"tab": "t1", "url": f"{A}/", "title": "t", "current": True},
+        {"tab": "t2", "url": f"{B}/?q=alpha-11", "title": "alpha-11", "current": False},
+    ]
+    shown = json.dumps(ws.describe(CALLER)["tabs"])
+    assert "alpha-11" not in shown
+    assert "[secret:a/password]" in shown
+
+
 def test_captured_is_scrubbed_and_its_off_answer_is_not():
     from kubed.selenium_flow.capture import OFF
 

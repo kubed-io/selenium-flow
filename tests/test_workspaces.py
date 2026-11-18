@@ -576,6 +576,45 @@ def test_describe_reports_the_window_it_is_working_in(named_caller, workspaces):
     assert workspaces.describe(clients_module.caller())["window"] is None
 
 
+TABS = [
+    {"tab": "t1", "url": "https://a.example.test/", "title": "A", "current": True},
+    {"tab": "t2", "url": "https://b.example.test/", "title": "B", "current": False},
+]
+
+
+def test_the_context_lists_the_tabs_while_the_browser_is_live(named_caller, workspaces):
+    workspaces.remember(NAMED, "abc", "", {})
+    workspaces.actions.listing = TABS
+    caller = clients_module.caller()
+    assert workspaces.describe(caller)["tabs"] == TABS
+    assert workspaces.describe_part(caller, "tabs") == {"workspace": named_caller, "tabs": TABS}
+
+
+def test_with_no_live_browser_the_tabs_are_an_empty_list(named_caller, workspaces):
+    workspaces.actions.listing = TABS
+    caller = clients_module.caller()
+    assert workspaces.describe(caller)["tabs"] == []
+    workspaces.remember(NAMED, "abc", "", {})
+    workspaces.actions.grid.alive.discard("abc")
+    assert workspaces.describe(caller)["tabs"] == []
+
+
+def test_a_failed_tabs_read_leaves_an_empty_list_and_never_fails_the_read(
+    named_caller, workspaces
+):
+    workspaces.remember(NAMED, "abc", "", {"width": 1024, "height": 768})
+    workspaces.actions.listing = RuntimeError("grid down")
+    workspaces.actions.grid.reconnect = lambda sid: type(
+        "D", (), {
+            "get_window_size": lambda self: {"width": 800, "height": 600},
+            "execute_script": lambda self, *a: False,
+        },
+    )()
+    described = workspaces.describe(clients_module.caller())
+    assert described["tabs"] == []
+    assert described["window"] == "800x600"
+
+
 def test_describe_reports_no_browser_when_there_is_no_workspace(named_caller):
     """Naming a browser for a workspace that does not exist would be a fiction."""
     assert manager().describe(clients_module.caller())["browser"] is None

@@ -441,6 +441,8 @@ AWAIT_RESPONSE = {
             "description": "Where the browser is now. Absent when it ended.",
             "properties": PAGE_STATE,
         },
+        # When reading the page followed a popup the person opened.
+        **{key: TAB_HINTS[key] for key in ("tab", "opened", "closed")},
         "visited": {
             "type": "array",
             "description": (

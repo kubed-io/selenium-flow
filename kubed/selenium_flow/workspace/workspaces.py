@@ -145,6 +145,7 @@ CONTEXT_KEYS = (
     "capturing",
     "in_frame",
     "window",
+    "tabs",
     "grid_timeout",
     "version",
     "store",
@@ -509,6 +510,7 @@ class Workspaces:
             "capturing": False,
             "in_frame": None,
             "window": None,
+            "tabs": [],
             "grid_timeout": None,
             "version": None,
             "store": self.kind,
@@ -577,6 +579,11 @@ class Workspaces:
                 status["window"] = f"{size['width']}x{size['height']}"
             except Exception:  # noqa: BLE001 - status must never fail
                 pass
+            # Its own read: it never follows a popup, and a failure leaves it empty.
+            try:
+                status["tabs"] = self.actions.tabs_listed(record.session_id)
+            except Exception as exc:  # noqa: BLE001 - status must never fail
+                log.debug("the tabs could not be read: %s", type(exc).__name__)
         return status
 
     def captured(
@@ -1222,6 +1229,11 @@ class Workspaces:
             summary["page_error"] = faults.message(exc)
             return summary
         summary["page"] = {"url": read.get("url"), "title": read.get("title")}
+        # The bracket may have followed a popup the person opened: said, so the
+        # agent knows which tab it is on now.
+        for key in ("tab", "opened", "closed"):
+            if key in read:
+                summary[key] = read[key]
         summary["outline"] = {
             key: read[key] for key in ("count", "total", "elements") if key in read
         }

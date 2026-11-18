@@ -342,7 +342,7 @@ def _failed_write(session_id, text=None, **kwargs):
 def test_tab_list_is_scrubbed_with_every_leashed_secret():
     made = scoped(FakeCatalogue({C: {("c", "token"): "gamma-33"}, A: {}}))
     try:
-        made.actions.tabs_listed = [
+        made.actions.listing = [
             {"tab": "t1", "url": f"{A}/", "title": "Shop", "current": True},
             {"tab": "t2", "url": f"{C}/", "title": "token gamma-33", "current": False},
         ]
