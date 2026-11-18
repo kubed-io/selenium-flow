@@ -3,9 +3,10 @@ description: >-
   session back where it began — what a real browser does that no fake can show.
 parameters:
   type: object
-  required: [admin]
+  required: [admin, workspace]
   properties:
     admin: {type: string, description: The origin the browser reaches this server at}
+    workspace: {type: string, description: The name the caller running this flow gave its workspace}
 steps:
 - tool: navigate
   args: {url: "${admin}/"}

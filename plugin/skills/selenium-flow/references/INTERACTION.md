@@ -121,7 +121,7 @@ click(selector={"css": "#sso"})
 → {"url": "https://sso.example/login", "tab": "t2", "opened": [{"tab": "t2", ...}], ...}
 click(selector={"css": "#submit"})   # the popup submits and closes itself
 → {"url": "https://shop.test/account", "tab": "t1", "closed": ["t2"], ...}
-tab(action="list")                   # open, switch and close take id or url
+tab(action="list")                   # switch takes id or url; close takes id; open takes url
 ```
 
 `switch` with a `url` goes to the newest tab whose address contains it, and with
