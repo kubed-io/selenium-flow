@@ -921,7 +921,9 @@ def perform_write(
                     failure = closed
             if failure is not None:
                 # A move the checks kept is said, or no call would say it.
-                faults.note_moved(failure, moved, tabs_after)
+                faults.note_moved(
+                    failure, moved, tabs_after, ran=begun is not None
+                )
                 # Scrubbed in place, never swallowed or rewrapped, so it keeps its
                 # type and status: an action puts its arguments in its error
                 # text. Outside the `except`, so a failed scrub is never chained

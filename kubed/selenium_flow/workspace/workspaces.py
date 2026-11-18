@@ -940,7 +940,7 @@ class Workspaces:
                     failure = closed
             if failure is not None:
                 # A move the checks kept is said, or no call would say it.
-                faults.note_moved(failure, moved, after)
+                faults.note_moved(failure, moved, after, ran=begun is not None)
                 # Outside the `except`: a `ScrubFailed` raised there would carry
                 # the original, value and all, as its context.
                 self.scrubber.error(name, session_id, failure, [before, None])
@@ -1029,20 +1029,27 @@ class Workspaces:
         raise failure
 
     def in_scope(
-        self, name: str, session_id: str, result, before: str | None
+        self,
+        name: str,
+        session_id: str,
+        result,
+        before: str | None,
+        tool: str = "",
     ) -> Forms:
-        """What a flow step on ``session_id`` that began on ``before`` is
-        scrubbed with: ``result`` is noted as a call's is (its URL, its
-        ``in_frame``), then the secrets in scope on the origins before and after
-        it are read. ``result`` is None for a step that raised, whose page is
-        unknown: every leashed secret.
+        """What a flow step of ``tool`` on ``session_id`` that began on
+        ``before`` is scrubbed with: ``result`` is noted as a call's is (its
+        URL, its ``in_frame``), then the secrets in scope on the origins before
+        and after it are read. ``result`` is None for a step that raised, whose
+        page is unknown: every leashed secret.
 
         Blocking, for the run's worker thread. Raises `faults.ScrubFailed`.
         """
         after = None if result is None else self._arrived(name, session_id, result)
         origins = [before, after]
-        if isinstance(result, dict) and ("opened" in result or "tabs" in result):
-            # As `_scrubbed` reads them: the pages of tabs the step was not on.
+        opened = isinstance(result, dict) and "opened" in result
+        if tool in ("network_body", "tab") or opened:
+            # As `_scrubbed` reads them: a body's origin, or the pages of tabs
+            # the step was not on.
             origins.append(None)
         return self.scrubber.forms(name, session_id, origins)
 

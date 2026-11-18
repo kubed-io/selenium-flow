@@ -636,11 +636,13 @@ def run_for(
     step_hints: list = []
     begun: list = []  # the step under way's, from `before_step` to `step_done`
     began_on: list = [None]  # the origin the step under way began on
+    stepping: list = [""]  # the tool of the step under way
 
     def step_started(entry, total):
         # Inside the step's turn, as a single call reads it
         # (`Workspaces._said`).
         began_on[0] = workspaces.origins.current(workspace, resolved)
+        stepping[0] = entry["tool"]
         if before_step is not None:
             before_step(watched(entry), total)
         # A step refused because a person holds the browser is never begun, and
@@ -664,7 +666,9 @@ def run_for(
 
     def in_scope(result):
         # The origins the step began and ended on.
-        return workspaces.in_scope(workspace, resolved, result, began_on[0])
+        return workspaces.in_scope(
+            workspace, resolved, result, began_on[0], stepping[0]
+        )
 
     def tabs(after, failure):
         return workspaces.followed(workspace, resolved, failure, after=after)

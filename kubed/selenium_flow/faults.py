@@ -106,11 +106,14 @@ def window_gone(exc: BaseException) -> bool:
     return isinstance(said, str) and said.startswith("no such window")
 
 
-def note_moved(exc: BaseException, before: dict, after: dict) -> None:
+def note_moved(
+    exc: BaseException, before: dict, after: dict, *, ran: bool = True
+) -> None:
     """Say on ``exc`` where the session went, when a tab check before or after
     the call moved it (`Workspaces.followed`): the check has already kept the
     move, so no later call reports it. `TabClosed` says so in its own words.
-    The note carries a page's URL: add it before the error is scrubbed."""
+    ``ran`` is False for a call refused before it began: the move was before
+    it. The note carries a page's URL: add it before the error is scrubbed."""
     if isinstance(exc, TabClosed):
         return
     change = after if "tab" in after else before
@@ -118,7 +121,8 @@ def note_moved(exc: BaseException, before: dict, after: dict) -> None:
         return
     url = change.get("url")
     where = f" ({url})" if url else ""
-    exc.add_note(f"{MOVED_NOTE}{change['tab']}{where} during this call.")
+    when = "during" if ran else "before"
+    exc.add_note(f"{MOVED_NOTE}{change['tab']}{where} {when} this call.")
 
 
 class NoSession(ValueError):

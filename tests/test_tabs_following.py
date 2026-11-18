@@ -147,7 +147,9 @@ def test_a_call_refused_after_a_popup_says_the_session_moved(ws, monkeypatch):
     with pytest.raises(faults.Controlled) as raised:
         ws.act(CALLER, ws.actions.do, tool="interact")
     said = faults.message(raised.value)
-    assert f"The session moved to tab t2 ({P}) during this call." in said
+    # It never ran, so the move was before it.
+    assert f"The session moved to tab t2 ({P}) before this call." in said
+    assert "during this call" not in said
     assert ws.actions.calls == ["check_tabs"]
 
 
@@ -209,7 +211,7 @@ def test_a_bound_write_refused_after_a_popup_says_the_session_moved(ws, monkeypa
             ws.scrubber._catalogue, ws.actions, ws, "w",
             {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
         )
-    assert "moved to tab t2" in faults.message(raised.value)
+    assert f"moved to tab t2 ({P}) before this call." in faults.message(raised.value)
     assert ws.actions.calls == ["check_tabs"]
 
 

@@ -566,6 +566,9 @@ def _drive(run: Run, call: _Call, step: dict, outcome: StepOutcome, method) -> b
         # First, so what `workspace.calls` adds to the error is on the line.
         if acting and not done:
             call.hooks.step_done(tool, exc)
+        if not acting:
+            # Refused before it began: a move the check before kept is said.
+            faults.note_moved(exc, moved, {}, ran=False)
         failure = exc
     try:
         scope = call.hooks.in_scope(None if failure is not None else raw)
