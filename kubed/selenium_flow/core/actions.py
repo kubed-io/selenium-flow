@@ -8,6 +8,7 @@ a JSON-safe dict; the browser state lives on the Grid, not in this process.
 from __future__ import annotations
 
 import base64
+import contextlib
 import functools
 import logging
 import re
@@ -71,6 +72,9 @@ log = logging.getLogger(__name__)
 NO_TAB = "the browser has no tab left: end_browser ends it"
 # How often a check looks again when a tab vanishes under it.
 MOVE_ATTEMPTS = 3
+# Seconds a browser's tab checks leave BiDi alone after it would not open or
+# answer: a route that hangs costs one check its timeout, not every call.
+TAB_BIDI_BACK_OFF = 30.0
 
 # `network_body`: text is cut at this many bytes; an id is a short string.
 BODY_CAP = 100_000
@@ -286,6 +290,9 @@ class Actions:
         # The rest are wired by the server.
         # Opens a BiDi channel to a session's browser (`bidi.Channels`).
         self.channels = None
+        # When each browser's tab checks may try BiDi again (`_tab_channel`).
+        self.clock = time.monotonic
+        self.tab_bidi_off: dict[str, float] = {}
         # `(session_id, context) -> block`: inside it, capture ignores that
         # browsing context, so a save's spare tab never reaches a caller's log.
         self.hide = None
@@ -354,9 +361,9 @@ class Actions:
         The state is kept before the new tab's page is read, so a page that
         cannot be read is a null ``url`` and ``title``, never a move forgotten.
         """
-        with node_answering():
+        with node_answering(), self._tab_channel(session_id) as channel:
             driver = self.grid.reconnect(session_id)
-            handles, tree = self._windows(session_id, driver)
+            handles, tree = self._windows(session_id, driver, channel)
             state = self.tabs.get(session_id)
             current = None
             if state is None:
@@ -380,12 +387,12 @@ class Actions:
                     # not at all when it was never stored.
                     if attempt == MOVE_ATTEMPTS - 1:
                         raise
-                    handles, tree = self._windows(session_id, driver)
+                    handles, tree = self._windows(session_id, driver, channel)
                     found = _tabs.reconcile(state, handles, current)
                     page = {}
             if found.moved or len(handles) > 1:
                 # A person may have activated another tab since the last call.
-                self._front(session_id, found.handle, tree)
+                self._front(session_id, found.handle, tree, channel)
 
             answer: dict = {}
             if found.opened:
@@ -410,7 +417,32 @@ class Actions:
                 )
             return answer
 
-    def _windows(self, session_id: str, driver) -> tuple[list[str], dict | None]:
+    @contextlib.contextmanager
+    def _tab_channel(self, session_id: str):
+        """One BiDi channel for a whole tab check or `tab` call, or None: no
+        channels, a back-off running, or one that will not open, which starts
+        a back-off."""
+        with contextlib.ExitStack() as stack:
+            channel = None
+            if (
+                self.channels is not None
+                and self.tab_bidi_off.get(session_id, 0.0) <= self.clock()
+            ):
+                try:
+                    channel = stack.enter_context(
+                        self.channels.open_channel(session_id)
+                    )
+                except BidiUnavailable as exc:
+                    self._bidi_failed(session_id, exc)
+            yield channel
+
+    def _bidi_failed(self, session_id: str, exc: Exception) -> None:
+        log.debug("tab checks leave BiDi alone for now: %s", type(exc).__name__)
+        self.tab_bidi_off[session_id] = self.clock() + TAB_BIDI_BACK_OFF
+
+    def _windows(
+        self, session_id: str, driver, channel
+    ) -> tuple[list[str], dict | None]:
         """The browser's window handles, in the order it lists them, and each
         one's URL when BiDi listed them (else None).
 
@@ -419,7 +451,7 @@ class Actions:
         window handle. ``window_handles`` only when BiDi cannot answer.
         `NotFound` when there is no tab left.
         """
-        tree = self._contexts(session_id)
+        tree = self._contexts(session_id, channel)
         handles = list(tree) if tree is not None else driver.window_handles
         if not handles:
             raise NotFound(NO_TAB)
@@ -456,7 +488,9 @@ class Actions:
             )
             return {"url": None, "title": None}
 
-    def _front(self, session_id: str, handle: str, tree: dict | None) -> None:
+    def _front(
+        self, session_id: str, handle: str, tree: dict | None, channel
+    ) -> None:
         """Bring ``handle``'s tab to the front, unless a person holds the browser.
 
         Chrome does not render a tab that is not in front and Firefox throttles
@@ -468,25 +502,24 @@ class Actions:
         """
         if self.control and self.control.refusal(session_id, "tab"):
             return
-        if tree is None or handle not in tree:
+        if channel is None or tree is None or handle not in tree:
             return
         try:
-            with self.channels.open_channel(session_id) as channel:
-                channel.call("browsingContext.activate", {"context": handle})
+            channel.call("browsingContext.activate", {"context": handle})
         except (BidiUnavailable, BidiError) as exc:
             log.debug("could not activate a tab: %s", type(exc).__name__)
 
-    def _contexts(self, session_id: str) -> dict[str, str] | None:
+    def _contexts(self, session_id: str, channel) -> dict[str, str] | None:
         """Every top-level browsing context's URL from one ``getTree``, in the
-        order the browser lists them, or None when BiDi cannot answer."""
-        if self.channels is None:
+        order the browser lists them, or None when BiDi cannot answer, which
+        starts a back-off."""
+        if channel is None:
             return None
         try:
-            with self.channels.open_channel(session_id) as channel:
-                tree = channel.call("browsingContext.getTree", {"maxDepth": 0})
+            tree = channel.call("browsingContext.getTree", {"maxDepth": 0})
             return {c["context"]: c.get("url") for c in tree["contexts"]}
         except (BidiUnavailable, BidiError, KeyError, TypeError) as exc:
-            log.debug("could not read the tabs over BiDi: %s", type(exc).__name__)
+            self._bidi_failed(session_id, exc)
             return None
 
     def _listed(
@@ -495,6 +528,8 @@ class Actions:
         driver,
         state: _tabs.TabState,
         driving: bool = True,
+        *,
+        channel,
     ) -> list[dict]:
         """Every tab in id order: ``tab``, ``url``, ``title``, ``current``.
 
@@ -507,35 +542,30 @@ class Actions:
         known = sorted(state.known, key=lambda k: int(k.tab[1:]))
         seen: dict[str, tuple[str | None, str | None]] = {}
         others = [k for k in known if k.tab != state.current or not driving]
-        if others and self.channels is not None:
+        urls = self._contexts(session_id, channel) if others else None
+        for k in others if urls is not None else ():
+            if k.handle not in urls:
+                continue
             try:
-                with self.channels.open_channel(session_id) as channel:
-                    tree = channel.call("browsingContext.getTree", {"maxDepth": 0})
-                    urls = {c["context"]: c.get("url") for c in tree["contexts"]}
-                    for k in others:
-                        if k.handle not in urls:
-                            continue
-                        try:
-                            reply = channel.call(
-                                "script.evaluate",
-                                {
-                                    "expression": "document.title",
-                                    "target": {"context": k.handle},
-                                    "awaitPromise": False,
-                                },
-                                timeout=REPLY_TIMEOUT,
-                            )
-                            value = reply["result"]
-                            if value["type"] != "string":
-                                raise TypeError
-                            seen[k.tab] = (urls[k.handle], str(value["value"]))
-                        except (BidiError, KeyError, TypeError) as exc:
-                            log.debug(
-                                "could not read a tab's title: %s", type(exc).__name__
-                            )
-            except (BidiUnavailable, BidiError, KeyError, TypeError) as exc:
-                log.debug("could not list the tabs over BiDi: %s", type(exc).__name__)
-                seen = {}
+                reply = channel.call(
+                    "script.evaluate",
+                    {
+                        "expression": "document.title",
+                        "target": {"context": k.handle},
+                        "awaitPromise": False,
+                    },
+                    timeout=REPLY_TIMEOUT,
+                )
+                value = reply["result"]
+                if value["type"] != "string":
+                    raise TypeError
+                seen[k.tab] = (urls[k.handle], str(value["value"]))
+            except BidiUnavailable as exc:
+                # Down or silent: the next title would only wait as long again.
+                self._bidi_failed(session_id, exc)
+                break
+            except (BidiError, KeyError, TypeError) as exc:
+                log.debug("could not read a tab's title: %s", type(exc).__name__)
         listed = []
         for k in known:
             current = k.tab == state.current
@@ -557,9 +587,9 @@ class Actions:
         until the next call follows it, and a browser with no state is listed
         as the next call would number it, without storing it.
         """
-        with node_answering():
+        with node_answering(), self._tab_channel(session_id) as channel:
             driver = self.grid.reconnect(session_id)
-            handles, _ = self._windows(session_id, driver)
+            handles, _ = self._windows(session_id, driver, channel)
             stored = self.tabs.get(session_id)
             if stored is None:
                 try:
@@ -571,7 +601,7 @@ class Actions:
                 seen = [h for h in handles if stored.by_handle(h)]
                 state = _tabs.reconcile(stored, seen).state
             return self._listed(
-                session_id, driver, state, self._driving(driver, state)
+                session_id, driver, state, self._driving(driver, state), channel=channel
             )
 
     @staticmethod
@@ -614,9 +644,9 @@ class Actions:
         if resolved == "open" and text:
             allowed_navigation(text)
 
-        def body(at):
+        def body(at, channel):
             driver = at.driver
-            handles, tree = self._windows(session_id, driver)
+            handles, tree = self._windows(session_id, driver, channel)
             stored = self.tabs.get(session_id)
             current = None
             if stored is None:
@@ -631,7 +661,11 @@ class Actions:
                 listing = ", ".join(
                     f"{t['tab']} ({t['url'] or 'unknown'})"
                     for t in self._listed(
-                        session_id, driver, among, self._driving(driver, among)
+                        session_id,
+                        driver,
+                        among,
+                        self._driving(driver, among),
+                        channel=channel,
                     )
                 )
                 return ValueError(f"no tab {what}; the tabs are {listing}")
@@ -639,13 +673,13 @@ class Actions:
             def vanished(target):
                 """The 400 for a tab that closed as it was switched to: the
                 tabs as they are now. The state is the checks' to keep."""
-                now, _ = self._windows(session_id, driver)
+                now, _ = self._windows(session_id, driver, channel)
                 return unknown(target.tab, _tabs.reconcile(state, now).state)
 
             if resolved == "list":
                 self.tabs.set(session_id, state)
                 return {
-                    "tabs": self._listed(session_id, driver, state),
+                    "tabs": self._listed(session_id, driver, state, channel=channel),
                     "tab": state.current,
                 }
 
@@ -671,7 +705,9 @@ class Actions:
                 elif text:
                     matches = [
                         t["tab"]
-                        for t in self._listed(session_id, driver, state)
+                        for t in self._listed(
+                            session_id, driver, state, channel=channel
+                        )
                         if text in (t["url"] or "")
                     ]
                     if not matches:
@@ -687,7 +723,7 @@ class Actions:
                     raise vanished(target) from None
                 state = _tabs.TabState(state.next, target.tab, state.known)
                 self.tabs.set(session_id, state)
-                self._front(session_id, target.handle, tree)
+                self._front(session_id, target.handle, tree, channel)
                 return {"tab": target.tab, "in_frame": False}
 
             # close
@@ -711,18 +747,22 @@ class Actions:
                         driver.switch_to.window(here.handle)
                 except NoSuchWindowException:
                     raise vanished(target) from None
-            handles, tree = self._windows(session_id, driver)
+            handles, tree = self._windows(session_id, driver, channel)
             left = _tabs.reconcile(state, handles)
             self._onto(driver, left.handle)
             self.tabs.set(session_id, left.state)
-            self._front(session_id, left.handle, tree)
+            self._front(session_id, left.handle, tree, channel)
             return {
                 "tab": left.state.current,
                 "closed": left.closed or [target.tab],
                 "in_frame": False,
             }
 
-        return self._reattached().run(session_id, body)
+        def run(at):
+            with self._tab_channel(session_id) as channel:
+                return body(at, channel)
+
+        return self._reattached().run(session_id, run)
 
     # ---- session lifecycle -------------------------------------------------
 
@@ -993,6 +1033,7 @@ class Actions:
         self.grid.quit(session_id)
         self._moved(session_id, None)
         self.tabs.forget(session_id)
+        self.tab_bidi_off.pop(session_id, None)
         return {"success": True, "session_id": session_id}
 
     # ---- navigation --------------------------------------------------------

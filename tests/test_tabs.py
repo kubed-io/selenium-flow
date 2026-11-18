@@ -4,7 +4,9 @@ import pytest
 from selenium.common.exceptions import NoSuchWindowException, WebDriverException
 
 from kubed.selenium_flow import errors, faults
+from kubed.selenium_flow.bidi import CHANNEL_DOWN
 from kubed.selenium_flow.core import browser as browser_module
+from kubed.selenium_flow.core.actions import TAB_BIDI_BACK_OFF
 from kubed.selenium_flow.core.tabs import (
     Known,
     MemoryTabs,
@@ -14,6 +16,7 @@ from kubed.selenium_flow.core.tabs import (
     merged,
     reconcile,
 )
+from kubed.selenium_flow.faults import BidiUnavailable
 from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, Workspace
 
 from . import site_data_fakes
@@ -351,6 +354,62 @@ def test_a_check_reads_the_tree_once_and_activates_from_it(actions, scripted):
     actions.check_tabs("abc")
     assert _trees(channel) == [{"maxDepth": 0}]
     assert _activated(channel) == ["w2"]
+
+
+def test_a_check_opens_one_channel_for_its_listing_and_its_activate(
+    actions, scripted
+):
+    driver = scripted()
+    channel = _linked(actions, driver)
+    actions.check_tabs("abc")
+    _popup(driver)
+    actions.channels.opened.clear()
+    actions.check_tabs("abc")
+    assert _activated(channel) == ["w2"]
+    assert actions.channels.opened == [False]
+
+
+def test_a_bidi_that_will_not_open_is_not_tried_again_until_the_back_off_ends(
+    actions, scripted
+):
+    """A route that hangs costs one check its open timeout, not every call."""
+    driver = scripted()
+    driver.pages["w2"] = (LOGIN, "Sign in")
+    actions.clock = clock = Clock()
+    actions.channels = site_data_fakes.channels_for(
+        FakeChannel(), broken=BidiUnavailable(CHANNEL_DOWN)
+    )
+    actions.check_tabs("abc")
+    actions.check_tabs("abc")
+    assert len(actions.channels.opened) == 1
+    # window_handles answered in its stead
+    assert [k.tab for k in actions.tabs.get("abc").known] == ["t1", "t2"]
+    clock.now += TAB_BIDI_BACK_OFF + 1
+    actions.check_tabs("abc")
+    assert len(actions.channels.opened) == 2
+
+
+def test_a_listing_that_fails_backs_off_too(actions, scripted):
+    driver = scripted()
+    actions.clock = Clock()
+    channel = _linked(actions, driver, refuse=["browsingContext.getTree"])
+    actions.check_tabs("abc")
+    actions.check_tabs("abc")
+    assert len(_trees(channel)) == 1
+    assert len(actions.channels.opened) == 1
+
+
+def test_a_back_off_is_per_browser_and_ends_with_it(actions, scripted, monkeypatch):
+    scripted()
+    monkeypatch.setattr(actions.grid, "quit", lambda session_id: None)
+    actions.clock = Clock()
+    actions.channels = site_data_fakes.channels_for(
+        FakeChannel(), broken=BidiUnavailable(CHANNEL_DOWN)
+    )
+    actions.check_tabs("abc")
+    assert "abc" in actions.tab_bidi_off and "other" not in actions.tab_bidi_off
+    actions.end_browser("abc")
+    assert "abc" not in actions.tab_bidi_off
 
 
 def test_a_session_on_its_tab_is_never_switched_to_it(actions, scripted):
@@ -728,8 +787,8 @@ def test_a_tab_bidi_cannot_read_has_null_url_and_title(actions, scripted):
 
 
 def test_a_handle_that_is_not_a_context_id_reads_as_null(actions, scripted):
-    driver, _ = _two(actions, scripted, tree=[{"context": "other", "url": B}])
-    listed = actions._listed("abc", driver, actions.tabs.get("abc"))
+    driver, chan = _two(actions, scripted, tree=[{"context": "other", "url": B}])
+    listed = actions._listed("abc", driver, actions.tabs.get("abc"), channel=chan)
     assert listed[1] == {"tab": "t2", "url": None, "title": None, "current": False}
 
 
@@ -904,7 +963,7 @@ def test_tab_is_refused_under_control_so_no_tab_is_brought_forward(
     driver, chan = _two(actions, scripted)
     actions.control = Held()
     driver.log.clear()
-    actions._front("abc", "w2", {"w1": A, "w2": B})
+    actions._front("abc", "w2", {"w1": A, "w2": B}, chan)
     assert seen == ["tab"]
     assert driver.log == []
     assert _activated(chan) == []
