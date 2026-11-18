@@ -909,22 +909,31 @@ class Workspaces:
                 self.scrubber.error(name, session_id, failure, [None])
                 raise failure
             before = self.origins.current(name, session_id)
-            begun = self.calls.begin(name, session_id, browser=kind, tool=tool)
+            begun = None
             try:
+                # A refusal here (a person in control) begins nothing.
+                begun = self.calls.begin(name, session_id, browser=kind, tool=tool)
                 result = call(session_id)
             except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
-                self.calls.end(
-                    begun, tool=tool, surface=surface, browser=kind, error=exc
-                )
+                if begun is not None:
+                    self.calls.end(
+                        begun, tool=tool, surface=surface, browser=kind, error=exc
+                    )
                 failure = exc
             page = None
-            if failure is None:
-                page = self.calls.end(begun, tool=tool, surface=surface, browser=kind)
-            try:
-                after = self.followed(name, session_id, failure, after=True)
-            except faults.TabClosed as closed:
-                failure = closed
+            after: dict = {}
+            if begun is not None:
+                if failure is None:
+                    page = self.calls.end(
+                        begun, tool=tool, surface=surface, browser=kind
+                    )
+                try:
+                    after = self.followed(name, session_id, failure, after=True)
+                except faults.TabClosed as closed:
+                    failure = closed
             if failure is not None:
+                # A move the checks kept is said, or no call would say it.
+                faults.note_moved(failure, moved, after)
                 # Outside the `except`: a `ScrubFailed` raised there would carry
                 # the original, value and all, as its context.
                 self.scrubber.error(name, session_id, failure, [before, None])

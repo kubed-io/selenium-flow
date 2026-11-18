@@ -158,7 +158,8 @@ def merged(result, before: dict, after: dict):
                 result[key] = after[key]
         result["in_frame"] = False
     elif "tab" in before:
-        result["tab"] = before["tab"]
+        # A result's own `tab` (a `tab` call's) is where the call left it.
+        result.setdefault("tab", before["tab"])
         result.setdefault("in_frame", False)
     return result
 

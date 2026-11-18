@@ -137,6 +137,82 @@ def test_a_window_gone_with_no_move_keeps_its_own_failure(ws):
         ws.act(CALLER, ws.actions.do, tool="interact")
 
 
+def refused(*args, **kwargs):
+    raise faults.Controlled("a person has control of this browser")
+
+
+def test_a_call_refused_after_a_popup_says_the_session_moved(ws, monkeypatch):
+    monkeypatch.setattr(ws.calls, "begin", refused)
+    ws.actions.checks = [MOVE_TO_P]
+    with pytest.raises(faults.Controlled) as raised:
+        ws.act(CALLER, ws.actions.do, tool="interact")
+    said = faults.message(raised.value)
+    assert f"The session moved to tab t2 ({P}) during this call." in said
+    assert ws.actions.calls == ["check_tabs"]
+
+
+def test_a_failed_call_after_a_popup_says_the_session_moved(ws):
+    ws.actions.raises = ValueError("no element matched #buy")
+    ws.actions.checks = [MOVE_TO_P, {}]
+    with pytest.raises(ValueError) as raised:
+        ws.act(CALLER, ws.actions.do, tool="interact")
+    said = faults.message(raised.value)
+    assert said.startswith("no element matched #buy")
+    assert f"The session moved to tab t2 ({P}) during this call." in said
+
+
+def test_a_failed_call_that_opened_a_popup_says_where_it_went(ws):
+    ws.actions.raises = ValueError("no element matched #buy")
+    ws.actions.checks = [{}, {"opened": [{"tab": "t2", "url": P}], **MOVE_TO_P}]
+    with pytest.raises(ValueError) as raised:
+        ws.act(CALLER, ws.actions.do, tool="interact")
+    assert "moved to tab t2" in faults.message(raised.value)
+
+
+def test_a_failed_call_where_nothing_moved_says_nothing_of_tabs(ws):
+    ws.actions.raises = ValueError("no element matched #buy")
+    with pytest.raises(ValueError) as raised:
+        ws.act(CALLER, ws.actions.do, tool="interact")
+    assert faults.message(raised.value) == "no element matched #buy"
+
+
+@pytest.mark.parametrize("refuse", [False, True], ids=["failed", "refused"])
+def test_a_secret_in_the_moved_to_url_is_masked_in_the_note(ws, monkeypatch, refuse):
+    if refuse:
+        monkeypatch.setattr(ws.calls, "begin", refused)
+    ws.actions.raises = ValueError("no element matched #buy")
+    ws.actions.checks = [{**MOVE_TO_P, "url": f"{A}/?k=alpha-11"}, {}]
+    with pytest.raises(Exception) as raised:
+        ws.act(CALLER, ws.actions.do, tool="interact")
+    said = faults.message(raised.value)
+    assert "alpha-11" not in said and "[secret:a/password]" in said
+
+
+def test_a_bound_write_that_fails_after_a_popup_says_the_session_moved(ws):
+    ws.actions.write = _failed_write
+    ws.actions.checks = [MOVE_TO_P, {}]
+    with pytest.raises(ValueError) as raised:
+        secrets.perform_write(
+            ws.scrubber._catalogue, ws.actions, ws, "w",
+            {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
+        )
+    assert f"The session moved to tab t2 ({P}) during this call." in faults.message(
+        raised.value
+    )
+
+
+def test_a_bound_write_refused_after_a_popup_says_the_session_moved(ws, monkeypatch):
+    monkeypatch.setattr(ws.calls, "begin", refused)
+    ws.actions.checks = [MOVE_TO_P]
+    with pytest.raises(faults.Controlled) as raised:
+        secrets.perform_write(
+            ws.scrubber._catalogue, ws.actions, ws, "w",
+            {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
+        )
+    assert "moved to tab t2" in faults.message(raised.value)
+    assert ws.actions.calls == ["check_tabs"]
+
+
 def test_a_call_whose_own_tab_closed_after_it_acted_succeeds(ws):  # ACT-51
     ws.actions.result = {"url": P, "title": "Sign in"}
     ws.actions.checks = [{}, BACK_TO_A]
@@ -257,3 +333,7 @@ def test_a_bound_writes_opened_urls_are_scrubbed_with_every_leashed_secret(ws):
 
 def _closed_window(session_id, text=None, **kwargs):
     raise NoSuchWindowException("no such window")
+
+
+def _failed_write(session_id, text=None, **kwargs):
+    raise ValueError("no element matched #p")

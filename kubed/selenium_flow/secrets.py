@@ -886,10 +886,11 @@ def perform_write(
             # The scrub checks the secrets in scope where the browser was before
             # the call as well as where it landed.
             before = workspaces.origins.current(name, resolved)
-            # Refused here while a person holds the browser: after the turn,
-            # before the page is read.
-            begun = calls.begin(name, resolved, browser=kind, tool="write")
+            begun = None
             try:
+                # Refused here while a person holds the browser: after the turn,
+                # before the page is read, beginning nothing.
+                begun = calls.begin(name, resolved, browser=kind, tool="write")
                 given, guarded = binding.bind_into(
                     kwargs,
                     catalogue,
@@ -902,16 +903,25 @@ def perform_write(
                 rest = {k: v for k, v in given.items() if k not in ("text", "url")}
                 result = actions.write(resolved, given["text"], **rest)
             except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
-                calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
+                if begun is not None:
+                    calls.end(
+                        begun, tool="write", surface=surface, browser=kind, error=exc
+                    )
                 failure = exc
             page = None
-            if failure is None:
-                page = calls.end(begun, tool="write", surface=surface, browser=kind)
-            try:
-                tabs_after = workspaces.followed(name, resolved, failure, after=True)
-            except faults.TabClosed as closed:
-                failure = closed
+            tabs_after: dict = {}
+            if begun is not None:
+                if failure is None:
+                    page = calls.end(begun, tool="write", surface=surface, browser=kind)
+                try:
+                    tabs_after = workspaces.followed(
+                        name, resolved, failure, after=True
+                    )
+                except faults.TabClosed as closed:
+                    failure = closed
             if failure is not None:
+                # A move the checks kept is said, or no call would say it.
+                faults.note_moved(failure, moved, tabs_after)
                 # Scrubbed in place, never swallowed or rewrapped, so it keeps its
                 # type and status: an action puts its arguments in its error
                 # text. Outside the `except`, so a failed scrub is never chained

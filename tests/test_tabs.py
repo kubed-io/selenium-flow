@@ -144,6 +144,14 @@ def test_a_move_before_the_call_says_in_frame_false_when_the_call_did_not():
     assert out == {"url": A, "tab": "t2", "in_frame": False}
 
 
+def test_a_results_own_tab_wins_over_a_move_before_it():
+    """`tab switch` answers the tab it switched to, after a popup moved the
+    session first: its own word stands."""
+    before = {"tab": "t2", "url": P, "title": "Sign in", "in_frame": False}
+    out = merged({"url": A, "tab": "t1", "in_frame": False}, before, {})
+    assert out["tab"] == "t1"
+
+
 def test_opened_and_closed_join_both_checks_in_order():
     before = {"opened": [{"tab": "t2"}], "closed": ["t1"]}
     after = {"opened": [{"tab": "t3"}], "closed": ["t2"]}
