@@ -40,6 +40,7 @@ from .fakes import (  # noqa: F401 - FakePeer, RecordingActions are offered here
     FakePeer,
     RecordingActions,
     ScriptedDriver,
+    untabbed,
 )
 
 TOKEN = "test-token-abc123"
@@ -66,29 +67,32 @@ def actions(grid):
     return Actions(grid)
 
 
+# The servers below dial no Grid, so none of them checks for tabs (`untabbed`).
+
+
 @pytest.fixture
 def server():
     """An authenticated server, since that is how it is deployed."""
-    return SeleniumMCP(
+    return untabbed(SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
-    )
+    ))
 
 
 @pytest.fixture
 def open_server():
     """A server with auth disabled, as `docker compose up` runs it."""
-    return SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    return untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"})))
 
 
 @pytest.fixture
 def data_server(tmp_path):
     """An authenticated server with a data directory in ``tmp_path``, so flows
     and kept files have somewhere to go."""
-    return SeleniumMCP(Settings(
+    return untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         data={"dir": str(tmp_path)},
-    ))
+    )))
 
 
 @pytest.fixture

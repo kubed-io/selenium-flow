@@ -52,7 +52,8 @@ from ..capture import NETWORK_URI
 from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
 from ..capture.store import Buffer
-from ..core import guidance, session_caps
+from ..core import cancel, guidance, session_caps
+from ..core import tabs as tabs_module
 from ..core.actions import CUTS, INSECURE_SKIP, OPEN_PRIVATE, Actions, cut_names
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
@@ -884,6 +885,13 @@ class Workspaces:
         they asked is refused when its turn comes, never begun. Reads take
         their turn too.
 
+        The tabs are followed at both ends (`followed`). The check before
+        comes first, so a popup that opened since the last call is noted, and
+        the call is scrubbed with the origin it acts on; when it fails, the
+        call never begins. The check after is merged into the result
+        (`core.tabs.merged`), and never fails a call that acted; a call that
+        failed because its tab closed is `faults.TabClosed`.
+
         Still inside the turn, the answer goes through the scrubber: the
         result's URL and ``in_frame`` are noted first, then the result is
         scrubbed with the secrets in scope on the origins before and after the
@@ -891,9 +899,17 @@ class Workspaces:
         that fails raises `faults.ScrubFailed` instead of the answer.
         """
         with locks.driving(session_id):
+            failure = None
+            try:
+                moved = self.followed(name, session_id)
+            except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
+                failure = exc
+            if failure is not None:
+                # Outside the `except`, as below. Its page is unknown.
+                self.scrubber.error(name, session_id, failure, [None])
+                raise failure
             before = self.origins.current(name, session_id)
             begun = self.calls.begin(name, session_id, browser=kind, tool=tool)
-            failure = None
             try:
                 result = call(session_id)
             except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
@@ -901,14 +917,64 @@ class Workspaces:
                     begun, tool=tool, surface=surface, browser=kind, error=exc
                 )
                 failure = exc
+            page = None
+            if failure is None:
+                page = self.calls.end(begun, tool=tool, surface=surface, browser=kind)
+            try:
+                after = self.followed(name, session_id, failure, after=True)
+            except faults.TabClosed as closed:
+                failure = closed
             if failure is not None:
                 # Outside the `except`: a `ScrubFailed` raised there would carry
                 # the original, value and all, as its context.
                 self.scrubber.error(name, session_id, failure, [before, None])
                 raise failure
-            page = self.calls.end(begun, tool=tool, surface=surface, browser=kind)
+            result = tabs_module.merged(result, moved, after)
             result, hidden = self._scrubbed(name, session_id, result, before, tool)
         return Said(result, page, hidden)
+
+    def followed(
+        self,
+        name: str,
+        session_id: str,
+        failure: BaseException | None = None,
+        *,
+        after: bool = False,
+    ) -> dict:
+        """What checking the tabs found (`Actions.check_tabs`), with a move
+        noted: the session is at the top of the new tab's page, so its frame is
+        cleared and its URL's origin is where secret scope is read.
+
+        ``failure`` is how the call failed, when it did: one whose window was
+        gone, while the check moved the session, raises `faults.TabClosed`
+        naming the tab it is on now, with the failure's notes. ``after`` is the
+        check after a call, which never fails it: a check that fails is logged
+        by type and finds nothing, so the call's own result or failure stands.
+        It is not made at all once the browser is ending (`locks.driving`):
+        its Grid DELETE may be in flight.
+        """
+        if after and cancel.cancelled():
+            return {}
+        try:
+            change = self.actions.check_tabs(session_id)
+        except Exception as exc:
+            if not after:
+                raise
+            # By type: a driver's text quotes the page's URL.
+            log.info(
+                "the tabs after a call for %s could not be checked: %s",
+                name, type(exc).__name__,
+            )
+            return {}
+        if "tab" in change:
+            self.origins.framed(name, session_id, False)
+            self.origins.arrived(name, session_id, change.get("url"))
+            if failure is not None and faults.window_gone(failure):
+                closed = faults.TabClosed(change["tab"], change.get("url"))
+                for note in getattr(failure, "__notes__", ()):
+                    closed.add_note(note)
+                raise closed from None
+        return change
 
     def _arrived(self, name: str, session_id: str, result) -> str | None:
         """Note where ``result`` says the browser is: its URL's origin, or None
@@ -981,9 +1047,12 @@ class Workspaces:
                 if key in result:
                     aside[key] = result.pop(key)
         origins = [before, after]
-        if tool == "network_body":
+        opened = isinstance(result, dict) and "opened" in result
+        if tool in ("network_body", "tab") or opened:
             # A body comes from the request's origin, which the browser may
-            # never have been on: unknown, so every leashed secret.
+            # never have been on, and a tab list or ``opened`` carries the
+            # pages of tabs the call was not on: unknown, so every leashed
+            # secret.
             origins.append(None)
         scrubbed, hidden = self.scrubber.result(name, session_id, result, origins)
         if aside:

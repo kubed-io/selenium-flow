@@ -37,7 +37,7 @@ from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
 from .conftest import NAMED, TOKEN, RecordingActions, calling_as
-from .fakes import FakeActions, FakeClock, FakeGrid, Vault
+from .fakes import FakeActions, FakeClock, FakeGrid, Vault, untabbed
 from .golden_tools import compare, normalised
 from .test_flowrun import SECRET_STEP, SIMPLE, flow
 
@@ -310,7 +310,7 @@ def test_every_error_envelope_is_what_it_was(monkeypatch):
 
     current = [None]
     monkeypatch.setattr(Actions, "navigate", lambda self, s, url: fail(s, url))
-    server = SeleniumMCP(Settings(**SETTINGS))
+    server = untabbed(SeleniumMCP(Settings(**SETTINGS)))
     server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))
     server.actions.grid = FakeGrid()
     server.actions.grid.alive.add("b-1")
@@ -385,7 +385,7 @@ def twin(monkeypatch):
     for name in ("navigate", "extract", "write", "interact", "screenshot",
                  "save_site_data"):
         monkeypatch.setattr(Actions, name, handed_to(double, name))
-    server = SeleniumMCP(Settings(**SETTINGS))
+    server = untabbed(SeleniumMCP(Settings(**SETTINGS)))
     server.actions.grid = double.grid
     calling_as(monkeypatch, NAMED)
     server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))

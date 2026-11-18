@@ -65,6 +65,9 @@ def direct(args, schemas):
         def failed(self, *a, **k):
             pass
 
+        def followed(self, *a, **k):
+            return {}
+
     with pytest.raises(secrets.Refused) as caught:
         secrets.perform_write(Nobody(), Nobody(), FakeWorkspaces(), "s", args)
     return caught.value

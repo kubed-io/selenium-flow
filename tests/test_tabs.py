@@ -434,3 +434,11 @@ def test_a_browser_with_no_tab_left_is_a_404(actions, scripted):
         actions.check_tabs("abc")
     assert errors.status_for(caught.value) == 404
     assert "end_browser" in str(caught.value)
+
+
+def test_a_screenshot_after_a_popup_is_the_popup(actions, scripted):  # ACT-53
+    driver = scripted()
+    actions.check_tabs("abc")
+    _popup(driver)
+    actions.check_tabs("abc")
+    assert actions.screenshot("abc", save=False)["url"] == LOGIN

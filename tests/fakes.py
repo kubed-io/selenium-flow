@@ -26,7 +26,7 @@ from kubed.selenium_flow.core import actions as actions_module
 from kubed.selenium_flow.faults import BidiUnavailable, SocketClosed
 from kubed.selenium_flow.live.tunnel import Tunnel
 from kubed.selenium_flow.redaction import Forms
-from kubed.selenium_flow.urls import origin_of
+from kubed.selenium_flow.urls import origin_of, scope_origin
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 MAIN = "main-1"
@@ -245,9 +245,11 @@ class TabbedActions(RecordingActions):
 
     ``checks`` is what each `check_tabs` answers next, in order: a dict, or an
     exception that is raised; ``{}`` once it is empty. ``calls`` names every
-    method asked, in order, so a test reads where the checks fell. ``do``,
-    ``page``, ``write`` and ``tab`` answer ``result``, the page, a read-back
-    value and ``{"tabs": tabs_listed}``.
+    method asked, in order, so a test reads where the checks fell. ``at`` is
+    the page the session is on: where it opened, then where a check moved it.
+    ``do`` answers ``result``, or raises ``raises``; ``page`` answers ``at``,
+    ``write`` ``at`` and the value read back, and ``tab`` ``{"tabs":
+    tabs_listed}``.
     """
 
     def __init__(self):
@@ -255,34 +257,49 @@ class TabbedActions(RecordingActions):
         self.checks: list = []
         self.calls: list[str] = []
         self.result: dict = {}
+        self.raises: BaseException | None = None
+        self.at: dict = {"url": "https://example.test/", "title": "Example"}
         self.tabs_listed: list[dict] = []
+
+    def open_session(self, url=None, **kwargs):
+        opened = super().open_session(url, **kwargs)
+        self.at = {"url": opened["url"], "title": ""}
+        return opened
 
     def check_tabs(self, session_id):
         self.calls.append("check_tabs")
         found = self.checks.pop(0) if self.checks else {}
         if isinstance(found, BaseException):
             raise found
+        if "tab" in found:
+            self.at = {"url": found.get("url"), "title": found.get("title")}
         return dict(found)
 
     def do(self, session_id, **kwargs):
         self.calls.append("do")
+        if self.raises is not None:
+            raise self.raises
         return dict(self.result)
 
     def page(self, session_id):
         self.calls.append("page")
-        return {"url": "https://example.test/", "title": "Example"}
+        return dict(self.at)
 
-    def write(self, session_id, **kwargs):
+    def write(self, session_id, text=None, **kwargs):
         self.calls.append("write")
-        return {
-            "url": "https://example.test/",
-            "title": "Example",
-            "value": kwargs.get("text"),
-        }
+        return {**self.at, "value": text}
 
     def tab(self, session_id, **kwargs):
         self.calls.append("tab")
         return {"tabs": list(self.tabs_listed)}
+
+
+def untabbed(server):
+    """``server``, whose calls find no tab to follow: for a server whose Grid
+    is never dialled, so the check around every call (`Workspaces.followed`)
+    would be the only thing that dials it. Returns ``server``."""
+    server.actions.check_tabs = lambda session_id: {}
+    return server
 
 
 def patch_os(monkeypatch, name, replacement):
@@ -1133,6 +1150,24 @@ class FakeCatalogue:
         for scoped in self.scopes.values():
             every.update(scoped)
         return self._forms(every)
+
+
+class BindingCatalogue(FakeCatalogue):
+    """A `FakeCatalogue` a bound write can type from: the secrets of the origin
+    ``on``, each allowed there and nowhere else."""
+
+    def __init__(self, scopes: dict, *, on: str, **kwargs):
+        super().__init__(scopes, **kwargs)
+        self.on = on
+
+    def entry(self, name):
+        return {"name": name, "keys": ["password"], "allowed_urls": [self.on]}
+
+    def allows(self, name, url):
+        return scope_origin(url) == self.on
+
+    def value(self, name, key):
+        return self.scopes[self.on][(name, key)]
 
 
 class Vault:

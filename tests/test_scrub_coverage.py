@@ -38,7 +38,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 
 from .capture_events import done, log, nav_started, req
 from .conftest import NAMED, TOKEN, http
-from .fakes import FakeGrid
+from .fakes import FakeGrid, untabbed
 from .test_redaction import golden
 
 pytestmark = pytest.mark.unit
@@ -185,12 +185,12 @@ def server(tmp_path, leaky, monkeypatch):
     secret.mkdir(parents=True)
     (secret / "password").write_text(VALUE)
     (secret / "_allowed_urls").write_text(f"{A}\n")
-    made = SeleniumMCP(Settings(
+    made = untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": TOKEN},
         data={"dir": str(tmp_path / "data")},
         secrets={"dirs": str(tmp_path / "secrets")},
-    ))
+    )))
     made.actions.grid = leaky.grid
     monkeypatch.setattr(made.actions.grid, "session_timeout", lambda _s: None, raising=False)
     yield made

@@ -72,6 +72,36 @@ class Conflict(Exception):
     message says what has to change first."""
 
 
+TAB_CLOSED = (
+    "the tab this call was to act on closed before it could act; the session "
+    "is now on {tab} ({url}): call again to act there"
+)
+
+
+class TabClosed(Conflict):
+    """The tab a call was to act on closed before it could act: a 409.
+
+    The session has moved (`Workspaces.followed`), so the same call acts on
+    the tab named here. The URL is a page's, scrubbed as a failed call's
+    error is."""
+
+    def __init__(self, tab: str | None, url: str | None):
+        self.tab = tab
+        self.url = url
+        super().__init__(TAB_CLOSED.format(tab=tab, url=url))
+
+
+def window_gone(exc: BaseException) -> bool:
+    """Whether a driver's failure says the window it acted on is gone.
+
+    By the class's name, since this module imports no Selenium, or by the
+    driver's own ``msg``, as `unresolved` reads it."""
+    if type(exc).__name__ == "NoSuchWindowException":
+        return True
+    said = getattr(exc, "msg", None)
+    return isinstance(said, str) and said.startswith("no such window")
+
+
 class NoSession(ValueError):
     """The caller's workspace has no session open: a 400, since the fix is the
     caller's — call ``open_session`` — unless the call says otherwise

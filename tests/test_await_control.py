@@ -43,7 +43,7 @@ from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import calling_as
-from .fakes import held
+from .fakes import held, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -80,7 +80,7 @@ class Browser:
 
 @pytest.fixture
 def server(monkeypatch):
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"})))
     browser = Browser()
     monkeypatch.setattr(server.grid, "is_alive", lambda sid: sid in browser.alive)
 

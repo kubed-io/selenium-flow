@@ -20,6 +20,7 @@ from kubed.selenium_flow.core.browser import Grid
 from kubed.selenium_flow.core.session_caps import build
 
 from .conftest import calling_as
+from .fakes import untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -216,12 +217,12 @@ def keeping_server(tmp_path):
     from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    return SeleniumMCP(Settings(
+    return untabbed(SeleniumMCP(Settings(
         grid={"url": "http://grid.invalid:4444"},
         auth={"token": "tok"},
         public_base_url="https://selenium.example.com",
         data={"dir": str(tmp_path)},
-    ))
+    )))
 
 
 def test_the_server_keeps_it_on_disk_with_a_signed_link(keeping_server, tmp_path):

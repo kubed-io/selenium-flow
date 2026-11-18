@@ -860,8 +860,14 @@ def perform_write(
     value's every spelling is handed to capture before the keystrokes, so a page
     that echoes it is masked from its first event, and with capture on the
     result carries ``page`` like `Workspaces.act`'s.
+
+    The tabs are followed at both ends, as `Workspaces._said` follows them:
+    the check before comes before the page is read, so the leash is asked of
+    the tab the keystrokes reach, and the check after is merged into the
+    result.
     """
-    from . import binding
+    from . import binding, faults
+    from .core import tabs
 
     calls = workspaces.calls
     resolved, kind = workspaces.resolved(name)
@@ -869,6 +875,14 @@ def perform_write(
     failure = None
     try:
         with locks.driving(resolved):
+            try:
+                moved = workspaces.followed(name, resolved)
+            except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
+                failure = exc
+            if failure is not None:
+                # Before anything was typed; its page is unknown.
+                workspaces.scrubber.error(name, resolved, failure, [None])
+                raise failure
             # The scrub checks the secrets in scope where the browser was before
             # the call as well as where it landed.
             before = workspaces.origins.current(name, resolved)
@@ -890,6 +904,13 @@ def perform_write(
             except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
                 calls.end(begun, tool="write", surface=surface, browser=kind, error=exc)
                 failure = exc
+            page = None
+            if failure is None:
+                page = calls.end(begun, tool="write", surface=surface, browser=kind)
+            try:
+                tabs_after = workspaces.followed(name, resolved, failure, after=True)
+            except faults.TabClosed as closed:
+                failure = closed
             if failure is not None:
                 # Scrubbed in place, never swallowed or rewrapped, so it keeps its
                 # type and status: an action puts its arguments in its error
@@ -898,13 +919,18 @@ def perform_write(
                 _scrub_typed(failure, hidden)
                 workspaces.scrubber.error(name, resolved, failure, [before, None])
                 raise failure
-            page = calls.end(begun, tool="write", surface=surface, browser=kind)
+            result = tabs.merged(result, moved, tabs_after)
             # The page it landed on is heard whether or not it is recorded: the
             # origin is what scopes the secrets, and it never carries a value.
-            after = workspaces.origins.arrived(name, resolved, result.get("url"))
+            # Heard as a call's is, so a move's ``in_frame: false`` is too.
+            after = workspaces._arrived(name, resolved, result)
             shown = binding.after({**result, "text_from": "secret"}, guarded, hidden)
+            origins = [before, after]
+            if "opened" in result:
+                # The pages of tabs the write was not on: every usable secret.
+                origins.append(None)
             shown, carried = workspaces.scrubber.result(
-                name, resolved, shown, [before, after]
+                name, resolved, shown, origins
             )
         # Only remember a page no value reached, typed or in scope there: a
         # later reattach would navigate to it. `settle` touches either way, so a

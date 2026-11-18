@@ -189,7 +189,7 @@ async def build_spec(
                     "401": _error(UNAUTHORIZED),
                     "413": _error(TOO_LARGE),
                     "404": _error(NOT_FOUND.get(action, GONE_BROWSER)),
-                    "409": _error(CONTROLLED),
+                    "409": _error(ACTION_CONFLICT),
                     "500": _error(UNEXPECTED),
                     "503": _error(
                         "The Grid could not serve this — unreachable, or no free "
@@ -514,6 +514,12 @@ GONE_BROWSER = (
 CONTROLLED = (
     "A person holds this workspace's browser in the live view. Call POST "
     "/browser/await-control, then retry."
+)
+# An action's 409: a person in control, or its tab gone (`faults.TabClosed`).
+ACTION_CONFLICT = (
+    "A person holds this workspace's browser in the live view (call POST "
+    "/browser/await-control, then retry), or the tab the call was to act on "
+    "closed before it could act (call again)."
 )
 NOT_FOUND = {
     "network_body": (

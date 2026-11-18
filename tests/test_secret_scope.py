@@ -15,6 +15,7 @@ import threading
 import time
 from concurrent.futures import Future
 from dataclasses import replace
+from functools import partial
 
 import pytest
 from selenium.common.exceptions import InvalidSessionIdException, TimeoutException
@@ -29,6 +30,7 @@ from kubed.selenium_flow.workspace.scrub import Scrubber
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
+from . import fakes
 from .conftest import RecordingActions
 from .fakes import Clock, FakeCatalogue
 
@@ -928,17 +930,8 @@ class ScopeActions(RecordingActions):
         return dict(self.written)
 
 
-class BindingCatalogue(FakeCatalogue):
-    """A `FakeCatalogue` a bound write can type from: ``a/password`` on ``A``."""
-
-    def entry(self, name):
-        return {"name": name, "keys": ["password"], "allowed_urls": [A]}
-
-    def allows(self, name, url):
-        return urls.scope_origin(url) == A
-
-    def value(self, name, key):
-        return self.scopes[A][(name, key)]
+# A bound write types `A`'s secrets, on `A` only.
+BindingCatalogue = partial(fakes.BindingCatalogue, on=A)
 
 
 CALLER = Caller("w", "query")

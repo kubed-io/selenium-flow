@@ -26,7 +26,7 @@ from kubed.selenium_flow.workspace.store import Workspace
 from kubed.selenium_flow.workspace.workspaces import Caller
 
 from .conftest import NAMED, OTHER, manager
-from .fakes import ScriptedDriver
+from .fakes import ScriptedDriver, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -313,9 +313,9 @@ def ended_server(monkeypatch):
 
     from .conftest import TOKEN, calling_as
 
-    server = SeleniumMCP(
+    server = untabbed(SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
-    )
+    ))
     driver, polling = polling_driver()
     server.actions.grid = Grid(abc=driver)
     server.workspaces.store.set(NAMED, Workspace(session_id="abc"))
