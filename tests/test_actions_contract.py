@@ -52,6 +52,7 @@ EVERY_ACTION = {
     "assert": lambda a: a.assert_("abc", "return true", wait_timeout=0),
     "resize": lambda a: a.resize("abc", width=500),
     "frame": lambda a: a.frame("abc", "default"),
+    "tab": lambda a: a.tab("abc"),
     "dialog": lambda a: a.dialog("abc", "read"),
     "screenshot": lambda a: a.screenshot("abc", save=False),
 }
@@ -605,6 +606,15 @@ REFUSED = {
     "dialog: send_text without text": lambda a: a.dialog("abc", "send_text"),
     "dialog: unknown action": lambda a: a.dialog("abc", "bogus"),
     "print: unknown format": lambda a: a.print_("abc", format="docx", url=PAGE),
+    "tab: unknown action": lambda a: a.tab("abc", "bogus"),
+    "tab: id and url both": lambda a: a.tab("abc", "switch", id="t1", url="x"),
+    "tab: open takes no id": lambda a: a.tab("abc", "open", id="t1"),
+    "tab: close takes no url": lambda a: a.tab("abc", "close", url="x"),
+    "tab: list takes neither": lambda a: a.tab("abc", "list", id="t1"),
+    "tab: an id is t<n>": lambda a: a.tab("abc", "switch", id="2"),
+    "tab: open url scheme": lambda a: a.tab(
+        "abc", "open", url="javascript:alert(1)"
+    ),
     "frame: unknown action": lambda a: a.frame("abc", "bogus"),
     "frame: switch names no frame": lambda a: a.frame("abc", "switch"),
     "extract: selector names both": lambda a: a.extract(

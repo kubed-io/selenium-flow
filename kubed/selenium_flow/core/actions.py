@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import functools
 import logging
+import re
 import shutil
 import tempfile
 import time
@@ -26,7 +27,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
-from ..bidi.connection import BidiError, MessageTooBig
+from ..bidi.connection import REPLY_TIMEOUT, BidiError, MessageTooBig
 from ..capture import NETWORK_URI
 from ..errors import GONE, UNAVAILABLE
 from ..faults import BidiUnavailable, NotFound, ScriptTimedOut, Traceback, formatted
@@ -217,6 +218,9 @@ PRINT_FORMATS = ("pdf", "html")
 DIALOG_ACTIONS = ("accept", "dismiss", "read", "send_text")
 
 FRAME_ACTIONS = ("switch", "parent", "default")
+
+TAB_ACTIONS = ("list", "open", "switch", "close")
+TAB_ID = re.compile(r"^t[1-9][0-9]*$")
 
 
 # What `open_session`'s result carries for the workspace and never for a
@@ -431,6 +435,175 @@ class Actions:
         except (BidiUnavailable, BidiError, KeyError, TypeError) as exc:
             log.debug("could not read the tabs over BiDi: %s", type(exc).__name__)
             return None
+
+    def _listed(self, session_id: str, driver, state: _tabs.TabState) -> list[dict]:
+        """Every tab in id order: ``tab``, ``url``, ``title``, ``current``.
+
+        The current tab is read over classic WebDriver, so null with a dialog
+        open. The others come from one ``getTree`` and a ``document.title``
+        each; a handle that is not a context, or any BiDi failure, is null.
+        """
+        known = sorted(state.known, key=lambda k: int(k.tab[1:]))
+        seen: dict[str, tuple[str | None, str | None]] = {}
+        others = [k for k in known if k.tab != state.current]
+        if others and self.channels is not None:
+            try:
+                with self.channels.open_channel(session_id) as channel:
+                    tree = channel.call("browsingContext.getTree")
+                    urls = {c["context"]: c.get("url") for c in tree["contexts"]}
+                    for k in others:
+                        if k.handle not in urls:
+                            continue
+                        try:
+                            reply = channel.call(
+                                "script.evaluate",
+                                {
+                                    "expression": "document.title",
+                                    "target": {"context": k.handle},
+                                    "awaitPromise": False,
+                                },
+                                timeout=REPLY_TIMEOUT,
+                            )
+                            value = reply["result"]
+                            if value["type"] != "string":
+                                raise TypeError
+                            seen[k.tab] = (urls[k.handle], str(value["value"]))
+                        except (BidiError, KeyError, TypeError) as exc:
+                            log.debug(
+                                "could not read a tab's title: %s", type(exc).__name__
+                            )
+            except (BidiUnavailable, BidiError, KeyError, TypeError) as exc:
+                log.debug("could not list the tabs over BiDi: %s", type(exc).__name__)
+                seen = {}
+        listed = []
+        for k in known:
+            current = k.tab == state.current
+            if current:
+                page = browser.page_state(driver)
+                url, title = page.get("url"), page.get("title")
+            else:
+                url, title = seen.get(k.tab, (None, None))
+            listed.append(
+                {"tab": k.tab, "url": url, "title": title, "current": current}
+            )
+        return listed
+
+    def tab(self, session_id: str, action="list", id=None, url=None) -> dict:
+        """List the browser's tabs, open one, switch to one or close one.
+
+        ``url`` loads in a tab ``open`` makes and is text to find a tab by for
+        ``switch``: never a navigation of the current tab, so this takes
+        `_reattached`, not `_recipe`.
+        """
+        resolved = str(action).strip().lower()
+        if resolved not in TAB_ACTIONS:
+            raise ValueError(
+                f"unknown action {action!r}; known actions: "
+                f"{', '.join(sorted(TAB_ACTIONS))}"
+            )
+        tab_id = str(id).strip() if id is not None else ""
+        text = url if url is not None and str(url).strip() else None
+        if tab_id and not TAB_ID.match(tab_id):
+            raise ValueError(f"a tab id is t<n>, like t2, not {tab_id!r}")
+        if tab_id and text:
+            raise ValueError("give id or url to say which tab, not both")
+        if resolved == "open" and tab_id:
+            raise ValueError("open takes no id: it makes a new tab")
+        if resolved == "close" and text:
+            raise ValueError("close takes an id, not a url")
+        if resolved == "list" and (tab_id or text):
+            raise ValueError("list takes neither an id nor a url")
+        if resolved == "open" and text:
+            allowed_navigation(text)
+
+        def body(at):
+            driver = at.driver
+            handles = driver.window_handles
+            if not handles:
+                raise NotFound(NO_TAB)
+            stored = self.tabs.get(session_id)
+            current = None
+            if stored is None:
+                try:
+                    current = driver.current_window_handle
+                except NoSuchWindowException:
+                    current = None
+            state = _tabs.reconcile(stored, handles, current).state
+
+            def unknown(what):
+                listing = ", ".join(
+                    f"{t['tab']} ({t['url'] or 'unknown'})"
+                    for t in self._listed(session_id, driver, state)
+                )
+                return ValueError(f"no tab {what}; the tabs are {listing}")
+
+            if resolved == "list":
+                self.tabs.set(session_id, state)
+                return {
+                    "tabs": self._listed(session_id, driver, state),
+                    "tab": state.current,
+                }
+
+            if resolved == "open":
+                driver.switch_to.new_window("tab")
+                opened = _tabs.Known(
+                    f"t{state.next}", driver.current_window_handle, state.current
+                )
+                state = _tabs.TabState(
+                    state.next + 1, opened.tab, (*state.known, opened)
+                )
+                # Recorded before the load: a page that fails to load is still a tab.
+                self.tabs.set(session_id, state)
+                if text:
+                    browser.go(driver, text)
+                return {"tab": opened.tab, "in_frame": False}
+
+            if resolved == "switch":
+                if tab_id:
+                    target = state.by_id(tab_id)
+                    if target is None:
+                        raise unknown(tab_id)
+                elif text:
+                    matches = [
+                        t["tab"]
+                        for t in self._listed(session_id, driver, state)
+                        if text in (t["url"] or "")
+                    ]
+                    if not matches:
+                        raise unknown(f"with a URL containing {text!r}")
+                    target = state.by_id(max(matches, key=lambda m: int(m[1:])))
+                else:
+                    target = state.newest()
+                driver.switch_to.window(target.handle)
+                state = _tabs.TabState(state.next, target.tab, state.known)
+                self.tabs.set(session_id, state)
+                self._front(session_id, driver, target.handle)
+                return {"tab": target.tab, "in_frame": False}
+
+            # close
+            target = state.by_id(tab_id or state.current)
+            if target is None:
+                raise unknown(tab_id)
+            if len(state.known) <= 1:
+                raise ValueError(
+                    f"{target.tab} is the last tab: end_browser ends the browser"
+                )
+            if target.tab == state.current:
+                driver.close()
+            else:
+                driver.switch_to.window(target.handle)
+                driver.close()
+            left = _tabs.reconcile(state, driver.window_handles)
+            driver.switch_to.window(left.handle)
+            self.tabs.set(session_id, left.state)
+            self._front(session_id, driver, left.handle)
+            return {
+                "tab": left.state.current,
+                "closed": left.closed or [target.tab],
+                "in_frame": False,
+            }
+
+        return self._reattached().run(session_id, body)
 
     # ---- session lifecycle -------------------------------------------------
 

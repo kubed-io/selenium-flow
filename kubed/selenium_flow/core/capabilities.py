@@ -797,6 +797,44 @@ CAPABILITIES: tuple[Capability, ...] = (
             },
         ),
     ),
+    Capability(
+        name="tab",
+        method="tab",
+        route="tab",
+        http_method="POST",
+        annotations=hints("Open, switch, close or list tabs", destructive=True),
+        response=_page(
+            tabs={
+                "type": "array",
+                "description": "Every tab, in the order they opened. Present for list.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "tab": {"type": "string"},
+                        "url": {"type": ["string", "null"]},
+                        "title": {"type": ["string", "null"]},
+                        "current": {"type": "boolean"},
+                    },
+                },
+            },
+            tab={
+                "type": "string",
+                "description": "The tab the session is on now (t1, t2, ...).",
+            },
+            closed={
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "The ids of the tabs that closed. Present for close.",
+            },
+            in_frame={
+                "type": "boolean",
+                "description": (
+                    "Always false: a tab starts at its top page. Not present "
+                    "for list."
+                ),
+            },
+        ),
+    ),
     # What `resize` changes outlives the page, so the record hears of it.
     Capability(
         name="resize",

@@ -249,7 +249,7 @@ class TabbedActions(RecordingActions):
     the page the session is on: where it opened, then where a check moved it.
     ``do`` answers ``result``, or raises ``raises``; ``page`` answers ``at``,
     ``write`` ``at`` and the value read back, and ``tab`` ``{"tabs":
-    tabs_listed}``.
+    tabs_listed, "tab": ...}`` as a ``list`` does, with the current page.
     """
 
     def __init__(self):
@@ -289,9 +289,10 @@ class TabbedActions(RecordingActions):
         self.calls.append("write")
         return {**self.at, "value": text}
 
-    def tab(self, session_id, **kwargs):
+    def tab(self, session_id, action="list", id=None, url=None):
         self.calls.append("tab")
-        return {"tabs": list(self.tabs_listed)}
+        current = next((t["tab"] for t in self.tabs_listed if t["current"]), "t1")
+        return {"tabs": list(self.tabs_listed), "tab": current, **self.at}
 
 
 def untabbed(server):

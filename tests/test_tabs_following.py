@@ -337,3 +337,17 @@ def _closed_window(session_id, text=None, **kwargs):
 
 def _failed_write(session_id, text=None, **kwargs):
     raise ValueError("no element matched #p")
+
+
+def test_tab_list_is_scrubbed_with_every_leashed_secret():
+    made = scoped(FakeCatalogue({C: {("c", "token"): "gamma-33"}, A: {}}))
+    try:
+        made.actions.tabs_listed = [
+            {"tab": "t1", "url": f"{A}/", "title": "Shop", "current": True},
+            {"tab": "t2", "url": f"{C}/", "title": "token gamma-33", "current": False},
+        ]
+        result = made.act(CALLER, made.actions.tab, tool="tab")
+        assert "gamma-33" not in json.dumps(result)
+        assert result["tabs"][1]["title"] == "token [secret:c/token]"
+    finally:
+        made.scrubber.close()

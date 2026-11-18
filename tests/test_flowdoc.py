@@ -1007,3 +1007,14 @@ async def test_a_flow_with_an_unknown_top_level_key_is_refused(server):
     except InvalidFlow:
         return  # refused
     assert concerns(document)  # or at least warned about
+
+
+def test_a_flow_starting_with_a_tab_switch_is_warned_it_names_no_page():
+    from kubed.selenium_flow.flows.document import concerns
+
+    def first(args, action):
+        return {"steps": [{"tool": "tab", "args": {"action": action, **args}}]}
+
+    # A switch's url is text to match a tab by, not a page it arranges.
+    assert concerns(first({"url": "example.test"}, "switch"))
+    assert not concerns(first({"url": "https://example.test/"}, "open"))

@@ -450,3 +450,191 @@ def test_a_screenshot_after_a_popup_is_the_popup(actions, scripted):  # ACT-53
     _popup(driver)
     actions.check_tabs("abc")
     assert actions.screenshot("abc", save=False)["url"] == LOGIN
+
+
+# ---- Actions.tab (ACT-48) ------------------------------------------------------
+
+B = "https://b.example.test/"
+H = "https://h.example.test/"
+
+
+def _two(actions, scripted, on="t1", **channel):
+    """A browser on t1 (A, "Example") and t2 (B, "Bee", opened from t1), the
+    session on ``on``. Returns ``(driver, channel)``."""
+    driver = scripted(url=A, title="Example")
+    driver.pages["w2"] = (B, "Bee")
+    driver.__dict__["current"] = "w1" if on == "t1" else "w2"
+    chan = FakeChannel(
+        tree=channel.pop("tree", [{"context": "w1", "url": A}, {"context": "w2", "url": B}]),
+        titles=channel.pop("titles", {"w2": "Bee"}),
+        **channel,
+    )
+    actions.channels = site_data_fakes.channels_for(chan)
+    actions.tabs.set(
+        "abc", state(on, ("t1", "w1", None), ("t2", "w2", "t1"))
+    )
+    return driver, chan
+
+
+def test_list_names_each_tab_in_opening_order_without_switching(actions, scripted):
+    driver, _ = _two(actions, scripted)
+    result = actions.tab("abc")
+    assert result["tabs"] == [
+        {"tab": "t1", "url": A, "title": "Example", "current": True},
+        {"tab": "t2", "url": B, "title": "Bee", "current": False},
+    ]
+    assert result["tab"] == "t1" and "in_frame" not in result
+    assert result["url"] == A and result["title"] == "Example"
+    assert not [e for e in driver.log if e[:2] == ("switch_to", "window")]
+
+
+def test_a_tab_bidi_cannot_read_has_null_url_and_title(actions, scripted):
+    _two(actions, scripted, down={"browsingContext.getTree"})
+    tabs = actions.tab("abc")["tabs"]
+    assert tabs[1] == {"tab": "t2", "url": None, "title": None, "current": False}
+    assert tabs[0]["url"] == A
+
+
+def test_a_handle_that_is_not_a_context_id_reads_as_null(actions, scripted):
+    _two(actions, scripted, tree=[{"context": "other", "url": B}])
+    assert actions.tab("abc")["tabs"][1]["url"] is None
+    assert actions.tab("abc")["tabs"][1]["title"] is None
+
+
+def test_a_title_that_cannot_be_read_is_null_with_its_url(actions, scripted):
+    _two(actions, scripted, down={"script.evaluate"})
+    assert actions.tab("abc")["tabs"][1] == {
+        "tab": "t2", "url": None, "title": None, "current": False,
+    }
+
+
+def test_with_a_dialog_open_the_current_tab_reads_null(actions, scripted):
+    driver, _ = _two(actions, scripted)
+    driver.__dict__["dialog"] = "sure?"
+    assert actions.tab("abc")["tabs"][0]["url"] is None
+
+
+def test_open_makes_a_new_tab_current_and_loads_url(actions, scripted):
+    driver, _ = _two(actions, scripted)
+    result = actions.tab("abc", "open", url=H)
+    assert result["tab"] == "t3" and result["url"] == H and result["in_frame"] is False
+    assert ("switch_to", "new_window", "tab") in driver.log and ("get", H) in driver.log
+    state_now = actions.tabs.get("abc")
+    assert state_now.current == "t3" and state_now.by_id("t3").from_ == "t1"
+    assert state_now.next == 4
+
+
+def test_open_with_no_url_leaves_the_tab_blank(actions, scripted):
+    driver, _ = _two(actions, scripted)
+    assert actions.tab("abc", "open")["tab"] == "t3"
+    assert not [e for e in driver.log if e[0] == "get"]
+
+
+def test_switch_by_id(actions, scripted):
+    driver, _ = _two(actions, scripted)
+    result = actions.tab("abc", "switch", id="t2")
+    assert (result["tab"], result["url"], result["in_frame"]) == ("t2", B, False)
+    assert ("switch_to", "window", "w2") in driver.log
+    assert actions.tabs.get("abc").current == "t2"
+
+
+def test_switch_by_url_takes_the_newest_match(actions, scripted):
+    driver, _ = _two(actions, scripted)
+    driver.pages["w3"] = (A + "again", "Again")
+    actions.tabs.set(
+        "abc", state("t1", ("t1", "w1", None), ("t2", "w2", "t1"), ("t3", "w3", "t1"))
+    )
+    actions.channels = site_data_fakes.channels_for(FakeChannel(tree=[
+        {"context": "w1", "url": A}, {"context": "w2", "url": B},
+        {"context": "w3", "url": A + "again"},
+    ]))
+    assert actions.tab("abc", "switch", url="a.example.test")["tab"] == "t3"
+
+
+def test_switch_with_neither_takes_the_newest(actions, scripted):
+    _two(actions, scripted)
+    assert actions.tab("abc", "switch")["tab"] == "t2"
+
+
+def test_close_with_no_id_closes_the_current_and_returns_to_its_opener(actions, scripted):
+    driver, _ = _two(actions, scripted, on="t2")
+    result = actions.tab("abc", "close")
+    assert result["tab"] == "t1" and result["closed"] == ["t2"]
+    assert result["in_frame"] is False and result["url"] == A
+    assert "w2" not in driver.pages and actions.tabs.get("abc").current == "t1"
+
+
+def test_closing_another_tab_keeps_the_current_one(actions, scripted):
+    driver, _ = _two(actions, scripted, on="t2")
+    result = actions.tab("abc", "close", id="t1")
+    assert (result["tab"], result["closed"]) == ("t2", ["t1"])
+    switches = [e for e in driver.log if e[0] in ("close",) or e[:2] == ("switch_to", "window")]
+    assert switches[:3] == [
+        ("switch_to", "window", "w1"), ("close",), ("switch_to", "window", "w2"),
+    ]
+    assert driver.current == "w2" and list(driver.pages) == ["w2"]
+
+
+def test_closing_the_last_tab_is_refused_naming_end_browser(actions, scripted):
+    driver = scripted()
+    actions.tabs.set("abc", state("t1", ("t1", "w1", None)))
+    with pytest.raises(ValueError, match="end_browser") as caught:
+        actions.tab("abc", "close")
+    assert errors.status_for(caught.value) == 400
+    assert ("close",) not in driver.log
+
+
+def _listing(caught):
+    text = str(caught.value)
+    for part in ("t1", A, "t2", B):
+        assert part in text
+    assert errors.status_for(caught.value) == 400
+
+
+def test_an_unknown_id_is_a_400_listing_every_tab(actions, scripted):
+    _two(actions, scripted)
+    with pytest.raises(ValueError) as caught:
+        actions.tab("abc", "switch", id="t9")
+    _listing(caught)
+
+
+def test_no_tab_matching_url_is_a_400_listing_every_tab(actions, scripted):
+    _two(actions, scripted)
+    with pytest.raises(ValueError) as caught:
+        actions.tab("abc", "switch", url="nowhere.example.test")
+    _listing(caught)
+
+
+def test_a_blank_id_or_url_is_unset(actions, scripted):
+    _two(actions, scripted)
+    assert actions.tab("abc", "list", id="", url="  ")["tab"] == "t1"
+    assert actions.tab("abc", "SWITCH", id="", url="")["tab"] == "t2"
+
+
+def test_a_tab_urls_text_is_never_a_navigation(actions, scripted):
+    driver, _ = _two(actions, scripted)
+    actions.tab("abc", "switch", url="a.example.test")
+    assert not [e for e in driver.log if e[0] == "get"]
+
+
+def test_tab_is_refused_under_control_so_no_tab_is_brought_forward(
+    actions, scripted, monkeypatch
+):
+    from kubed.selenium_flow.core.capabilities import UNDER_CONTROL
+
+    assert UNDER_CONTROL["tab"] == "refused"
+    seen = []
+
+    class Held:
+        def refusal(self, session_id, tool):
+            seen.append(tool)
+            return faults.Controlled("a person has control of this browser")
+
+    driver, chan = _two(actions, scripted)
+    actions.control = Held()
+    monkeypatch.setattr(tabs_module, "FRONT_BY_ACTIVATE", True)
+    driver.log.clear()
+    actions._front("abc", driver, "w2")
+    assert seen == ["tab"]
+    assert driver.log == []
+    assert [m for m, _ in chan.log if m == "browsingContext.activate"] == []

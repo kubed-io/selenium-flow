@@ -78,6 +78,7 @@ ARGS = {
     "outline": {},
     "screenshot": {"save": False},
     "frame": {"action": "default"},
+    "tab": {"action": "list"},
     "resize": {"width": 800, "height": 600},
     "dialog": {"action": "read"},
     "upload_file": {"selector": {"css": "input"}, "text": "x", "filename": "a.txt"},

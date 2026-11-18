@@ -20,6 +20,7 @@ from kubed.selenium_flow.core.actions import (
     FRAME_ACTIONS,
     MOUSE_ACTIONS,
     PRINT_FORMATS,
+    TAB_ACTIONS,
 )
 from kubed.selenium_flow.core.defaults import BROWSERS
 from kubed.selenium_flow.core.keys import KEY_NAMES, KEYS, resolve_key
@@ -38,6 +39,7 @@ CLOSED_SETS = [
     ("interact", "action", "MOUSE_ACTIONS", MOUSE_ACTIONS),
     ("dialog", "action", "DIALOG_ACTIONS", DIALOG_ACTIONS),
     ("frame", "action", "FRAME_ACTIONS", FRAME_ACTIONS),
+    ("tab", "action", "TAB_ACTIONS", TAB_ACTIONS),
     ("print", "format", "PRINT_FORMATS", PRINT_FORMATS),
     ("open_session", "browser", "BROWSERS", BROWSERS),
 ]
@@ -242,3 +244,9 @@ async def test_a_blank_browser_still_means_the_default(server, monkeypatch, give
     assert blank.get("browser") == omitted.get("browser")
     # And a browser that was actually named still arrives, in any case.
     assert (await opened_with({"browser": "Firefox"})).get("browser") == "firefox"
+
+
+async def test_tab_says_a_background_tab_is_not_rendered(server):  # ACT-45
+    description = (await server.mcp.get_tool("tab")).description
+    assert "Chrome does not render" in description
+    assert "Firefox slows its timers" in description
