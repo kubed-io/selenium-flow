@@ -247,6 +247,13 @@
       },
       "AwaitControlResponse": {
         "properties": {
+          "closed": {
+            "description": "The ids of the tabs that closed. Present only when some did.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "control": {
             "description": "Who had control and for how long; at the cap, who has it and since when. Null with nobody in control.",
             "properties": {
@@ -301,6 +308,24 @@
           "message": {
             "description": "What happened, in a sentence.",
             "type": "string"
+          },
+          "opened": {
+            "description": "The tabs that opened, each with its URL. Present only when some did.",
+            "items": {
+              "properties": {
+                "tab": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
           },
           "outline": {
             "description": "The current page's elements, as outline maps them.",
@@ -452,6 +477,10 @@
               }
             },
             "type": "object"
+          },
+          "tab": {
+            "description": "The tab the session is on now (t1, t2, ...). Present only when the current tab changed during the call: a popup opened, or the current tab closed.",
+            "type": "string"
           },
           "visited": {
             "description": "Every page the person reached, oldest first: the last with its whole URL, earlier ones origin, path and hash route. Absent when the pages could not be followed.",
@@ -5816,6 +5845,33 @@
               "redis"
             ],
             "type": "string"
+          },
+          "tabs": {
+            "description": "The session's tabs as tab list answers them, read live; empty with no live browser.",
+            "items": {
+              "properties": {
+                "current": {
+                  "type": "boolean"
+                },
+                "tab": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
           },
           "tags": {
             "additionalProperties": {
