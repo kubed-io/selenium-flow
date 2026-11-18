@@ -126,8 +126,10 @@ tab(action="list")                   # switch takes id or url; close takes id; o
 
 `switch` with a `url` goes to the newest tab whose address contains it, and with
 nothing goes to the newest tab: use either for a popup whose id you do not know.
-A switch leaves any frame, so `frame` into it again. Only the current tab is in
-front, so the live view and `screenshot` show it and no other.
+Moving to another tab, by a `switch` or by following a popup, leaves any frame
+(the result says `in_frame: false`), so `frame` into it again; a call that stays
+on its tab keeps the frame. Only the current tab is in front, so the live view
+and `screenshot` show it and no other.
 
 ## Native dialogs
 
