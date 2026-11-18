@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Tabs and popups**: a popup a page opens is followed, the session comes back when it closes, and `tab` lists, opens, switches and closes tabs.
 - Fixed: `write` replaces the text of a field a framework such as React holds, instead of appending to it.
 - Fixed: a stored flow file nested deeply enough to crash the YAML parser is listed as unreadable, instead of taking the server down.
 - A workspace can have a `workspace.yaml`, written only by the admin (the admin UI's new Config tab, or `/admin/workspaces/{key}/config`). A workspace with one is kept and never expires. While the file is invalid, every call naming the workspace is refused until an admin fixes it.

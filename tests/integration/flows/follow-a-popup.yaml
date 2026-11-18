@@ -1,0 +1,28 @@
+description: >-
+  Open a popup from the page, find the session on it and in front, close it, and find the
+  session back where it began — what a real browser does that no fake can show.
+parameters:
+  type: object
+  required: [admin]
+  properties:
+    admin: {type: string, description: The origin the browser reaches this server at}
+steps:
+- tool: navigate
+  args: {url: "${admin}/"}
+- tool: execute_script
+  args:
+    script: window.open(location.origin + '/health')
+- tool: assert
+  args:
+    script: return location.pathname.endsWith('/health')
+    message: The popup the page opened was not followed, so the session is still on the first tab.
+- tool: assert
+  args:
+    script: return document.visibilityState === 'visible'
+    message: The session is on the popup but the popup is not in front.
+- tool: tab
+  args: {action: close}
+- tool: assert
+  args:
+    script: return !location.pathname.endsWith('/health')
+    message: The popup closed and the session did not come back to the first tab.

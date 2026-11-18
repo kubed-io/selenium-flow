@@ -111,6 +111,24 @@ frame(action="default")
 The switch sticks for every later call, so switch back as soon as you are done.
 When something obvious fails, check `in_frame` on `workspace://current`.
 
+## Tabs and popups
+
+A popup a page opens becomes the current tab by itself, and every call after it
+acts there. The result says so, and says when it closes and the session comes back.
+
+```
+click(selector={"css": "#sso"})
+→ {"url": "https://sso.example/login", "tab": "t2", "opened": [{"tab": "t2", ...}], ...}
+click(selector={"css": "#submit"})   # the popup submits and closes itself
+→ {"url": "https://shop.test/account", "tab": "t1", "closed": ["t2"], ...}
+tab(action="list")                   # open, switch and close take id or url
+```
+
+`switch` with a `url` goes to the newest tab whose address contains it, and with
+nothing goes to the newest tab: use either for a popup whose id you do not know.
+A switch leaves any frame, so `frame` into it again. Only the current tab is in
+front, so the live view and `screenshot` show it and no other.
+
 ## Native dialogs
 
 An `alert`, `confirm` or `prompt` blocks the page: until it is answered, nothing

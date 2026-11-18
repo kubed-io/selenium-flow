@@ -96,7 +96,7 @@ Open the one row that matches, at `skill://selenium-flow/` plus its path.
 | `print` | the page as a PDF or HTML file for a person |
 | `upload_file` | fill a file input |
 | `frame` | into an iframe and back out; the switch sticks |
-| `tab` | list, open, switch to or close a tab; a popup is followed by itself |
+| `tab` | list, open, switch or close tabs; a popup becomes the current tab by itself |
 | `dialog` | an alert, confirm or prompt; nothing else works while one is open |
 | `resize` | set the window before judging layout |
 | `execute_script` | what no tool does |
@@ -118,7 +118,7 @@ resources gets the tools `read_resource(uri)` and `list_resources()`.
 
 | URI | Is |
 |---|---|
-| `workspace://current` | what you hold: page, browser, window, `live`, `in_frame` |
+| `workspace://current` | what you hold: page, browser, window, `live`, `in_frame`, `tabs` |
 | `workspace://current/{part}` | one key of that, for instance `url` or `grid_timeout`; null when there is none |
 | `workspace://files` | Files, each file with a link, and the two folders below |
 | `workspace://files/{name}` | one file in Files |
