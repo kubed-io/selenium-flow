@@ -21,6 +21,7 @@ from selenium.common.exceptions import (
     NoSuchWindowException,
     SessionNotCreatedException,
     TimeoutException,
+    UnexpectedAlertPresentException,
     WebDriverException,
 )
 from selenium.webdriver.common.action_chains import ActionChains
@@ -436,16 +437,24 @@ class Actions:
             log.debug("could not read the tabs over BiDi: %s", type(exc).__name__)
             return None
 
-    def _listed(self, session_id: str, driver, state: _tabs.TabState) -> list[dict]:
+    def _listed(
+        self,
+        session_id: str,
+        driver,
+        state: _tabs.TabState,
+        driving: bool = True,
+    ) -> list[dict]:
         """Every tab in id order: ``tab``, ``url``, ``title``, ``current``.
 
         The current tab is read over classic WebDriver, so null with a dialog
         open. The others come from one ``getTree`` and a ``document.title``
         each; a handle that is not a context, or any BiDi failure, is null.
+        ``driving`` is False when the driver is not on the current tab (a read
+        that never moves the session): it is then read as the others are.
         """
         known = sorted(state.known, key=lambda k: int(k.tab[1:]))
         seen: dict[str, tuple[str | None, str | None]] = {}
-        others = [k for k in known if k.tab != state.current]
+        others = [k for k in known if k.tab != state.current or not driving]
         if others and self.channels is not None:
             try:
                 with self.channels.open_channel(session_id) as channel:
@@ -478,7 +487,7 @@ class Actions:
         listed = []
         for k in known:
             current = k.tab == state.current
-            if current:
+            if current and driving:
                 page = browser.page_state(driver)
                 url, title = page.get("url"), page.get("title")
             else:
@@ -512,7 +521,14 @@ class Actions:
             else:
                 seen = [h for h in handles if stored.by_handle(h)]
                 state = _tabs.reconcile(stored, seen).state
-            return self._listed(session_id, driver, state)
+            here = state.by_id(state.current)
+            try:
+                driving = bool(here) and driver.current_window_handle == here.handle
+            except NoSuchWindowException:
+                driving = False
+            except UnexpectedAlertPresentException:
+                driving = True
+            return self._listed(session_id, driver, state, driving)
 
     def tab(self, session_id: str, action="list", id=None, url=None) -> dict:
         """List the browser's tabs, open one, switch to one or close one.

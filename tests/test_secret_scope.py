@@ -1300,6 +1300,22 @@ def test_the_tabs_in_the_context_are_scrubbed(ws):
     assert "[secret:a/password]" in shown
 
 
+def test_a_hand_back_scrubs_the_tab_moves_it_keeps(ws):
+    ws.actions.outline = lambda sid, **kw: {
+        "url": f"{A}/?q=alpha-11", "title": "alpha-11", "count": 0, "total": 0,
+        "elements": [],
+        "tab": "t2",
+        "opened": [{"tab": "t2", "url": f"{B}/?q=alpha-11"}],
+        "closed": ["t3"],
+    }
+    summary = ws.handed_back("w", None)
+    shown = json.dumps(summary)
+    assert "alpha-11" not in shown
+    assert summary["tab"] == "t2" and summary["closed"] == ["t3"]
+    assert summary["opened"][0]["tab"] == "t2"
+    assert "[secret:a/password]" in json.dumps(summary["opened"])
+
+
 def test_captured_is_scrubbed_and_its_off_answer_is_not():
     from kubed.selenium_flow.capture import OFF
 

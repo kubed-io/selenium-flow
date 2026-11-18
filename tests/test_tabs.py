@@ -499,6 +499,26 @@ def test_reading_the_tabs_never_follows_a_popup(actions, scripted):
     assert actions.check_tabs("abc")["opened"] == [{"tab": "t3", "url": LOGIN}]
 
 
+def test_a_closed_current_window_lists_the_opener_as_current(actions, scripted):
+    driver, _ = _two(actions, scripted, titles={"w1": "Example", "w2": "Bee"})
+    driver.pages.pop("w1")
+    seen = actions.tabs_listed("abc")
+    assert seen == [{"tab": "t2", "url": B, "title": "Bee", "current": True}]
+    assert not _switches(driver)
+
+
+def test_a_driver_on_another_tab_does_not_mislabel_the_current_one(actions, scripted):
+    driver, _ = _two(actions, scripted, titles={"w1": "Example", "w2": "Bee"})
+    driver.__dict__["current"] = "w2"
+    actions.tabs.set("abc", state("t1", ("t1", "w1", None), ("t2", "w2", "t1")))
+    seen = actions.tabs_listed("abc")
+    assert seen == [
+        {"tab": "t1", "url": A, "title": "Example", "current": True},
+        {"tab": "t2", "url": B, "title": "Bee", "current": False},
+    ]
+    assert not _switches(driver)
+
+
 def test_reading_the_tabs_of_a_browser_nothing_has_seen_seeds_its_state(
     actions, scripted
 ):
