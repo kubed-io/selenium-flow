@@ -1,6 +1,7 @@
 """The tab state, its stores and the rules that follow a browser's tabs."""
 
 import pytest
+from selenium.common.exceptions import NoSuchWindowException
 
 from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.core import tabs as tabs_module
@@ -342,14 +343,61 @@ def test_no_tab_is_brought_to_front_while_a_person_holds_the_browser(
 
 
 def test_a_tab_opened_and_closed_inside_one_call_is_never_reported(actions, scripted):
-    scripted()
+    driver = scripted()
     channel = FakeChannel()
+    channel.windows = driver.pages
+    appeared = []
+    create = channel._browsingContext_create
+
+    def watched(params):
+        reply = create(params)
+        appeared.append(set(driver.pages))
+        return reply
+
+    channel._browsingContext_create = watched
     actions.channels = site_data_fakes.channels_for(channel)
     actions.visited = lambda: ["https://other.example.test"]
     actions.check_tabs("abc")
-    actions.save_site_data("abc")  # its spare context opens and closes inside
-    assert [m for m, _ in channel.log if m == "browsingContext.create"]
+    actions.save_site_data("abc")  # its spare tab appears and vanishes inside
+    assert appeared and len(appeared[0]) == 2 and set(driver.pages) == {"w1"}
     assert actions.check_tabs("abc") == {}
+    assert actions.tabs.get("abc").next == 2
+
+
+def _vanishing(driver, handle):
+    """Make the window ``handle`` close itself as the driver switches to it."""
+
+    def switch(target):
+        if target == handle and handle in driver.pages:
+            del driver.pages[handle]
+            raise NoSuchWindowException("window closed")
+        driver.log.append(("switch_to", "window", target))
+        driver.__dict__["current"] = target
+
+    driver.switch_to.window = switch
+
+
+def test_a_popup_that_closes_before_the_switch_never_fails_the_check(actions, scripted):
+    driver = scripted()
+    actions.check_tabs("abc")
+    _popup(driver)
+    _vanishing(driver, "w2")
+    assert actions.check_tabs("abc") == {}
+    state = actions.tabs.get("abc")
+    assert (state.current, state.next) == ("t1", 2)
+
+
+def test_a_current_tab_that_closes_before_it_is_fronted_is_reported_closed(
+    actions, scripted
+):
+    driver = scripted()
+    actions.check_tabs("abc")
+    _popup(driver)
+    actions.check_tabs("abc")
+    _vanishing(driver, "w2")
+    found = actions.check_tabs("abc")
+    assert found["closed"] == ["t2"] and found["tab"] == "t1"
+    assert actions.tabs.get("abc").current == "t1"
 
 
 def test_a_bidi_failure_never_fails_a_check(actions, scripted, monkeypatch):

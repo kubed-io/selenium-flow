@@ -59,6 +59,10 @@ INFRASTRUCTURE = (*GONE, *UNAVAILABLE)
 
 log = logging.getLogger(__name__)
 
+NO_TAB = "the browser has no tab left: end_browser ends it"
+# How often a check looks again when a tab vanishes under it.
+MOVE_ATTEMPTS = 3
+
 # `network_body`: text is cut at this many bytes; an id is a short string.
 BODY_CAP = 100_000
 # `outline`: a name is cut at this many characters, and ends in `…` when it was.
@@ -337,7 +341,7 @@ class Actions:
             driver = self.grid.reconnect(session_id)
             handles = driver.window_handles
             if not handles:
-                raise NotFound("the browser has no tab left: end_browser ends it")
+                raise NotFound(NO_TAB)
             state = self.tabs.get(session_id)
             current = None
             if state is None:
@@ -346,17 +350,31 @@ class Actions:
                 except NoSuchWindowException:
                     current = None
             found = _tabs.reconcile(state, handles, current)
-            answer: dict = {}
             page: dict = {}
-            if found.moved:
-                driver.switch_to.window(found.handle)
-                page = browser.page_state(driver)
-                self._front(session_id, driver, found.handle)
-            elif len(handles) > 1:
-                # A person may have activated another tab since the last call.
-                self._front(session_id, driver, found.handle)
+            for attempt in range(MOVE_ATTEMPTS):
+                try:
+                    if found.moved:
+                        driver.switch_to.window(found.handle)
+                        page = browser.page_state(driver)
+                        self._front(session_id, driver, found.handle)
+                    elif len(handles) > 1:
+                        # A person may have activated another tab since the last call.
+                        self._front(session_id, driver, found.handle)
+                    break
+                except NoSuchWindowException:
+                    # A popup closed itself before we got to it: look again from
+                    # the state as it was, so the tab is reported as closed, or
+                    # not at all when it was never stored.
+                    if attempt == MOVE_ATTEMPTS - 1:
+                        raise
+                    handles = driver.window_handles
+                    if not handles:
+                        raise NotFound(NO_TAB) from None
+                    found = _tabs.reconcile(state, handles, current)
+                    page = {}
             self.tabs.set(session_id, found.state)
 
+            answer: dict = {}
             if found.opened:
                 followed = found.state.current
                 urls = None

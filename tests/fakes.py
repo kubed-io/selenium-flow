@@ -465,6 +465,7 @@ class FakeChannel:
         self.navigated, self.at, self.tabs = [], {}, 0
         self.bodies = {}  # request id -> network.getData's answer
         self.tree = tree
+        self.windows = None  # a driver's ``pages``: spare tabs appear there too
         self.titles = dict(titles or {})
         self.expression = None
         self.ran = False  # whether the page would have evaluated the expression
@@ -526,6 +527,8 @@ class FakeChannel:
 
     def _browsingContext_create(self, params):
         self.tabs += 1
+        if self.windows is not None:
+            self.windows[f"spare-{self.tabs}"] = ("about:blank", "")
         return {"context": f"spare-{self.tabs}"}
 
     def _browsingContext_navigate(self, params):
@@ -534,6 +537,8 @@ class FakeChannel:
         return {}
 
     def _browsingContext_close(self, params):
+        if self.windows is not None:
+            self.windows.pop(params["context"], None)
         return {}
 
     def _network_addIntercept(self, params):
