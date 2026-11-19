@@ -52,3 +52,32 @@ def valid_session_name(name) -> str:
     if text in RESERVED:
         raise ValueError(f"{text!r} cannot name a session: choose another name")
     return text
+
+
+# What a session's state is read under: `workspace://<path>` the caller's own,
+# `session://<name>/<path>` any session by name.
+STATE = ("console", "network", "site-data")
+DOWNLOADS = "downloads"
+
+
+def pointer(acted: str, own: str, path: str) -> str:
+    """Where ``path`` (``console?level=error``, ``network/3.7``, ``site-data``,
+    ``downloads/a.pdf``) of the session ``acted`` is read by a caller whose own
+    session is ``own``: ``workspace://<path>`` (``session://downloads…`` for
+    downloads) when they are one, else ``session://<name>/<path>``."""
+    if acted != own:
+        return f"session://{split(acted)[1]}/{path}"
+    downloads = path == DOWNLOADS or path.startswith(DOWNLOADS + "/")
+    return f"session://{path}" if downloads else f"workspace://{path}"
+
+
+def repointed(uri, acted: str, own: str):
+    """``uri``, a pointer into the caller's own session's state, made to point
+    into ``acted`` instead (`pointer`); anything else as it is."""
+    if not isinstance(uri, str) or acted == own:
+        return uri
+    for root, roots in (("workspace://", STATE), ("session://", (DOWNLOADS,))):
+        path = uri[len(root):] if uri.startswith(root) else ""
+        if path.partition("/")[0].partition("?")[0] in roots:
+            return pointer(acted, own, path)
+    return uri

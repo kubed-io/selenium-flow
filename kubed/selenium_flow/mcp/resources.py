@@ -169,7 +169,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def session_resource(name: str) -> dict:
-        return workspaces.describe(_named(name))
+        return workspaces.describe(_named(name), at=f"session://{name}")
 
     @mcp.resource(
         f"{SESSION_URI}/console",
@@ -213,6 +213,39 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     ) -> dict:
         return workspaces.captured(
             _key(_named(name)), "network", filter=filter, pages=pages
+        )
+
+    @mcp.resource(
+        f"{SESSION_URI}/network/{{id}}",
+        name="Session Request",
+        description=REQUEST_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_request_resource(name: str, id: str) -> dict:
+        return workspaces.captured(
+            _key(_named(name)), "request", at=f"session://{name}/network/{id}", id=id
+        )
+
+    @mcp.resource(
+        f"{SESSION_URI}/site-data",
+        name="Session Site Data",
+        description=SITE_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_site_data_resource(name: str) -> dict:
+        return site_listing(
+            workspaces, _named(name), base=f"session://{name}/site-data"
+        )
+
+    @mcp.resource(
+        f"{SESSION_URI}/site-data/{{site}}",
+        name="Session Site Data for One Site",
+        description=ONE_SITE_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_one_site_resource(name: str, site: str) -> dict:
+        return one_site(
+            workspaces, _named(name), site, base=f"session://{name}/site-data"
         )
 
 
@@ -268,20 +301,25 @@ SESSION_DESCRIPTION = (
 )
 
 
-def site_listing(workspaces: Workspaces, caller: Caller) -> dict:
+def site_listing(
+    workspaces: Workspaces, caller: Caller, base: str = site_data.LIST_URI
+) -> dict:
     """``workspace://site-data`` of the caller's session: its saved data, and
-    its own history for the ordering. Reads the record; never opens a browser."""
+    its own history for the ordering. Reads the record; never opens a browser.
+    ``base`` is the URI it is read at."""
     key = workspaces.reading(caller)
     record = workspaces.store.get(key)
     if record is None:
-        return site_data.view({})
-    return site_data.view(record.site_data, workspaces.history(key))
+        return site_data.view({}, base=base)
+    return site_data.view(record.site_data, workspaces.history(key), base)
 
 
-def one_site(workspaces: Workspaces, caller: Caller, site: str) -> dict:
+def one_site(
+    workspaces: Workspaces, caller: Caller, site: str, base: str = site_data.LIST_URI
+) -> dict:
     """``workspace://site-data/{site}``, or a ValueError that says where to look."""
     record = workspaces.store.get(workspaces.reading(caller))
-    found = site_data.site_view(record.site_data if record else {}, site)
+    found = site_data.site_view(record.site_data if record else {}, site, base)
     if found is None:
         raise ValueError(f"no saved data for {site!r}: {site_data.LIST_URI} lists them")
     return found

@@ -164,7 +164,11 @@ resources gets the tools `read_resource(uri)` and `list_resources()`.
 | `session://{name}/console{?level,pages}` | the same, narrowed |
 | `session://{name}/network` | that session's requests |
 | `session://{name}/network{?filter,pages}` | the same, narrowed |
+| `session://{name}/network/{id}` | one of that session's requests |
+| `session://{name}/site-data` | that session's saved site data |
+| `session://{name}/site-data/{site}` | one site of it |
 | `session://{name}/downloads` | that session's downloads |
+| `session://{name}/downloads/{file}` | one of those |
 | `secret://secrets` | the secrets you may type, never their values |
 | `flow://flows` | the flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

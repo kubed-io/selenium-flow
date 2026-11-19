@@ -37,8 +37,8 @@ SW_REASON = "a service worker answered: save while on this site"
 LIST_URI = "workspace://site-data"
 
 
-def site_uri(host: str) -> str:
-    return f"{LIST_URI}/{host}"
+def site_uri(host: str, base: str = LIST_URI) -> str:
+    return f"{base}/{host}"
 
 
 # Why an origin's storage was left out of a snapshot.
@@ -239,7 +239,7 @@ def _cookie_view(c: dict, host: str) -> dict:
     }
 
 
-def _site(jar: _Jar, host: str) -> dict:
+def _site(jar: _Jar, host: str, base: str = LIST_URI) -> dict:
     origins = jar.origins.get(host, {})
     cookies = jar.covering(host)
     # Per origin, never merged: the same host on two ports or schemes is two
@@ -254,7 +254,7 @@ def _site(jar: _Jar, host: str) -> dict:
     ]
     return {
         "site": host,
-        "uri": site_uri(host),
+        "uri": site_uri(host, base),
         "_cookies": cookies,
         "_own": [c for c in cookies if _own(c, host)],
         "storage": storage,
@@ -312,32 +312,35 @@ def _detail(site: dict) -> dict:
     }
 
 
-def _listing(data: dict, rows: list[dict]) -> dict:
-    return {"sites": rows, "saved_at": (data or {}).get("saved_at"), "uri": LIST_URI}
+def _listing(data: dict, rows: list[dict], base: str = LIST_URI) -> dict:
+    return {"sites": rows, "saved_at": (data or {}).get("saved_at"), "uri": base}
 
 
-def view(data: dict, history=()) -> dict:
+def view(data: dict, history=(), base: str = LIST_URI) -> dict:
     """The listing: one entry per host the snapshot holds data for, counts
-    only, never a value. Every row has something saved."""
+    only, never a value. Every row has something saved. ``base`` is the URI
+    it is read at, which each row's extends."""
     jar = _Jar(data)
-    return _listing(data, [_row(_site(jar, h)) for h in _ordered(jar, history)])
+    return _listing(
+        data, [_row(_site(jar, h, base)) for h in _ordered(jar, history)], base
+    )
 
 
-def views(data: dict, history=()) -> tuple[dict, dict]:
+def views(data: dict, history=(), base: str = LIST_URI) -> tuple[dict, dict]:
     """``(listing, details)``: the listing and every host in full, from one
     pass over the jar."""
     jar = _Jar(data)
-    sites = [_site(jar, h) for h in _ordered(jar, history)]
+    sites = [_site(jar, h, base) for h in _ordered(jar, history)]
     return (
-        _listing(data, [_row(s) for s in sites]),
+        _listing(data, [_row(s) for s in sites], base),
         {s["site"]: _detail(s) for s in sites},
     )
 
 
-def site_view(data: dict, site: str) -> dict | None:
+def site_view(data: dict, site: str, base: str = LIST_URI) -> dict | None:
     """One host in full: cookies (httpOnly masked) and both storages, per
     origin."""
-    return views(data)[1].get((site or "").lower())
+    return views(data, base=base)[1].get((site or "").lower())
 
 
 def history_view(
@@ -385,9 +388,9 @@ def history_view(
     return {"sites": rows}
 
 
-def summary(data: dict) -> dict | None:
+def summary(data: dict, uri: str = LIST_URI) -> dict | None:
     sites = hosts(data or {})
-    return {"sites": len(sites), "uri": LIST_URI} if sites else None
+    return {"sites": len(sites), "uri": uri} if sites else None
 
 
 def forget(data: dict, host: str) -> tuple[dict, dict]:

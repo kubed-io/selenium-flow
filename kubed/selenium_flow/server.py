@@ -58,7 +58,7 @@ from .workspace import locks
 from .workspace import settings as workspace_settings
 from .workspace import store as store_module
 from .workspace.store import WorkspaceStore
-from .workspace.workspaces import Workspaces, acting
+from .workspace.workspaces import Workspaces, acting, acting_own
 
 log = logging.getLogger(__name__)
 
@@ -357,7 +357,7 @@ class SeleniumMCP:
             ttl=settings.link_ttl,
         )
         # For `upload_file(file=...)`: a download is the session the call acts
-        # in, the rest the workspace's.
+        # in, or the one its URI names, the rest the workspace's.
         self.actions.read_file = lambda uri, workspace=None: files.read_file(
             self.actions,
             self.workspaces,
@@ -365,6 +365,7 @@ class SeleniumMCP:
             uri,
             workspace or clients.caller().name,
             session=acting() or None,
+            own=acting_own() or None,
         )
         # So one save reads every site's storage: the history of the session
         # the call acts in.

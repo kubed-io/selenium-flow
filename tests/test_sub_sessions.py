@@ -595,14 +595,14 @@ def test_open_session_answers_session_default_and_others():  # WS-48, WS-72
     )
     assert second["others"] == [
         {"name": "default", "label": "default", "default": True, "live": True,
-         "url": A_SITE},
+         "url": A_SITE, "uri": "session://default"},
     ]
     workspaces.end_browser(as_(), session="tester")
     again = workspaces.open_browser(as_())
     assert again["session"] == "default"
     assert again["others"] == [
         {"name": "tester", "label": "tester", "default": False, "live": False,
-         "url": B_SITE},
+         "url": B_SITE, "uri": "session://tester"},
     ]
 
 

@@ -50,6 +50,7 @@ from ..capture.store import Mark
 from ..faults import PAGE_NOTE
 from ..monitor.events import CallFinished
 from ..redaction import Forms
+from . import sessions
 
 log = logging.getLogger(__name__)
 
@@ -57,16 +58,20 @@ log = logging.getLogger(__name__)
 # requests that failed.
 SEE_ERRORS = f"{CONSOLE_URI}?level=error"
 SEE_FAILED = f"{NETWORK_URI}?filter=failed"
+# The note's stand-in for a session's name: a note is logged (WS-49, 3).
+NAMED = "session://{name}/"
 
 
 class Begun(NamedTuple):
     """A call under way: whose, on which browser, since when, and the capture's
-    totals as it started (None when the workspace captures nothing)."""
+    totals as it started (None when the workspace captures nothing). ``own``
+    is the caller's own session, when the call named another."""
 
     workspace: str
     session_id: str
     started: float
     mark: Mark | None
+    own: str | None = None
 
 
 def told(monitor, what: str, *args, **kwargs):
@@ -82,34 +87,46 @@ def told(monitor, what: str, *args, **kwargs):
         return None
 
 
-def hint(caused: dict) -> dict | None:
-    """The ``page`` object for what a call caused, or None when it caused nothing."""
+def hint(caused: dict, acted: str = "", own: str = "") -> dict | None:
+    """The ``page`` object for what a call caused, or None when it caused nothing.
+    ``see`` points into the session ``acted`` for a caller whose own is ``own``
+    (`sessions.pointer`)."""
     errors_, failed = caused.get("errors", 0), caused.get("failed_requests", 0)
     if not errors_ and not failed:
         return None
+    see = SEE_ERRORS if errors_ else SEE_FAILED
     return {
         "errors": errors_,
         "failed_requests": failed,
-        "see": SEE_ERRORS if errors_ else SEE_FAILED,
+        "see": sessions.repointed(see, acted, own),
     }
 
 
-def total(hints: Iterable[dict | None]) -> dict | None:
+def total(
+    hints: Iterable[dict | None], acted: str = "", own: str = ""
+) -> dict | None:
     """A flow run's hint: its steps' summed, or None when none had one."""
     given = [h for h in hints if h is not None]
     return hint(
         {
             "errors": sum(h["errors"] for h in given),
             "failed_requests": sum(h["failed_requests"] for h in given),
-        }
+        },
+        acted,
+        own,
     )
 
 
 def sentence(page: dict) -> str:
-    """The hint as the note a failed call's error carries."""
+    """The hint as the note a failed call's error carries. A ``see`` into a
+    named session keeps its form and drops the name, since the note is logged."""
+    see, named = page["see"], ""
+    if see.startswith("session://") and not see.startswith("session://downloads"):
+        see = NAMED + see.removeprefix("session://").partition("/")[2]
+        named = ", {name} being the session this call named"
     return (
         f"{PAGE_NOTE}{page['errors']} page error(s) and "
-        f"{page['failed_requests']} failed request(s): read {page['see']}."
+        f"{page['failed_requests']} failed request(s): read {see}{named}."
     )
 
 
@@ -147,18 +164,29 @@ class Calls:
             raise refusal
 
     def begin(
-        self, workspace: str, session_id: str, *, browser: str = "", tool: str
+        self,
+        workspace: str,
+        session_id: str,
+        *,
+        browser: str = "",
+        tool: str,
+        own: str | None = None,
     ) -> Begun:
         """A call starts: refused while a person holds the browser and ``tool``
         would change it; else the monitor is asked to keep the session alive
         and told the call is under way, capture is held again if it
-        lapsed, then marked. Called holding the session's turn."""
+        lapsed, then marked. Called holding the session's turn. ``own`` is the
+        caller's own session, which the hint points from."""
         self.refuse(session_id, tool)
         told(self.monitor, "keep", workspace, session_id, browser=browser)
         told(self.monitor, "calling", session_id)
         self._resume(workspace, session_id, browser)
         return Begun(
-            workspace, session_id, self.clock(), self._mark(workspace, session_id)
+            workspace,
+            session_id,
+            self.clock(),
+            self._mark(workspace, session_id),
+            own,
         )
 
     def end(
@@ -244,7 +272,11 @@ class Calls:
 
     def _caused(self, begun: Begun) -> dict | None:
         try:
-            return hint(self.capture.caused(begun.workspace, begun.mark))
+            return hint(
+                self.capture.caused(begun.workspace, begun.mark),
+                begun.workspace,
+                begun.workspace if begun.own is None else begun.own,
+            )
         except Exception as exc:  # noqa: BLE001 - a hint to give, not to need
             log.warning("capture could not count a call: %s", type(exc).__name__)
             return None

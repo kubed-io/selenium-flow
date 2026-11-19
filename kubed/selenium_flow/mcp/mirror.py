@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 
 from fastmcp.exceptions import NotFoundError
 from fastmcp.server.dependencies import get_context
@@ -106,10 +107,16 @@ LINKED_FROM = (
 )
 
 
+# A named session's downloads: its listing is the URI up to the file.
+NAMED_DOWNLOAD = re.compile(r"(session://[^/?]+/downloads)/[^/]+")
+
+
 def _where_to_read(uri: str) -> str:
     """What a model is told in place of bytes it cannot use."""
     said = "Not returned: binary content is not text."
-    for prefix, listing in LINKED_FROM:
+    named = NAMED_DOWNLOAD.fullmatch(uri)
+    linked = ((uri, named.group(1)),) if named else LINKED_FROM
+    for prefix, listing in linked:
         if uri.startswith(prefix):
             return (
                 f"{said} Read {listing} for this file's link, which any HTTP "

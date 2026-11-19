@@ -230,13 +230,16 @@ def register(
             if arguments["secret"] is None and arguments.get("text") is None:
                 raise ValueError(f"{row.name} needs text, or a secret to supply it")
             if arguments["secret"] is not None:
+                caller = clients.caller()
+                key = workspaces.session_of(caller, session)
                 return secrets_module.perform_write(
                     catalogue,
                     actions,
                     workspaces,
-                    workspaces.session_of(clients.caller(), session),
+                    key,
                     arguments,
                     surface="mcp",
+                    own=workspaces.own(caller, session, key),
                 )
             del arguments["secret"]
         return workspaces.act(

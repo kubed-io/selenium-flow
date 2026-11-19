@@ -841,7 +841,14 @@ def bind(catalogue, reference, url: str | tuple[str, ...], tool: str = "write") 
 
 
 def perform_write(
-    catalogue, actions, workspaces, name: str, kwargs: dict, *, surface: str = "mcp"
+    catalogue,
+    actions,
+    workspaces,
+    name: str,
+    kwargs: dict,
+    *,
+    surface: str = "mcp",
+    own: str | None = None,
 ) -> dict:
     """A whole bound write (resolve, type, redact, remember) on either surface.
 
@@ -865,6 +872,9 @@ def perform_write(
     the check before comes before the page is read, so the leash is asked of
     the tab the keystrokes reach, and the check after is merged into the
     result.
+
+    ``own`` is the caller's own session (`Workspaces.own`): the hint names the
+    session ``name`` when that is another, as `Workspaces.act`'s does.
     """
     from . import binding, faults
     from .core import tabs
@@ -890,7 +900,9 @@ def perform_write(
             try:
                 # Refused here while a person holds the browser: after the turn,
                 # before the page is read, beginning nothing.
-                begun = calls.begin(name, resolved, browser=kind, tool="write")
+                begun = calls.begin(
+                    name, resolved, browser=kind, tool="write", own=own
+                )
                 given, guarded = binding.bind_into(
                     kwargs,
                     catalogue,
@@ -949,7 +961,7 @@ def perform_write(
         # withheld page still slides the TTL, and puts on `shown` what a silent
         # reopen brought back.
         safe = None if carried else binding.safe_url(result, hidden)
-        workspaces.settle(name, shown, url=safe, browser=resolved)
+        workspaces.settle(name, shown, url=safe, browser=resolved, own=own)
         if page is not None:
             shown["page"] = page
     except Exception as exc:

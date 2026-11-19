@@ -326,10 +326,10 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
                 kwargs["action"] = request.path_params["action"]
             if binds and kwargs.get("secret") is not None:
                 # A bound write must not let `act` store the page it landed on.
+                key = workspaces.session_of(caller, session)
                 return secrets_module.perform_write(
-                    catalogue, actions, workspaces,
-                    workspaces.session_of(caller, session), kwargs,
-                    surface="http",
+                    catalogue, actions, workspaces, key, kwargs,
+                    surface="http", own=workspaces.own(caller, session, key),
                 )
             kwargs.pop("secret", None)
             return workspaces.act(
