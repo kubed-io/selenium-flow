@@ -28,7 +28,13 @@ from mcp_types import INVALID_PARAMS
 from .. import faults
 from ..principal import Principal
 from ..urls import without_userinfo
-from ..workspace.workspaces import WORKSPACE_ALIAS, WORKSPACE_HEADER, Caller, values_of
+from ..workspace.workspaces import (
+    SESSION_HEADER,
+    WORKSPACE_ALIAS,
+    WORKSPACE_HEADER,
+    Caller,
+    values_of,
+)
 
 _OFF = ("off", "false", "0", "no", "none")
 
@@ -44,6 +50,9 @@ CLIENT_INFO_META = "io.modelcontextprotocol/clientInfo"
 # reaches it: `Carry` writes the caller's name here at submission, and only the
 # no-request branch below reads it. A client sending it is ignored.
 CARRIED = "sf-carried-workspace"
+# The session a connection pins, carried the same way: ``?session=`` never
+# reaches the worker either.
+CARRIED_SESSION = "sf-carried-session"
 
 
 def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None:
@@ -69,15 +78,19 @@ def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None
         return None
     if not headers:
         return None
-    # A task submitted over HTTP is named by what `Carry` wrote and nothing
-    # else: never by a workspace header the snapshot kept, never the stdio
-    # constant.
+    # A task submitted over HTTP is named and pinned by what `Carry` wrote and
+    # nothing else: never by a workspace or session header the snapshot kept,
+    # never the stdio constant.
     values = {k.lower(): [v] for k, v in headers.items()}
     carried = values.pop(CARRIED, None)
+    pin = values.pop(CARRIED_SESSION, None)
     values.pop(WORKSPACE_HEADER, None)
     values.pop(WORKSPACE_ALIAS, None)
+    values.pop(SESSION_HEADER, None)
     if carried:
         values[WORKSPACE_HEADER] = carried
+    if pin:
+        values[SESSION_HEADER] = pin
     return {}, values
 
 
@@ -159,18 +172,19 @@ def reads_resources(caller: Caller) -> bool:
 
 
 class Carry(Middleware):
-    """Carry the caller's workspace to a background task's worker.
+    """Carry the caller's workspace, and the session it pins, to a background
+    task's worker.
 
-    On every call over HTTP, a ``CARRIED`` header the client sent is dropped.
-    For a tool that may run as a task (by its own task config), the caller's
-    name is read from the request now and written into its headers, which the
-    task's snapshot is taken from later. In place, in ``scope["headers"]``:
-    Starlette's `Request` reads that list, and a `MutableHeaders` over it is a
-    copy the snapshot never sees.
+    On every call over HTTP, a ``CARRIED`` or ``CARRIED_SESSION`` header the
+    client sent is dropped. For a tool that may run as a task (by its own task
+    config), the caller's name and pin are read from the request now and
+    written into its headers, which the task's snapshot is taken from later.
+    In place, in ``scope["headers"]``: Starlette's `Request` reads that list,
+    and a `MutableHeaders` over it is a copy the snapshot never sees.
 
-    A request that names no workspace, or names it badly, is refused here, as
-    the tool would refuse it: its worker sees only headers, and could neither
-    say why nor tell a URL's name from a header's.
+    A request that names no workspace, or names it or its pin badly, is
+    refused here, as the tool would refuse it: its worker sees only headers,
+    and could neither say why nor tell a URL's name from a header's.
     """
 
     async def on_call_tool(self, context, call_next):
@@ -180,18 +194,20 @@ class Carry(Middleware):
             request = None
         if request is not None:
             headers = request.scope["headers"]
-            key = CARRIED.encode()
-            headers[:] = [h for h in headers if h[0].lower() != key]
+            key, pin_key = CARRIED.encode(), CARRIED_SESSION.encode()
+            headers[:] = [h for h in headers if h[0].lower() not in (key, pin_key)]
             name = context.message.name
             if await _tasked(context, name):
                 caller = Caller.from_request(*values_of(request))
                 try:
-                    named = caller.name
+                    named, pinned = caller.name, caller.pinned
                 except ValueError as refusal:
                     raise ToolError(
                         f"Error calling tool {name!r}: {faults.message(refusal)}"
                     ) from refusal
                 headers.append((key, named.encode()))
+                if pinned:
+                    headers.append((pin_key, pinned.encode()))
         return await call_next(context)
 
 

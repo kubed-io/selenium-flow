@@ -89,6 +89,23 @@ VIEWS: tuple[View, ...] = (
         "request",
     ),
     View("workspace://network", re.compile(r"workspace://network(\?.*)?"), "network"),
+    # A named session, its capture and its downloads, as the caller's own are drawn.
+    View(
+        "session://{name}/console",
+        re.compile(r"session://[^/?]+/console(\?.*)?"),
+        "console",
+    ),
+    View(
+        "session://{name}/network",
+        re.compile(r"session://[^/?]+/network(\?.*)?"),
+        "network",
+    ),
+    View(
+        "session://{name}/downloads",
+        re.compile(r"session://[^/?]+/downloads"),
+        "folder",
+    ),
+    View("session://{name}", re.compile(r"session://[^/?]+"), "context"),
     # There is no single-secret resource; the app looks closer by itself.
     _exactly("secret://secrets", "secrets"),
     View(

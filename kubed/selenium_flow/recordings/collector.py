@@ -71,6 +71,7 @@ import anyio
 from watchfiles import awatch
 
 from ..names import RECORDINGS_DIR, InvalidName, valid_grid_id
+from ..workspace import sessions
 from . import mp4
 
 log = logging.getLogger(__name__)
@@ -97,6 +98,9 @@ class Owed:
     dropped: bool = False
     # No workspace holds this browser: its video is deleted, never filed.
     discard: bool = False
+    # The key of the session the browser is, when a sub-session's: what the
+    # monitor knows it by. Its video is still the workspace's.
+    session: str = ""
 
     @property
     def done(self) -> bool:
@@ -135,7 +139,15 @@ def _owed_from(workspace: str, grid_id: str, note: dict) -> Owed:
         None if filed is None else str(filed),
         note.get("dropped") is True,
         discard=note.get("discard") is True,
+        session=_session_of(workspace, note.get("session")),
     )
+
+
+def _session_of(workspace: str, raw) -> str:
+    """A note's session key: one of ``workspace``'s sub-sessions, else ""."""
+    if not isinstance(raw, str) or not sessions.is_sub(raw):
+        return ""
+    return raw if sessions.split(raw)[0] == workspace else ""
 
 
 class Collector:
@@ -199,18 +211,31 @@ class Collector:
     # ---- from worker threads ----------------------------------------------
 
     def expect(
-        self, workspace: str, grid_id: str, browser: str, *, discard: bool = False
+        self,
+        workspace: str,
+        grid_id: str,
+        browser: str,
+        *,
+        discard: bool = False,
+        session: str = "",
     ) -> None:
         """A recorded browser opened: note it on disk, then tell the loop.
         ``discard``: no workspace holds it (yet); its video is deleted, never
         filed. Expected again for the same browser, the second replaces the
         first (`_add`), which is how a provisional discard becomes ordinary.
+        ``session`` is the sub-session's key when the browser is one's: the
+        monitor is told the browser by it.
 
         Both calls come from one thread in that order, and `_post` keeps it:
         ``call_soon_threadsafe`` runs callbacks first in, first out."""
         valid_grid_id(grid_id)
         owed = Owed(
-            workspace, grid_id, int(self.clock() * 1000), browser, discard=discard
+            workspace,
+            grid_id,
+            int(self.clock() * 1000),
+            browser,
+            discard=discard,
+            session=session if sessions.is_sub(session) else "",
         )
         try:
             self.store.write_note(workspace, grid_id, self._note(owed))
@@ -232,7 +257,10 @@ class Collector:
         """Ask the monitor to say when this session ends."""
         if self.monitor is not None:
             self.monitor.watch(
-                owed.grid_id, owed.workspace, "recording", browser=owed.browser
+                owed.grid_id,
+                owed.session or owed.workspace,
+                "recording",
+                browser=owed.browser,
             )
 
     def _post(self, fn) -> None:
@@ -739,6 +767,8 @@ class Collector:
             note["dropped"] = True
         if owed.discard:
             note["discard"] = True
+        if owed.session:
+            note["session"] = owed.session
         return note
 
     def _write(self, owed: Owed) -> None:

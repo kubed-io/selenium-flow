@@ -81,6 +81,11 @@
   ],
   [
     "GET",
+    "/admin/workspaces/{key}/files/downloads",
+    "admin_downloads"
+  ],
+  [
+    "GET",
     "/admin/workspaces/{key}/flows",
     "admin_flows"
   ],
@@ -111,6 +116,11 @@
   ],
   [
     "GET",
+    "/admin/workspaces/{key}/session",
+    "admin_session"
+  ],
+  [
+    "GET",
     "/admin/workspaces/{key}/site-data",
     "admin_site_data"
   ],
@@ -138,6 +148,11 @@
     "GET",
     "/screenshots/{workspace}/{name}",
     "screenshot_file"
+  ],
+  [
+    "POST",
+    "/admin/workspaces/{key}/end-all",
+    "admin_end_all"
   ],
   [
     "POST",

@@ -8,14 +8,14 @@
   /* What both panes share below the toolbar. A row arrives as cells: [text, class]
      pairs, drawn as text nodes and nothing else. */
   type Cell = [string, string?]
-  let { api, key, root, kind, cells, empty, cleared, open }: {
-    api: Api; key: string; root: string; kind: 'console' | 'network'
+  let { api, key, root, kind, cells, empty, cleared, open, session }: {
+    api: Api; key: string; root: string; session?: string; kind: 'console' | 'network'
     cells: (r: never) => Cell[]
     empty: string
     cleared: string
     open?: (r: never) => void
   } = $props()
-  const m = untrack(() => new CaptureModel(api, root, key, kind))
+  const m = untrack(() => new CaptureModel(api, root, key, kind, session))
   /* A live row that was not kept (a static request, a debug entry) has no
      detail to open: the server never kept it. */
   const opens = (r: { kept?: boolean }) => (open && r.kept !== false ? () => open(r as never) : undefined)

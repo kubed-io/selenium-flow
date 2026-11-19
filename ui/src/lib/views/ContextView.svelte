@@ -26,6 +26,8 @@
   <div class="row" style="flex-wrap:wrap">
     {#if data.window}<span class="pill">{windowSize(data.window)}</span>{/if}
     {#if who}<span class="pill name">{who}</span>{/if}
+    <!-- Only a sub-session is named: the default is the workspace itself. -->
+    {#if data.default === false && data.session}<span class="pill session">{data.session}</span>{/if}
   </div>
   {#if data.site_data || data.capture || data.live}
     <div class="chips">

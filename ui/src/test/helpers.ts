@@ -12,12 +12,12 @@ export function deferred<T = void>() {
 
 /** A fetch that answers `"METHOD /path"`; anything else is a 404 with an error body. */
 export function fakeFetch(routes: Record<string, Route>) {
-  const calls: { method: string; path: string; body?: unknown; headers: Headers; signal?: AbortSignal }[] = []
+  const calls: { method: string; path: string; search: string; body?: unknown; headers: Headers; signal?: AbortSignal }[] = []
   const fn = vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = (init.method ?? 'GET').toUpperCase()
     const path = new URL(url, 'http://test').pathname
     calls.push({
-      method, path, headers: new Headers(init.headers),
+      method, path, search: new URL(url, 'http://test').search, headers: new Headers(init.headers),
       body: init.body ? parsed(init.body) : undefined,
       signal: init.signal ?? undefined,
     })

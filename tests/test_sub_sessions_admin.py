@@ -1,0 +1,298 @@
+"""The admin API over sub-sessions: the list holds workspaces with their
+sessions, every session-scoped route takes ``?session=``, and End all ends them
+every one (WS-74, WS-77, UI-64, UI-65)."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import replace
+from urllib.parse import parse_qsl, urlsplit
+
+import pytest
+from starlette.testclient import TestClient
+
+from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.workspace import sessions
+from kubed.selenium_flow.workspace.store import Workspace
+
+from .conftest import TOKEN
+
+pytestmark = pytest.mark.unit
+
+AUTH = {"Authorization": f"Bearer {TOKEN}"}
+WS = "desk"
+TESTER = sessions.key_of(WS, "tester")
+A_SITE = "https://a.example.test/"
+B_SITE = "https://b.example.test/"
+NOW = 1_790_800_000.0
+
+
+def visit(url, session, at):
+    return {"origin": url.rstrip("/"), "url": url, "at": at, "session": session}
+
+
+TESTER_DATA = {
+    "cookies": [{"name": "t", "value": "1", "domain": "t.example.test", "path": "/"}],
+    "origins": {}, "session": {}, "saved_at": NOW,
+}
+
+
+class Grid:
+    """Every browser lives; nothing else is asked of it."""
+
+    def sessions(self):
+        return [{"session_id": "g1"}, {"session_id": "g2"}]
+
+    def is_alive(self, session_id):
+        return True
+
+    def files(self, session_id):
+        return []
+
+
+@pytest.fixture
+def server():
+    s = SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
+    ))
+    s.actions.grid = s.workspaces.actions.grid = Grid()
+    ended = []
+    s.actions.end_browser = ended.append
+    s.ended = ended
+    store = s.workspaces.store
+    store.set(WS, Workspace(
+        session_id="g1", opened_at=NOW, subs=["tester"],
+        settings={"capture": True, "browser": "firefox"},
+        history=[visit(B_SITE, "tester", NOW - 5), visit(A_SITE, "default", NOW - 10)],
+        site_data={
+            "cookies": [
+                {"name": "a", "value": "1", "domain": "a.example.test", "path": "/"},
+                {"name": "b", "value": "1", "domain": "b.example.test", "path": "/"},
+            ],
+            "origins": {}, "session": {}, "saved_at": NOW,
+        },
+    ))
+    store.set(TESTER, Workspace(
+        session_id="g2", opened_at=NOW, label="tester", site_data=TESTER_DATA,
+        settings={"capture": True, "browser": "chrome"},
+    ))
+    # A workspace that exists only because a sub-session was opened in it.
+    store.set("fresh", Workspace(subs=["only"]))
+    store.set(sessions.key_of("fresh", "only"), Workspace(label="only"))
+    return s
+
+
+@pytest.fixture
+def client(server):
+    return TestClient(server.mcp.http_app(), headers=AUTH)
+
+
+def rows(client):
+    return {r["key"]: r for r in client.get("/admin/workspaces").json()["workspaces"]}
+
+
+def test_admin_lists_sub_sessions_under_their_workspace(client):
+    listed = rows(client)
+    assert set(listed) == {WS, "fresh"}, "no sub-session is a row of its own"
+    for row in listed.values():
+        for entry in row["sessions"]:
+            del entry["site_data_rev"]
+    assert listed[WS]["sessions"] == [
+        {"name": "default", "label": "default", "default": True, "live": True,
+         "browser": "firefox"},
+        {"name": "tester", "label": "tester", "default": False, "live": True,
+         "browser": "chrome"},
+    ]
+    # Only because a sub was opened: no browser, no owner, still listed cleanly.
+    assert listed["fresh"]["sessions"] == [
+        {"name": "default", "label": "default", "default": True, "live": False,
+         "browser": "chrome"},
+        {"name": "only", "label": "only", "default": False, "live": False,
+         "browser": "chrome"},
+    ]
+
+
+def test_the_admin_list_prunes_a_dead_sub_session_name(server, client):
+    store = server.workspaces.store
+    store.update(WS, lambda r: replace(r, subs=["gone", *r.subs]))
+    assert [s["name"] for s in rows(client)[WS]["sessions"]] == ["default", "tester"]
+    assert store.get(WS).subs == ["tester"]
+
+
+def test_each_session_has_its_own_site_data_rev(server, client):
+    def revs():
+        return {s["name"]: s["site_data_rev"] for s in rows(client)[WS]["sessions"]}
+
+    before = revs()
+    assert before["default"] == rows(client)[WS]["site_data_rev"]
+    # A save in tester moves its rev only: its Site data tab reloads.
+    server.workspaces.store.update(TESTER, lambda r: replace(
+        r, site_data={**TESTER_DATA, "saved_at": NOW + 60}))
+    after = revs()
+    assert after["tester"] != before["tester"]
+    assert after["default"] == before["default"]
+
+
+def test_admin_session_routes_take_session(server, client):
+    base = f"/admin/workspaces/{WS}"
+    # The Session row of the picked session.
+    default = client.get(f"{base}/session").json()
+    assert (default["session"], default["session_id"], default["browser"]) == (
+        "default", "g1", "firefox")
+    there = client.get(f"{base}/session", params={"session": "tester"}).json()
+    assert (there["session"], there["session_id"], there["browser"], there["label"]) == (
+        "tester", "g2", "chrome", "tester")
+    # Capture is the picked session's.
+    for route in ("console", "network"):
+        assert client.get(f"{base}/{route}", params={"session": "tester"}).status_code == 200
+    seen = []
+    real = server.workspaces.captured
+    server.workspaces.captured = lambda key, kind, **q: seen.append(key) or real(key, kind, **q)
+    client.get(f"{base}/console")
+    client.get(f"{base}/console", params={"session": "tester"})
+    assert seen == [WS, TESTER]
+    # An unknown name is a 404, a reserved or malformed one a 400, on every route.
+    for method, route in (
+        ("get", "session"), ("get", "console"), ("get", "network"),
+        ("get", "site-data"), ("delete", "session"),
+        # The downloads are a session's browser's too.
+        ("get", "files/downloads"), ("delete", "files/downloads"),
+        ("post", "files/downloads/d.pdf/keep"),
+    ):
+        call = getattr(client, method)
+        assert call(f"{base}/{route}", params={"session": "typo"}).status_code == 404, route
+        assert call(f"{base}/{route}", params={"session": "files"}).status_code == 400, route
+        assert call(f"{base}/{route}", params={"session": "a b!"}).status_code == 400, route
+
+
+def test_ending_one_session_leaves_the_others(server, client):
+    done = client.delete(f"/admin/workspaces/{WS}/session", params={"session": "tester"})
+    assert done.json() == {"success": True, "key": WS, "session_id": "g2"}
+    assert server.ended == ["g2"]
+    store = server.workspaces.store
+    assert store.get(TESTER).attached is False and store.get(WS).attached is True
+
+
+def test_end_all_ends_every_sessions_browser(server, client):
+    done = client.post(f"/admin/workspaces/{WS}/end-all")
+    assert done.status_code == 200 and done.json()["ended"] == 2
+    assert sorted(server.ended) == ["g1", "g2"]
+    store = server.workspaces.store
+    # Every record is kept, detached.
+    assert store.get(WS).attached is False and store.get(TESTER).attached is False
+    assert store.get(WS).subs == ["tester"]
+    # Nothing left to end answers 0, and a second press ends nothing.
+    assert client.post(f"/admin/workspaces/{WS}/end-all").json()["ended"] == 0
+    assert client.post("/admin/workspaces/fresh/end-all").json()["ended"] == 0
+    assert client.post("/admin/workspaces/nobody/end-all").json()["ended"] == 0
+
+
+def test_an_admin_link_to_a_sub_sessions_live_view_is_scoped_to_it(client):
+    """The tail link is signed for one session: it opens no other."""
+    body = client.get(f"/admin/workspaces/{WS}/console", params={"session": "tester"}).json()
+    parts = urlsplit(body["tail_url"])
+    query = dict(parse_qsl(parts.query))
+    assert parts.path == f"/admin/workspaces/{WS}/tail"
+    assert query["session"] == "tester"
+    stranger = f"{parts.path}?exp={query['exp']}&sig={query['sig']}&kind=console"
+    anon = TestClient(client.app)
+    assert anon.get(stranger, params={"session": "other"}).status_code in (401, 403, 404)
+    assert anon.get(stranger).status_code in (401, 403)
+
+
+def test_the_history_rows_carry_their_session(client):
+    sites = client.get(f"/admin/workspaces/{WS}/history").json()["sites"]
+    assert {s["site"]: s["session"] for s in sites} == {
+        "b.example.test": "tester", "a.example.test": "default"}
+
+
+def test_a_host_both_sessions_visited_is_a_history_row_each(server, client):
+    store = server.workspaces.store
+    store.update(WS, lambda r: replace(
+        r, history=[visit(B_SITE + "d", "default", NOW - 1), *r.history]))
+    store.update(TESTER, lambda r: replace(r, site_data={
+        **TESTER_DATA,
+        "cookies": [*TESTER_DATA["cookies"],
+                    {"name": "x", "value": "1", "domain": "b.example.test", "path": "/"},
+                    {"name": "y", "value": "1", "domain": "b.example.test", "path": "/"}],
+    }))
+    sites = client.get(f"/admin/workspaces/{WS}/history").json()["sites"]
+    rows = {(s["site"], s["session"]): s for s in sites}
+    assert list(rows) == [
+        ("b.example.test", "default"), ("b.example.test", "tester"),
+        ("a.example.test", "default"),
+    ]
+    # Each pill counts its own session's snapshot: the one it opens.
+    assert rows["b.example.test", "default"]["saved"]["cookies"] == 1
+    assert rows["b.example.test", "tester"]["saved"]["cookies"] == 2
+    assert rows["b.example.test", "tester"]["url"] == B_SITE
+    # Once tester's record is gone, so is the snapshot its row counted.
+    store.delete(TESTER)
+    sites = client.get(f"/admin/workspaces/{WS}/history").json()["sites"]
+    assert {(s["site"], s["session"]): s["saved"] for s in sites}[
+        "b.example.test", "tester"] is None
+
+
+def test_site_data_orders_and_counts_by_the_picked_sessions_history(client):
+    base = f"/admin/workspaces/{WS}/site-data"
+    default = client.get(base).json()
+    tester = client.get(base, params={"session": "tester"}).json()
+    assert [s["site"] for s in default["sites"]] == ["a.example.test", "b.example.test"]
+    # The sub's snapshot is its own record's, not the default's.
+    assert [s["site"] for s in tester["sites"]] == ["t.example.test"]
+    assert set(tester["details"]) == {"t.example.test"}
+    listed = rows(client)[WS]
+    assert listed["history_count"] == 2
+    assert listed["site_data_count"] == 2
+
+
+def test_forgetting_a_workspace_forgets_its_sub_sessions(server):
+    server.workspaces.forget(WS)
+    store = server.workspaces.store
+    assert store.get(WS) is None and store.get(TESTER) is None
+    assert store.sub_records(WS) == {}
+    assert store.get("fresh") is not None
+
+
+def test_admin_logs_never_name_a_sub_session(server, client, caplog):
+    caplog.set_level(logging.DEBUG)
+    client.delete(f"/admin/workspaces/{WS}/session", params={"session": "tester"})
+    client.get(f"/admin/workspaces/{WS}/console", params={"session": "typo"})
+    client.get(f"/admin/workspaces/{WS}/site-data", params={"session": "typo"})
+    ours = " ".join(
+        r.getMessage() for r in caplog.records if r.name.startswith("kubed.")
+    )
+    assert "ended the browser" in ours and "refused" in ours
+    assert "tester" not in ours and "typo" not in ours
+
+
+def hosts(client, session=None):
+    params = {"session": session} if session else {}
+    body = client.get(f"/admin/workspaces/{WS}/site-data", params=params).json()
+    return sorted(s["site"] for s in body["sites"])
+
+
+def test_clearing_and_forgetting_site_data_are_one_sessions(client):
+    base = f"/admin/workspaces/{WS}/site-data"
+    both = ["a.example.test", "b.example.test"]
+    # Forget in tester leaves the default's snapshot alone.
+    assert client.delete(f"{base}/t.example.test", params={"session": "tester"}).status_code == 200
+    assert hosts(client, "tester") == [] and hosts(client) == both
+    assert client.delete(f"{base}/a.example.test", params={"session": "tester"}).status_code == 404
+    assert hosts(client) == both
+    # Clear in the default leaves tester's.
+    assert client.delete(base).json()["cleared"] == both
+    assert hosts(client) == []
+    # A name with no session, or that cannot be one, is refused.
+    for method, params, code in (
+        ("delete", {"session": "typo"}, 404), ("delete", {"session": "files"}, 400),
+    ):
+        assert getattr(client, method)(base, params=params).status_code == code
+
+
+def test_clearing_tester_leaves_the_defaults_snapshot(client):
+    base = f"/admin/workspaces/{WS}/site-data"
+    assert client.delete(base, params={"session": "tester"}).json()["cleared"] == ["t.example.test"]
+    assert hosts(client, "tester") == []
+    assert hosts(client) == ["a.example.test", "b.example.test"]

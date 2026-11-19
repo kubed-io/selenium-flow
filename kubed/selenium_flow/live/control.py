@@ -343,6 +343,11 @@ class Controls:
             and any(t.who == who for t in episode.tunnels)
         )
 
+    def quiet(self) -> bool:
+        """Whether no session is held, requested or has a hand-back unsaid: a
+        result then has nothing to carry, and need not look up its session."""
+        return not self._episodes and not self._unsaid
+
     def notice(self, workspace: str) -> dict | None:
         """What the agent's result says about control, or None; a hand-back once."""
         episode = self._episodes.get(workspace)

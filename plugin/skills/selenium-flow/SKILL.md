@@ -8,9 +8,9 @@ description: Drive a real Chrome or Firefox browser on Selenium Grid through the
 The browser is real and stays open between calls, with its page, cookies,
 storage and scroll position. Your workspace, named by your client's
 `?workspace=` or `Sf-Workspace` (`stdio` over stdio), keeps your settings, last
-page, files, flows and site data. The session is the live browser in it, at most
-one. When a session ends, `open_session()` with no arguments brings you back to
-the same page.
+page, files, flows and site data. A session is a live browser in it: the
+workspace's default session, and sub-sessions you name. When a session ends,
+`open_session()` with no arguments brings you back to the same page.
 
 ## Rules
 
@@ -48,8 +48,32 @@ one you cannot fill, or the flow would change something you were not asked to
 change. A flow that fits the page may not fit the task.
 
 `open_session(browser="firefox")` switches browser and ends the one you hold. To
-hold Chrome and Firefox at once, use two workspace names. Downloads go with an
+hold Chrome and Firefox at once, use two sessions, or two workspace names. Downloads go with an
 ended browser, so `keep_file` one first.
+
+## Sub-sessions
+
+Pass `session="name"` to `open_session` for a second browser in the same
+workspace, with its own sign-ins, beside your default. Give every later call that
+acts on it the same `session`; a call without one reaches the default.
+A caller with no token subject (the static token, stdio) always reaches the
+default. A caller whose token has a subject that does not own the default gets
+its own sub-session, labelled by its username and made on its first call; it
+needs `open_session` for a browser.
+
+- A main agent gives each subagent its own session name. The server cannot tell
+  callers on one connection apart, and callers that name the same session are one
+  caller: their calls take turns.
+- A sub-session starts empty: no cookies, settings or page from another session.
+  It lives `session.sub_ttl` (an hour) after its last use; after that, name it
+  again with `open_session`.
+- Only `open_session` opens a browser. A call that names a session never opened,
+  or one that has expired, is refused with `NoSession`, so a typo opens nothing.
+- A connection can pin its session with `?session=name` or `Sf-Session`; its
+  calls then reach that session, and a different `session` argument is refused.
+- The workspace's files, flows, config and history are shared by every session.
+- `current`, `downloads`, `console`, `network`, `files` and `site-data` cannot
+  name a session.
 
 ## A whole task
 
@@ -70,7 +94,7 @@ Open the one row that matches, at `skill://selenium-flow/` plus its path.
 
 | When | Read |
 |---|---|
-| Naming or sharing a workspace, a `reopened` result, browser version, headless or recording, a person in control of the browser | `references/WORKSPACES.md` |
+| Naming or sharing a workspace, naming a session, a `reopened` result, browser version, headless or recording, a person in control of the browser | `references/WORKSPACES.md` |
 | Reading a page, choosing a selector, `outline` entries, screenshots and prints | `references/READING_PAGES.md` |
 | Hover menus, dragging, typing, keys, uploads, iframes, dialogs, scrolling | `references/INTERACTION.md` |
 | A timeout, an error, a click or hover that did nothing, a blank screenshot, an `open_session` that fails | `references/TROUBLESHOOTING.md` |
@@ -135,6 +159,12 @@ resources gets the tools `read_resource(uri)` and `list_resources()`.
 | `workspace://network` | the requests the page made, each with an id; needs capture too |
 | `workspace://network{?filter,pages}` | the same, narrowed: `?filter=failed`, `?filter=xhr` |
 | `workspace://network/{id}` | one request in full |
+| `session://{name}` | one session of the workspace, as `workspace://current` is yours; `default` is the workspace's own, and a name with no session is not found |
+| `session://{name}/console` | that session's console |
+| `session://{name}/console{?level,pages}` | the same, narrowed |
+| `session://{name}/network` | that session's requests |
+| `session://{name}/network{?filter,pages}` | the same, narrowed |
+| `session://{name}/downloads` | that session's downloads |
 | `secret://secrets` | the secrets you may type, never their values |
 | `flow://flows` | the flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

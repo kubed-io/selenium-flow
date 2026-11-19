@@ -1,9 +1,9 @@
 # Workspaces
 
 A workspace is the named box that keeps your flows, files, site data, page
-history and the settings you passed. A session is the live browser in it, at
-most one, started by `open_session` and ended by `end_browser`, an admin or the
-Grid's reaper. The server never invents a name: the caller names the workspace.
+history and the settings you passed. A session is a live browser in it, started
+by `open_session` and ended by `end_browser`, an admin or the Grid's reaper. The
+workspace has a default session and may have sub-sessions (below). The server never invents a name: the caller names the workspace.
 
 ## Naming your workspace
 
@@ -26,6 +26,31 @@ Grid's reaper. The server never invents a name: the caller names the workspace.
   knows it drives your browser. To share a browser, share the name. A connector's
   header is the same for every member of the organisation, so they all share one
   workspace and one browser.
+
+## Sessions in a workspace
+
+The default session is the one a call reaches when it names none; a caller
+with no token subject (the static token, stdio) always does. A caller whose
+token has a subject that does not own the default gets its own sub-session
+instead, made on its first call and opened with `open_session`. A
+sub-session is another Grid browser in the same workspace, opened with
+`open_session(session="tester")` and reached by passing the same `session` to
+any tool or resource name.
+
+| Fact | Holds |
+|---|---|
+| Name | letters, digits, dots, dashes and underscores like a workspace's; `default` is the workspace's own; `current`, `downloads`, `console`, `network`, `files` and `site-data` are reserved |
+| Contents | its own cookies, storage, downloads, capture and window; it starts empty and nothing is copied from another session |
+| Shared | the workspace's files, flows, config and history; each history entry names its session |
+| Life | `session.sub_ttl` (default 3600 seconds) after its last use; then it is gone and a tool call naming it is `NoSession`; reading `session://{name}` says not found |
+| Opening | only `open_session` opens a browser; a typo is refused and opens nothing |
+| Callers | callers that name the same session are one caller and take turns; a main agent gives each subagent its own name |
+| Pin | `?session=tester` on the MCP URL, or an `Sf-Session` header, fixes a connection to a session; a call naming another is refused |
+| Reading | `session://{name}` is that session as `workspace://current` is yours; `session://{name}/console`, `/network` and `/downloads` are its own |
+
+A flow runs in one session: the one its `run_flow` names. A person's control
+covers one session, so `await_control` takes the `session` a refused call
+named.
 
 ## What `workspace://current` says
 

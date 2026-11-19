@@ -12,6 +12,7 @@ import logging
 import time
 
 from ..principal import Principal
+from ..workspace import sessions
 
 log = logging.getLogger("kubed.selenium_flow.live")
 
@@ -23,6 +24,12 @@ REASON_CAP = 200  # a reason can come from the node or the viewer
 def clean(name: str, cap: int = NAME_CAP) -> str:
     """Text safe to put in a log line: control characters become ``?``, cut to `cap`."""
     return "".join("?" if not c.isprintable() else c for c in name)[:cap]
+
+
+def named(workspace: str) -> str:
+    """A session's key as a line names it: the workspace, and whether it is a
+    sub-session, never the sub-session's own name (`sessions.logged`)."""
+    return clean(sessions.logged(workspace))
 
 
 def viewer_of(principal: Principal | None) -> str:
@@ -67,7 +74,7 @@ def opened(who: str, workspace: str, session: str, mode: str) -> None:
     log.info(
         "live: %s opened the live view of %s (%s) in %s",
         shown(who),
-        clean(workspace),
+        named(workspace),
         session,
         mode,
     )
@@ -78,7 +85,7 @@ def switched(who: str, workspace: str, session: str, mode: str) -> None:
         "live: %s switched to %s in %s (%s)",
         shown(who),
         mode,
-        clean(workspace),
+        named(workspace),
         session,
     )
 
@@ -88,7 +95,7 @@ def asked(who: str, workspace: str, session: str) -> None:
     log.info(
         "live: %s asked for control of %s (%s)",
         shown(who),
-        clean(workspace),
+        named(workspace),
         session,
     )
 
@@ -99,7 +106,7 @@ def pasted(who: str, workspace: str, session: str, characters: int) -> None:
         "live: %s pasted %d characters into %s (%s)",
         shown(who),
         characters,
-        clean(workspace),
+        named(workspace),
         session,
     )
 
@@ -110,7 +117,7 @@ def left(
     log.info(
         "live: %s left the live view of %s (%s) after %s in %s: %s",
         shown(who),
-        clean(workspace),
+        named(workspace),
         session,
         duration(seconds),
         mode,
@@ -122,7 +129,7 @@ def refused(who: str | None, workspace: str, why: str) -> None:
     log.warning(
         "live: refused %s the live view of %s: %s",
         shown(who) if who else "someone",
-        clean(workspace),
+        named(workspace),
         clean(why, REASON_CAP),
     )
 
@@ -138,5 +145,5 @@ def unreadable(path: str) -> None:
 def failed(workspace: str, error: BaseException) -> None:
     """An unexpected failure, by its type alone: its message may quote a URL."""
     log.warning(
-        "live: the live view of %s failed: %s", clean(workspace), type(error).__name__
+        "live: the live view of %s failed: %s", named(workspace), type(error).__name__
     )

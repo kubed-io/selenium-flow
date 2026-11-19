@@ -1,5 +1,5 @@
 import type { Api } from './api'
-import { workspacePath } from './api'
+import { DEFAULT_SESSION, workspacePath } from './api'
 import { Latest } from './latest'
 import type { ConfigPayload, FileEntry, FilesData, FilesResponse, FlowDoc, FlowsListing, HistoryPayload, WorkspaceRow, SiteDataPayload, WorkspacesPayload } from '../lib/types'
 
@@ -53,6 +53,12 @@ export class WorkspaceModel {
   /* The workspace's config; null until its first load answers. */
   config = $state.raw<ConfigPayload | null>(null)
   configError = $state<string | null>(null)
+  /* The session the session tabs show; the default when none is named. */
+  session = $state(DEFAULT_SESSION)
+  /* The picked sub-session's own row (`GET …/session?session=`); null for the default. */
+  sessionRow = $state.raw<WorkspaceRow | null>(null)
+  /* Each sub-session's downloads by name; the default's are `files.downloads`. */
+  subDownloads = $state.raw<Record<string, FileEntry[]>>({})
   flowDoc = $state.raw<FlowDoc | null>(null)
   flowDocError = $state<{ name: string; message: string } | null>(null)
 
@@ -69,16 +75,77 @@ export class WorkspaceModel {
   #flowLoads = new Latest()
   #docLoads = new Latest()
   #configLoads = new Latest()
+  #sessionLoads = new Latest()
+  #subLoads = new Latest()
+  /* The sessions' liveness and browsers as last loaded for: a change reloads
+     Files, since each session's downloads are its browser's. */
+  #shownSessions: string | null = null
   // undefined until a row is seen.
   #shownConfig: string | undefined = undefined
   #disposed = false
   readonly key: string
   #api: Api
 
-  constructor(key: string, api: Api) {
+  constructor(key: string, api: Api, session: string = DEFAULT_SESSION) {
     this.key = key
     this.#api = api
     this.row = { key }
+    this.session = session
+  }
+
+  /* The session tabs follow the chips: Site data and the Session row load for
+     the one picked. Files, Flows, History and Config never do. */
+  pick(name: string) {
+    if (name === this.session) return
+    this.session = name
+    this.sessionRow = null
+    this.siteData = null
+    this.siteDataError = null
+    void this.loadSiteData()
+    void this.loadSession()
+  }
+
+  loadSession(): Promise<void> {
+    if (this.#disposed) return Promise.resolve()
+    if (this.session === DEFAULT_SESSION) {
+      this.#sessionLoads.abort()
+      this.sessionRow = null
+      return Promise.resolve()
+    }
+    const named = this.session
+    return this.#sessionLoads.run(
+      (signal) => this.#api<WorkspaceRow>(workspacePath(this.key, '/session', named), 'GET', undefined, signal),
+      (data) => { this.sessionRow = data },
+      () => { this.sessionRow = null },
+    )
+  }
+
+  #sessionsStamp = (row: WorkspaceRow) =>
+    (row.sessions ?? []).map((s) => s.name + ':' + (s.live ? 1 : 0) + ':' + (s.browser ?? '')).join(',')
+
+  #loadSubDownloads(): Promise<void> {
+    const names = (this.row.sessions ?? []).filter((s) => !s.default).map((s) => s.name)
+    if (!names.length) {
+      this.#subLoads.abort()
+      this.subDownloads = {}
+      return Promise.resolve()
+    }
+    return this.#subLoads.run(
+      async (signal) => {
+        const out: Record<string, FileEntry[]> = {}
+        await Promise.all(names.map(async (n) => {
+          try {
+            const d = await this.#api<{ downloads?: FileEntry[] }>(workspacePath(this.key, '/files/downloads', n), 'GET', undefined, signal)
+            out[n] = d.downloads || []
+          } catch (e) {
+            if (signal.aborted) throw e
+            out[n] = []
+          }
+        }))
+        return out
+      },
+      (v) => { this.subDownloads = v },
+    )
   }
 
   loadFiles(): Promise<void> {
@@ -108,6 +175,8 @@ export class WorkspaceModel {
         }
         this.filesError = null
         this.loadingFiles = false
+        this.#shownSessions = this.#sessionsStamp(row)
+        void this.#loadSubDownloads()
       },
       (e) => {
         this.files = NO_FILES
@@ -123,8 +192,9 @@ export class WorkspaceModel {
     )
   }
 
-  filesSettled(): Promise<void> {
-    return this.#fileLoads.settled()
+  async filesSettled(): Promise<void> {
+    await this.#fileLoads.settled()
+    await this.#subLoads.settled()
   }
 
   flowsSettled(): Promise<void> {
@@ -160,7 +230,7 @@ export class WorkspaceModel {
   loadSiteData(): Promise<void> {
     if (this.#disposed) return Promise.resolve()
     return this.#siteLoads.run(
-      (signal) => this.#api<SiteDataPayload>(workspacePath(this.key, '/site-data'), 'GET', undefined, signal),
+      (signal) => this.#api<SiteDataPayload>(workspacePath(this.key, '/site-data', this.session), 'GET', undefined, signal),
       (data) => { this.siteData = data; this.siteDataError = null },
       (e) => {
         this.siteDataError = e.message
@@ -225,16 +295,25 @@ export class WorkspaceModel {
       if (this.view) this.view = { ...this.view, downloads: [], downloadsEmpty: downloadsEmpty(!!row.session_id) }
     }
     this.#showRow(row)
+    // A sub-session's browser came or went: its downloads with it.
+    if (this.#sessionsStamp(row) !== this.#shownSessions) this.#shownFiles = null
+    if (this.session !== DEFAULT_SESSION) void this.loadSession()
     if (filesStamp(row) !== this.#shownFiles) void this.loadFiles()
     if ((row.flows_rev ?? null) !== this.#shownFlows) void this.loadFlows(currentFlow, vanished)
   }
 
+  /* The default's site-data rev and every sub-session's: a save in the
+     picked sub moves its own, and History's pills count each session's. */
+  #siteStamp = (row: WorkspaceRow) =>
+    [row.site_data_rev ?? null, ...(row.sessions ?? []).filter((s) => !s.default).map((s) => [s.name, s.site_data_rev ?? null])]
+
   #showRow(row: WorkspaceRow) {
     this.row = row
     this.headed = true
-    const siteMoved = (row.site_data_rev ?? null) !== this.#shownSiteData
+    const siteRev = JSON.stringify(this.#siteStamp(row))
+    const siteMoved = siteRev !== this.#shownSiteData
     const historyMoved = (row.history_rev ?? null) !== this.#shownHistory
-    this.#shownSiteData = row.site_data_rev ?? null
+    this.#shownSiteData = siteRev
     this.#shownHistory = row.history_rev ?? null
     // Each tab shows some of the other: History's saved pills are site data,
     // and Site data's rows are in history order (Copilot, #51).
@@ -259,5 +338,7 @@ export class WorkspaceModel {
     this.#historyLoads.abort()
     this.#docLoads.abort()
     this.#configLoads.abort()
+    this.#sessionLoads.abort()
+    this.#subLoads.abort()
   }
 }

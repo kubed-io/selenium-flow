@@ -2249,7 +2249,9 @@ OLD = {
 def test_a_record_without_sources_loses_its_settings_and_its_browser():  # ruling 14
     record = Workspace.from_json(json.dumps(OLD))
     assert record.settings == {} and record.set_by == {} and record.session_id == ""
-    assert record.history == OLD["history"] and record.site_data == OLD["site_data"]
+    # An entry from before sessions were named is the default's (WS-54).
+    assert record.history == [{**v, "session": "default"} for v in OLD["history"]]
+    assert record.site_data == OLD["site_data"]
     assert record.sent == OLD["sent"] and record.ran == OLD["ran"]
 
 

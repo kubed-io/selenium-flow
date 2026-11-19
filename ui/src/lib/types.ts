@@ -32,6 +32,13 @@ export interface SentCapability {
 
 export type SetBy = 'config' | 'client' | 'caller'
 
+/** One of a workspace's sessions: the default, or a sub-session, as its row lists it. */
+export interface SessionInfo {
+  name: string; label: string; default: boolean; live: boolean; browser: string | null
+  /** Moves when this session's own snapshot does: a save, a Forget, a Clear. */
+  site_data_rev?: string | null
+}
+
 export interface WorkspaceRow {
   key: string
   /** A workspace with a config: it never expires. */
@@ -77,6 +84,8 @@ export interface WorkspaceRow {
   ran?: { version: string | null; node: string | null; live_view: boolean | null } | null
   /** How the last session ended, when this server ended it. */
   ended?: { at: number; by: 'admin' | 'caller' } | null
+  /** Every session, the default first. */
+  sessions?: SessionInfo[]
 }
 
 export interface WorkspacesPayload {
@@ -214,6 +223,8 @@ export interface HistoryRow {
   at: number
   saved: SavedCounts | null
   secrets: SiteSecret[]
+  /** The session of the latest visit; absent reads as the default. */
+  session?: string
 }
 /** `clears`: the origins Clear would take (every one but the current). */
 export interface HistoryPayload { key: string; sites: HistoryRow[]; clears: string[] }
@@ -235,6 +246,10 @@ export interface ContextData {
   capture?: boolean
   capturing?: boolean
   captured?: Captured
+  /** The caller's session (WS-72), and whether it is the default. */
+  session?: string
+  default?: boolean
+  sessions?: SessionInfo[]
 }
 
 export interface Captured { console: number; network: number; errors: number; failed_requests: number; dropped?: number }

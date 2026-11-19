@@ -75,7 +75,7 @@
       confirm: 'Forget', danger: true,
       onconfirm: async () => {
         refuseIfGone()
-        await api(workspacePath(m.key, '/site-data/' + encodeURIComponent(r.site)), 'DELETE')
+        await api(workspacePath(m.key, '/site-data/' + encodeURIComponent(r.site), m.session), 'DELETE')
         // History's saved pills read this snapshot too.
         if (!isGone()) { void m.loadSiteData(); void m.loadHistory() }
       },
@@ -90,7 +90,7 @@
       confirm: 'Clear', danger: true,
       onconfirm: async () => {
         refuseIfGone()
-        await api(workspacePath(m.key, '/site-data'), 'DELETE')
+        await api(workspacePath(m.key, '/site-data', m.session), 'DELETE')
         if (!isGone()) { void m.loadSiteData(); void m.loadHistory() }
       },
     })

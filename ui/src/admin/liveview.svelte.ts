@@ -9,6 +9,8 @@ export interface LiveMint { url: string; heartbeat: number; grace: number }
 interface LiveOptions {
   api: Api
   key: string
+  /** The session whose browser this is; none reads the default's. */
+  session?: string
   root: string
   target: HTMLElement
   load: () => Promise<{ RFB: RfbClass }>
@@ -94,7 +96,7 @@ export class LiveView {
     this.unavailable = ''
     let mint: LiveMint
     try {
-      mint = await api<LiveMint>(workspacePath(key, '/live'))
+      mint = await api<LiveMint>(workspacePath(key, '/live', this.#opts.session))
     } catch (err) {
       this.#fail((err as Error).message)
       return
@@ -136,7 +138,7 @@ export class LiveView {
   async paste(text: string): Promise<number> {
     if (this.mode !== 'control') throw new Error('Paste types into the browser in Control')
     const chars = text.length > PASTE_CAP ? [...text].slice(0, PASTE_CAP).join('') : text
-    const done = await this.#opts.api<{ typed: number }>(workspacePath(this.#opts.key, '/live/paste'), 'POST', { text: chars })
+    const done = await this.#opts.api<{ typed: number }>(workspacePath(this.#opts.key, '/live/paste', this.#opts.session), 'POST', { text: chars })
     return done.typed
   }
 

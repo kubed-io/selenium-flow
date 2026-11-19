@@ -216,18 +216,43 @@ def test_the_history_is_one_row_per_host_current_first_with_counts_and_secrets()
     ]
     data = snapshot(cookies=[cookie("sid", "app.example.com"), cookie("ab", ".example.com")],
                     origins={APP: {"a": "1", "b": "2"}})
-    assert sd.history_view(history, data, SECRETS) == {"sites": [
+    assert sd.history_view(history, {"default": data}, SECRETS) == {"sites": [
         {"site": "app.example.com", "url": "https://app.example.com/x", "at": NOW - 60,
-         "saved": {"cookies": 2, "local": 2, "session": 0},
+         "session": "default", "saved": {"cookies": 2, "local": 2, "session": 0},
          "secrets": [{"name": "app", "description": "the app", "keys": ["user", "pass"]}]},
         {"site": "example.com", "url": "https://example.com/", "at": NOW - 3600,
-         "saved": None, "secrets": []},
+         "session": "default", "saved": None, "secrets": []},
     ]}
+
+
+def test_a_host_two_sessions_visited_is_a_row_each_counted_from_its_own_snapshot():
+    history = [
+        {**visit("https://app.example.com/t", NOW - 10), "session": "tester"},
+        {**visit("https://app.example.com/d", NOW - 20), "session": "default"},
+        {**visit("https://example.com/", NOW - 30), "session": "gone"},
+    ]
+    snapshots = {
+        "default": snapshot(cookies=[cookie("sid", "app.example.com")]),
+        "tester": snapshot(cookies=[cookie("a", "app.example.com"),
+                                    cookie("b", "app.example.com")]),
+    }
+    rows = sd.history_view(history, snapshots, SECRETS)["sites"]
+    assert [(r["site"], r["session"], r["url"]) for r in rows] == [
+        ("app.example.com", "tester", "https://app.example.com/t"),
+        ("app.example.com", "default", "https://app.example.com/d"),
+        ("example.com", "gone", "https://example.com/"),
+    ]
+    assert [r["saved"] for r in rows] == [
+        {"cookies": 2, "local": 0, "session": 0},
+        {"cookies": 1, "local": 0, "session": 0},
+        None,  # its record is gone, and its snapshot with it
+    ]
+    assert rows[1]["secrets"] == rows[0]["secrets"] != []
 
 
 def test_a_secret_never_makes_a_row_and_nothing_visited_is_no_rows():
     data = snapshot(cookies=[cookie("t", "never.example.net")])
-    assert sd.history_view([], data, SECRETS) == {"sites": []}
+    assert sd.history_view([], {"default": data}, SECRETS) == {"sites": []}
 
 
 def test_a_secret_whose_leash_is_rejected_is_allowed_nowhere():

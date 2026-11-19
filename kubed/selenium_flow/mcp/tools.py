@@ -8,7 +8,9 @@ model reads: the docstrings are written for a model deciding whether to call
 the tool.
 
 No tool takes a session id. A caller names its workspace (``?workspace=`` or
-``Sf-Workspace``) and ``Workspaces`` finds the browser it holds.
+``Sf-Workspace``) and ``Workspaces`` finds the browser it holds. Every tool
+that acts on a browser takes ``session``, which names one of the workspace's
+sessions (`Workspaces.session_of`); it is the tool's, never the action's.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import json
 from collections.abc import Callable
 from typing import Annotated, Literal
 
+import anyio
 from fastmcp import Context, FastMCP
 from fastmcp.apps import AppConfig
 from fastmcp.tools import ToolResult
@@ -77,6 +80,18 @@ TabAction = Annotated[Literal[TAB_ACTIONS], BeforeValidator(_lowered)]
 PrintFormat = Annotated[Literal[PRINT_FORMATS], BeforeValidator(_lowered)]
 Browser = Annotated[Literal[BROWSERS] | None, BeforeValidator(_blank_is_unset)]
 RequestId = Annotated[str, Field(min_length=1, max_length=ID_LIMIT)]
+# Which of the workspace's sessions a call acts in (WS-49), on every tool that
+# acts on a browser: the only thing on a request that tells two callers on one
+# connection apart (SURF-46).
+Session = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Which session of this workspace to act in: a sub-session's name, or "
+            "default. Leave it out to act in your own. Only open_session opens one."
+        )
+    ),
+]
 
 
 def _as_selector(value):
@@ -208,6 +223,8 @@ def register(
 
     def act(row: Capability, arguments: dict):
         """Whose browser this is, then act on it through ``Workspaces.act``."""
+        # The tool's, never the action's: which session it acts in.
+        session = arguments.pop("session", None)
         if "secret" in arguments:
             # `write` types a secret through the catalogue.
             if arguments["secret"] is None and arguments.get("text") is None:
@@ -217,7 +234,7 @@ def register(
                     catalogue,
                     actions,
                     workspaces,
-                    clients.caller().name,
+                    workspaces.session_of(clients.caller(), session),
                     arguments,
                     surface="mcp",
                 )
@@ -225,6 +242,7 @@ def register(
         return workspaces.act(
             clients.caller(),
             lambda s: getattr(actions, row.method)(s, **arguments),
+            session=session,
             reshapes=row.reshapes,
             tool=row.name,
             surface="mcp",
@@ -273,6 +291,7 @@ def register(
         capabilities: dict[str, JsonValue] | None = None,
         fresh: bool = False,
         restore_site_data: bool = True,
+        session: Session = None,
     ) -> dict:
         """Start a session in this workspace, or come back to the one it had. Call it
         before anything else: nothing opens a browser for you.
@@ -310,6 +329,9 @@ def register(
         - fresh=true starts on about:blank. Saved site data comes back by default;
           restore_site_data=false opens without it and deletes it, which is how you
           start as a new user.
+        - session="tester" opens a sub-session: a browser of its own beside the
+          workspace's default, starting empty, that another call reaches with the
+          same session. It never ends another session's browser; others lists them.
 
         capabilities is the last resort, only for something no option above covers:
         extra W3C capabilities sent to the Grid as given, best effort, and
@@ -320,7 +342,7 @@ def register(
         """
 
     @action("network_body")
-    def network_body(id: RequestId) -> dict:
+    def network_body(id: RequestId, session: Session = None) -> dict:
         """Fetch the response body of one request the page made, by its id from
         workspace://network (an id looks like 3.7). Text comes back up to 100 kB,
         with truncated=true beyond that; for an image or other binary you get its
@@ -329,7 +351,7 @@ def register(
         """
 
     @action("save_site_data")
-    def save_site_data(url: str | None = None) -> dict:
+    def save_site_data(url: str | None = None, session: Session = None) -> dict:
         """Save this workspace's site data, so a new browser comes back signed in.
 
         It keeps every cookie the browser holds, the localStorage of the sites it has
@@ -347,7 +369,7 @@ def register(
         """
 
     @own("end_browser")
-    def end_browser() -> dict:
+    def end_browser(session: Session = None) -> dict:
         """Quit this workspace's browser and free its Grid slot.
 
         Call it when finished, and on failure paths too: browsers are scarce, and an
@@ -356,11 +378,11 @@ def register(
         and you did not keep go with it.
         """
         caller = clients.caller()
-        workspaces.end_browser(caller)
+        workspaces.end_browser(caller, session=session)
         return {"success": True, "workspace": caller.name}
 
     @own("await_control", task=waiting.TASK)
-    async def await_control(ctx: Context) -> dict:
+    async def await_control(ctx: Context, session: Session = None) -> dict:
         """Wait for the person who took control of this browser to hand it back.
 
         A person can take control of your browser from the admin's live view, to
@@ -378,8 +400,13 @@ def register(
 
         On a client without background tasks it returns after about 90 seconds with
         handed_back=false, saying to call again; do, until it hands back.
+
+        A person's control covers one session: pass the session a refused call named
+        (or leave it out for your own) and this waits for that one only.
         """
-        name = clients.caller().name
+        caller = clients.caller()
+        # A read of the store, which may be a network call: off the loop.
+        name = await anyio.to_thread.run_sync(workspaces.reading, caller, session)
         controls = workspaces.control
         return await waiting.waited(
             ctx,
@@ -391,7 +418,7 @@ def register(
         )
 
     @action("navigate")
-    def navigate(url: str) -> dict:
+    def navigate(url: str, session: Session = None) -> dict:
         """Go to a URL. Returns the URL and title the browser ended on.
 
         Every other action also takes url, and navigates there first only if the
@@ -427,6 +454,7 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = False,
+        session: Session = None,
     ) -> dict: ...
 
     @action(
@@ -449,6 +477,7 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = True,
+        session: Session = None,
     ) -> dict: ...
 
     @action(
@@ -467,6 +496,7 @@ def register(
         selector: SelectorArg = None,
         index: int | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
+        session: Session = None,
     ) -> dict: ...
 
     @action(
@@ -488,12 +518,14 @@ def register(
         action: TabAction = "list",
         id: str | None = None,
         url: str | None = None,
+        session: Session = None,
     ) -> dict: ...
 
     @action("resize")
     def resize(
         width: int | None = None,
         height: int | None = None,
+        session: Session = None,
     ) -> dict:
         """Resize the browser window.
 
@@ -516,6 +548,7 @@ def register(
         action: DialogAction = "accept",
         text: str | None = None,
         wait_timeout: int = DIALOG_TIMEOUT,
+        session: Session = None,
     ) -> dict: ...
 
     @action("upload_file")
@@ -528,6 +561,7 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         file: str | None = None,
+        session: Session = None,
     ) -> dict:
         """Attach a file to a file input (selector). Give exactly one source:
 
@@ -549,6 +583,7 @@ def register(
         submit: bool = False,
         wait_timeout: int = WAIT_TIMEOUT,
         secret: SecretRef | None = None,
+        session: Session = None,
     ) -> dict:
         """Type into an input, textarea or contenteditable, and read the value back so
         you can see it landed. clear (default true) replaces what is there;
@@ -582,6 +617,7 @@ def register(
         selector: SelectorArg = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
+        session: Session = None,
     ) -> dict: ...
 
     @action("extract")
@@ -589,6 +625,7 @@ def register(
         selector: SelectorArg = None,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
+        session: Session = None,
     ) -> dict:
         """Read an element's visible text and HTML.
 
@@ -624,10 +661,13 @@ def register(
         interactive: bool = True,
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
+        session: Session = None,
     ) -> dict: ...
 
     @action("execute_script")
-    def execute_script(script: str, url: str | None = None) -> dict:
+    def execute_script(
+        script: str, url: str | None = None, session: Session = None
+    ) -> dict:
         """Run JavaScript in the page and return what it returns.
 
         Check the other tools first: interact, write, extract and outline cover most
@@ -659,6 +699,7 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         stable_for: float = 0,
+        session: Session = None,
     ) -> dict: ...
 
     @action("screenshot", shape=_as_image)
@@ -671,6 +712,7 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         save: bool = True,
         filename: str | None = None,
+        session: Session = None,
     ) -> Image | ToolResult:
         """Capture a PNG of the viewport, of one element (selector), or of the whole
         page (full_page), returned as an image. Use it only when the look is the
@@ -695,6 +737,7 @@ def register(
         filename: str | None = None,
         landscape: bool = False,
         background: bool = False,
+        session: Session = None,
     ) -> dict:
         """Print the page into the workspace's files, kept past the browser.
 

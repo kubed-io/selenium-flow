@@ -39,6 +39,16 @@
       "recording": false,
       "sent": [],
       "session_id": "live-1",
+      "sessions": [
+        {
+          "browser": "chrome",
+          "default": true,
+          "label": "default",
+          "live": true,
+          "name": "default",
+          "site_data_rev": "[null, []]"
+        }
+      ],
       "set_by": {},
       "site_data_count": 0,
       "site_data_rev": "[null, []]",
@@ -84,6 +94,16 @@
       "recording": false,
       "sent": [],
       "session_id": "live-1",
+      "sessions": [
+        {
+          "browser": "chrome",
+          "default": true,
+          "label": "default",
+          "live": true,
+          "name": "default",
+          "site_data_rev": "[null, []]"
+        }
+      ],
       "set_by": {},
       "site_data_count": 0,
       "site_data_rev": "[null, []]",
@@ -129,6 +149,16 @@
       "recording": false,
       "sent": [],
       "session_id": null,
+      "sessions": [
+        {
+          "browser": "chrome",
+          "default": true,
+          "label": "default",
+          "live": false,
+          "name": "default",
+          "site_data_rev": "[1790799970.0, [\"app.example.com\"]]"
+        }
+      ],
       "set_by": {},
       "site_data_count": 1,
       "site_data_rev": "[1790799970.0, [\"app.example.com\"]]",
@@ -208,6 +238,16 @@
         }
       ],
       "session_id": null,
+      "sessions": [
+        {
+          "browser": "firefox",
+          "default": true,
+          "label": "default",
+          "live": false,
+          "name": "default",
+          "site_data_rev": "[null, []]"
+        }
+      ],
       "set_by": {},
       "site_data_count": 0,
       "site_data_rev": "[null, []]",

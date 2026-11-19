@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse, Response
 
 from ... import faults
 from ...core.defaults import DEFAULT_BROWSER
+from ...faults import NotFound
 from ...names import (
     GLOBAL_WORKSPACE,
     RECORDINGS_DIR,
@@ -30,6 +31,7 @@ from ...names import (
     library_of,
 )
 from ...site_data import snapshot as site_data
+from ...workspace import sessions
 from ...workspace.calls import told
 from ...workspace.store import Workspace
 from ...workspace.workspaces import Caller
@@ -89,13 +91,118 @@ def _grid_facts(session: dict) -> dict:
     return {"version": session.get("version"), "node": session.get("node")}
 
 
+def session_key(key: str, request: Request) -> tuple[str, str]:
+    """The session ``?session=`` names in the workspace ``key``, as ``(its
+    key, its name)``: the default when absent, a ValueError (a 400) for a name
+    that cannot be one."""
+    named = request.query_params.get("session") or sessions.DEFAULT
+    if named != sessions.DEFAULT:
+        named = sessions.valid_session_name(named)
+    return sessions.key_of(key, named), named
+
+
+def known_session(workspaces, key: str, request: Request) -> tuple[str, str]:
+    """`session_key`, for a route that reads or ends a session that must exist:
+    a NotFound (a 404) for a sub-session with no record. The default always
+    exists, a workspace with no record included."""
+    skey, named = session_key(key, request)
+    if named != sessions.DEFAULT and workspaces.store.get(skey) is None:
+        # Not the name: the log line that refuses it must carry none.
+        raise NotFound(f"workspace {key!r} has no session of that name")
+    return skey, named
+
+
+def session_facts(
+    workspaces, key: str, record, running: dict, grid_listed: bool
+) -> dict:
+    """What one session's record says, as the Session tab shows it: its browser,
+    its settings and where each came from, what the Grid ran, how it ended.
+
+    ``key`` is the session's store key; ``running`` is the Grid's listing by
+    id, and ``grid_listed`` whether it could be had at all.
+    """
+    sid = record.session_id
+    live = bool(sid) and sid in running
+    return {
+        "session_id": sid or None,
+        "attached": bool(sid),
+        "live": live,
+        # Without a listing `live` is a guess, so the stored `record` setting
+        # stands in for the badge.
+        "grid_listed": grid_listed,
+        "recording": bool(
+            (live or (sid and not grid_listed))
+            and (record.settings or {}).get("record")
+        ),
+        "insecure": bool((record.settings or {}).get("insecure")),
+        "headless": bool((record.settings or {}).get("headless")),
+        # Where each setting came from; admin payload only.
+        "set_by": dict(record.set_by),
+        **capture_facts(workspaces, key, record, live),
+        "browser": (record.settings or {}).get("browser") or DEFAULT_BROWSER,
+        # Live, the size it has; idle, the size the next open asks for (None:
+        # the node's default).
+        "window": (record.window_seen or record.window) if live else record.window,
+        "grid_timeout": record.grid_timeout,
+        # Kept when the session ends, so the idle card shows the last browser.
+        "asked_version": (record.settings or {}).get("version"),
+        "sent": record.sent,
+        "ran": record.ran,
+        "ended": record.ended,
+        "started": record.opened_at or None,
+        "opened_by": record.opened_by,
+        **_grid_facts(running.get(sid, {})),
+    }
+
+
+def site_data_stamp(data: dict, entries) -> tuple[dict, str]:
+    """One session's site-data listing, its hosts ordered by its own history
+    ``entries``, and the stamp its Site data tab watches: a save moves the
+    time, a Forget or a Clear moves the hosts."""
+    listed = site_data.view(data, entries)
+    rev = json.dumps([data.get("saved_at"), [s["site"] for s in listed["sites"]]])
+    return listed, rev
+
+
+def listed_sessions(workspaces, workspace: str, record, running: dict) -> list[dict]:
+    """The sessions of ``workspace`` for its row, the default first: ``{name,
+    label, default, live, browser, site_data_rev}``, each rev its own record's
+    snapshot's, so a picked sub-session's Site data reloads on its own save.
+    A sub-session whose record expired is
+    left out (and its name pruned), and one made only by opening a sub-session
+    in a new workspace lists with no browser."""
+    found = [(sessions.DEFAULT, record), *workspaces.sub_sessions(workspace, record)]
+    return [
+        {
+            "name": name,
+            "label": r.label or name,
+            "default": name == sessions.DEFAULT,
+            "live": bool(r.session_id) and r.session_id in running,
+            "browser": (r.settings or {}).get("browser") or DEFAULT_BROWSER,
+            "site_data_rev": site_data_stamp(r.site_data, record.entries(name))[1],
+        }
+        for name, r in found
+    ]
+
+
+def grid_running(actions) -> tuple[dict, bool]:
+    """The Grid's sessions by id, and whether it could be listed."""
+    try:
+        return {s["session_id"]: s for s in actions.grid.sessions()}, True
+    except Exception as exc:  # noqa: BLE001 - the rows are still worth showing
+        log.info("could not read the grid: %s", faults.message(exc))
+        return {}, False
+
+
 def named(call, workspace: str) -> list[str]:
     """What a workspace has, by name, or nothing if the store cannot say."""
     try:
         return [str(item.get("name", item)) if isinstance(item, dict) else str(item)
                 for item in call(workspace)]
     except Exception:  # noqa: BLE001 - a count is not worth failing a listing
-        log.info("could not list %s for %s", call.__name__, workspace)
+        log.info(
+            "could not list %s for %s", call.__name__, sessions.logged(workspace)
+        )
         return []
 
 
@@ -112,7 +219,9 @@ def revision(flow_store, workspace: str) -> str:
         # A constant here would stop the page repainting at all.
         return str(len(named(flow_store.names, workspace)))
     except Exception:  # noqa: BLE001 - never worth failing a listing
-        log.info("could not read the flow revision for %s", workspace)
+        log.info(
+            "could not read the flow revision for %s", sessions.logged(workspace)
+        )
         return ""
 
 
@@ -162,7 +271,8 @@ async def header(workspaces_payload, key: str, session_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001 - a Grid blip, not a failure
         # faults.message: a requests error quotes the Grid URL, userinfo and all.
         log.info(
-            "workspace header for %s unavailable: %s", key, faults.message(exc)
+            "workspace header for %s unavailable: %s",
+            sessions.logged(key), faults.message(exc),
         )
         return detail
 
@@ -362,13 +472,7 @@ def mount(
             store_failing[0] = False
 
         # One Grid listing for the whole payload, not a liveness call per row.
-        running: dict = {}
-        grid_listed = True
-        try:
-            running = {s["session_id"]: s for s in actions.grid.sessions()}
-        except Exception as exc:  # noqa: BLE001 - the rows are still worth showing
-            grid_listed = False
-            log.info("could not read the grid: %s", faults.message(exc))
+        running, grid_listed = grid_running(actions)
 
         # Once per payload: the shared library's revision is the same for every row.
         shared_rev = (
@@ -384,7 +488,8 @@ def mount(
         rows = []
         for key, record in entries:
             sid = record.session_id
-            live = bool(sid) and sid in running
+            facts = session_facts(workspaces, key, record, running, grid_listed)
+            live = facts["live"]
             downloads = None
             if live:
                 try:
@@ -427,10 +532,9 @@ def mount(
                     for name in names
                 )
             )
-            listed = site_data.view(record.site_data, record.history)
-            # A save moves the time; a Forget or a Clear moves the hosts.
-            site_data_rev = json.dumps(
-                [record.site_data.get("saved_at"), [s["site"] for s in listed["sites"]]]
+            # The default's: another session's is on its `sessions` entry.
+            listed, site_data_rev = site_data_stamp(
+                record.site_data, record.entries(sessions.DEFAULT)
             )
             visited = site_data.history_hosts(record.history)
             config_rev = configs.revision(workspace) if workspace else ""
@@ -441,38 +545,9 @@ def mount(
                     "kept": configs.kept(key),
                     # A hand edit too: the Config tab and its banner reload.
                     "config_rev": config_rev,
-                    "session_id": sid or None,
-                    "attached": bool(sid),
-                    "live": live,
-                    # Without a listing `live` is a guess, so the stored
-                    # `record` setting stands in for the badge.
-                    "grid_listed": grid_listed,
-                    "recording": bool(
-                        (live or (sid and not grid_listed))
-                        and (record.settings or {}).get("record")
-                    ),
-                    "insecure": bool((record.settings or {}).get("insecure")),
-                    "headless": bool((record.settings or {}).get("headless")),
-                    # Where each setting came from; admin payload only.
-                    "set_by": dict(record.set_by),
-                    **capture_facts(workspaces, key, record, live),
+                    **facts,
+                    "sessions": listed_sessions(workspaces, key, record, running),
                     "url": record.url or None,
-                    "browser": (record.settings or {}).get("browser")
-                    or DEFAULT_BROWSER,
-                    # Live, the size it has; idle, the size the next open asks
-                    # for (None: the node's default).
-                    "window": (record.window_seen or record.window)
-                    if live
-                    else record.window,
-                    "grid_timeout": record.grid_timeout,
-                    # The Session tab's: kept when the session ends, so the
-                    # idle card shows the last browser.
-                    "asked_version": (record.settings or {}).get("version"),
-                    "sent": record.sent,
-                    "ran": record.ran,
-                    "ended": record.ended,
-                    "started": record.opened_at or None,
-                    "opened_by": record.opened_by,
                     "files_count": files_count,
                     "files_rev": files_rev,
                     "site_data_count": len(listed["sites"]),
@@ -496,7 +571,6 @@ def mount(
                         if stores
                         else None
                     ),
-                    **_grid_facts(running.get(sid, {})),
                 }
             )
         return {"workspaces": rows, "live_enabled": live_enabled}
@@ -556,30 +630,108 @@ def mount(
 
     @mcp.custom_route(
         f"{prefix}/admin/workspaces/{{key}}/session",
+        methods=["GET"],
+        name="admin_session",
+    )
+    @guarded
+    async def admin_session(request: Request) -> JSONResponse:
+        """One session's row, as the Session tab shows it: ``?session=`` names
+        it, the default when absent. A sub-session with no record is a 404."""
+        workspace = request.path_params["key"]
+
+        def read() -> dict:
+            key, name = known_session(workspaces, workspace, request)
+            record = workspaces.store.get(key) or Workspace()
+            top = workspaces.store.get(workspace) or Workspace()
+            running, listed = grid_running(actions)
+            return {
+                "key": workspace,
+                "session": name,
+                "label": record.label or name,
+                "default": name == sessions.DEFAULT,
+                **session_facts(workspaces, key, record, running, listed),
+                "url": top.page(name) or None,
+            }
+
+        try:
+            return JSONResponse(await run_in_threadpool(read))
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return answer.refused(exc, "the session row", log)
+
+    @mcp.custom_route(
+        f"{prefix}/admin/workspaces/{{key}}/session",
         methods=["DELETE"],
         name="admin_end_session",
     )
     @guarded
     @broadcast.changes
     async def admin_end_session(request: Request) -> JSONResponse:
-        """End the browser session a workspace holds, keeping the workspace.
+        """End the browser a session holds, keeping its record and every other
+        session's browser: ``?session=`` names it, the default when absent.
 
         The record stays (the browser choice, the page it was on), so the next
         ``open_session`` carries on where it left off. Nothing attached is
         success.
         """
-        key = request.path_params["key"]
+        workspace = request.path_params["key"]
         try:
+            key, name = known_session(workspaces, workspace, request)
             session_id = await run_in_threadpool(attached_id, workspaces, key)
             if not session_id:
-                return JSONResponse({"success": True, "key": key, "session_id": None})
+                return JSONResponse(
+                    {"success": True, "key": workspace, "session_id": None}
+                )
             # The tool's own command. `admin=True`: a person's control never
             # refuses the End, and ending releases it.
+            # The default's End is the one it always was.
+            picked = {} if name == sessions.DEFAULT else {"session": name}
             await run_in_threadpool(
-                workspaces.end_browser, Caller(key, "admin"), admin=True
+                lambda: workspaces.end_browser(
+                    Caller(workspace, "admin"), admin=True, **picked
+                )
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
-            return answer.refused(exc, f"ending the session of {key}", log)
-        return JSONResponse({"success": True, "key": key, "session_id": session_id})
+            return answer.refused(exc, f"ending a session of {workspace}", log)
+        return JSONResponse(
+            {"success": True, "key": workspace, "session_id": session_id}
+        )
+
+    @mcp.custom_route(
+        f"{prefix}/admin/workspaces/{{key}}/end-all",
+        methods=["POST"],
+        name="admin_end_all",
+    )
+    @guarded
+    @broadcast.changes
+    async def admin_end_all(request: Request) -> JSONResponse:
+        """End every session's browser in the workspace, keeping every record,
+        and answer how many ended. A workspace with none attached ends none."""
+        workspace = request.path_params["key"]
+
+        def end_all() -> int:
+            store = workspaces.store
+            top = store.get(workspace)
+            names = [sessions.DEFAULT] if top is not None else []
+            names += list(store.sub_records(workspace))
+            ended, failure = 0, None
+            for name in names:
+                if not attached_id(workspaces, sessions.key_of(workspace, name)):
+                    continue
+                try:
+                    workspaces.end_browser(
+                        Caller(workspace, "admin"), admin=True, session=name
+                    )
+                    ended += 1
+                except Exception as exc:  # noqa: BLE001 - the rest still end
+                    failure = failure or exc
+            if failure is not None:
+                raise failure
+            return ended
+
+        try:
+            ended = await run_in_threadpool(end_all)
+        except Exception as exc:  # noqa: BLE001 - errors.py says what it means
+            return answer.refused(exc, f"ending every session of {workspace}", log)
+        return JSONResponse({"success": True, "key": workspace, "ended": ended})
 
     return broadcast

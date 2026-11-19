@@ -7,12 +7,14 @@ export type Route =
   | { view: 'console' }
   | { view: 'secrets' }
   | { view: 'settings' }
-  | { view: 'workspace'; key: string; tab: Tab; flow: string | undefined; site: string | undefined; request: string | undefined }
+  | { view: 'workspace'; key: string; tab: Tab; flow: string | undefined; site: string | undefined; request: string | undefined; session?: string | undefined }
 
 const TABS: readonly string[] = ['session', 'files', 'flows', 'site-data', 'history', 'config', 'console', 'network', 'live']
 
 export function parse(hash: string): Route {
-  const [view, key, tab, rest] = hash.replace(/^#\/?/, '').split('/')
+  // The picked session rides on the address as `?session=`, after the path.
+  const [path, query = ''] = hash.split('?', 2)
+  const [view, key, tab, rest] = path.replace(/^#\/?/, '').split('/')
   if (view === 'console') return { view: 'console' }
   if (view === 'secrets') return { view: 'secrets' }
   if (view === 'settings') return { view: 'settings' }
@@ -30,6 +32,7 @@ export function parse(hash: string): Route {
         flow: picked === 'flows' ? named : undefined,
         site: picked === 'site-data' ? named : undefined,
         request: picked === 'network' ? named : undefined,
+        session: /(?:^|&)session=([^&]*)/.exec(query)?.[1] ? decodeURIComponent(/(?:^|&)session=([^&]*)/.exec(query)![1]) : undefined,
       }
     } catch {
       return { view: 'list' }
@@ -61,11 +64,28 @@ export const hashes = {
 
 export const router = $state<{ route: Route }>({ route: parse(location.hash) })
 
-export const go = (hash: string) => { location.hash = hash }
+/* A workspace hash keeps the session picked in the one on screen, unless the
+   caller says which (`null`: the default). A hash of another page carries none. */
+function carried(hash: string, session?: string | null): string {
+  if (session === undefined) {
+    const now = router.route
+    const here = '#/workspaces/' + enc(now.view === 'workspace' ? now.key : '')
+    const same = now.view === 'workspace' && (hash === here || hash.startsWith(here + '/'))
+    session = same && !hash.includes('?') ? now.session : undefined
+  }
+  return session && session !== 'default' ? hash + (hash.includes('?') ? '&' : '?') + 'session=' + enc(session) : hash
+}
+
+/* The tab's own hash, whichever it is. */
+export const tabHash = (key: string, tab: Tab): string =>
+  tab === 'session' ? hashes.workspace(key) : '#/workspaces/' + enc(key) + '/' + tab
+
+export const go = (hash: string, session?: string | null) => { location.hash = carried(hash, session) }
 
 /* In the address bar and the route, without a history entry and without
    hashchange: picking through a dozen flows should not take a dozen Backs. */
-export function replace(hash: string) {
+export function replace(hash: string, session?: string | null) {
+  hash = carried(hash, session)
   history.replaceState(null, '', hash)
   router.route = parse(hash)
 }

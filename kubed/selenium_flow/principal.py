@@ -3,7 +3,8 @@
 Two kinds, from the two credentials `/mcp` accepts: the server token, which is
 the operator and so the admin, and a JWT from the configured OIDC issuer, which
 is a subject. Built by the verifiers in ``http/auth.py`` and carried on
-``Caller``; nothing decides anything from it yet.
+``Caller``. Only the subject decides anything: which session an unnamed call
+reaches (`Workspaces.session_of`).
 """
 
 from __future__ import annotations

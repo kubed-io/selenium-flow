@@ -75,3 +75,17 @@ test('a workspace with a config has a kept pill (UI-74)', () => {
   expect(kept.querySelector('.pill.kept')).toHaveTextContent('kept')
   expect(plain.querySelector('.pill.kept')).toBeNull()
 })
+
+test('a workspace with sub-sessions lists them in its card: a dot, the name, its browser', () => {
+  const sessions = [
+    { name: 'default', label: 'default', default: true, live: true, browser: 'firefox' },
+    { name: 'tester', label: 'tester', default: false, live: true, browser: 'chrome' },
+    { name: 'alex', label: 'alex', default: false, live: false, browser: null },
+  ]
+  const { container } = render(WorkspaceList, { data: { workspaces: [{ ...row, sessions }, { key: 'k2', owner: 'stdio', sessions: [sessions[0]] }] } })
+  const [card, alone] = container.querySelectorAll('.card')
+  const chips = [...card.querySelectorAll('.subs .sub')].map((c) => c.textContent!.replace(/\s+/g, ' ').trim())
+  expect(chips).toEqual(['tester chrome', 'alex idle'])
+  expect(card).toHaveTextContent('Sub-sessions')
+  expect(alone.querySelector('.subs')).toBeNull()
+})

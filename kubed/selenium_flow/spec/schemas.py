@@ -27,6 +27,28 @@ RESPONSES = {
         "type": "object",
         "properties": {
             "workspace": {"type": "string", "description": "The name you called with."},
+            "session": {
+                "type": "string",
+                "description": "The session this describes: yours, by its name.",
+            },
+            "default": {
+                "type": "boolean",
+                "description": "Whether that is the workspace's default session.",
+            },
+            "sessions": {
+                "type": "array",
+                "description": "Every session of the workspace, the default first.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "label": {"type": "string"},
+                        "default": {"type": "boolean"},
+                        "live": {"type": "boolean"},
+                        "url": {"type": ["string", "null"]},
+                    },
+                },
+            },
             "named_by": {
                 "type": "string",
                 "enum": ["header", "query", "stdio", "request"],
@@ -174,6 +196,15 @@ RESPONSES = {
             "guidance": {
                 "type": "string",
                 "description": "The skill reference that explains workspaces.",
+            },
+            "config": {
+                "type": "array",
+                "description": "The workspace's own settings, with value and source.",
+                "items": {"type": "object"},
+            },
+            "config_url": {
+                "type": "string",
+                "description": "Where an admin changes them, when the server has one.",
             },
         },
     },

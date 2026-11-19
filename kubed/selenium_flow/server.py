@@ -58,7 +58,7 @@ from .workspace import locks
 from .workspace import settings as workspace_settings
 from .workspace import store as store_module
 from .workspace.store import WorkspaceStore
-from .workspace.workspaces import Workspaces
+from .workspace.workspaces import Workspaces, acting
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +94,9 @@ class SeleniumMCP:
         self.store = (
             store
             if store is not None
-            else store_module.from_settings(settings.workspace, settings.redis)
+            else store_module.from_settings(
+                settings.workspace, settings.redis, settings.session
+            )
         )
         # The pointers live on the workspace store's backend, derived from the
         # store itself: an injected Redis store beside a memory environment
@@ -354,16 +356,21 @@ class SeleniumMCP:
             folder,
             ttl=settings.link_ttl,
         )
-        # For `upload_file(file=...)`.
+        # For `upload_file(file=...)`: a download is the session the call acts
+        # in, the rest the workspace's.
         self.actions.read_file = lambda uri, workspace=None: files.read_file(
             self.actions,
             self.workspaces,
             self.flows,
             uri,
             workspace or clients.caller().name,
+            session=acting() or None,
         )
-        # So one save reads every site's storage.
-        self.actions.visited = lambda: self.workspaces.visited(clients.caller().name)
+        # So one save reads every site's storage: the history of the session
+        # the call acts in.
+        self.actions.visited = lambda: self.workspaces.visited(
+            acting() or clients.caller().name
+        )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
             if apps_enabled
@@ -400,7 +407,7 @@ class SeleniumMCP:
         self.mcp.add_middleware(clients.Carry())
         # The first added is outermost, so a failed call's notice follows the
         # sentence `Explained` has already written.
-        self.mcp.add_middleware(control.Notices(self.controls))
+        self.mcp.add_middleware(control.Notices(self.controls, self.workspaces))
         failures.install(self.mcp)
         # Inside `failures`, so a read that cannot be scrubbed answers the
         # fixed sentence and `Explained` passes it on as it is.

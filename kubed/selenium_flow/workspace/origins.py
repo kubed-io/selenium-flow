@@ -58,6 +58,7 @@ from cachetools import LRUCache, TTLCache
 
 from ..capture import WORKSPACES
 from ..urls import scope_origin
+from . import sessions
 from .store import DEFAULT_TTL_SECONDS
 
 log = logging.getLogger(__name__)
@@ -179,7 +180,7 @@ class Origins:
         log.info(
             "workspace %s: a browser that does not hold its slot was ignored (a "
             "call that outlived its browser, or a browser not yet opened)",
-            workspace,
+            sessions.logged(workspace),
         )
 
     def opened(self, workspace: str, browser: str) -> None:

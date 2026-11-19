@@ -30,7 +30,7 @@ import math
 import re
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Protocol
@@ -38,10 +38,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 from .. import faults
 from ..core.session_caps import SOURCES
 from ..urls import origin_of, page_of, without_userinfo
+from . import sessions
 from .settings import CALLER, SET_BY
 
 if TYPE_CHECKING:
-    from ..config import RedisSettings, WorkspaceSettings
+    from ..config import RedisSettings, SessionSettings, WorkspaceSettings
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +62,8 @@ DEFAULT_DB = 0
 # the history the admin view shows. The browser it names is still reaped on the
 # Grid's schedule.
 DEFAULT_TTL_SECONDS = 86400
+# A sub-session's record is kept this long after its last use.
+DEFAULT_SUB_TTL_SECONDS = 3600
 # How many times a Redis update re-reads after another writer got there first.
 # A key rewritten this often within one round trip is a fault, not contention.
 UPDATE_RETRIES = 10
@@ -111,8 +114,9 @@ class Workspace:
     # key. A record whose sources are missing or do not match its settings is
     # not read (see `from_json`).
     set_by: dict = field(default_factory=dict)
-    # Where the workspace has been: one {"origin", "url", "at"} per origin,
-    # newest first. Written by `visited`; the admin History tab reads it.
+    # Where the workspace has been: one {"origin", "url", "at", "session"} per
+    # origin and session, newest first, every session's on the workspace's
+    # record (WS-54). Written by `visited`; the admin History tab reads it.
     history: list = field(default_factory=list)
     # Cookies and storage the workspace saved (site_data/). Kept with the
     # record so it expires with it; never on this server's disk (with Redis,
@@ -152,11 +156,29 @@ class Workspace:
     # How the last session ended, {"at", "by": "admin" | "caller"}, or None:
     # set by `end_browser`, cleared by the next open. A reap writes nothing.
     ended: dict | None = None
+    # The subject that owns this workspace's default session, or None while no
+    # one has claimed it. Written on a workspace's record only.
+    owner: str | None = None
+    # The names of this workspace's sub-sessions, kept on its record so a listing
+    # needs no scan. Written on a workspace's record only.
+    subs: list = field(default_factory=list)
+    # What a sub-session is shown as: its name, or the token's
+    # `preferred_username` for a subject's own (WS-50). Written on a
+    # sub-session's record only.
+    label: str = ""
 
     @property
     def url(self) -> str:
-        """The page the workspace is on: the top of its history, or ""."""
-        return self.history[0]["url"] if self.history else ""
+        """The page the default session is on: the top of its history, or ""."""
+        return self.page(sessions.DEFAULT)
+
+    def page(self, session: str) -> str:
+        """The page ``session`` (a name) is on: its newest entry, or ""."""
+        return next((v["url"] for v in self.history if _tag(v) == session), "")
+
+    def entries(self, session: str) -> list[dict]:
+        """``session``'s own entries, newest first."""
+        return [v for v in self.history if _tag(v) == session]
 
     @property
     def notice(self) -> dict | None:
@@ -237,6 +259,9 @@ class Workspace:
                 sent=_sent(data.get("sent")),
                 ran=_ran(data.get("ran")),
                 ended=_ended(data.get("ended")),
+                owner=_owner(data.get("owner")),
+                subs=_subs(data.get("subs")),
+                label=_label(data.get("label")),
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -247,11 +272,15 @@ class Workspace:
         *urls: str | None,
         now: float | None = None,
         ttl: float = DEFAULT_TTL_SECONDS,
+        session: str = sessions.DEFAULT,
+        sub_ttl: float = DEFAULT_SUB_TTL_SECONDS,
     ) -> Workspace:
-        """The same record, having landed on ``urls`` in order, then pruned.
+        """The same record, ``session`` (a name) having landed on ``urls`` in
+        order, then pruned (`pruned`).
 
-        Each one with an origin moves that origin to the top with its URL and
-        the time. One without (None for a URL withheld after a secret write,
+        Each one with an origin moves that session's entry for the origin to
+        the top with its URL and the time; another session's entry for it
+        stays. One without (None for a URL withheld after a secret write,
         ``about:blank``, ``data:``) records nothing.
         """
         now = time.time() if now is None else now
@@ -260,25 +289,48 @@ class Workspace:
             origin = origin_of(url or "")
             if origin:
                 history = [
-                    {"origin": origin, "url": url, "at": now},
-                    *(v for v in history if v["origin"] != origin),
+                    {"origin": origin, "url": url, "at": now, "session": session},
+                    *(
+                        v for v in history
+                        if (v["origin"], _tag(v)) != (origin, session)
+                    ),
                 ]
-        return replace(self, history=history).pruned(now, ttl)
+        return replace(self, history=history).pruned(now, ttl, sub_ttl)
 
-    def pruned(self, now: float, ttl: float) -> Workspace:
+    def pruned(
+        self, now: float, ttl: float, sub_ttl: float = DEFAULT_SUB_TTL_SECONDS
+    ) -> Workspace:
         """The same record without the history entries older than ``ttl``,
-        except the top one: it is where a reopen goes back to.
+        except each session's top one while that session can reopen: it is
+        where the reopen goes back to. The default's top always stays; a
+        sub-session's stays for ``sub_ttl``, as long as its record can live
+        unused, and is then an entry like any other.
 
-        Only the top entry keeps its whole URL. Below it a URL keeps its origin,
-        path and hash route (never the route's query): a query string or
-        fragment carries OAuth codes and reset tokens, and nothing but a reopen
-        needs them.
+        Only such a top entry keeps its whole URL. Elsewhere a URL keeps its
+        origin, path and hash route (never the route's query): a query string
+        or fragment carries OAuth codes and reset tokens, and nothing but a
+        reopen needs them.
+
+        At most ``HISTORY_CAP`` entries stay, the oldest dropped first, except
+        the default's top.
         """
-        history = self.history
-        kept = history[:1] + [
-            {**v, "url": page_of(v["url"])} for v in history[1:] if v["at"] >= now - ttl
-        ]
-        return replace(self, history=kept[:HISTORY_CAP])
+        kept, tops, default_top = [], set(), None
+        for v in self.history:
+            session = _tag(v)
+            top = session not in tops
+            tops.add(session)
+            if top and session == sessions.DEFAULT:
+                default_top = v
+                kept.append(v)
+            elif top and v["at"] >= now - sub_ttl:
+                kept.append(v)
+            elif v["at"] >= now - ttl:
+                kept.append({**v, "url": page_of(v["url"])})
+        capped = kept[:HISTORY_CAP]
+        if default_top is not None and default_top not in capped:
+            # The oldest of what is kept, so it goes last.
+            capped = [*kept[: HISTORY_CAP - 1], default_top]
+        return replace(self, history=capped)
 
     def reshaped(self, settings: dict) -> Workspace:
         """The same record, with some of its settings replaced.
@@ -297,9 +349,18 @@ class Workspace:
         """The same record holding this site data."""
         return replace(self, site_data=dict(site_data or {}))
 
-    def history_cleared(self) -> Workspace:
-        """The same record with only its current page left in the history."""
-        return replace(self, history=self.history[:1])
+    def history_cleared(self, live: Iterable[str] = ()) -> Workspace:
+        """The same record with only the current page of the default and of
+        each sub-session in ``live`` (those that still have a record) left in
+        the history: one with no record cannot reopen, so its page is
+        cleared too."""
+        keep = {sessions.DEFAULT, *live}
+        kept, tops = [], set()
+        for v in self.history:
+            if _tag(v) not in tops and _tag(v) in keep:
+                tops.add(_tag(v))
+                kept.append(v)
+        return replace(self, history=kept)
 
     def delivered(self) -> Workspace:
         """The same record, its reopen notice handed to a caller."""
@@ -371,6 +432,18 @@ def _ended(raw) -> dict | None:
     return {"at": float(at), "by": raw["by"]}
 
 
+def _owner(raw) -> str | None:
+    return raw if isinstance(raw, str) and raw else None
+
+
+def _label(raw) -> str:
+    return raw if isinstance(raw, str) else ""
+
+
+def _subs(raw) -> list[str]:
+    return [n for n in raw if isinstance(n, str)] if isinstance(raw, list) else []
+
+
 def _size(raw) -> str | None:
     """A stored ``window_seen``: ``WxH`` in whole pixels, or None."""
     if isinstance(raw, str) and re.fullmatch(r"[1-9][0-9]{0,5}x[1-9][0-9]{0,5}", raw):
@@ -395,19 +468,32 @@ def _timeout(raw) -> int | None:
     return raw
 
 
+def _tag(visit: dict) -> str:
+    """The session a history entry names: the default for one from before
+    sessions were named."""
+    return visit.get("session", sessions.DEFAULT)
+
+
 def _visits(raw) -> list[dict]:
     """The well-formed entries of a stored history, none when there is none. A
     URL that does not parse is no entry, or every later write would trip on
-    it."""
+    it. An entry written before sessions were named is the default's."""
     if not isinstance(raw, list):
         return []
     return [
-        {"origin": v["origin"], "url": v["url"], "at": float(v["at"])}
+        {
+            "origin": v["origin"],
+            "url": v["url"],
+            "at": float(v["at"]),
+            "session": _tag(v),
+        }
         for v in raw
         if isinstance(v, dict)
         and isinstance(v.get("origin"), str) and v["origin"]
         and isinstance(v.get("url"), str) and origin_of(v["url"])
         and isinstance(v.get("at"), (int, float)) and not isinstance(v["at"], bool)
+        and isinstance(_tag(v), str)
+        and _tag(v)
     ]
 
 
@@ -423,11 +509,17 @@ class WorkspaceStore(Protocol):
     # How long an entry is kept: things derived from a store keep its retention
     # (`pointer.matching`).
     ttl: int
+    # How long a sub-session's record is kept after its last use.
+    sub_ttl: int
     # Whether a key's record is written with no expiry: its workspace has a
     # config (`workspace.config.Configs.kept`). Asked once per write.
     kept: Callable[[str], bool]
 
     def get(self, key: str) -> Workspace | None: ...
+
+    # `get` of each of ``keys``, in order, in one round trip where the backend
+    # allows: a listing of a workspace's sub-sessions reads them all at once.
+    def get_many(self, keys: list[str]) -> list[Workspace | None]: ...
 
     def set(self, key: str, record: Workspace) -> None: ...
 
@@ -460,9 +552,17 @@ class WorkspaceStore(Protocol):
     # Optional, for the admin view only: the MCP surface never lists workspaces.
     # A store that cannot enumerate cheaply may leave these out, and the admin
     # view shows an empty list.
+    # Workspaces only: a sub-session's record is not a workspace.
     def records(self) -> dict[str, Workspace]: ...
 
+    # `workspace`'s sub-sessions by name.
+    def sub_records(self, workspace: str) -> dict[str, Workspace]: ...
+
+    # Every attached browser's id to its session key, sub-sessions included.
     def owners(self) -> dict[str, str]: ...
+
+    # Delete a workspace's record and every sub-session's.
+    def forget_workspace(self, workspace: str) -> None: ...
 
 
 class _Writes:
@@ -502,9 +602,15 @@ class MemoryStore(_Writes):
 
     kind = "memory"
 
-    def __init__(self, ttl: int = DEFAULT_TTL_SECONDS, clock=time.time):
+    def __init__(
+        self,
+        ttl: int = DEFAULT_TTL_SECONDS,
+        sub_ttl: int = DEFAULT_SUB_TTL_SECONDS,
+        clock=time.time,
+    ):
         self._data: dict[str, tuple[float, Workspace]] = {}
         self._ttl = ttl
+        self._sub_ttl = sub_ttl
         self._clock = clock
         self.kept: Callable[[str], bool] = _never
         # One lock per key, held only while someone is using it, so a workspace
@@ -518,6 +624,10 @@ class MemoryStore(_Writes):
         (`pointer.matching`) keeps the same retention."""
         return self._ttl
 
+    @property
+    def sub_ttl(self) -> int:
+        return self._sub_ttl
+
     def get(self, key: str) -> Workspace | None:
         entry = self._data.get(key)
         if entry is None:
@@ -527,6 +637,9 @@ class MemoryStore(_Writes):
             del self._data[key]
             return None
         return record
+
+    def get_many(self, keys: list[str]) -> list[Workspace | None]:
+        return [self.get(key) for key in keys]
 
     @contextmanager
     def _locked(self, key: str) -> Iterator[None]:
@@ -543,6 +656,10 @@ class MemoryStore(_Writes):
                     del self._locks[key]
 
     def _deadline(self, key: str) -> float:
+        if sessions.is_sub(key):
+            # Never kept: a sub-session is a scratch browser, not the
+            # workspace's own config.
+            return self._clock() + self._sub_ttl
         return math.inf if self.kept(key) else self._clock() + self._ttl
 
     def set(self, key: str, record: Workspace) -> None:
@@ -572,8 +689,8 @@ class MemoryStore(_Writes):
             if current is not None:
                 self._data[key] = (deadline, current)
 
-    def records(self) -> dict[str, Workspace]:
-        """Every live workspace, keyed the way it is stored.
+    def _live(self) -> dict[str, Workspace]:
+        """Every live record, sub-sessions too.
 
         Purges as it goes: ``get`` expires only the key it was handed, so this
         is what collects an entry nobody asks for again.
@@ -587,9 +704,21 @@ class MemoryStore(_Writes):
                 del self._data[key]
         return live
 
+    def records(self) -> dict[str, Workspace]:
+        """Every live workspace, keyed the way it is stored."""
+        return {k: r for k, r in self._live().items() if not sessions.is_sub(k)}
+
+    def sub_records(self, workspace: str) -> dict[str, Workspace]:
+        return _subs_of(self._live(), workspace)
+
     def owners(self) -> dict[str, str]:
-        """session id -> the caller key holding it, for the sessions attached."""
-        return {r.session_id: k for k, r in self.records().items() if r.attached}
+        """session id -> the session key holding it, for the browsers attached."""
+        return {r.session_id: k for k, r in self._live().items() if r.attached}
+
+    def forget_workspace(self, workspace: str) -> None:
+        for name in self.sub_records(workspace):
+            self.delete(sessions.key_of(workspace, name))
+        self.delete(workspace)
 
 
 class RedisStore(_Writes):
@@ -599,7 +728,11 @@ class RedisStore(_Writes):
     kind = "redis"
 
     def __init__(
-        self, client, prefix: str = DEFAULT_PREFIX, ttl: int = DEFAULT_TTL_SECONDS
+        self,
+        client,
+        prefix: str = DEFAULT_PREFIX,
+        ttl: int = DEFAULT_TTL_SECONDS,
+        sub_ttl: int = DEFAULT_SUB_TTL_SECONDS,
     ):
         # Readable (`client`, `prefix`), so anything that shares this backend
         # (`pointer.matching`) is built from this object, never from a second
@@ -607,7 +740,12 @@ class RedisStore(_Writes):
         self._redis = client
         self._prefix = prefix
         self._ttl = ttl
+        self._sub_ttl = sub_ttl
         self.kept: Callable[[str], bool] = _never
+
+    @property
+    def sub_ttl(self) -> int:
+        return self._sub_ttl
 
     @property
     def client(self):
@@ -631,8 +769,20 @@ class RedisStore(_Writes):
             return None
         return Workspace.from_json(value)
 
+    def get_many(self, keys: list[str]) -> list[Workspace | None]:
+        """One MGET; a key that is absent or does not read is None."""
+        if not keys:
+            return []
+        values = self._redis.mget([self._k(key) for key in keys])
+        return [
+            Workspace.from_json(value) if value is not None else None
+            for value in values
+        ]
+
     def _ex(self, key: str) -> int | None:
         # A SET without EX also drops the expiry the key had.
+        if sessions.is_sub(key):
+            return self._sub_ttl
         return None if self.kept(key) else self._ttl
 
     def set(self, key: str, record: Workspace) -> None:
@@ -679,14 +829,14 @@ class RedisStore(_Writes):
         else:
             self._redis.expire(self._k(key), ex)
 
-    def records(self) -> dict[str, Workspace]:
-        """Every live workspace, keyed the way it is stored.
+    def _live(self, match: str = "*") -> dict[str, Workspace]:
+        """Every live record under ``match``, sub-sessions too.
 
         SCAN rather than KEYS: this runs on a database shared with other
         services, and KEYS would block the server while it walked all of it.
         """
         keys = []
-        for raw in self._redis.scan_iter(match=f"{self._prefix}*", count=100):
+        for raw in self._redis.scan_iter(match=f"{self._prefix}{match}", count=100):
             key = raw.decode() if isinstance(raw, bytes) else raw
             skipped = (self._prefix + POINTER_NAMESPACE, self._prefix + TABS_NAMESPACE)
             if not key.startswith(skipped):
@@ -702,27 +852,56 @@ class RedisStore(_Writes):
                 found[key[len(self._prefix) :]] = record
         return found
 
+    def records(self) -> dict[str, Workspace]:
+        """Every live workspace, keyed the way it is stored."""
+        return {k: r for k, r in self._live().items() if not sessions.is_sub(k)}
+
+    def sub_records(self, workspace: str) -> dict[str, Workspace]:
+        return _subs_of(self._live(f"{workspace}{sessions.SEP}*"), workspace)
+
     def owners(self) -> dict[str, str]:
-        """session id -> the caller key holding it, for the sessions attached."""
-        return {r.session_id: k for k, r in self.records().items() if r.attached}
+        """session id -> the session key holding it, for the browsers attached."""
+        return {r.session_id: k for k, r in self._live().items() if r.attached}
+
+    def forget_workspace(self, workspace: str) -> None:
+        for name in self.sub_records(workspace):
+            self.delete(sessions.key_of(workspace, name))
+        self.delete(workspace)
 
 
-def from_settings(workspace: WorkspaceSettings, conn: RedisSettings) -> WorkspaceStore:
+def _subs_of(live: dict[str, Workspace], workspace: str) -> dict[str, Workspace]:
+    """``workspace``'s sub-sessions out of ``live``, by name."""
+    found = {}
+    for key, record in live.items():
+        owner, name = sessions.split(key)
+        if sessions.is_sub(key) and owner == workspace:
+            found[name] = record
+    return found
+
+
+def from_settings(
+    workspace: WorkspaceSettings,
+    conn: RedisSettings,
+    session: SessionSettings | None = None,
+) -> WorkspaceStore:
     """Build the workspace store the config asks for.
 
     Redis configured and unreachable, or missing its package, is a startup
     error, never a silent step down to memory. The config refuses an unknown
     backend at load.
     """
+    sub_ttl = session.sub_ttl if session else DEFAULT_SUB_TTL_SECONDS
     if workspace.store == "memory":
         log.info("workspace store: memory, ttl %ss", workspace.ttl)
-        return MemoryStore(ttl=workspace.ttl)
+        return MemoryStore(ttl=workspace.ttl, sub_ttl=sub_ttl)
     client = redis_client(conn)  # raises StoreUnavailable rather than returning None
     log.info(
         "workspace store: redis db %s, prefix %s, ttl %ss",
         conn.db, conn.prefix, workspace.ttl,
     )
-    return RedisStore(client, prefix=conn.prefix, ttl=workspace.ttl)
+    return RedisStore(
+        client, prefix=conn.prefix, ttl=workspace.ttl, sub_ttl=sub_ttl
+    )
 
 
 def redis_client(conn: RedisSettings):

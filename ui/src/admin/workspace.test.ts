@@ -195,6 +195,28 @@ test('both revs moving in one push is still one history load', async () => {
 })
 
 
+test("a save in the picked sub-session reloads its Site data, and History's pills", async () => {
+  const { calls } = fakeFetch({
+    'GET /admin/workspaces/k/site-data': { body: { sites: [], details: {} } },
+    'GET /admin/workspaces/k/history': { body: { key: 'k', sites: [] } },
+    'GET /admin/workspaces/k/files': { body: files() },
+    'GET /admin/workspaces/k/files/downloads': { body: { key: 'k', session: 'tester', browser: true, downloads: [] } },
+    'GET /admin/workspaces/k/flows': { body: { enabled: true, flows: [], rev: 1 } },
+    'GET /admin/workspaces/k/session': { body: { key: 'k', session: 'tester' } },
+  })
+  const m = new WorkspaceModel('k', api, 'tester')
+  const loads = (tab: string, session: string | null) =>
+    calls.filter((c) => c.path === '/admin/workspaces/k/' + tab && new URLSearchParams(c.search).get('session') === session).length
+  const session = (name: string, rev: string) => ({ name, label: name, default: name === 'default', live: true, browser: 'chrome', site_data_rev: rev })
+  const push = (tester: string) => m.onPushed({ workspaces: [{ key: 'k', live: true, session_id: 'b1', files_rev: 1, flows_rev: 1, history_rev: 'h1', site_data_rev: 's1', sessions: [session('default', 's1'), session('tester', tester)] }] }, () => null, () => {}, () => {})
+  push('t1')
+  expect([loads('site-data', 'tester'), loads('history', null)]).toEqual([1, 1])
+  push('t2')                                       // tester saved: the default's rev stands
+  expect([loads('site-data', 'tester'), loads('history', null)]).toEqual([2, 2])
+  push('t2')
+  expect([loads('site-data', 'tester'), loads('history', null)]).toEqual([2, 2])
+})
+
 test('a Files failure still loads Site data and History: they read the store, not the Grid', async () => {
   const { calls } = fakeFetch({
     'GET /admin/workspaces/k/files': { status: 503, body: { error: 'the Grid is unreachable' } },

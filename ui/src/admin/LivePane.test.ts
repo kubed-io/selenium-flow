@@ -185,3 +185,18 @@ test('noVNC is told to draw transparent, and the screen goes dark once connected
   await connect()
   expect(container.querySelector('.screen')).toHaveClass('connected')
 })
+
+test('a sub-session’s live view mints and pastes under its own session', async () => {
+  vi.mocked(api as unknown as ReturnType<typeof vi.fn>).mockClear()
+  render(LivePane, { api, key: 'k', session: 'tester', name: 'mine', root: '', load: async () => ({ RFB: FakeRfb as never }) })
+  await vi.waitFor(() => expect(FakeSocket.all).toHaveLength(1))
+  await connect(); await fireEvent.click(screen.getByRole('button', { name: /Control/ }))
+  sock().say('{"type":"mode","mode":"control"}')
+  await vi.waitFor(() => expect(screen.getByRole('button', { name: /Control/ })).toHaveAttribute('aria-pressed', 'true'))
+  await fireEvent.click(screen.getByRole('button', { name: /Paste/ }))
+  await fireEvent.input(screen.getByPlaceholderText('Paste'), { target: { value: 'hi' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  const paths = vi.mocked(api as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])
+  expect(paths).toContain('/admin/workspaces/k/live?session=tester')
+  await vi.waitFor(() => expect(vi.mocked(api as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0])).toContain('/admin/workspaces/k/live/paste?session=tester'))
+})

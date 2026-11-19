@@ -2,60 +2,24 @@ import { render, screen } from '@testing-library/svelte'
 import { expect, test } from 'vitest'
 import WorkspaceSummary from './WorkspaceSummary.svelte'
 
-test('the masthead: the name, how it is, and the last page; the facts are on Session', () => {
-  const { container } = render(WorkspaceSummary, { data: { key: 'k', name: 'mine', owner: 'named', browser: 'firefox', session_id: 'id1', version: '130', live: false, url: 'https://a.b/' } })
+test('the card carries the workspace only: its name, whether it is kept, its config (UI-64)', () => {
+  const { container } = render(WorkspaceSummary, { data: { key: 'k', name: 'mine', kept: true, live: true, recording: true, capture: true, capturing: true, url: 'https://a.b/' } })
   expect(container.querySelector('strong')).toHaveTextContent('mine')
-  expect(screen.getByText('idle')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'https://a.b/' })).toHaveAttribute('rel', 'noopener noreferrer')
-  expect(container.querySelector('.groups')).toBeNull()
-  expect(screen.queryByText('id1')).toBeNull()
+  expect(screen.getByText('kept · config')).toBeInTheDocument()
 })
 
-test('unnamed shows who holds it; a javascript: page is text; nowhere yet', () => {
-  const r = render(WorkspaceSummary, { data: { key: 'stdio', owner: 'stdio', url: 'javascript:x' } })
-  expect(r.container.querySelector('strong')).toHaveTextContent('stdio')
+test('the workspace card carries no session state', () => {
+  const { container } = render(WorkspaceSummary, { data: { key: 'k', name: 'mine', owner: 'named', browser: 'firefox', session_id: 'id1', version: '130', live: true, recording: true, capture: true, capturing: true, url: 'https://a.b/' } })
+  for (const text of ['open', 'idle', '● REC', '● capture', 'capture paused', 'last page', 'https://a.b/', 'id1']) expect(screen.queryByText(text)).toBeNull()
   expect(screen.queryByRole('link')).toBeNull()
-  expect(screen.getByText('javascript:x')).toBeInTheDocument()
+  expect(container.querySelector('.pill')).toBeNull()
+})
+
+test('unnamed shows who holds it', () => {
+  const r = render(WorkspaceSummary, { data: { key: 'stdio', owner: 'stdio' } })
+  expect(r.container.querySelector('strong')).toHaveTextContent('stdio')
   r.unmount()
   render(WorkspaceSummary, { data: { key: 'x' } })
-  expect(screen.getByText('nowhere yet')).toBeInTheDocument()
   expect(screen.getByText('Workspace')).toBeInTheDocument()
-})
-
-test('a recording live workspace wears ● REC; otherwise none (R7)', () => {
-  const r = render(WorkspaceSummary, { data: { key: 'k', live: true, recording: true } })
-  expect(screen.getByText('● REC')).toHaveClass('pill', 'rec')
-  r.unmount()
-  render(WorkspaceSummary, { data: { key: 'k', live: true, recording: false } })
-  expect(screen.queryByText('● REC')).toBeNull()
-})
-
-test('the masthead wears ● capture or capture paused, as it did', () => {
-  const r = render(WorkspaceSummary, { data: { key: 'k', live: true, capture: true, capturing: true } })
-  expect(screen.getByText('● capture')).toHaveClass('pill', 'capture')
-  r.unmount()
-  render(WorkspaceSummary, { data: { key: 'k', live: false, capture: true, capturing: false } })
-  expect(screen.getByText('capture paused')).toHaveClass('pill', 'capture-paused')
-})
-
-test('the masthead pill reads open for a browser and idle for none', () => {
-  const r = render(WorkspaceSummary, { data: { key: 'k', live: true } })
-  expect(screen.getByText('open')).toHaveClass('pill', 'live')
-  r.unmount()
-  render(WorkspaceSummary, { data: { key: 'k', live: false } })
-  expect(screen.getByText('idle')).toHaveClass('pill')
-  expect(screen.queryByText('open')).toBeNull()
-})
-
-test('an attached row the Grid did not list reads unknown', () => {
-  render(WorkspaceSummary, { data: { key: 'k', attached: true, grid_listed: false, live: false } })
-  expect(screen.getByText('unknown')).toBeInTheDocument()
-  expect(screen.queryByText('idle')).toBeNull()
-})
-
-test('an unlisted row keeps its REC and capture badges (ruling 5)', () => {
-  render(WorkspaceSummary, { data: { key: 'k', attached: true, grid_listed: false, live: false, recording: true, capture: true, capturing: false } })
-  expect(screen.getByText('● REC')).toBeInTheDocument()
-  expect(screen.getByText('● capture')).toBeInTheDocument()
-  expect(screen.queryByText('capture paused')).toBeNull()
+  expect(screen.queryByText('kept · config')).toBeNull()
 })

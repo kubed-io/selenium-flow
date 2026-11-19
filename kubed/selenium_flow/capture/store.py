@@ -68,6 +68,7 @@ from cachetools import TTLCache
 from ..bidi.connection import QUEUE_BYTES
 from ..redaction import Forms
 from ..urls import scope_origin
+from ..workspace import sessions
 from . import (
     CONSOLE_LIMIT,
     DEFAULT_TTL,
@@ -339,7 +340,9 @@ class Capture:
         if held is None:
             held = self._unpark(workspace, session_id)
         if held is None or held.workspace != workspace:
-            log.info("capture: a hold again in %s is not heard", workspace)
+            log.info(
+                "capture: a hold again in %s is not heard", sessions.logged(workspace)
+            )
             return
         self._sessions.move_to_end(session_id)
         held.live = True
@@ -433,6 +436,15 @@ class Capture:
         return held if held is not None and held.workspace == workspace else None
 
     # ---- the workspace -------------------------------------------------------
+
+    def kept(self) -> list[str]:
+        """The keys (a workspace's, or a sub-session's) with anything kept."""
+        with self._lock:
+            return list({
+                *self._cache.keys(),
+                *(h.workspace for h in self._sessions.values()),
+                *self._parked,
+            })
 
     def discard(self, workspace: str) -> None:
         """Forget the workspace's capture and its session."""

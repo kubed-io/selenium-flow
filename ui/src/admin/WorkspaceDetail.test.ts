@@ -697,10 +697,10 @@ test('with capture on the tabs count what was captured', async () => {
 const liveRow = { ...row, ran: { version: '4', node: 'n', live_view: true } }
 const viewer = async () => ({ RFB: FakeRfb as never })
 
-test('Live is the last tab, and greyed with its reason for an idle row and for a Grid with no VNC', async () => {
+test('Live is the second tab, and greyed with its reason for an idle row and for a Grid with no VNC', async () => {
   const { container } = setup({}, { liveScript: '', viewer })
   const tabs = [...container.querySelectorAll('#workspaceTabs [role=tab]')]
-  expect(tabs.at(-1)).toHaveAttribute('id', 'tabLive')
+  expect(tabs[1]).toHaveAttribute('id', 'tabLive')
   await vi.waitFor(() => expect(container.querySelector('#detailHeader')).toHaveTextContent('mine'))
   const tab = container.querySelector('#tabLive')!
   expect(tab).toHaveAttribute('aria-disabled', 'true')

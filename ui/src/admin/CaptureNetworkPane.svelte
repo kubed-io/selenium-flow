@@ -5,7 +5,7 @@
   import CaptureList from './CaptureList.svelte'
   import { go, hashes } from './router.svelte'
 
-  let { api, key, root }: { api: Api; key: string; root: string } = $props()
+  let { api, key, root, session }: { api: Api; key: string; root: string; session?: string } = $props()
   const bad = isFailed
   const cells = (r: RequestRow): [string, string][] => [
     [r.method, 'mono b'],
@@ -18,5 +18,5 @@
   ]
 </script>
 
-<CaptureList {api} {key} {root} kind="network" {cells} open={(r: RequestRow) => go(hashes.request(key, r.id))} empty="No requests since the last navigation"
+<CaptureList {api} {key} {root} {session} kind="network" {cells} open={(r: RequestRow) => go(hashes.request(key, r.id))} empty="No requests since the last navigation"
   cleared="Requests from now on show here. Bodies the browser still holds stay fetchable from their request." />

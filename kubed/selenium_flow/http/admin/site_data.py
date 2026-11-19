@@ -14,8 +14,10 @@ from starlette.responses import JSONResponse
 
 from ... import faults
 from ...site_data import snapshot as site_data
+from ...workspace import sessions
 from ...workspace.store import Workspace
 from .. import answer
+from .workspaces import known_session
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +26,19 @@ async def secret_rows(catalogue) -> list[dict]:
     if catalogue is None:
         return []
     return (await run_in_threadpool(catalogue.listing))["secrets"]
+
+
+def sub_records(store, key: str) -> dict[str, Workspace]:
+    """``key``'s sub-sessions that still have a record, by name: only their
+    current pages are History's to keep (SITE-56), and only their snapshots
+    its rows count."""
+    listing = getattr(store, "sub_records", None)
+    return dict(listing(key)) if listing is not None else {}
+
+
+def live_subs(store, key: str) -> list[str]:
+    """The names of ``key``'s sub-sessions that still have a record."""
+    return list(sub_records(store, key))
 
 
 def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
@@ -46,14 +61,23 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         try:
             secrets = await secret_rows(catalogue)
             record = await run_in_threadpool(workspaces.store.get, key)
+            subs = await run_in_threadpool(sub_records, workspaces.store, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"history for {key}", log)
         if record is None:
             return JSONResponse({"key": key, "sites": [], "clears": []})
-        joined = site_data.history_view(record.history, record.site_data, secrets)
+        # Each row counts its own session's snapshot: the one its pill opens.
+        snapshots = {
+            sessions.DEFAULT: record.site_data,
+            **{name: sub.site_data for name, sub in subs.items()},
+        }
+        joined = site_data.history_view(record.history, snapshots, secrets)
+        live = list(subs)
         # What Clear would take, by origin: rows are by host, so a second port
-        # of the current host has no row and would otherwise hide Clear.
-        clears = [v["origin"] for v in record.history[1:]]
+        # of the current host has no row and would otherwise hide Clear. Each
+        # live session's current page stays (WS-54).
+        current = record.history_cleared(live).history
+        clears = [v["origin"] for v in record.history if v not in current]
         return JSONResponse({"key": key, **joined, "clears": clears})
 
     @mcp.custom_route(
@@ -64,15 +88,21 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     @guarded
     @changes
     async def admin_history_clear(request: Request) -> JSONResponse:
-        """Clear: the history down to the current site. Site data and the live
-        browser are untouched, and the history expires on its own anyway."""
+        """Clear: the history down to each session's current site. Site data
+        and the live browser are untouched, and the history expires on its own
+        anyway."""
         key = request.path_params["key"]
 
         def clear(record: Workspace) -> tuple[Workspace, list]:
-            hosts = site_data.history_hosts(record.history)[1:]
-            return record.history_cleared(), hosts
+            cleared = record.history_cleared(live)
+            left = site_data.history_hosts(cleared.history)
+            hosts = [
+                h for h in site_data.history_hosts(record.history) if h not in left
+            ]
+            return cleared, hosts
 
         try:
+            live = await run_in_threadpool(live_subs, workspaces.store, key)
             _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing the history of {key}", log)
@@ -90,10 +120,18 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         those are History's."""
         key = request.path_params["key"]
         try:
+            skey, named = await run_in_threadpool(
+                known_session, workspaces, key, request
+            )
             record = await run_in_threadpool(workspaces.store.get, key)
+            own = await run_in_threadpool(workspaces.store.get, skey)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"site data for {key}", log)
-        data, history = (record.site_data, record.history) if record else ({}, [])
+        # The snapshot is the picked session's own record's (WS-59); the pages
+        # that order its hosts are its own entries on the workspace's history,
+        # another session's visits being its tab's (UI-65).
+        data = own.site_data if own else {}
+        history = record.entries(named) if record else []
         listed, details = site_data.views(data, history)
         return JSONResponse({"key": key, **listed, "details": details})
 
@@ -110,11 +148,16 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         key = request.path_params["key"]
 
         def clear(record: Workspace) -> tuple[Workspace, list]:
-            listed = site_data.view(record.site_data, record.history)
+            listed = site_data.view(record.site_data, history)
             return record.with_site_data({}), [s["site"] for s in listed["sites"]]
 
         try:
-            _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)
+            skey, named = await run_in_threadpool(
+                known_session, workspaces, key, request
+            )
+            top = await run_in_threadpool(workspaces.store.get, key)
+            history = top.entries(named) if top else []
+            _, cleared = await run_in_threadpool(workspaces.store.change, skey, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing site data for {key}", log)
         return JSONResponse({"cleared": cleared or []})
@@ -129,7 +172,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     async def admin_site_data_forget(request: Request) -> JSONResponse:
         """Forget one site. Parent-domain cookies stay: other sites use them.
 
-        It changes the workspace's record and nothing else: the history stays,
+        It changes the picked session's record and nothing else: the history stays,
         and a browser open now keeps what it has — only the next one opened
         comes back without it. A save after this saves the site again.
         """
@@ -146,8 +189,11 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
             return record.with_site_data(left), removed
 
         try:
+            skey, _named = await run_in_threadpool(
+                known_session, workspaces, key, request
+            )
             write = workspaces.store.change
-            stored, removed = await run_in_threadpool(write, key, forget)
+            stored, removed = await run_in_threadpool(write, skey, forget)
             if stored is None:
                 raise faults.NotFound(missing)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means

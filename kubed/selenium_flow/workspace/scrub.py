@@ -80,6 +80,7 @@ from .. import faults
 from ..capture import WORKSPACES
 from ..redaction import Forms, scrub, scrub_error, scrub_values, taints
 from ..urls import scope_origin
+from . import sessions
 from .origins import OriginChanged, Origins, Retired, Streaks
 
 log = logging.getLogger(__name__)
@@ -344,7 +345,7 @@ class Scrubber:
                     "workspace %s: a call on a browser that does not hold its slot "
                     "was scrubbed with every leashed secret (a call that outlived "
                     "its browser, or a browser not yet opened)",
-                    workspace,
+                    sessions.logged(workspace),
                 )
             return None
         self._entries[workspace] = entry

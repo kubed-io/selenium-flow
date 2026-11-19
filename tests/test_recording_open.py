@@ -19,12 +19,16 @@ class Recorder:
         # Grid id -> whether its note says discard, as the collector keeps it:
         # a second expect for one browser replaces the first.
         self.notes = {}
+        # Grid id -> the sub-session key it was told, for a sub-session's.
+        self.sessions = {}
 
-    def expect(self, workspace, grid_id, browser, *, discard=False):
+    def expect(self, workspace, grid_id, browser, *, discard=False, session=None):
         (self.discarded if discard else self.expected).append(
             (workspace, grid_id, browser)
         )
         self.notes[grid_id] = discard
+        if session is not None:
+            self.sessions[grid_id] = session
 
 
 class Announced:

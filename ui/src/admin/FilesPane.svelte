@@ -9,15 +9,21 @@
     m: WorkspaceModel
     root: string
     hidden: boolean
-    onopen: (folder: Folder, i: number) => void
-    onkeep: (folder: Folder, f: FileEntry) => Promise<boolean>
+    onopen: (folder: Folder, i: number, session?: string) => void
+    onkeep: (folder: Folder, f: FileEntry, session?: string) => Promise<boolean>
     ondelete: (f: FileEntry) => void
-    onclear: (what: 'downloads' | 'screenshots' | 'recordings') => void
+    onclear: (what: 'downloads' | 'screenshots' | 'recordings', session?: string) => void
   } = $props()
 
   // Ending needs attached; clearing downloads needs it RUNNING — the Grid
   // deletes the download store with the browser — and this workspace's own files.
+  const sessions = $derived(m.row.sessions ?? [])
   const clearDownloadsOff = $derived(!m.row.live || m.files === NO_FILES || m.loadingFiles)
+  // A download is its browser's (WS-52): one group per session, labelled, when there is more than one.
+  const groups = $derived(sessions.length > 1
+    ? sessions.map((x) => ({ name: x.name, label: x.label, files: x.default ? (m.view?.downloads ?? []) : (m.subDownloads[x.name] ?? []), isDefault: x.default, live: x.live }))
+    : [])
+  const downloadsCount = $derived(groups.length ? groups.reduce((n, g) => n + g.files.length, 0) : m.view?.counts.downloads)
   // No per-screenshot delete on the Grid, so the clear is offered only when
   // there is something to take.
   const clearRecordingsOff = $derived(!m.files.recordings.length || m.loadingFiles)
@@ -30,6 +36,20 @@
     <div class="empty error">{m.filesError}</div>
   {:else if !m.view}
     <div class="empty">Loading…</div>
+  {:else if folder === 'downloads' && groups.length}
+    {#each groups as g (g.name)}
+      <div class="group" data-session={g.name}>
+        <div class="row ghead">
+          <div class="label grow">{g.label}</div>
+          <button id={'clearDownloads-' + g.name} class="danger" disabled={!g.live || m.files === NO_FILES || m.loadingFiles}
+                  title={`Delete everything the ${g.label} browser downloaded. Kept files stay.`}
+                  onclick={() => onclear('downloads', g.name)}>Clear</button>
+        </div>
+        <FileGrid files={g.files} base={root} action="keep" empty={g.isDefault ? m.view.downloadsEmpty : 'No downloads.'}
+                  onopen={(i) => onopen('downloads', i, g.isDefault ? undefined : g.name)}
+                  onkeep={(f) => onkeep('downloads', f, g.isDefault ? undefined : g.name)} />
+      </div>
+    {/each}
   {:else if folder === 'downloads'}
     <FileGrid files={m.view.downloads} base={root} action="keep" empty={m.view.downloadsEmpty}
               onopen={(i) => onopen('downloads', i)} onkeep={(f) => onkeep('downloads', f)} />
@@ -47,11 +67,13 @@
 {/snippet}
 
 <div id="paneFiles" {hidden}>
-  <Section id="downloadsSection" title="Downloads" count={count(m.view?.counts.downloads)}>
+  <Section id="downloadsSection" title="Downloads" count={count(downloadsCount)}>
     {#snippet actions()}
-      <button id="clearDownloads" class="danger" disabled={clearDownloadsOff}
-              title="Delete everything this browser downloaded. Kept files stay."
-              onclick={() => onclear('downloads')}>Clear downloads</button>
+      {#if !groups.length}
+        <button id="clearDownloads" class="danger" disabled={clearDownloadsOff}
+                title="Delete everything this browser downloaded. Kept files stay."
+                onclick={() => onclear('downloads')}>Clear downloads</button>
+      {/if}
     {/snippet}
     <div id="downloads">{@render rows('downloads')}</div>
   </Section>
@@ -77,3 +99,7 @@
     <div id="kept">{@render rows('kept')}</div>
   </Section>
 </div>
+
+<style>
+  .group + .group { margin-top: var(--gap); }
+</style>

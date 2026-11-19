@@ -3,7 +3,7 @@
   import Lightbox from '../lib/Lightbox.svelte'
   import WorkspaceSummary from '../lib/WorkspaceSummary.svelte'
   import type { FileEntry, Folder, WorkspacesPayload } from '../lib/types'
-  import { workspacePath, type Api } from './api'
+  import { DEFAULT_SESSION as DEFAULT, workspacePath, type Api } from './api'
   import LivePane from './LivePane.svelte'
   import { liveUnavailable } from './liveview.svelte'
   import FilesPane from './FilesPane.svelte'
@@ -20,13 +20,16 @@
   import SiteDataPane from './SiteDataPane.svelte'
   import Modal from './Modal.svelte'
   import { Shown, type ModalSpec } from './modal'
-  import { go, hashes, replace, type Tab } from './router.svelte'
+  import SessionChips from './SessionChips.svelte'
+  import { go, hashes, replace, tabHash, type Tab } from './router.svelte'
   import { WorkspaceModel } from './workspace.svelte'
 
-  let { key, tab, flow, site, request, api, live, root, liveScript, viewer }: {
+  let { key, tab, flow, site, request, session, api, live, root, liveScript, viewer }: {
     key: string
     tab: Tab
     flow: string | undefined
+    /** The session the address picked; absent reads as the default. */
+    session?: string
     /** A Site data host linked from History. */
     site?: string
     /** A request opened from Network. */
@@ -43,8 +46,22 @@
   // Rendered inside {#key route.key}: a workspace switch destroys this whole
   // subtree — its loads, its lightbox, its modal — so nothing here outlives
   // the workspace it was made for.
-  const m = untrack(() => new WorkspaceModel(key, api))
+  const m = untrack(() => new WorkspaceModel(key, api, session || DEFAULT))
   let destroyed = false
+
+  /* The sessions, the default first; one means the page is as it was. The
+     picked one is a listed one, or the default: a stale link names nothing. */
+  const sessions = $derived(m.row.sessions ?? [])
+  const hasSubs = $derived(sessions.length > 1)
+  const picked = $derived(!session || session === DEFAULT ? DEFAULT : !m.headed || sessions.some((x) => x.name === session) ? session : DEFAULT)
+  const sub = $derived(picked !== DEFAULT)
+  const pickedLabel = $derived(sessions.find((x) => x.name === picked)?.label ?? picked)
+  /* What the session tabs show: the picked session's own row. */
+  const shown = $derived(sub ? (m.sessionRow ?? { key }) : m.row)
+  const ready = $derived(sub ? m.sessionRow !== null : m.headed)
+  /* The address names the picked session unless it is the default. */
+  const pinned = () => (picked === DEFAULT ? null : picked)
+  $effect(() => { m.pick(picked) })
 
   // Stored erased: each spec's body snippet is typed to its own data, and only
   // that pairing matters, which `ask` checks at the call site.
@@ -95,7 +112,7 @@
 
   const vanished = () => {
     flowName = null
-    replace(hashes.flows(key))
+    replace(hashes.flows(key), pinned())
   }
   const known = (name: string) => (m.flows?.flows || []).some((f) => f.name === name)
 
@@ -106,7 +123,7 @@
     // neither error on screen outlived a pick.
     m.flowDocError = null
     m.flowsError = null
-    replace(hashes.flow(key, name))
+    replace(hashes.flow(key, name), pinned())
     return m.loadFlow(name)
   }
 
@@ -115,12 +132,13 @@
   /* A move or delete: the flow is no longer here to show. */
   function closeFlow() {
     flowName = null
-    replace(hashes.flows(key))
+    replace(hashes.flows(key), pinned())
     return reloadFlows()
   }
 
   onMount(() => {
     void m.loadConfig()
+    void m.loadSession()
     void (async () => {
       await m.loadFiles()
       if (destroyed) return
@@ -153,13 +171,13 @@
     untrack(() => m.onPushed(data, () => flowName, vanished, dropBrowserOverlays))
   })
 
-  const keepPath = (folder: Folder, f: FileEntry) =>
-    workspacePath(key, '/files/' + encodeURIComponent(folder) + '/' + encodeURIComponent(f.name) + '/keep')
+  const keepPath = (folder: Folder, f: FileEntry, named?: string) =>
+    workspacePath(key, '/files/' + encodeURIComponent(folder) + '/' + encodeURIComponent(f.name) + '/keep', named)
 
-  async function keep(folder: Folder, f: FileEntry): Promise<boolean> {
+  async function keep(folder: Folder, f: FileEntry, named?: string): Promise<boolean> {
     try {
       refuseIfGone()
-      await api(keepPath(folder, f), 'POST')
+      await api(keepPath(folder, f, named), 'POST')
     } catch (err) {
       alert('Could not keep that file: ' + (err as Error).message)
       return false
@@ -181,18 +199,22 @@
     })
   }
 
-  function clear(what: 'downloads' | 'screenshots' | 'recordings') {
+  function clear(what: 'downloads' | 'screenshots' | 'recordings', named?: string) {
     if (what === 'downloads') {
       // Which downloads Files also holds a copy of: the download goes, the
       // copy stays — said per row, the only version both complete and true.
       const kept = new Set(m.files.files.map((f) => f.name))
-      const names = m.files.downloads.map((f) => ({ name: f.name, stays: kept.has(f.name) }))
+      // A download is its session's browser's: one clear per session, never several at once.
+      const session = named && named !== DEFAULT ? named : undefined
+      const label = hasSubs ? (sessions.find((x) => x.name === (session ?? DEFAULT))?.label ?? session ?? DEFAULT) : null
+      const listed = session ? (m.subDownloads[session] ?? []) : m.files.downloads
+      const names = listed.map((f) => ({ name: f.name, stays: kept.has(f.name) }))
       ask({
-        scope: 'downloads', title: 'Clear downloads', body: clearDownloadsBody, data: names, danger: true,
+        scope: 'downloads', title: label ? `Clear ${label} downloads` : 'Clear downloads', body: clearDownloadsBody, data: { label, names }, danger: true,
         confirm: names.length ? 'Clear ' + names.length + ' file' + (names.length === 1 ? '' : 's') : 'Clear',
         onconfirm: async () => {
           refuseIfGone()
-          await api(workspacePath(key, '/files/downloads'), 'DELETE')
+          await api(workspacePath(key, '/files/downloads', session), 'DELETE')
           if (!destroyed) void m.loadFiles()
         },
       })
@@ -263,9 +285,12 @@
 
   /* Ending drops the browser, not the workspace: its next open carries on. */
   async function endBrowser() {
-    if (!confirm('End this browser? The workspace and its context are kept — whatever the browser was holding is lost.')) return
+    const mine = picked
+    if (!confirm(mine === DEFAULT
+      ? 'End this browser? The workspace and its context are kept — whatever the browser was holding is lost.'
+      : `End the ${pickedLabel} browser? Its session is kept — whatever the browser was holding is lost.`)) return
     try {
-      await api(workspacePath(key, '/session'), 'DELETE')
+      await api(workspacePath(key, '/session', mine), 'DELETE')
     } catch (err) {
       alert('Could not end the browser: ' + (err as Error).message)
       return
@@ -273,13 +298,44 @@
     if (destroyed) { void live.load(); return }
     dropBrowserOverlays()
     void m.loadFiles()
+    void m.loadSession()
     void m.loadFlows(() => flowName, vanished)
   }
 
+  /* Every session's browser; their records stay. */
+  function endAll() {
+    const lines = sessions.map((x) => x.label + ' · ' + (x.live ? x.browser || 'browser' : 'idle, no browser'))
+    const n = sessions.filter((x) => x.live).length
+    ask({
+      title: 'End every session’s browser', body: endAllBody, data: lines, danger: true,
+      confirm: n ? `End ${n} browser${n === 1 ? '' : 's'}` : 'End all',
+      onconfirm: async () => {
+        refuseIfGone()
+        await api(workspacePath(key, '/end-all'), 'POST')
+        if (destroyed) { void live.load(); return }
+        dropBrowserOverlays()
+        void m.loadFiles()
+        void m.loadSession()
+        void m.loadFlows(() => flowName, vanished)
+      },
+    })
+  }
+
+  /* A chip changes the session tabs, where the page is now; Files, Flows,
+     History and Config ignore it. The default leaves the address. */
+  function currentHash(): string {
+    if (tab === 'flows' && flowName) return hashes.flow(key, flowName)
+    if (tab === 'network' && request) return hashes.request(key, request)
+    if (tab === 'site-data' && site) return hashes.site(key, site)
+    return tabHash(key, tab)
+  }
+  const pick = (name: string) => go(currentHash(), name === DEFAULT ? null : name)
+  const to = (t: Tab) => go(tabHash(key, t), pinned())
   /* One viewer for all three rows, stepping through the row it was opened
      from, on the list as last answered. */
-  function openLightbox(folder: Folder, index: number) {
-    const files = m.files[folder]
+  function openLightbox(folder: Folder, index: number, named?: string) {
+    const listed = () => (named && folder === 'downloads' ? m.subDownloads[named] ?? [] : m.files[folder])
+    const files = listed()
     // A browser change can leave the grid drawn while its list is dropped;
     // today's viewer threw on the missing entry, so nothing opens here either.
     if (!files[index]) return
@@ -287,7 +343,7 @@
       folder, index, files,
       action: folder === 'files'
         ? { label: '🗑 Delete', run: (f) => new Promise<void>((resolve, reject) => { refuseIfGone(); deleteFile(f, resolve, reject) }) }
-        : { label: '📌 Keep', run: async (f) => { refuseIfGone(); await api(keepPath(folder, f), 'POST') } },
+        : { label: '📌 Keep', run: async (f) => { refuseIfGone(); await api(keepPath(folder, f, named), 'POST') } },
       // The same index either way: a kept screenshot or a deleted file leaves
       // the list, so the next one slides into its place; a kept download is a
       // copy and stays, so the viewer stays on it.
@@ -297,7 +353,7 @@
         // Its own load may have been overtaken by the poll's (the Keep race).
         await m.filesSettled()
         if (destroyed) return null
-        return { files: m.files[folder], index: at }
+        return { files: listed(), index: at }
       },
       // Only its own viewer: a refresh that lands after this one was closed
       // must not close the one opened since.
@@ -316,10 +372,10 @@
   // row: a Forget reloads the pane before the next push brings the row up.
   const siteDataTotal = $derived(m.siteDataError || !m.siteData ? '' : String(m.siteData.sites.length))
   const historyTotal = $derived(m.historyError || !m.history ? '' : String(m.history.sites.length))
-  const captureOff = $derived(m.row.capture === false)
-  const consoleTotal = $derived(m.row.captured ? String(m.row.captured.console) : '')
-  const networkTotal = $derived(m.row.captured ? String(m.row.captured.network) : '')
-  const unavailable = $derived(liveUnavailable(m.row, live.data?.live_enabled))
+  const captureOff = $derived(shown.capture === false)
+  const consoleTotal = $derived(shown.captured ? String(shown.captured.console) : '')
+  const networkTotal = $derived(shown.captured ? String(shown.captured.network) : '')
+  const unavailable = $derived(liveUnavailable(shown, live.data?.live_enabled))
   const loadViewer = () => (viewer ?? (() => import(/* @vite-ignore */ liveScript)))()
   const flowsTotal = $derived(!m.flows || m.flowsBlanked ? '' : m.flows.enabled ? String((m.flows.flows || []).length) : 'off')
 </script>
@@ -335,16 +391,22 @@
   <ul class="names"><li>{file}</li></ul>
 {/snippet}
 
+{#snippet endAllBody(lines: string[])}
+  <p>Quits the browser of every session. Their records stay, so open_session picks up where each left off.</p>
+  <ul class="names">{#each lines as l (l)}<li>{l}</li>{/each}</ul>
+{/snippet}
+
 {#snippet deleteBody(name: string)}
   <p>This removes it from Files for good. There is no undo.</p>
   <ul class="names"><li>{name}</li></ul>
 {/snippet}
 
-{#snippet clearDownloadsBody(names: { name: string; stays: boolean }[])}
-  <p>Deletes what this browser downloaded. The Grid has no per-file delete, so this clears all of them.</p>
+{#snippet clearDownloadsBody(d: { label: string | null; names: { name: string; stays: boolean }[] })}
+  {@const names = d.names}
+  <p>Deletes what {d.label ? `the ${d.label} session’s` : 'this'} browser downloaded. The Grid has no per-file delete, so this clears all of them.</p>
   {#if names.length}
     <ul class="names">
-      {#each names as n (n.name)}
+      {#each names as n, i (i)}
         <li>{n.name}{#if n.stays}<span class="fate stays">{STAYS}</span>{:else}<span class="fate gone">{GONE}</span>{/if}</li>
       {/each}
     </ul>
@@ -367,8 +429,10 @@
   <div class="row" style="margin-bottom:12px">
     <button id="back" onclick={() => go(hashes.list)}>← Workspaces</button>
     <span class="grow"></span>
-    <button id="endBrowser" class="danger" disabled={!m.row.attached}
-            title="Quit this browser. The workspace and its context are kept." onclick={endBrowser}>End browser</button>
+    {#if !hasSubs}
+      <button id="endBrowser" class="danger" disabled={!shown.attached}
+              title="Quit this browser. The workspace and its context are kept." onclick={endBrowser}>End browser</button>
+    {/if}
   </div>
   <!-- Blank until this workspace's row arrives, from its load or a push. -->
   <div id="detailHeader">{#if m.headed}<WorkspaceSummary data={m.row} />{/if}</div>
@@ -378,29 +442,76 @@
       <button type="button" class="danger" onclick={editConfig}>Edit YAML</button>
     </div>
   {/if}
+  {#if hasSubs}
+    <div id="sessionBar" class="row">
+      <SessionChips {sessions} {picked} onpick={pick} />
+      <span class="grow"></span>
+      <button id="endBrowser" class="danger" disabled={!shown.attached}
+              title="Quit this session's browser. Its session is kept." onclick={endBrowser}>End {pickedLabel}</button>
+      <button id="endAll" onclick={endAll}>End all</button>
+    </div>
+  {/if}
 
+  <!-- The session tabs, a divider, then the workspace's: only the first five follow the chips. -->
   <div class="tabs subtabs" id="workspaceTabs" role="tablist">
-    <button id="tabSession" role="tab" aria-selected={tab === 'session'} onclick={() => go(hashes.workspace(key))}>Session</button>
-    <button id="tabFiles" role="tab" aria-selected={tab === 'files'} onclick={() => go(hashes.files(key))}>Files <span id="filesTotal" class="count">{filesTotal}</span></button>
-    <button id="tabFlows" role="tab" aria-selected={tab === 'flows'} onclick={() => go(hashes.flows(key))}>Flows <span id="flowsTotal" class="count">{flowsTotal}</span></button>
-    <button id="tabSiteData" role="tab" aria-selected={tab === 'site-data'} onclick={() => go(hashes.siteData(key))}>Site data <span id="siteDataTotal" class="count">{siteDataTotal}</span></button>
-    <button id="tabHistory" role="tab" aria-selected={tab === 'history'} onclick={() => go(hashes.history(key))}>History <span id="historyTotal" class="count">{historyTotal}</span></button>
-    <button id="tabConfig" role="tab" aria-selected={tab === 'config'} onclick={() => go(hashes.config(key))}>Config</button>
-    <button id="tabConsole" role="tab" aria-selected={tab === 'console'} aria-disabled={captureOff} title={captureOff ? CAPTURE_OFF : undefined} class:muted={captureOff}
-            onclick={() => { if (!captureOff) go(hashes.pageConsole(key)) }}>Console <span id="consoleTotal" class="count">{consoleTotal}</span></button>
-    <button id="tabNetwork" role="tab" aria-selected={tab === 'network'} aria-disabled={captureOff} title={captureOff ? CAPTURE_OFF : undefined} class:muted={captureOff}
-            onclick={() => { if (!captureOff) go(hashes.network(key)) }}>Network <span id="networkTotal" class="count">{networkTotal}</span></button>
+    <button id="tabSession" role="tab" aria-selected={tab === 'session'} onclick={() => to('session')}>Session</button>
     <button id="tabLive" role="tab" aria-selected={tab === 'live'} aria-disabled={!!unavailable} title={unavailable ?? undefined} class:muted={!!unavailable}
-            onclick={() => { if (!unavailable) go(hashes.live(key)) }}>Live</button>
+            onclick={() => { if (!unavailable) to('live') }}>Live</button>
+    <button id="tabConsole" role="tab" aria-selected={tab === 'console'} aria-disabled={captureOff} title={captureOff ? CAPTURE_OFF : undefined} class:muted={captureOff}
+            onclick={() => { if (!captureOff) to('console') }}>Console <span id="consoleTotal" class="count">{consoleTotal}</span></button>
+    <button id="tabNetwork" role="tab" aria-selected={tab === 'network'} aria-disabled={captureOff} title={captureOff ? CAPTURE_OFF : undefined} class:muted={captureOff}
+            onclick={() => { if (!captureOff) to('network') }}>Network <span id="networkTotal" class="count">{networkTotal}</span></button>
+    <button id="tabSiteData" role="tab" aria-selected={tab === 'site-data'} onclick={() => to('site-data')}>Site data <span id="siteDataTotal" class="count">{siteDataTotal}</span></button>
+    <span class="divider" aria-hidden="true"></span>
+    <button id="tabFiles" role="tab" aria-selected={tab === 'files'} onclick={() => to('files')}>Files <span id="filesTotal" class="count">{filesTotal}</span></button>
+    <button id="tabFlows" role="tab" aria-selected={tab === 'flows'} onclick={() => to('flows')}>Flows <span id="flowsTotal" class="count">{flowsTotal}</span></button>
+    <button id="tabHistory" role="tab" aria-selected={tab === 'history'} onclick={() => to('history')}>History <span id="historyTotal" class="count">{historyTotal}</span></button>
+    <button id="tabConfig" role="tab" aria-selected={tab === 'config'} onclick={() => to('config')}>Config</button>
   </div>
 
-  <!-- Where a workspace opens. Blank until its row arrives, like the header:
-       a default drawn before then would claim a browser nobody asked for. -->
-  {#if m.headed}
-    <SessionPane row={m.row} hidden={tab !== 'session'} />
-  {:else}
-    <div id="paneSession" class="empty" hidden={tab !== 'session'}>Loading…</div>
-  {/if}
+  <!-- A sub-session is marked by its chip and this edge, never a line of text. -->
+  <div id="sessionArea" class:sub>
+    <!-- Where a workspace opens. Blank until its row arrives, like the header:
+         a default drawn before then would claim a browser nobody asked for. -->
+    {#if ready}
+      <SessionPane row={shown} hidden={tab !== 'session'} label={hasSubs ? pickedLabel : null} />
+    {:else}
+      <div id="paneSession" class="empty" hidden={tab !== 'session'}>Loading…</div>
+    {/if}
+    <SiteDataPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} {site} hidden={tab !== 'site-data'} />
+    <!-- Not kept mounted: leaving the tab is what closes a live stream. -->
+    {#if tab === 'live'}
+      <div id="paneLive">
+        {#if !ready}
+          <p class="empty">Loading…</p>
+        {:else if unavailable}
+          <p class="empty">{unavailable}</p>
+        {:else}
+          {#key picked}
+            <LivePane {api} {key} session={picked} name={m.row.name ?? key} {root} load={loadViewer} />
+          {/key}
+        {/if}
+      </div>
+    {/if}
+    {#if tab === 'console' || tab === 'network'}
+      <div id="paneCapture">
+        {#if captureOff}
+          <p class="small muted">{CAPTURE_OFF}</p>
+        {:else}
+          {#key picked}
+            {#if tab === 'console'}
+              <CaptureConsolePane {api} {key} {root} session={picked} />
+            {:else if request}
+              <RequestPane {api} {key} id={request} session={picked} />
+            {:else}
+              <CaptureNetworkPane {api} {key} {root} session={picked} />
+            {/if}
+          {/key}
+        {/if}
+      </div>
+    {/if}
+  </div>
+
   <!-- Both panes stay mounted and toggle `hidden`, as today: a section
        collapsed on Files is still collapsed after a look at Flows. -->
   <FilesPane {m} {root} hidden={tab !== 'files'}
@@ -411,38 +522,15 @@
       {m} {flowName} {api} {ask} {refuseIfGone} isGone={() => destroyed}
       onpick={(name) => void openFlow(name)} onclosed={closeFlow} reload={reloadFlows} /></div></div>
   </div>
-  <SiteDataPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} {site} hidden={tab !== 'site-data'} />
   <HistoryPane {m} {api} {ask} {refuseIfGone} isGone={() => destroyed} hidden={tab !== 'history'} />
   <ConfigPane {m} hidden={tab !== 'config'} onedit={editConfig} onremove={removeConfig} />
-  <!-- Not kept mounted: leaving the tab is what closes a live stream. -->
-  {#if tab === 'live'}
-    <div id="paneLive">
-      {#if !m.headed}
-        <p class="empty">Loading…</p>
-      {:else if unavailable}
-        <p class="empty">{unavailable}</p>
-      {:else}
-        <LivePane {api} {key} name={m.row.name ?? key} {root} load={loadViewer} />
-      {/if}
-    </div>
-  {/if}
-  {#if tab === 'console' || tab === 'network'}
-    <div id="paneCapture">
-      {#if captureOff}
-        <p class="small muted">{CAPTURE_OFF}</p>
-      {:else if tab === 'console'}
-        <CaptureConsolePane {api} {key} {root} />
-      {:else if request}
-        <RequestPane {api} {key} id={request} />
-      {:else}
-        <CaptureNetworkPane {api} {key} {root} />
-      {/if}
-    </div>
-  {/if}
 </div>
 
 <style>
   #configInvalid { margin-top: 12px; border-color: var(--warn); color: var(--warn); }
+  #sessionBar { margin-top: 12px; gap: 8px; flex-wrap: wrap; }
+  .divider { align-self: stretch; width: 1px; margin: 6px 6px; background: var(--line); }
+  #sessionArea.sub { border-left: 3px solid var(--accent); padding-left: 9px; margin-left: -12px; }
 </style>
 
 <!-- An each of one, keyed by the viewer, not {#if}: a viewer's props must
