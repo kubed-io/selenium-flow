@@ -10,9 +10,10 @@ refusal and no timeout of its own, since the call holding it is bounded by its
 own.
 
 Keyed by the session's browser, its Grid id, which is what `Recipe.run` is
-handed. A workspace holds one session at a time, so that is one hold per
-workspace at any moment, and a browser that was ended takes its hold with it,
-cancel flag set, leaving no flag a later browser would have to clear.
+handed. A session holds one browser at a time, so that is one hold per session
+at any moment: two sessions of one workspace never wait on each other, and
+callers naming one session take turns. A browser that was ended takes its hold
+with it, cancel flag set, leaving no flag a later browser would have to clear.
 
 `end_browser` takes no hold. It is the call that exists to stop the others, so
 it never queues behind them: it sets the hold's ``ending`` flag, which the

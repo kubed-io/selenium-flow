@@ -510,6 +510,34 @@ CAPABILITIES: tuple[Capability, ...] = (
                         "called with. There is no browser id to keep."
                     ),
                 },
+                "session": {
+                    "type": "string",
+                    "description": (
+                        "The session this browser is: default, or a "
+                        "sub-session's name."
+                    ),
+                },
+                "default": {
+                    "type": "boolean",
+                    "description": "Whether it is the workspace's default session.",
+                },
+                "others": {
+                    "type": "array",
+                    "description": (
+                        "Every other session of this workspace. Present only "
+                        "when there are some."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "label": {"type": "string"},
+                            "default": {"type": "boolean"},
+                            "live": {"type": "boolean"},
+                            "url": {"type": ["string", "null"]},
+                        },
+                    },
+                },
                 "browser": {
                     "type": "string",
                     "description": "The browser this session is running.",

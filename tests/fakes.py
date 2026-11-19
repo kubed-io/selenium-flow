@@ -254,10 +254,11 @@ class TabbedActions(RecordingActions):
     ``checks`` is what each `check_tabs` answers next, in order: a dict, or an
     exception that is raised; ``{}`` once it is empty. ``calls`` names every
     method asked, in order, so a test reads where the checks fell. ``at`` is
-    the page the session is on: where it opened, then where a check moved it.
-    ``do`` answers ``result``, or raises ``raises``; ``page`` answers ``at``,
-    ``write`` ``at`` and the value read back, and ``tab`` ``{"tabs":
-    listing, "tab": ...}`` as a ``list`` does, with the current page.
+    the page the session is on: where it opened, then where a check moved it;
+    ``pages`` is the same by Grid id, for several browsers at once.
+    ``do`` answers ``result``, or raises ``raises``; ``page`` answers the
+    browser's page, ``write`` that page and the value read back, and ``tab``
+    ``{"tabs": listing, "tab": ...}`` as a ``list`` does, with the current page.
     """
 
     def __init__(self):
@@ -267,11 +268,15 @@ class TabbedActions(RecordingActions):
         self.result: dict = {}
         self.raises: BaseException | None = None
         self.at: dict = {"url": "https://example.test/", "title": "Example"}
+        self.pages: dict[str, dict] = {}
 
     def open_session(self, url=None, **kwargs):
         opened = super().open_session(url, **kwargs)
-        self.at = {"url": opened["url"], "title": ""}
+        self.at = self.pages[opened["session_id"]] = {"url": opened["url"], "title": ""}
         return opened
+
+    def _on(self, session_id):
+        return dict(self.pages.get(session_id, self.at))
 
     def check_tabs(self, session_id):
         self.calls.append("check_tabs")
@@ -280,6 +285,7 @@ class TabbedActions(RecordingActions):
             raise found
         if "tab" in found:
             self.at = {"url": found.get("url"), "title": found.get("title")}
+            self.pages[session_id] = self.at
         return dict(found)
 
     def do(self, session_id, **kwargs):
@@ -290,11 +296,11 @@ class TabbedActions(RecordingActions):
 
     def page(self, session_id):
         self.calls.append("page")
-        return dict(self.at)
+        return self._on(session_id)
 
     def write(self, session_id, text=None, **kwargs):
         self.calls.append("write")
-        return {**self.at, "value": text}
+        return {**self._on(session_id), "value": text}
 
     # The tools a flow step names, answered as `do` is.
     navigate = interact = extract = do

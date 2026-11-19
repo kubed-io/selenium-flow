@@ -44,6 +44,7 @@ import contextlib
 import logging
 import time
 from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import Literal, NamedTuple
 
@@ -118,6 +119,27 @@ class Said(NamedTuple):
     result: dict
     page: dict | None
     url_hidden: bool
+
+
+# The session key the call in flight acts in, for what the action layer asks
+# back about it (`Actions.visited`): set by `_said` in the call's own thread, as
+# `core.cancel` carries its flags, since an argument would land in every tool
+# schema derived from the actions.
+_ACTING: ContextVar[str] = ContextVar("acting_session", default="")
+
+
+def acting() -> str:
+    """The session key the call in flight acts in, or "" outside a call."""
+    return _ACTING.get()
+
+
+@contextlib.contextmanager
+def _acting_in(key: str):
+    token = _ACTING.set(key)
+    try:
+        yield
+    finally:
+        _ACTING.reset(token)
 
 
 # `remember`'s "leave who opened it alone": a silent reopen after a reap is the
@@ -212,6 +234,11 @@ NO_SUB = (
     "no session named {name!r} in workspace {workspace!r}: call open_session "
     "with session={name!r} to open it. No other call opens one, so a mistyped "
     "name starts no browser."
+)
+
+NO_BROWSER = (
+    "no browser is open in session {name!r} of workspace {workspace!r}: call "
+    "open_session with session={name!r} first. Only open_session opens one."
 )
 
 SUBJECT_UNNAMED = (
@@ -436,9 +463,11 @@ def values_of(request) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
 class Workspaces:
     """Resolves a named workspace to the browser it holds, through a ``WorkspaceStore``.
 
-    The store maps name -> record, and the record carries the Grid session id,
-    the page, and the settings a reopen has to replay. The name is the store
-    key, the flow library's directory, and the only identifier a caller sees.
+    The store maps a session's key -> record, and the record carries the Grid
+    session id, the page, and the settings a reopen has to replay. The default
+    session's key is the workspace's name, which is also the flow library's
+    directory; a sub-session's is ``<workspace>/<name>`` (`workspace.sessions`).
+    Everything that acts on a browser takes the key `session_of` resolves.
     """
 
     def __init__(
@@ -807,6 +836,11 @@ class Workspaces:
         if record is None or not record.attached:
             # Detached reads as absent: the caller is sent to open_session, the
             # one path that opens a browser.
+            if sessions.is_sub(name):
+                workspace, session = sessions.split(name)
+                raise faults.NoSession(NO_BROWSER.format(
+                    name=session, workspace=workspace
+                ))
             raise faults.NoSession(
                 f"no session is open in workspace {name!r} yet: call open_session "
                 "first. It takes the window size and timeouts this session "
@@ -884,7 +918,7 @@ class Workspaces:
         # A browser this workspace does not hold keeps its provisional note.
         if replay.get("record") and kept == opened["session_id"]:
             try:
-                self.recordings.expect(name, opened["session_id"], _kind(replay))
+                self._expect(name, opened["session_id"], _kind(replay))
             except (OSError, ValueError) as exc:
                 # The browser is open and remembered; failing the caller's
                 # action over the filing would help nobody.
@@ -916,18 +950,21 @@ class Workspaces:
 
         self.store.update(name, mark)
 
-    def _recorded(self, name: str, settings: dict) -> dict:
+    def _recorded(self, key: str, settings: dict) -> dict:
         """The arguments a recorded open adds: the video's name, and a note
         for the collector the moment the browser exists, marked ``discard``.
+        Both are the workspace's, whichever of its sessions ``key`` is: its
+        recordings are among its files.
 
         The caller notes it again without the mark once the workspace holds the
         browser. Until then its video is no workspace's, and stays so when the
         open fails after the Grid made the browser, or a concurrent open binds
         first and this one is quit."""
+        name = sessions.split(key)[0]
 
         def created(grid_id: str) -> None:
             try:
-                self.recordings.expect(name, grid_id, _kind(settings), discard=True)
+                self._expect(key, grid_id, _kind(settings), discard=True)
             except (OSError, ValueError) as exc:
                 # The type alone: the note's path names the Grid id. Never the
                 # open's failure: the browser is made, and the open goes on.
@@ -937,6 +974,14 @@ class Workspaces:
                 )
 
         return {"video_name": name, "on_created": created}
+
+    def _expect(self, key: str, grid_id: str, browser: str, **kwargs) -> None:
+        """`recordings.expect` for a browser of the session ``key``: filed with
+        its workspace, and known to the monitor by a sub-session's key, as
+        every other announcement of it is."""
+        if sessions.is_sub(key):
+            kwargs["session"] = key
+        self.recordings.expect(sessions.split(key)[0], grid_id, browser, **kwargs)
 
     def _timeout_of(self, session_id: str) -> int | None:
         """The idle timeout the Grid gives this session, or None when it will
@@ -1002,13 +1047,13 @@ class Workspaces:
         running would never time out."""
         self._told("release", session_id, KEEPALIVE)
 
-    def _refuse(self, caller: Caller, tool: str) -> None:
-        """Raise the refusal for ``tool`` while a person holds this workspace's
-        browser: for `open_session` and `end_browser`, which take no turn.
-        Nothing to refuse with no session open (no Grid id, no gate)."""
+    def _refuse(self, key: str, tool: str) -> None:
+        """Raise the refusal for ``tool`` while a person holds the browser of
+        the session ``key``: for `open_session` and `end_browser`, which take
+        no turn. Nothing to refuse with no browser open (no Grid id, no gate)."""
         if self.control is None:
             return
-        record = self.store.get(caller.name)
+        record = self.store.get(key)
         if record is None or not record.attached:
             return
         self.calls.refuse(record.session_id, tool)
@@ -1025,6 +1070,8 @@ class Workspaces:
     ) -> Said:
         """Run ``call(session_id)`` as one said call: the result, scrubbed, the
         page hint (or None), and whether the result's URL was withheld.
+        ``name`` is the session's key: its origin, frame and secret forms are
+        that session's, and the turn is its browser's.
 
         The bracket every host of a call shares. The call holds the session's
         turn from before it begins to after it ends (the lock is reentrant, so
@@ -1061,7 +1108,8 @@ class Workspaces:
             try:
                 # A refusal here (a person in control) begins nothing.
                 begun = self.calls.begin(name, session_id, browser=kind, tool=tool)
-                result = call(session_id)
+                with _acting_in(name):
+                    result = call(session_id)
             except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
                 if begun is not None:
                     self.calls.end(
@@ -1232,15 +1280,22 @@ class Workspaces:
         caller: Caller,
         call,
         *,
+        session: str | None = None,
         reshapes: bool = False,
         tool: str = "",
         surface: str = "mcp",
         closed: Callable[[str], None] | None = None,
     ) -> dict:
-        """Resolve this workspace's browser, act on it, remember where it ended up.
+        """Resolve the caller's session's browser, act on it, remember where it
+        ended up.
 
         The three steps every action shares, on both surfaces, so the surfaces
         cannot disagree about sliding a TTL or reopening a reaped browser.
+
+        ``session`` is the call's own argument; which session it reaches is
+        `session_of`'s answer (WS-49), and everything below is keyed by that
+        session's key. A sub-session with no record, or a session with no
+        browser, is `faults.NoSession`, and nothing is opened (WS-78).
 
         ``reshapes`` is for the one action that changes a setting the record
         stores rather than just the page it is on. See :meth:`reshape`.
@@ -1254,11 +1309,11 @@ class Workspaces:
         capture on, what the page reported during its turn comes back as
         ``page``, or, when it raised, as a sentence on its error.
 
-        ``closed`` is asked first when no session is open, with the workspace's
-        name: a call whose answer went with the browser raises its own refusal
+        ``closed`` is asked first when no session is open, with the session's
+        key: a call whose answer went with the browser raises its own refusal
         there (`network_body`'s 404), since opening one cannot bring it back.
         """
-        name = caller.name
+        name = self.session_of(caller, session)
         try:
             resolved, kind = self.resolved(name)
         except faults.NoSession:
@@ -1572,22 +1627,30 @@ class Workspaces:
         url: str | None = None,
         fresh: bool = False,
         restore_site_data: bool = True,
+        *,
+        session: str | None = None,
         **wanted,
     ) -> dict:
-        """Open a session in this workspace, or pick up the one it was using.
+        """Open a browser in the caller's session, or pick up the one it was
+        using. ``session`` names it (WS-49); a sub-session it names is made
+        here, the one place that may (WS-78).
 
         Its answer is scrubbed (`_open_browser`), and so is its failure, with
         every leashed secret: a first page that failed may quote where it
         landed, and no browser holds the slot yet.
         """
+        key = self.session_of(caller, session, opening=True)
         return self._scrubbing(
-            caller.name,
-            lambda: self._open_browser(caller, url, fresh, restore_site_data, **wanted),
+            key,
+            lambda: self._open_browser(
+                caller, key, url, fresh, restore_site_data, **wanted
+            ),
         )
 
     def _open_browser(
         self,
         caller: Caller,
+        key: str,
         url: str | None,
         fresh,
         restore_site_data,
@@ -1607,9 +1670,13 @@ class Workspaces:
         than driving it, and the one it replaces goes through `end_browser`. So
         a person's control of that one is checked directly, before anything
         else.
+
+        Everything is the session ``key``'s: the settings it inherits, the
+        browser it replaces and the record it binds. Another session's browser
+        is never ended, nor its settings read (WS-51, WS-59).
         """
-        name = caller.name
-        self._refuse(caller, "open_session")
+        name = key
+        self._refuse(key, "open_session")
         previous = self.context(name)
         sources = previous.get("set_by") or {}
         # Resolved before the held browser is ended, because this validates as
@@ -1650,10 +1717,10 @@ class Workspaces:
         # where the browser already was, so it is not the caller's to check.
         if url:
             allowed_navigation(url)
-        # A workspace holds one browser: a second opened without ending the
+        # A session holds one browser: a second opened without ending the
         # first would hold a Grid slot, referenced by nothing, until the idle
         # timeout.
-        ended = self.end_browser(caller)
+        ended = self._end_browser(key)
         # `fresh` drops only the remembered page. The settings still come
         # through the cascade (coming back as Chrome when the workspace was
         # using Firefox is no fresh start), and an explicit `url` stands.
@@ -1688,12 +1755,14 @@ class Workspaces:
             sent=opened.get("sent"),
             ran=opened.get("ran"),
         )
+        # The first subject to open a new workspace owns its default (WS-50).
+        self.claim(key, caller.principal)
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
             # the one the workspace holds. This one's provisional note stays, so
             # its video is deleted, not filed. That open gives its browser the
             # slot itself; this answer is scrubbed as a resource is.
-            return self.scrubber.resource(name, self._held(name))
+            return self._named(key, self.scrubber.resource(name, self._held(name)))
         # This browser holds the workspace now: it starts afresh, unframed, on
         # the page it opened at.
         self.origins.opened(name, kept)
@@ -1707,7 +1776,7 @@ class Workspaces:
         noted = None
         if settings.get("record"):
             try:
-                self.recordings.expect(name, opened["session_id"], _kind(settings))
+                self._expect(key, opened["session_id"], _kind(settings))
             except (OSError, ValueError) as exc:
                 # ValueError: `InvalidName` from a link on the note's path. The
                 # browser is open and recording either way; only the filing
@@ -1733,7 +1802,48 @@ class Workspaces:
         # The page it opened on, new or remembered, is new to this caller in
         # this browser.
         self._hint(told, name, told.get("url"), scrubbed=True)
-        return {"workspace": name, **told}
+        return self._named(key, told)
+
+    def _named(self, key: str, answer: dict) -> dict:
+        """``answer`` as `open_session` gives it: its workspace, its session's
+        name and whether that is the default (WS-48), and ``others``, every
+        other session in the workspace, when there are any (WS-72)."""
+        workspace, name = sessions.split(key)
+        named = {
+            "workspace": workspace,
+            "session": name,
+            "default": name == sessions.DEFAULT,
+            **{k: v for k, v in answer.items() if k != "workspace"},
+        }
+        others = [s for s in self.listed_sessions(workspace) if s["name"] != name]
+        if others:
+            # Their pages may be on any origin: scrubbed as a resource is.
+            named["others"] = self.scrubber.resource(key, others)
+        return named
+
+    def listed_sessions(self, workspace: str) -> list[dict]:
+        """Every session of ``workspace``, the default first, as ``{name,
+        label, default, live, url}``: the subs as its record lists them, one
+        whose record expired left out. Asks the Grid whether each attached
+        browser lives."""
+        record = self.store.get(workspace)
+        if record is None:
+            return []
+        found = [(sessions.DEFAULT, record)]
+        for name in record.subs:
+            sub = self.store.get(sessions.key_of(workspace, name))
+            if sub is not None:
+                found.append((name, sub))
+        return [
+            {
+                "name": name,
+                "label": r.label or name,
+                "default": name == sessions.DEFAULT,
+                "live": bool(r.attached and self.actions.grid.is_alive(r.session_id)),
+                "url": r.url or None,
+            }
+            for name, r in found
+        ]
 
     def _landing(self, name: str, url: str) -> str:
         """``url``, the page a new browser landed on, as the record may keep it:
@@ -1752,7 +1862,7 @@ class Workspaces:
         record = self.store.get(name)
         settings = dict(record.settings or {}) if record else {}
         held = {
-            "workspace": name,
+            "workspace": sessions.split(name)[0],
             "browser": settings.get("browser"),
             "url": record.url if record else "",
             "settings": settings,
@@ -1933,7 +2043,8 @@ class Workspaces:
         if self.hints is None or not url:
             return
         try:
-            here = list(self.hints(name, url) or [])
+            # Flows are the workspace's, whichever session asks (WS-54).
+            here = list(self.hints(sessions.split(name)[0], url) or [])
             if scrubbed and here:
                 here = self.scrubber.resource(name, here)
         except Exception as exc:  # noqa: BLE001 - a hint never fails a call
@@ -1989,8 +2100,16 @@ class Workspaces:
             return []
         return [v["origin"] for v in record.pruned(time.time(), self.store.ttl).history]
 
-    def end_browser(self, caller: Caller, *, admin: bool = False) -> str | None:
-        """End the browser a workspace holds, keeping the workspace itself.
+    def end_browser(
+        self, caller: Caller, *, admin: bool = False, session: str | None = None
+    ) -> str | None:
+        """End the browser of the caller's session (``session`` names it,
+        WS-49), keeping its record: every other session's browser is left
+        open (WS-74). See `_end_browser`."""
+        return self._end_browser(self.session_of(caller, session), admin=admin)
+
+    def _end_browser(self, key: str, *, admin: bool = False) -> str | None:
+        """End the browser the session ``key`` holds, keeping its record.
 
         The one place a browser is ended: the caller ending its own, the admin
         End button, and ``open_session`` replacing one. The browser is quit on
@@ -2011,9 +2130,9 @@ class Workspaces:
 
         Returns the browser that was ended, or None if there was none.
         """
-        name = caller.name
+        name = key
         if not admin:
-            self._refuse(caller, "end_browser")
+            self._refuse(key, "end_browser")
         record = self.store.get(name)
         if record is None or not record.attached:
             return None

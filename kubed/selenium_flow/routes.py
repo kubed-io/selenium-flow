@@ -7,7 +7,8 @@ verb and a route a path plus a method, so neither is derived from the other.
 
 The workspace is who is calling (``Sf-Workspace`` or ``?workspace=``), never a
 body field or a path segment, so there is one browser resource: ``POST
-/browser`` opens yours. Only ``/admin`` puts a workspace in a path.
+/browser`` opens yours. Only ``/admin`` puts a workspace in a path. Which of its
+sessions a call acts in is the body's ``session``, as on the tool, or the pin.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 import inspect
 import logging
 import time
+from dataclasses import replace
 
 import yaml
 from fastmcp import FastMCP
@@ -33,7 +35,7 @@ from .mcp import resources
 from .principal import ADMIN
 from .spec import build_spec
 from .workspace import settings
-from .workspace.workspaces import Caller, Workspaces
+from .workspace.workspaces import Workspaces
 
 log = logging.getLogger(__name__)
 
@@ -191,13 +193,14 @@ def register(
             url=body.get("url"),
             fresh=body.get("fresh", False),
             restore_site_data=body.get("restore_site_data", True),
+            session=body.get("session"),
             **{k: v for k, v in body.items() if k in settings.SETTINGS},
         )
 
-    def ended(caller, _body):
+    def ended(caller, body):
         """Quit the browser, keeping the workspace and what it was doing."""
         # The Grid id is never reported: it is how a browser is reached.
-        workspaces.end_browser(caller)
+        workspaces.end_browser(caller, session=body.get("session"))
         return {"success": True, "workspace": caller.name}
 
     on_the_resource = {
@@ -215,7 +218,9 @@ def register(
             token,
             "status",
             lambda caller, _body: workspaces.describe(
-                Caller(caller.name, "request", principal=ADMIN if token else None)
+                replace(
+                    caller, named_by="request", principal=ADMIN if token else None
+                )
             ),
             log,
             configs=workspaces.configs,
@@ -312,18 +317,22 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
             # Unknown keys are dropped, so a field a newer version accepts is
             # no failure.
             kwargs = {k: v for k, v in body.items() if k in accepted}
+            # The route's, as on the tool: which session it acts in.
+            session = body.get("session")
             if row.in_path:
                 kwargs["action"] = request.path_params["action"]
             if binds and kwargs.get("secret") is not None:
                 # A bound write must not let `act` store the page it landed on.
                 return secrets_module.perform_write(
-                    catalogue, actions, workspaces, caller.name, kwargs,
+                    catalogue, actions, workspaces,
+                    workspaces.session_of(caller, session), kwargs,
                     surface="http",
                 )
             kwargs.pop("secret", None)
             return workspaces.act(
                 caller,
                 lambda s: method(s, **kwargs),
+                session=session,
                 reshapes=row.reshapes,
                 tool=row.name,
                 surface="http",

@@ -174,7 +174,7 @@ async def build_spec(
                 "tags": ["browser"],
                 "requestBody": {
                     "required": True,
-                    "content": _request_content(action, request_name),
+                    "content": _request_content(action, request_name, request),
                 },
                 "responses": {
                     "200": _answer("The action succeeded.", _ref(response_name)),
@@ -397,11 +397,12 @@ async def build_spec(
     return spec
 
 
-def _request_content(action: str, request_name: str) -> dict:
+def _request_content(action: str, request_name: str, request: dict) -> dict:
     """The accepted request bodies for one endpoint.
 
     Everything takes JSON. Uploading also takes a multipart form, so a file is
-    sent as a file instead of base64 in JSON.
+    sent as a file instead of base64 in JSON; its ``session`` is described as
+    the JSON body's (``request``) is.
     """
     content = _json(_ref(request_name))
     if action == "upload_file":
@@ -452,6 +453,12 @@ def _request_content(action: str, request_name: str) -> dict:
                     },
                     "url": {"type": "string"},
                     "wait_timeout": {"type": "integer"},
+                    "session": {
+                        "type": "string",
+                        "description": request["properties"]["session"][
+                            "description"
+                        ],
+                    },
                 },
                 # Nothing is required: `browser.locator` refuses a bad selector
                 # with a 400, as it does for a JSON body.

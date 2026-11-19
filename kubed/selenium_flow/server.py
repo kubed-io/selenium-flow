@@ -58,7 +58,7 @@ from .workspace import locks
 from .workspace import settings as workspace_settings
 from .workspace import store as store_module
 from .workspace.store import WorkspaceStore
-from .workspace.workspaces import Workspaces
+from .workspace.workspaces import Workspaces, acting
 
 log = logging.getLogger(__name__)
 
@@ -364,8 +364,11 @@ class SeleniumMCP:
             uri,
             workspace or clients.caller().name,
         )
-        # So one save reads every site's storage.
-        self.actions.visited = lambda: self.workspaces.visited(clients.caller().name)
+        # So one save reads every site's storage: the history of the session
+        # the call acts in.
+        self.actions.visited = lambda: self.workspaces.visited(
+            acting() or clients.caller().name
+        )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)
             if apps_enabled

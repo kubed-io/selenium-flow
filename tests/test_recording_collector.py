@@ -1183,6 +1183,37 @@ async def test_a_provisional_discard_is_watched_too(parts):
     assert monitor.watched == [(GID, "bot", "recording", "chrome")]
 
 
+async def test_a_sub_sessions_browser_is_watched_by_its_key_and_filed_with_its_workspace(
+    parts, store, inbox
+):
+    """The monitor knows a sub-session's browser by its key, as every other
+    announcement of it says, after a restart too; the video is the workspace's."""
+    c, _store, _inbox, monitor, _filed, _clock = parts
+    c.expect("bot", GID, "chrome", session="bot/tester")
+    assert monitor.watched == [(GID, "bot/tester", "recording", "chrome")]
+    ((workspace, grid_id, note),) = store.notes()
+    assert (workspace, grid_id, note["session"]) == ("bot", GID, "bot/tester")
+    again = Watcher()
+    restarted = collector(store, inbox, Clock(), monitor=again)
+    await restarted.start()
+    assert again.watched == [(GID, "bot/tester", "recording", "chrome")]
+    await restarted.stop()
+
+
+@pytest.mark.parametrize("written", ["other/tester", "bot", 7])
+async def test_a_note_naming_no_sub_session_of_its_workspace_is_watched_by_it(
+    store, inbox, written
+):
+    store.write_note(
+        "bot", GID, {"opened": 1_791_500_000_000, "browser": "chrome", "session": written}
+    )
+    monitor = Watcher()
+    c = collector(store, inbox, Clock(), monitor=monitor)
+    await c.start()
+    assert monitor.watched == [(GID, "bot", "recording", "chrome")]
+    await c.stop()
+
+
 async def test_start_watches_what_the_notes_still_owe(store, inbox):
     ended = "0123456789abcdef0123456789abcdef"
     done = "fedcba9876543210fedcba9876543210"

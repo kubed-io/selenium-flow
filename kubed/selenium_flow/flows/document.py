@@ -117,6 +117,10 @@ NOT_STEPS = {
 # The runner supplies this; a step naming it could address another browser.
 RESERVED_PARAMS = {"session_id"}
 
+# A tool call's own and no step's: which session it acts in. A step runs in its
+# run's session.
+CALL_ONLY = {"session"}
+
 # Needed but not `required` in the schema, because a secret may supply it
 # instead (through `bound`).
 NEEDED_SOMEHOW = {"write": ("text",)}
@@ -759,8 +763,8 @@ def inlined(schema: dict) -> dict:
 def step_schemas(tools: dict) -> dict:
     """The tool schemas a step's ``args`` are checked against.
 
-    ``tools`` are the registered tools' schemas. ``session_id`` is stripped,
-    and the tools a step may not name are dropped.
+    ``tools`` are the registered tools' schemas. ``session_id`` and
+    ``session`` are stripped, and the tools a step may not name are dropped.
     """
     schemas = {}
     for name, schema in tools.items():
@@ -770,7 +774,7 @@ def step_schemas(tools: dict) -> dict:
         properties = {
             key: value
             for key, value in (schema.get("properties") or {}).items()
-            if key not in RESERVED_PARAMS
+            if key not in RESERVED_PARAMS | CALL_ONLY
         }
         required = [
             key for key in (schema.get("required") or []) if key not in RESERVED_PARAMS

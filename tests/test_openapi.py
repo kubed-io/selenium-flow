@@ -234,7 +234,8 @@ async def test_every_multipart_field_is_one_the_action_accepts(actions, spec):
     accepted = set(inspect.signature(actions.upload_file).parameters)
     form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     advertised = set(form["multipart/form-data"]["schema"]["properties"])
-    assert advertised - {"session_id"} <= accepted
+    # `session` is the route's own, never the action's (SURF-46).
+    assert advertised - {"session_id"} <= accepted | {"session"}
 
 
 # ---- the /flows half, which is hand-written and therefore drifts ------------
@@ -345,17 +346,21 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
 ):
     """`upload_file(session=...)` existed because an HTTP caller had no other
     way to say which library a kept file came from. It names its workspace like
-    everything else now, so the field is gone from both surfaces rather than
-    published on one. The action's own `workspace` argument is a flow run's
-    injection, and is published nowhere either."""
+    everything else now, so no field names a library on either surface. The
+    action's own `workspace` argument is a flow run's injection, and is
+    published nowhere either. `session` is every acting tool's now: which of
+    the workspace's sessions the call acts in (SURF-46), the same on both."""
     upload = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     published = spec["components"]["schemas"]["UploadFileRequest"]["properties"]
     multipart = upload["multipart/form-data"]["schema"]["properties"]
     tool = await server.mcp.get_tool("upload_file")
-    for field in ("session", "workspace"):
-        assert field not in published
-        assert field not in multipart
-        assert field not in tool.parameters["properties"]
+    assert "workspace" not in published
+    assert "workspace" not in multipart
+    assert "workspace" not in tool.parameters["properties"]
+    session = tool.parameters["properties"]["session"]["description"]
+    assert published["session"]["description"] == session
+    assert multipart["session"]["description"] == session
+    assert "library" not in session
 
 
 async def test_a_flow_run_declares_the_site_data_it_reports(spec):
