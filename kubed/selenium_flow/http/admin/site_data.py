@@ -14,6 +14,7 @@ from starlette.responses import JSONResponse
 
 from ... import faults
 from ...site_data import snapshot as site_data
+from ...workspace import sessions
 from ...workspace.store import Workspace
 from .. import answer
 from .workspaces import known_session
@@ -27,11 +28,17 @@ async def secret_rows(catalogue) -> list[dict]:
     return (await run_in_threadpool(catalogue.listing))["secrets"]
 
 
-def live_subs(store, key: str) -> list[str]:
-    """The names of ``key``'s sub-sessions that still have a record: only
-    their current pages are History's to keep (SITE-56)."""
+def sub_records(store, key: str) -> dict[str, Workspace]:
+    """``key``'s sub-sessions that still have a record, by name: only their
+    current pages are History's to keep (SITE-56), and only their snapshots
+    its rows count."""
     listing = getattr(store, "sub_records", None)
-    return list(listing(key)) if listing is not None else []
+    return dict(listing(key)) if listing is not None else {}
+
+
+def live_subs(store, key: str) -> list[str]:
+    """The names of ``key``'s sub-sessions that still have a record."""
+    return list(sub_records(store, key))
 
 
 def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
@@ -54,12 +61,18 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         try:
             secrets = await secret_rows(catalogue)
             record = await run_in_threadpool(workspaces.store.get, key)
-            live = await run_in_threadpool(live_subs, workspaces.store, key)
+            subs = await run_in_threadpool(sub_records, workspaces.store, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"history for {key}", log)
         if record is None:
             return JSONResponse({"key": key, "sites": [], "clears": []})
-        joined = site_data.history_view(record.history, record.site_data, secrets)
+        # Each row counts its own session's snapshot: the one its pill opens.
+        snapshots = {
+            sessions.DEFAULT: record.site_data,
+            **{name: sub.site_data for name, sub in subs.items()},
+        }
+        joined = site_data.history_view(record.history, snapshots, secrets)
+        live = list(subs)
         # What Clear would take, by origin: rows are by host, so a second port
         # of the current host has no row and would otherwise hide Clear. Each
         # live session's current page stays (WS-54).

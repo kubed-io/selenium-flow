@@ -26,8 +26,11 @@
   const sessionOf = (r: HistoryRow) => r.session ?? 'default'
   const total = $derived(data?.sites.length ?? 0)
   const visits = $derived(!data ? [] : many && only ? data.sites.filter((r) => sessionOf(r) === only) : data.sites)
+  // A row is a host and a session: two sessions on one host are two rows.
+  // The default's keeps the id it had before sessions.
+  const rowKey = (r: HistoryRow) => r.site + (sessionOf(r) === 'default' ? '' : '@' + sessionOf(r))
   // Ends in `Section`: Section derives its body's id by replacing that.
-  const idOf = (r: HistoryRow) => 'visit-' + m.key + ':' + r.site + 'Section'
+  const idOf = (r: HistoryRow) => 'visit-' + m.key + ':' + rowKey(r) + 'Section'
 
   // The top row opens, the rest stay shut — once; after that the fold is the
   // reader's, as on Site data.
@@ -104,7 +107,7 @@
         {#if data.clears?.length}<button id="clearHistory" class="danger" onclick={clear}>Clear</button>{/if}
       </div>
     {/if}
-    {#each visits as r (r.site)}
+    {#each visits as r (rowKey(r))}
       {#if r.secrets.length}
         <Section id={idOf(r)} title={r.url}>
           {#snippet summary()}{@render about(r)}{/snippet}

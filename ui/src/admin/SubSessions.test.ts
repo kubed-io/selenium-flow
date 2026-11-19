@@ -199,6 +199,33 @@ test('History filters by its own session control, all by default', async () => {
   expect(container.querySelector('#paneHistory')).toHaveTextContent('1 of 4')
 })
 
+test('a host both sessions visited is a History row each, filtered and counted as its own', async () => {
+  const saved = (cookies: number) => ({ cookies, local: 0, session: 0 })
+  const both = {
+    key: 'k', clears: [],
+    sites: [
+      { site: 'b.example.test', url: 'https://b.example.test/t', at: now - 60, saved: saved(2), secrets: [], session: 'tester' },
+      { site: 'b.example.test', url: 'https://b.example.test/d', at: now - 120, saved: saved(1), secrets: [], session: 'default' },
+    ],
+  }
+  const { container } = setup([DEFAULT, TESTER], { tab: 'history' }, { 'GET /admin/workspaces/k/history': { body: both } })
+  await loaded(container)
+  const sites = () => [...container.querySelectorAll('#paneHistory section.section')]
+  await vi.waitFor(() => expect(sites()).toHaveLength(2))
+  expect(new Set(sites().map((s) => s.id)).size).toBe(2)
+  const filter = screen.getByRole('combobox', { name: 'Session' }) as HTMLSelectElement
+  await fireEvent.change(filter, { target: { value: 'default' } })
+  expect(sites()).toHaveLength(1)
+  expect(sites()[0]).toHaveTextContent('https://b.example.test/d')
+  expect(sites()[0]).toHaveTextContent('1 cookie')
+  await fireEvent.change(filter, { target: { value: 'tester' } })
+  expect(sites()).toHaveLength(1)
+  expect(sites()[0]).toHaveTextContent('2 cookies')
+  // The pill opens the Site data of the session whose snapshot it counted.
+  await fireEvent.click(within(sites()[0] as HTMLElement).getByRole('button', { name: /in Site data: 2 cookies/ }))
+  expect(location.hash).toBe('#/workspaces/k/site-data/b.example.test?session=tester')
+})
+
 test('with only the default session History has no session filter', async () => {
   const { container } = setup([DEFAULT], { tab: 'history' })
   await vi.waitFor(() => expect(container.querySelectorAll('#paneHistory section.section')).toHaveLength(4))

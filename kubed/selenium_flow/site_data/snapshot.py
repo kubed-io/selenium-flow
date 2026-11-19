@@ -24,6 +24,7 @@ import json
 
 from ..secrets import matching_secrets
 from ..urls import host_of
+from ..workspace import sessions
 
 # The private key an action hands its capture back under. `Workspaces.settle`
 # removes it and stores it as the snapshot; no caller ever sees it.
@@ -339,29 +340,38 @@ def site_view(data: dict, site: str) -> dict | None:
     return views(data)[1].get((site or "").lower())
 
 
-def history_view(history, data: dict, secrets: list[dict] | None = None) -> dict:
-    """The History tab: one row per host the workspace landed on, the current
-    one first, each with its latest URL and when, the session that went
-    there, what the snapshot holds for it (None when nothing), and the
-    secrets allowed there.
+def history_view(
+    history, snapshots: dict[str, dict], secrets: list[dict] | None = None
+) -> dict:
+    """The History tab: one row per host and session the workspace landed on,
+    the most recent first, each with that session's latest URL there and
+    when, what that session's own snapshot holds for it (None when nothing,
+    or when the session has no record to hold one), and the secrets allowed
+    there.
 
-    Secrets join a row and never make one: a host the workspace never reached
-    is not listed, whatever a secret allows.
+    ``snapshots`` is each session's saved site data by name. Secrets join a
+    row and never make one: a host the workspace never reached is not listed,
+    whatever a secret allows.
     """
-    saved = {r["site"]: r for r in view(data, history)["sites"]}
-    latest: dict[str, dict] = {}
+    saved = {
+        name: {r["site"]: r for r in view(data)["sites"]}
+        for name, data in snapshots.items()
+    }
+    latest: dict[tuple[str, str], dict] = {}
     for v in history or ():
-        latest.setdefault(host_of(v["origin"]), v)
+        host = host_of(v["origin"])
+        if host:
+            # An entry from before sessions were named is the default's.
+            latest.setdefault((host, v.get("session", sessions.DEFAULT)), v)
     rows = []
-    for host in history_hosts(history):
-        row = saved.get(host)
+    for (host, session), v in latest.items():
+        row = saved.get(session, {}).get(host)
         rows.append(
             {
                 "site": host,
-                "url": latest[host]["url"],
-                "at": latest[host]["at"],
-                # An entry from before sessions were named is the default's.
-                "session": latest[host].get("session", "default"),
+                "url": v["url"],
+                "at": v["at"],
+                "session": session,
                 "saved": {
                     "cookies": row["cookies"],
                     "local": sum(e["local_storage"] for e in row["storage"]),

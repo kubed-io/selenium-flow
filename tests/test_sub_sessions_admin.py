@@ -187,6 +187,33 @@ def test_the_history_rows_carry_their_session(client):
         "b.example.test": "tester", "a.example.test": "default"}
 
 
+def test_a_host_both_sessions_visited_is_a_history_row_each(server, client):
+    store = server.workspaces.store
+    store.update(WS, lambda r: replace(
+        r, history=[visit(B_SITE + "d", "default", NOW - 1), *r.history]))
+    store.update(TESTER, lambda r: replace(r, site_data={
+        **TESTER_DATA,
+        "cookies": [*TESTER_DATA["cookies"],
+                    {"name": "x", "value": "1", "domain": "b.example.test", "path": "/"},
+                    {"name": "y", "value": "1", "domain": "b.example.test", "path": "/"}],
+    }))
+    sites = client.get(f"/admin/workspaces/{WS}/history").json()["sites"]
+    rows = {(s["site"], s["session"]): s for s in sites}
+    assert list(rows) == [
+        ("b.example.test", "default"), ("b.example.test", "tester"),
+        ("a.example.test", "default"),
+    ]
+    # Each pill counts its own session's snapshot: the one it opens.
+    assert rows["b.example.test", "default"]["saved"]["cookies"] == 1
+    assert rows["b.example.test", "tester"]["saved"]["cookies"] == 2
+    assert rows["b.example.test", "tester"]["url"] == B_SITE
+    # Once tester's record is gone, so is the snapshot its row counted.
+    store.delete(TESTER)
+    sites = client.get(f"/admin/workspaces/{WS}/history").json()["sites"]
+    assert {(s["site"], s["session"]): s["saved"] for s in sites}[
+        "b.example.test", "tester"] is None
+
+
 def test_site_data_orders_and_counts_by_the_picked_sessions_history(client):
     base = f"/admin/workspaces/{WS}/site-data"
     default = client.get(base).json()
