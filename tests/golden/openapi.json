@@ -10482,7 +10482,7 @@
     },
     "/site-data/{site}": {
       "get": {
-        "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing.",
+        "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing. This is your own session's; session://{name}/site-data/{site} is another's.",
         "operationId": "getSiteData",
         "parameters": [
           {
