@@ -40,7 +40,7 @@ from ...live.tunnels import Tunnels
 from ...workspace import sessions
 from .. import answer, auth, links
 from . import page
-from .files import session_key
+from .workspaces import session_key
 
 log = logging.getLogger(__name__)
 

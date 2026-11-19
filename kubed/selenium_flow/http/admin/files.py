@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse
 from ...names import library_of
 from .. import answer
 from .. import files as stored
-from .workspaces import attached_id, header, library, session_key
+from .workspaces import attached_id, header, known_session, library
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +99,10 @@ def mount(
         one."""
         key = request.path_params["key"]
         try:
-            session, named = session_key(key, request)
+            # A sub-session with no record is a 404, as on every session route.
+            session, named = await run_in_threadpool(
+                known_session, workspaces, key, request
+            )
             attached = await run_in_threadpool(attached_id, workspaces, session)
             alive = attached and await run_in_threadpool(
                 actions.grid.is_alive, attached
@@ -146,8 +149,13 @@ def mount(
                     f"{folder!r} is not something to keep from: use "
                     f"{stored.SCREENSHOTS}, {stored.RECORDINGS} or {stored.DOWNLOADS}"
                 )
-            session, _ = session_key(key, request)
-            session_id = await run_in_threadpool(attached_id, workspaces, session)
+            session_id = ""
+            if folder == stored.DOWNLOADS:
+                # Only a download is a session's; the rest are the workspace's.
+                session, _ = await run_in_threadpool(
+                    known_session, workspaces, key, request
+                )
+                session_id = await run_in_threadpool(attached_id, workspaces, session)
             kept = await run_in_threadpool(
                 stored.keep,
                 actions,
@@ -177,7 +185,9 @@ def mount(
         try:
             if name == stored.DOWNLOADS:
                 # The Grid's whole store: it has no per-file delete.
-                session, _ = session_key(key, request)
+                session, _ = await run_in_threadpool(
+                    known_session, workspaces, key, request
+                )
                 session_id = await run_in_threadpool(
                     attached_id, workspaces, session
                 )

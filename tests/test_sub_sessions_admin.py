@@ -156,6 +156,9 @@ def test_admin_session_routes_take_session(server, client):
     for method, route in (
         ("get", "session"), ("get", "console"), ("get", "network"),
         ("get", "site-data"), ("delete", "session"),
+        # The downloads are a session's browser's too.
+        ("get", "files/downloads"), ("delete", "files/downloads"),
+        ("post", "files/downloads/d.pdf/keep"),
     ):
         call = getattr(client, method)
         assert call(f"{base}/{route}", params={"session": "typo"}).status_code == 404, route
