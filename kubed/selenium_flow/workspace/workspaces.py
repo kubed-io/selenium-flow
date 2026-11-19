@@ -70,7 +70,7 @@ from ..urls import (
     page_of,
     without_userinfo,
 )
-from . import locks
+from . import locks, sessions
 from . import settings as settings_module
 from .calls import Calls, told
 from .config import Configs
@@ -193,6 +193,33 @@ BOTH = (
     "one you control and drop the other."
 )
 
+# The pin: a connection that sends one reaches that session and no other (WS-49).
+SESSION_PARAM = "session"
+SESSION_HEADER = "sf-session"
+
+BOTH_SESSIONS = (
+    "pin your session once: this request carries both an Sf-Session header and "
+    "?session=, and they are two answers to one question. Send whichever one "
+    "you control and drop the other."
+)
+
+PIN_DIFFERS = (
+    "this connection is pinned to session {pinned!r} and the call names "
+    "{named!r}: drop the session argument, or name {pinned!r}"
+)
+
+NO_SUB = (
+    "no session named {name!r} in workspace {workspace!r}: call open_session "
+    "with session={name!r} to open it. No other call opens one, so a mistyped "
+    "name starts no browser."
+)
+
+SUBJECT_UNNAMED = (
+    "your token's subject cannot name a session, and this workspace's default "
+    "session is another subject's: pass session=<name>, or pin one with "
+    "Sf-Session or ?session="
+)
+
 # What a client may declare about itself in its connection config, beside its
 # name: flag -> (query parameter, header). The header wins, as it does for a
 # setting: it is set in a credential, by an admin.
@@ -233,8 +260,13 @@ class Caller:
         default=({}, {}), repr=False
     )
     # Who the verified credential says this is (principal.py), or None on an
-    # open server. Carried, not consulted: nothing decides anything from it.
+    # open server. Only its subject is consulted: which session an unnamed
+    # call reaches (`Workspaces.session_of`).
     principal: Principal | None = None
+    # The session this connection is pinned to (`Sf-Session`, `?session=`), or
+    # "", and why a pin is not one, raised when the pin is asked for.
+    pin: str = ""
+    pin_refusal: ValueError | None = None
 
     @classmethod
     def from_request(
@@ -275,7 +307,11 @@ class Caller:
             value = said[1].get(header_name) or said[0].get(param_name)
             if value is not None:
                 flags[flag] = value
-        return cls(named, named_by, client, flags, refusal, said)
+        pin, pin_refusal = _pin(params, headers)
+        return cls(
+            named, named_by, client, flags, refusal, said,
+            pin=pin, pin_refusal=pin_refusal,
+        )
 
     @classmethod
     def stdio(cls, *, client: str = "") -> Caller:
@@ -290,6 +326,14 @@ class Caller:
         if not self.named:
             raise ValueError(UNNAMED)
         return self.named
+
+    @property
+    def pinned(self) -> str:
+        """The session this caller's connection is pinned to, or "" when none.
+        Raises when the pin is given twice or is no session's name."""
+        if self.pin_refusal is not None:
+            raise type(self.pin_refusal)(*self.pin_refusal.args)
+        return self.pin
 
     @property
     def library(self) -> str:
@@ -321,10 +365,32 @@ def _measured(opened: dict) -> str | None:
     return f"{width}x{height}" if width and height else None
 
 
-def _two_names(names: list[str]) -> str:
+def _two_names(
+    names: list[str], verb: str = "names", noun: str = "workspaces"
+) -> str:
     """The refusal for a request that repeats its name with different values."""
     count = "two" if len(names) == 2 else str(len(names))
-    return f"the request names {count} workspaces: {', '.join(names)}"
+    return f"the request {verb} {count} {noun}: {', '.join(names)}"
+
+
+def _pin(
+    params: Mapping[str, list[str]], headers: Mapping[str, list[str]]
+) -> tuple[str, ValueError | None]:
+    """The session a request pins, and why it is not one, read as its
+    workspace's name is: both places, or two values, are refused."""
+    header = _names(headers.get(SESSION_HEADER))
+    param = _names(params.get(SESSION_PARAM))
+    if header and param:
+        return "", ValueError(BOTH_SESSIONS)
+    chosen = header or param
+    if not chosen:
+        return "", None
+    if len(chosen) > 1:
+        return "", ValueError(_two_names(chosen, "pins", "sessions"))
+    try:
+        return sessions.valid_session_name(chosen[0]), None
+    except ValueError as exc:
+        return "", exc
 
 
 def _old_headers(headers: Mapping[str, list[str]]) -> str | None:
@@ -630,6 +696,81 @@ class Workspaces:
         # Scrubbed as a resource is; the answer for capture off is this
         # server's own words and is not.
         return self.scrubber.resource(name, {**view, "capturing": capturing})
+
+    def session_of(
+        self, caller: Caller, named: str | None = None, *, opening: bool = False
+    ) -> str:
+        """The key of the session ``caller`` reaches (WS-49), first match wins:
+        its pin, the session ``named``, its subject's own sub-session when
+        another subject owns the default, and the default.
+
+        A named sub-session with no record is refused with `faults.NoSession`
+        and nothing is made, so a mistyped name opens nothing (WS-78), unless
+        ``opening``, which `open_session` passes: then its record is made and
+        listed on the workspace's. A subject's own sub-session gets its record
+        on any call. A subject reaching the default claims it if no one owns
+        it (WS-50); a caller with no subject always reaches it.
+        """
+        workspace = caller.name
+        pin = caller.pinned
+        name = sessions.valid_session_name(named) if named else ""
+        if pin and name and name != pin:
+            raise ValueError(PIN_DIFFERS.format(pinned=pin, named=name))
+        chosen = pin or name
+        if chosen and chosen != sessions.DEFAULT:
+            return self._sub(workspace, chosen, chosen, made=opening)
+        principal = caller.principal
+        subject = principal.subject if principal is not None else None
+        if not subject:
+            return workspace
+        owner = self._claimed(workspace, subject)
+        if chosen or owner in (None, subject):
+            return workspace
+        try:
+            own = sessions.valid_session_name(subject)
+        except ValueError:
+            own = sessions.DEFAULT
+        if own == sessions.DEFAULT:
+            raise ValueError(SUBJECT_UNNAMED)
+        return self._sub(workspace, own, principal.username or subject, made=True)
+
+    def claim(self, key: str, principal: Principal | None) -> None:
+        """Make ``principal``'s subject the owner of the default session ``key``
+        if no one owns it yet (WS-50). A sub-session, a key with no record and
+        a caller with no subject are left as they are."""
+        subject = principal.subject if principal is not None else None
+        if subject and not sessions.is_sub(key):
+            self._claimed(key, subject)
+
+    def _claimed(self, workspace: str, subject: str) -> str | None:
+        """The default's owner once ``subject`` has claimed it if it could, or
+        None with no record. Inside the record's compare-and-set, so two first
+        subjects cannot both own it."""
+        record = self.store.update(
+            workspace, lambda r: None if r.owner else replace(r, owner=subject)
+        )
+        return record.owner if record is not None else None
+
+    def _sub(self, workspace: str, name: str, label: str, *, made: bool) -> str:
+        """The key of ``workspace``'s sub-session ``name``. When ``made``, its
+        record is made if absent, shown as ``label``, and listed on the
+        workspace's record (made too if absent); otherwise one with no record
+        is refused."""
+        key = sessions.key_of(workspace, name)
+        if not made:
+            if self.store.get(key) is None:
+                raise faults.NoSession(NO_SUB.format(name=name, workspace=workspace))
+            return key
+
+        def listed(r: Workspace | None) -> Workspace | None:
+            if r is not None and name in r.subs:
+                return None
+            r = r or Workspace()
+            return replace(r, subs=[*r.subs, name])
+
+        self.store.upsert(key, lambda r: Workspace(label=label) if r is None else None)
+        self.store.upsert(workspace, listed)
+        return key
 
     def browser(self, name: str) -> str:
         """The Grid id this workspace is driving, or "" if it holds no live one.

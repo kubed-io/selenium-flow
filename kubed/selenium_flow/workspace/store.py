@@ -161,6 +161,10 @@ class Workspace:
     # The names of this workspace's sub-sessions, kept on its record so a listing
     # needs no scan. Written on a workspace's record only.
     subs: list = field(default_factory=list)
+    # What a sub-session is shown as: its name, or the token's
+    # `preferred_username` for a subject's own (WS-50). Written on a
+    # sub-session's record only.
+    label: str = ""
 
     @property
     def url(self) -> str:
@@ -248,6 +252,7 @@ class Workspace:
                 ended=_ended(data.get("ended")),
                 owner=_owner(data.get("owner")),
                 subs=_subs(data.get("subs")),
+                label=_label(data.get("label")),
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -384,6 +389,10 @@ def _ended(raw) -> dict | None:
 
 def _owner(raw) -> str | None:
     return raw if isinstance(raw, str) and raw else None
+
+
+def _label(raw) -> str:
+    return raw if isinstance(raw, str) else ""
 
 
 def _subs(raw) -> list[str]:
