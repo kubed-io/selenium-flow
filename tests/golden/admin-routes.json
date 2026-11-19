@@ -81,6 +81,11 @@
   ],
   [
     "GET",
+    "/admin/workspaces/{key}/files/downloads",
+    "admin_downloads"
+  ],
+  [
+    "GET",
     "/admin/workspaces/{key}/flows",
     "admin_flows"
   ],

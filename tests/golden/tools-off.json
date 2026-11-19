@@ -663,10 +663,22 @@
       "read_only_hint": false,
       "title": "Keep a file in Files"
     },
-    "description": "Keep one file in Files, where it stays until a person deletes it.\n\nuri is as workspace://files, its folders and session://downloads list it. A screenshot or a recording moves out of its folder and lands beside a same-named file as name (1); a download is copied, since the browser keeps its own until it ends, and REPLACES a same-named file in Files. The result is the file's new uri. upload_file(file=uri) puts any file back into a page.",
+    "description": "Keep one file in Files, where it stays until a person deletes it.\n\nuri is as workspace://files, its folders and session://downloads list it. A screenshot or a recording moves out of its folder and lands beside a same-named file as name (1); a download is copied, since the browser keeps its own until it ends, and REPLACES a same-named file in Files. The result is the file's new uri. upload_file(file=uri) puts any file back into a page.\n\nA download is your session's, or the one session names: every session has a browser, and so downloads, of its own.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "session": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which session's downloads a session://downloads uri is read from: a sub-session's name, or default. Leave it out for your own."
+        },
         "uri": {
           "type": "string"
         }
