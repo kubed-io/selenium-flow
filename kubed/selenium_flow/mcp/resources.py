@@ -267,6 +267,7 @@ SESSION_DESCRIPTION = (
     "with no session is not found. Reading this never opens a browser."
 )
 
+
 def site_listing(workspaces: Workspaces, caller: Caller) -> dict:
     """``workspace://site-data`` of the caller's session: its saved data, and
     its own history for the ordering. Reads the record; never opens a browser."""
