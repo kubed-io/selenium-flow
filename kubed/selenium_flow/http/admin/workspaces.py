@@ -155,9 +155,20 @@ def session_facts(
     }
 
 
+def site_data_stamp(data: dict, entries) -> tuple[dict, str]:
+    """One session's site-data listing, its hosts ordered by its own history
+    ``entries``, and the stamp its Site data tab watches: a save moves the
+    time, a Forget or a Clear moves the hosts."""
+    listed = site_data.view(data, entries)
+    rev = json.dumps([data.get("saved_at"), [s["site"] for s in listed["sites"]]])
+    return listed, rev
+
+
 def listed_sessions(workspaces, workspace: str, record, running: dict) -> list[dict]:
     """The sessions of ``workspace`` for its row, the default first: ``{name,
-    label, default, live, browser}``. A sub-session whose record expired is
+    label, default, live, browser, site_data_rev}``, each rev its own record's
+    snapshot's, so a picked sub-session's Site data reloads on its own save.
+    A sub-session whose record expired is
     left out (and its name pruned), and one made only by opening a sub-session
     in a new workspace lists with no browser."""
     found = [(sessions.DEFAULT, record), *workspaces.sub_sessions(workspace, record)]
@@ -168,6 +179,7 @@ def listed_sessions(workspaces, workspace: str, record, running: dict) -> list[d
             "default": name == sessions.DEFAULT,
             "live": bool(r.session_id) and r.session_id in running,
             "browser": (r.settings or {}).get("browser") or DEFAULT_BROWSER,
+            "site_data_rev": site_data_stamp(r.site_data, record.entries(name))[1],
         }
         for name, r in found
     ]
@@ -520,13 +532,9 @@ def mount(
                     for name in names
                 )
             )
-            # The default's: the site-data tab of another session is its own.
-            listed = site_data.view(
+            # The default's: another session's is on its `sessions` entry.
+            listed, site_data_rev = site_data_stamp(
                 record.site_data, record.entries(sessions.DEFAULT)
-            )
-            # A save moves the time; a Forget or a Clear moves the hosts.
-            site_data_rev = json.dumps(
-                [record.site_data.get("saved_at"), [s["site"] for s in listed["sites"]]]
             )
             visited = site_data.history_hosts(record.history)
             config_rev = configs.revision(workspace) if workspace else ""

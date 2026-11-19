@@ -95,6 +95,9 @@ def rows(client):
 def test_admin_lists_sub_sessions_under_their_workspace(client):
     listed = rows(client)
     assert set(listed) == {WS, "fresh"}, "no sub-session is a row of its own"
+    for row in listed.values():
+        for entry in row["sessions"]:
+            del entry["site_data_rev"]
     assert listed[WS]["sessions"] == [
         {"name": "default", "label": "default", "default": True, "live": True,
          "browser": "firefox"},
@@ -115,6 +118,20 @@ def test_the_admin_list_prunes_a_dead_sub_session_name(server, client):
     store.update(WS, lambda r: replace(r, subs=["gone", *r.subs]))
     assert [s["name"] for s in rows(client)[WS]["sessions"]] == ["default", "tester"]
     assert store.get(WS).subs == ["tester"]
+
+
+def test_each_session_has_its_own_site_data_rev(server, client):
+    def revs():
+        return {s["name"]: s["site_data_rev"] for s in rows(client)[WS]["sessions"]}
+
+    before = revs()
+    assert before["default"] == rows(client)[WS]["site_data_rev"]
+    # A save in tester moves its rev only: its Site data tab reloads.
+    server.workspaces.store.update(TESTER, lambda r: replace(
+        r, site_data={**TESTER_DATA, "saved_at": NOW + 60}))
+    after = revs()
+    assert after["tester"] != before["tester"]
+    assert after["default"] == before["default"]
 
 
 def test_admin_session_routes_take_session(server, client):

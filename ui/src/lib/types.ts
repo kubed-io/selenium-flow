@@ -33,7 +33,11 @@ export interface SentCapability {
 export type SetBy = 'config' | 'client' | 'caller'
 
 /** One of a workspace's sessions: the default, or a sub-session, as its row lists it. */
-export interface SessionInfo { name: string; label: string; default: boolean; live: boolean; browser: string | null }
+export interface SessionInfo {
+  name: string; label: string; default: boolean; live: boolean; browser: string | null
+  /** Moves when this session's own snapshot does: a save, a Forget, a Clear. */
+  site_data_rev?: string | null
+}
 
 export interface WorkspaceRow {
   key: string

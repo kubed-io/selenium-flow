@@ -302,12 +302,18 @@ export class WorkspaceModel {
     if ((row.flows_rev ?? null) !== this.#shownFlows) void this.loadFlows(currentFlow, vanished)
   }
 
+  /* The default's site-data rev and every sub-session's: a save in the
+     picked sub moves its own, and History's pills count each session's. */
+  #siteStamp = (row: WorkspaceRow) =>
+    [row.site_data_rev ?? null, ...(row.sessions ?? []).filter((s) => !s.default).map((s) => [s.name, s.site_data_rev ?? null])]
+
   #showRow(row: WorkspaceRow) {
     this.row = row
     this.headed = true
-    const siteMoved = (row.site_data_rev ?? null) !== this.#shownSiteData
+    const siteRev = JSON.stringify(this.#siteStamp(row))
+    const siteMoved = siteRev !== this.#shownSiteData
     const historyMoved = (row.history_rev ?? null) !== this.#shownHistory
-    this.#shownSiteData = row.site_data_rev ?? null
+    this.#shownSiteData = siteRev
     this.#shownHistory = row.history_rev ?? null
     // Each tab shows some of the other: History's saved pills are site data,
     // and Site data's rows are in history order (Copilot, #51).
