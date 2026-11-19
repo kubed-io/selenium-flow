@@ -22,7 +22,7 @@ def test_a_sub_session_key_holds_both_names():
     assert sessions.is_sub("shop/tester")
 
 
-@pytest.mark.parametrize("name", ["current", "downloads", "a/b", "", ".x"])
+@pytest.mark.parametrize("name", ["current", "downloads", "console", "network", "files", "site-data", "a/b", "", ".x"])
 def test_reserved_names_are_refused(name):
     with pytest.raises(ValueError):
         sessions.valid_session_name(name)
@@ -145,3 +145,16 @@ def test_redis_forgetting_a_workspace_forgets_its_sub_sessions():
     assert store.get("shop") is None
     assert store.get("shop/tester") is None
     assert store.get("shopper/a") is not None
+
+
+@pytest.mark.parametrize("name", ["console", "network", "files", "site-data"])
+def test_a_name_a_session_uri_once_started_with_cannot_name_a_session(name):
+    from kubed.selenium_flow.workspace.workspaces import Caller
+
+    from .conftest import manager
+
+    with pytest.raises(ValueError):
+        manager().session_of(Caller("shop"), name)
+    pinned = Caller.from_request({"workspace": ["shop"], "session": [name]}, {})
+    with pytest.raises(ValueError):
+        _ = pinned.pinned

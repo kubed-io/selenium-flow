@@ -374,3 +374,11 @@ def test_every_key_the_context_carries_is_in_the_list_of_keys():
     carried = set(m.describe(Caller(NAMED)))
     assert carried - set(CONTEXT_KEYS) == set()
     assert {"flows_here", "guidance", "captured"} <= carried
+
+
+def test_the_status_schema_declares_every_key_the_context_carries():
+    from kubed.selenium_flow.spec.schemas import RESPONSES
+    from kubed.selenium_flow.workspace.workspaces import CONTEXT_KEYS
+
+    declared = set(RESPONSES["current_workspace"]["properties"])
+    assert set(CONTEXT_KEYS) - declared == set()

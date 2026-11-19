@@ -14,9 +14,12 @@ from ..names import valid_name
 DEFAULT = "default"
 # What a sub-session's key joins its workspace and name with.
 SEP = "/"
-# Names that read a resource (`workspace://current`, `session://downloads`), so
-# a session called one would be unaddressable.
-RESERVED = frozenset({"current", "downloads"})
+# Names that read a resource (`workspace://current`, `session://downloads`) or
+# that a `session://` URI used to start with (`names.MOVED`), so a session
+# called one would be unaddressable.
+RESERVED = frozenset(
+    {"current", "downloads", "console", "network", "files", "site-data"}
+)
 
 
 def key_of(workspace: str, name: str) -> str:

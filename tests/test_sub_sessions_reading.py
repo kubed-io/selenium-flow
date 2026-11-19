@@ -10,6 +10,7 @@ import pytest
 from fastmcp import Client
 from mcp.shared.exceptions import MCPError
 
+from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.workspace import sessions
 from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 from kubed.selenium_flow.workspace.workspaces import CONTEXT_KEYS
@@ -94,12 +95,55 @@ def test_the_context_lists_every_session_default_first(server):
     assert part == {"workspace": NAMED, "session": "tester"}
 
 
+def stored(store):
+    """Every record in full, by key."""
+    return {
+        **store.records(),
+        **store.sub_records(NAMED),
+    }
+
+
 def test_reading_the_context_makes_no_record_and_refuses_an_unopened_session(server):
     store = server.workspaces.store
-    before = sorted(store.records()), sorted(store.sub_records(NAMED))
+    before = stored(store)
     with pytest.raises(ValueError, match=r"never opened|no session"):
         server.workspaces.describe(_caller("typo"))
-    assert (sorted(store.records()), sorted(store.sub_records(NAMED))) == before
+    assert stored(store) == before
+
+
+def test_reading_as_a_subject_claims_nothing_and_makes_nothing(server):
+    from dataclasses import replace
+
+    store = server.workspaces.store
+    first = Principal("oidc", subject="sub-a", username="first")
+    second = Principal("oidc", subject="sub-b", username="second")
+    # An unowned default: reading is not claiming it.
+    assert store.get(NAMED).owner is None
+    before = stored(store)
+    context = server.workspaces.describe(replace(_caller(), principal=first))
+    assert context["session"] == "default"
+    assert stored(store) == before and store.get(NAMED).owner is None
+    # Another subject owns it: a subject with no sub-session yet reads an
+    # empty one under its own name, and none is made or listed.
+    store.update(NAMED, lambda r: replace(r, owner="sub-a"))
+    before = stored(store)
+    context = server.workspaces.describe(replace(_caller(), principal=second))
+    assert (context["session"], context["default"], context["live"]) == (
+        "sub-b", False, False,
+    )
+    assert context["url"] is None
+    assert stored(store) == before
+    assert store.get(NAMED).subs == ["tester"]
+    assert store.get(sessions.key_of(NAMED, "sub-b")) is None
+
+
+async def test_reading_a_named_session_leaves_the_records_as_they_were(server):
+    store = server.workspaces.store
+    before = stored(store)
+    await read(server, "session://tester")
+    await read(server, "session://tester/console")
+    assert stored(store) == before
+    assert store.get(NAMED).subs == ["tester"]
 
 
 async def test_session_resource_reads_a_named_session(server):
