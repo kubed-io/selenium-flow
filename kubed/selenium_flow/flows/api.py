@@ -729,7 +729,7 @@ def run_for(
 
     try:
         # Every step reads its session's own sites (`Actions.visited`).
-        with workspaces.acting_in(workspace, own):
+        with workspaces.acting_in(workspace):
             report = run_one(
                 store,
                 actions,

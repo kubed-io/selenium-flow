@@ -197,7 +197,8 @@ def parse_uri(uri) -> tuple[str, str]:
         leaf = text.rpartition("/")[2]
         if leaf:
             return DOWNLOADS, valid_file_name(unquote(leaf))
-        raise ValueError(f"{text!r} is not a file: use {SHAPES}")
+        # Nameless: a refusal's text is logged (WS-49, 3).
+        raise ValueError(f"session://{{name}}/downloads/ names no file: use {SHAPES}")
     downloads = FOLDER_URI[DOWNLOADS] + "/"
     if text.startswith(downloads):
         leaf = text[len(downloads):]
@@ -544,6 +545,17 @@ def keep(
     }
 
 
+def kept_from(workspaces, caller, key: str, named: str | None) -> str:
+    """Where a download kept from the session ``key`` is said to come from
+    (`keep`'s ``at``): that session's downloads as ``caller`` reads them, or
+    "" for its own ``session://downloads``. ``named`` is the session the call
+    named, by argument or URI; an unnamed call keeps from its own."""
+    if not named:
+        return ""
+    at = sessions.pointer(key, workspaces.own(caller, named, key), DOWNLOADS)
+    return "" if at == FOLDER_URI[DOWNLOADS] else at
+
+
 def keep_made(
     workspace: str,
     store,
@@ -576,24 +588,17 @@ def read_file(
     uri,
     name: str,
     session: str | None = None,
-    own: str | None = None,
 ) -> tuple[str, bytes]:
     """The bytes of one file, by its address. ``name`` is the workspace to read
     from: a flow run passes the workspace running it, so a shared flow does not
     read from `global`. A download is read from the browser of ``session`` (a
-    key, the workspace's default when None), or of the session its URI names.
-
-    ``session`` is the one the call acts in and ``own`` the caller's own: a
-    call that named a session (they differ) is refused a URI naming another,
-    as `keep_file` refuses a ``session`` that differs from its URI's.
+    key, the workspace's default when None), or of the session its URI names,
+    whichever session the call acts in.
     """
     folder_of, leaf = parse_uri(uri)
     named = named_in(uri) if folder_of == DOWNLOADS else None
     if named:
-        key = sessions.key_of(name, named)
-        if session and own and session not in (own, key):
-            raise ValueError(SESSION_DIFFERS)
-        session = key
+        session = sessions.key_of(name, named)
     if folder_of == DOWNLOADS:
         target = workspaces.browser(session or name)
         if not target:
@@ -872,14 +877,13 @@ def register(
             raise ValueError(SESSION_DIFFERS)
         caller = clients.caller()
         name = caller.name
-        at = ""
         # A named one is read as `session://{name}/downloads` reads it.
         key = _named(named)[1] if named else _session(caller, folder_of, session)
-        if folder_of == DOWNLOADS and (named or session):
-            # Where it came from, named as the caller reads it.
-            own = workspaces.own(caller, named or session, key)
-            at = sessions.pointer(key, own, DOWNLOADS)
-            at = "" if at == FOLDER_URI[DOWNLOADS] else at
+        at = (
+            kept_from(workspaces, caller, key, named or session)
+            if folder_of == DOWNLOADS
+            else ""
+        )
         # A download's name is the site's: checked as its listing is.
         return workspaces.scrubbed(
             name,
@@ -959,9 +963,14 @@ def _routes(
                     f"{which!r} is not something to keep: use {SCREENSHOTS}, "
                     f"{RECORDINGS} or {DOWNLOADS}"
                 )
+            named = body.get("session")
+            key = session_of(caller, which, named)
             return keep(
                 actions, workspaces, store, uri_of(which, leaf), caller.name,
-                session=session_of(caller, which, body.get("session")),
+                session=key,
+                at=kept_from(workspaces, caller, key, named)
+                if which == DOWNLOADS
+                else "",
             )
 
         return await answer(request, "keep", call)

@@ -410,11 +410,12 @@ def register(
         caller = clients.caller()
         # A read of the store, which may be a network call: off the loop.
         name = await anyio.to_thread.run_sync(workspaces.reading, caller, session)
+        own = await anyio.to_thread.run_sync(workspaces.own, caller, session, name)
         controls = workspaces.control
         return await waiting.waited(
             ctx,
             lambda cap: control_module.await_control(
-                controls, workspaces, name, cap=cap, surface="mcp"
+                controls, workspaces, name, cap=cap, surface="mcp", own=own
             ),
             cap=live.await_cap,
             message=lambda: controls.waiting(name),

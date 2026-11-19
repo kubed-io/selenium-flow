@@ -180,6 +180,24 @@ def test_a_caller_with_no_own_session_is_pointed_at_the_one_it_named(two):
     assert result["page"]["see"] == "session://tester/console?level=error"
 
 
+def test_a_store_failing_on_the_callers_own_reopens_nothing(two, monkeypatch):
+    """`own` is read before the browser is touched: a reaped browser is not
+    reopened for a call that then fails, with its notice stranded."""
+    workspaces, capture = two
+    reaped = workspaces.store.get(SUB).session_id
+    workspaces.actions.grid.alive.discard(reaped)
+    opened = workspaces.actions.n
+
+    def down(caller, named=None):
+        raise ConnectionError("store unreachable")
+
+    monkeypatch.setattr(workspaces, "reading", down)
+    with pytest.raises(ConnectionError):
+        workspaces.act(unnamed(), erring(capture), session="tester", tool="interact")
+    assert workspaces.actions.n == opened
+    assert workspaces.store.get(SUB).session_id == reaped
+
+
 # ---- a flow run --------------------------------------------------------------
 
 
@@ -421,21 +439,50 @@ async def test_keep_file_takes_the_session_from_the_uri(server):
 
 
 def test_upload_file_reads_the_download_the_uri_names(server):
+    """Whichever session the call acts in: the file is read from the session
+    its address names, and typed into the browser the call acts in."""
     read = server.actions.read_file
     uri = "session://tester/downloads/report.pdf"
+    for acting_in in (TESTER, NAMED, sessions.key_of(NAMED, "zed")):
+        with _acting_in(acting_in):
+            assert read(uri) == ("report.pdf", b"PDF of g-tester"), acting_in
     with _acting_in(TESTER):
-        assert read(uri) == ("report.pdf", b"PDF of g-tester")
-    # Acting in its own session, a call may take another's download.
-    with _acting_in(NAMED, NAMED):
-        assert read(uri) == ("report.pdf", b"PDF of g-tester")
-    # A call that named another session is refused, without the name.
-    with _acting_in(sessions.key_of(NAMED, "zed"), NAMED), pytest.raises(
-        ValueError
-    ) as refused:
-        read(uri)
-    assert "tester" not in str(refused.value) and "zed" not in str(refused.value)
-    with _acting_in(TESTER, NAMED):
         assert read("session://downloads/report.pdf") == ("report.pdf", b"PDF of g-tester")
+
+
+async def test_an_address_naming_no_file_never_names_the_session(server):
+    async with Client(server.mcp) as c:
+        with pytest.raises(ToolError) as refused:
+            await c.call_tool("keep_file", {"uri": "session://tester/downloads/"})
+    assert "session://{name}/downloads/ names no file" in str(refused.value)
+    assert "tester" not in str(refused.value)
+
+
+def test_a_rest_keep_says_whose_download_it_kept(server):
+    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    path = f"/files/downloads/report.pdf/kept?workspace={NAMED}"
+    theirs = client.put(path, json={"session": "tester"})
+    assert theirs.status_code == 200, theirs.text
+    assert theirs.json()["from"] == "session://tester/downloads/report.pdf"
+    mine = client.put(path, json={})
+    assert mine.json()["from"] == "session://downloads/report.pdf"
+    own = client.put(path, json={"session": "default"})
+    assert own.json()["from"] == "session://downloads/report.pdf"
+
+
+async def test_a_hand_back_names_the_session_it_restored(server, monkeypatch):
+    report = {"restored": [], "skipped": [], "uri": "workspace://site-data"}
+    server.workspaces.store.update(TESTER, lambda r: replace(
+        r, reopened={"browser": "g-tester", "cause": "reaped", "report": report}
+    ))
+    monkeypatch.setattr(
+        server.actions, "outline",
+        lambda sid, **kw: {"url": "https://b.example.test/", "title": "B"},
+        raising=False,
+    )
+    async with Client(server.mcp) as c:
+        back = await c.call_tool("await_control", {"session": "tester"})
+    assert back.structured_content["site_data"]["uri"] == "session://tester/site-data"
 
 
 async def test_reading_your_downloads_claims_nothing(server, monkeypatch):
@@ -501,3 +548,100 @@ async def test_show_draws_what_a_named_session_points_at(server, built_ui):
             assert shown.structured_content["component"] == component, uri
     entry = shown.structured_content["data"]
     assert entry["uri"] == "session://tester/downloads/g-tester.pdf"
+
+
+# ---- every surface's wiring of `own` -------------------------------------------
+
+B_SITE = "https://b.example.test/"
+SIDS = {"g-default": NAMED, "g-tester": TESTER}
+SEE = "session://tester/console?level=error"
+OWN_SEE = "workspace://console?level=error"
+
+
+@pytest.fixture
+def wired(tmp_path, monkeypatch):
+    """A real server, its browsers doubled at the action: every `navigate`
+    and `write` makes the page throw, in the session whose browser it is."""
+    from kubed.selenium_flow.config import Settings
+    from kubed.selenium_flow.core.actions import Actions
+    from kubed.selenium_flow.secrets import ALLOWED_URLS
+    from kubed.selenium_flow.server import SeleniumMCP
+
+    from .fakes import untabbed
+    from .test_secrets import make_secret
+
+    monkeypatch.delenv("SECRETS_DIRS", raising=False)
+    monkeypatch.delenv("DATA_DIR", raising=False)
+    make_secret(
+        tmp_path / "secrets", "demo", password="hunter2",
+        **{ALLOWED_URLS: "https://b.example.test"},
+    )
+    built = {}
+
+    def threw(session_id):
+        built["server"].capture.ingest(
+            SIDS[session_id], session_id, *log("boom", level="error")
+        )
+        return {"url": B_SITE, "title": "B"}
+
+    # On the class, before the server is built: `routes.py` binds each method
+    # at registration.
+    def navigate(self, session_id, url):
+        return threw(session_id)
+
+    def write(
+        self, session_id, text, selector=None, url=None, clear=True,
+        submit=False, wait_timeout=30, read_back=True,
+    ):
+        return {**threw(session_id), "value": None}
+
+    monkeypatch.setattr(Actions, "navigate", navigate)
+    monkeypatch.setattr(Actions, "write", write)
+    monkeypatch.setattr(Actions, "page", lambda self, sid: {"url": B_SITE, "title": "B"})
+    server = built["server"] = untabbed(SeleniumMCP(Settings(
+        grid={"url": "http://grid.invalid:4444"},
+        auth={"token": TOKEN},
+        data={"dir": str(tmp_path / "data")},
+        secrets={"dirs": str(tmp_path / "secrets")},
+    )))
+    server.workspaces.actions.grid = AliveGrid()
+    store = server.workspaces.store
+    store.set(NAMED, Workspace(
+        session_id="g-default", settings={"capture": True}, subs=["tester"],
+    ))
+    store.set(TESTER, Workspace(
+        session_id="g-tester", settings={"capture": True}, label="tester",
+    ))
+    for sid, key in SIDS.items():
+        server.capture.attached(key, sid, "chrome", "top-1", again=False)
+    server.flows.save(NAMED, "trip", {"steps": [
+        {"tool": "navigate", "args": {"url": B_SITE}},
+    ]})
+    calling_as(monkeypatch, NAMED)
+    return server
+
+
+TYPED = {"selector": {"css": "#p"}, "secret": {"name": "demo", "key": "password"}}
+
+
+async def test_mcp_run_flow_and_write_point_at_the_session_they_named(wired):
+    async with Client(wired.mcp) as c:
+        for tool, args in (("run_flow", {"name": "trip"}), ("write", TYPED)):
+            named = await c.call_tool(tool, {**args, "session": "tester"})
+            assert named.structured_content["page"]["see"] == SEE, tool
+            own = await c.call_tool(tool, args)
+            assert own.structured_content["page"]["see"] == OWN_SEE, tool
+
+
+def test_rest_runs_writes_and_actions_point_at_the_session_they_named(wired):
+    client = TestClient(wired.mcp.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
+    for path, body in (
+        ("/flows/trip/runs", {}),
+        ("/browser/write", TYPED),
+        ("/browser/navigate", {"url": B_SITE}),
+    ):
+        named = client.post(path, json={**body, "session": "tester"})
+        assert named.status_code in (200, 201), (path, named.text)
+        assert named.json()["page"]["see"] == SEE, path
+        own = client.post(path, json=body)
+        assert own.json()["page"]["see"] == OWN_SEE, path

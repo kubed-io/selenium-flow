@@ -257,9 +257,12 @@ def register(
         key = await run_in_threadpool(
             workspaces.reading, caller, body.get("session")
         )
+        own = await run_in_threadpool(
+            workspaces.own, caller, body.get("session"), key
+        )
         return await control_module.await_control(
             workspaces.control, workspaces, key,
-            cap=live.await_cap, surface="http",
+            cap=live.await_cap, surface="http", own=own,
         )
 
     waiting = {"await_control": awaited}

@@ -126,8 +126,6 @@ class Said(NamedTuple):
 # `core.cancel` carries its flags, since an argument would land in every tool
 # schema derived from the actions.
 _ACTING: ContextVar[str] = ContextVar("acting_session", default="")
-# The caller's own session, beside it: "" when it is the one acted in.
-_OWN: ContextVar[str] = ContextVar("own_session", default="")
 
 
 def acting() -> str:
@@ -135,19 +133,12 @@ def acting() -> str:
     return _ACTING.get()
 
 
-def acting_own() -> str:
-    """The key of the caller's own session for the call in flight
-    (`Workspaces.own`): the one it acts in unless it named another."""
-    return _OWN.get() or _ACTING.get()
-
-
 @contextlib.contextmanager
-def _acting_in(key: str, own: str | None = None):
-    token, mine = _ACTING.set(key), _OWN.set(own or "")
+def _acting_in(key: str):
+    token = _ACTING.set(key)
     try:
         yield
     finally:
-        _OWN.reset(mine)
         _ACTING.reset(token)
 
 
@@ -768,11 +759,11 @@ class Workspaces:
         return self.scrubber.resource(name, {**view, "capturing": capturing})
 
     @staticmethod
-    def acting_in(key: str, own: str | None = None):
+    def acting_in(key: str):
         """Run a block as acting in the session ``key``, for what the action
         layer asks back about it (`acting`): a flow's steps, which no `_said`
-        wraps one by one. ``own`` is the caller's (`own`)."""
-        return _acting_in(key, own)
+        wraps one by one."""
+        return _acting_in(key)
 
     def own(self, caller: Caller, named: str | None, acted: str) -> str:
         """The key of ``caller``'s own session, for a call that named
@@ -1225,7 +1216,7 @@ class Workspaces:
                 begun = self.calls.begin(
                     name, session_id, browser=kind, tool=tool, own=own
                 )
-                with _acting_in(name, own):
+                with _acting_in(name):
                     result = call(session_id)
             except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
                 if begun is not None:
@@ -1435,15 +1426,16 @@ class Workspaces:
         named one that is not the caller's own (`sessions.pointer`).
         """
         name = self.session_of(caller, session)
+        # What its pointers are read against: they name the session it acted
+        # in when that is not the caller's own. Read before the browser is
+        # touched, so a store that fails here has reopened nothing.
+        own = self.own(caller, session, name)
         try:
             resolved, kind = self.resolved(name)
         except faults.NoSession:
             if closed is not None:
                 closed(name)
             raise
-        # What its pointers are read against: they name the session it acted
-        # in when that is not the caller's own.
-        own = self.own(caller, session, name)
         try:
             result, page, hidden = self._said(
                 name, resolved, kind, call, tool=tool, surface=surface, own=own
@@ -1493,7 +1485,12 @@ class Workspaces:
         return {"typed": result["typed"]}
 
     def handed_back(
-        self, name: str, episode: dict | None, *, surface: str = "mcp"
+        self,
+        name: str,
+        episode: dict | None,
+        *,
+        surface: str = "mcp",
+        own: str | None = None,
     ) -> dict:
         """`await_control`'s summary of a hand-back, or of nobody in control
         (``episode`` None): everything but its sentence, which
@@ -1510,7 +1507,8 @@ class Workspaces:
         It settles with the URL withheld: the TTL slides, History is not
         written. ``visited`` is shaped as History keeps a URL: the last
         page whole, credentials cut; earlier ones origin, path and hash route
-        (never the route's query).
+        (never the route's query). ``own`` is the caller's own session: a
+        restore report it carries names ``name`` when that is another (`act`).
         """
         summary: dict = {
             "handed_back": episode is not None,
@@ -1569,7 +1567,7 @@ class Workspaces:
         }
         settled: dict = {}
         try:
-            self.settle(name, settled, browser=session_id, url=None)
+            self.settle(name, settled, browser=session_id, url=None, own=own)
         except Exception as exc:  # noqa: BLE001 - a TTL not slid is no reason
             # to lose a hand-back this answer has already said.
             log.warning(
@@ -1800,6 +1798,8 @@ class Workspaces:
                 planned, lambda: self._resolve_open(caller, planned, url, wanted)
             )
         key = self.session_of(caller, session, opening=True)
+        # Read before the open, as `act` reads it.
+        own = self.own(caller, session, key)
         told = self._scrubbing(
             key,
             lambda: self._open_browser(
@@ -1807,7 +1807,7 @@ class Workspaces:
             ),
         )
         # Its restore report names the session it opened (`act`).
-        self.pointed(key, self.own(caller, session, key), told)
+        self.pointed(key, own, told)
         return told
 
     def _open_browser(
