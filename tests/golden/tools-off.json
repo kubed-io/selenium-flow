@@ -72,10 +72,23 @@
       "read_only_hint": true,
       "title": "Wait for a person to hand back"
     },
-    "description": "Wait for the person who took control of this browser to hand it back.\n\nA person can take control of your browser from the admin's live view, to\nsign in, solve a captcha or fix something by hand. While they hold it, every\ncall that would change the browser is refused with a message naming this\ntool; reads still answer. Call this then, rather than retrying the refused\ncall.\n\nIt returns the moment they hand back, saying who had control and for how\nlong, the page the browser is on now, every page they reached (visited,\noldest first) and an outline of that page. Read it before carrying on: the\npage may not be where you left it. With nobody in control it returns at\nonce. ended=true means the browser ended while they had it: call\nopen_session.\n\nOn a client without background tasks it returns after about 90 seconds with\nhanded_back=false, saying to call again; do, until it hands back.",
+    "description": "Wait for the person who took control of this browser to hand it back.\n\nA person can take control of your browser from the admin's live view, to\nsign in, solve a captcha or fix something by hand. While they hold it, every\ncall that would change the browser is refused with a message naming this\ntool; reads still answer. Call this then, rather than retrying the refused\ncall.\n\nIt returns the moment they hand back, saying who had control and for how\nlong, the page the browser is on now, every page they reached (visited,\noldest first) and an outline of that page. Read it before carrying on: the\npage may not be where you left it. With nobody in control it returns at\nonce. ended=true means the browser ended while they had it: call\nopen_session.\n\nOn a client without background tasks it returns after about 90 seconds with\nhanded_back=false, saying to call again; do, until it hands back.\n\nA person's control covers one session: pass the session a refused call named\n(or leave it out for your own) and this waits for that one only.",
     "inputSchema": {
       "additionalProperties": false,
-      "properties": {},
+      "properties": {
+        "session": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+        }
+      },
       "type": "object"
     },
     "name": "await_control"
@@ -1292,7 +1305,7 @@
       "read_only_hint": false,
       "title": "Run a saved flow"
     },
-    "description": "Run a saved flow in one call: every step, in order, in the browser you already hold. Call open_session first, and open Firefox to run the same flow there.\n\nparams supplies what the flow declares; flow://flows lists them. The result has a line per step and the final page, and verbose=true adds every step's full result. It stops at the first failing step unless that step says onError: continue, and says where.\n\nA long run reports progress while it works, and stops if the call is cancelled.",
+    "description": "Run a saved flow in one call: every step, in order, in the browser you already hold. Call open_session first, and open Firefox to run the same flow there. session runs it in one of your workspace's sessions: every step runs there, and a step names no session.\n\nparams supplies what the flow declares; flow://flows lists them. The result has a line per step and the final page, and verbose=true adds every step's full result. It stops at the first failing step unless that step says onError: continue, and says where.\n\nA long run reports progress while it works, and stops if the call is cancelled.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1310,6 +1323,18 @@
             }
           ],
           "default": null
+        },
+        "session": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
         },
         "verbose": {
           "default": false,
