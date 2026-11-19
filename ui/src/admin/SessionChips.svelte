@@ -69,6 +69,9 @@
   .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; min-height: 28px; border-radius: 999px; font-size: 13px; }
   .chip[aria-checked=true] { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  /* app.css hovers a chip in the accent, which is what selected looks like here:
+     with the pointer left on another chip, two read as selected. */
+  .chip:not([aria-checked=true]):hover { border-color: var(--muted); }
   .meta { font-size: 12px; color: var(--muted); }
   .dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--muted); box-sizing: border-box; }
   .dot.live { background: var(--ok); border-color: var(--ok); }
