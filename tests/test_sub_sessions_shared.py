@@ -319,9 +319,8 @@ async def test_each_session_has_its_own_downloads(data_server, monkeypatch):
         clear.assert_called_once_with("g-tester")
         assert client.delete(admin).status_code == 200
         assert clear.call_args_list[-1].args == ("g-default",)
-        # A session with no record has no browser and no downloads.
-        idle = client.get(f"{admin}?session=nobody").json()
-        assert (idle["browser"], idle["downloads"]) == (False, [])
+        # A sub-session with no record is a 404, as on every session route.
+        assert client.get(f"{admin}?session=nobody").status_code == 404
         assert client.get(f"{admin}?session=a%2Fb").status_code == 400
 
 
