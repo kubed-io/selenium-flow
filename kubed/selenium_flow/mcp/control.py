@@ -14,6 +14,7 @@ unsaid hand-back waits for the next result; and `await_control`, whose
 
 from __future__ import annotations
 
+import anyio
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 from fastmcp.tools.base import ToolResult
@@ -28,16 +29,43 @@ SAYS_CONTROL = frozenset({"await_control"})
 
 
 class Notices(Middleware):
-    def __init__(self, controls: Controls):
-        self.controls = controls
+    """``workspaces`` (`Workspaces.reading`, duck-typed) says which session a
+    call is about: control covers one session (LIVE-42), so a result carries the
+    notice of its own. Without it, the workspace's default."""
 
-    def _notice(self) -> dict | None:
-        # Read at the call's end, so a call in flight when a person asked
-        # carries it. A name that cannot be read leaves the answer alone.
-        caller = clients.caller()
+    def __init__(self, controls: Controls, workspaces=None):
+        self.controls = controls
+        self.workspaces = workspaces
+
+    def key_for(self, caller, named: str | None) -> str | None:
+        """The key of the session ``caller`` reaches, naming ``named`` or its
+        pin; None for a name that cannot be read or a session that does not
+        exist (a refused call says that itself). Reads the store, so off the loop."""
         if caller.refusal is not None or not caller.named:
             return None
-        return self.controls.notice(caller.named)
+        if self.workspaces is None:
+            return caller.named
+        try:
+            return self.workspaces.reading(caller, named)
+        except Exception:  # noqa: BLE001 - the call said why, or will
+            return None
+
+    def notice_for(self, caller, named: str | None) -> dict | None:
+        key = self.key_for(caller, named)
+        return None if key is None else self.controls.notice(key)
+
+    async def _notice(self, context) -> dict | None:
+        # Read at the call's end, so a call in flight when a person asked
+        # carries it.
+        if self.controls.quiet():
+            return None
+        arguments = context.message.arguments or {}
+        named = arguments.get("session")
+        key = await anyio.to_thread.run_sync(
+            self.key_for, clients.caller(), named if isinstance(named, str) else None
+        )
+        # On the loop, where the episodes live.
+        return None if key is None else self.controls.notice(key)
 
     async def on_call_tool(self, context, call_next):
         if context.message.name in SAYS_CONTROL:
@@ -47,13 +75,13 @@ class Notices(Middleware):
         except ToolError as exc:
             if isinstance(exc.__cause__, Controlled):
                 raise  # the refusal is the notice
-            notice = self._notice()
+            notice = await self._notice(context)
             if notice is None:
                 raise
             raise ToolError(f"{exc}\n\n{notice['hint']}") from exc.__cause__
         if not isinstance(result, ToolResult):
             return result  # a task's stub: nothing to say it on
-        notice = self._notice()
+        notice = await self._notice(context)
         if notice is None:
             return result
         # A new result rather than an edit: one made from a wire result answers

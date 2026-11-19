@@ -747,6 +747,13 @@ class Workspaces:
         # server's own words and is not.
         return self.scrubber.resource(name, {**view, "capturing": capturing})
 
+    @staticmethod
+    def acting_in(key: str):
+        """Run a block as acting in the session ``key``, for what the action
+        layer asks back about it (`acting`): a flow's steps, which no `_said`
+        wraps one by one."""
+        return _acting_in(key)
+
     def session_of(
         self, caller: Caller, named: str | None = None, *, opening: bool = False
     ) -> str:

@@ -40,7 +40,7 @@ from ..core.capabilities import ENDPOINTS, LIBRARY_ARG, capability, method_for
 from ..core.coerce import as_bool
 from ..http import answer as answer_module
 from ..mcp import clients, progress
-from ..mcp.tools import SecretRef
+from ..mcp.tools import SecretRef, Session
 from ..names import GLOBAL_WORKSPACE, valid_name
 from ..workspace import calls as calls_module
 from . import document as flowdoc
@@ -452,7 +452,8 @@ def register(
         description=(
             "Run a saved flow in one call: every step, in order, in the browser "
             "you already hold. Call open_session first, and open Firefox to run "
-            "the same flow there.\n\n"
+            "the same flow there. session runs it in one of your workspace's "
+            "sessions: every step runs there, and a step names no session.\n\n"
             "params supplies what the flow declares; flow://flows lists them. "
             "The result has a line per step and the final page, and "
             "verbose=true adds every step's full result. It stops at the first "
@@ -464,11 +465,15 @@ def register(
         annotations=hints("Run a saved flow", destructive=True),
     )
     async def run_flow(
-        name: str, params: dict | None = None, verbose: bool = False
+        name: str,
+        params: dict | None = None,
+        verbose: bool = False,
+        session: Session = None,
     ) -> dict:
         # `name`, not `library`: a run drives a browser. Read on the request,
         # before the run moves to a thread.
-        workspace = clients.caller().name
+        caller = clients.caller()
+        workspace = caller.name
         watch = progress.Watch()
 
         def work():
@@ -478,6 +483,7 @@ def register(
                 workspaces,
                 workspace,
                 name,
+                key=workspaces.session_of(caller, session),
                 params=params,
                 verbose=verbose,
                 secrets_catalogue=secrets_catalogue,
@@ -616,9 +622,13 @@ def run_for(
     store, actions, workspaces, workspace: str, name: str,
     params=None, verbose: bool = False,
     secrets_catalogue=None, skill_available: bool = True,
-    before_step=None, stop=None,
+    before_step=None, stop=None, key: str | None = None,
 ) -> dict:
-    """Run a saved flow in ``workspace``'s browser, and update its record.
+    """Run a saved flow in a session's browser, and update its record.
+
+    ``workspace`` is the library the flow is read from; ``key`` is the session
+    key it runs in (`Workspaces.session_of`), the workspace's own when unset.
+    The run's browser, turn, origins, scrubbing and record are that session's.
 
     Shared by the tool and the endpoint. Each step is a call like any other
     (`workspace.calls`): begun after the caller's ``before_step`` has heard it,
@@ -627,7 +637,9 @@ def run_for(
     secrets allowed where it ran, typed or not (`Workspaces.in_scope`).
     """
     # A missing flow is named before a missing browser.
-    read_one(store, workspace, name)
+    library = workspace
+    workspace = key or workspace
+    read_one(store, library, name)
     resolved, kind = workspaces.resolved(workspace)
     # The run's hint compares its end with this, since a flush before a save
     # moves the record's page part-way.
@@ -709,25 +721,27 @@ def run_for(
         count[0] = len(pages)
 
     try:
-        report = run_one(
-            store,
-            actions,
-            workspace,
-            name,
-            params=params,
-            verbose=verbose,
-            session_id=resolved,
-            after_step=remember,
-            before_step=step_started,
-            before_save=before_save,
-            bound=bound,
-            step_done=step_done,
-            tabs=tabs,
-            in_scope=in_scope,
-            stop=stop,
-            secrets_catalogue=secrets_catalogue,
-            skill_available=skill_available,
-        )
+        # Every step reads its session's own sites (`Actions.visited`).
+        with workspaces.acting_in(workspace):
+            report = run_one(
+                store,
+                actions,
+                library,
+                name,
+                params=params,
+                verbose=verbose,
+                session_id=resolved,
+                after_step=remember,
+                before_step=step_started,
+                before_save=before_save,
+                bound=bound,
+                step_done=step_done,
+                tabs=tabs,
+                in_scope=in_scope,
+                stop=stop,
+                secrets_catalogue=secrets_catalogue,
+                skill_available=skill_available,
+            )
         page = calls_module.total(step_hints)
         if page is not None:
             report["page"] = page
@@ -859,6 +873,7 @@ def _routes(
                 workspaces,
                 caller.name,  # a run drives a browser
                 request.path_params["name"],
+                key=workspaces.session_of(caller, body.get("session")),
                 params=body.get("params"),
                 # Over HTTP "false" arrives as a string, and bool("false") is
                 # True.

@@ -22,6 +22,7 @@ import json
 from collections.abc import Callable
 from typing import Annotated, Literal
 
+import anyio
 from fastmcp import Context, FastMCP
 from fastmcp.apps import AppConfig
 from fastmcp.tools import ToolResult
@@ -381,7 +382,7 @@ def register(
         return {"success": True, "workspace": caller.name}
 
     @own("await_control", task=waiting.TASK)
-    async def await_control(ctx: Context) -> dict:
+    async def await_control(ctx: Context, session: Session = None) -> dict:
         """Wait for the person who took control of this browser to hand it back.
 
         A person can take control of your browser from the admin's live view, to
@@ -399,8 +400,13 @@ def register(
 
         On a client without background tasks it returns after about 90 seconds with
         handed_back=false, saying to call again; do, until it hands back.
+
+        A person's control covers one session: pass the session a refused call named
+        (or leave it out for your own) and this waits for that one only.
         """
-        name = clients.caller().name
+        caller = clients.caller()
+        # A read of the store, which may be a network call: off the loop.
+        name = await anyio.to_thread.run_sync(workspaces.reading, caller, session)
         controls = workspaces.control
         return await waiting.waited(
             ctx,

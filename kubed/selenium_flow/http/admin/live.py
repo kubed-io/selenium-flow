@@ -37,8 +37,10 @@ from ...live.rfb import Refused as LiveRefused
 from ...live.rfb import read_password
 from ...live.tunnel import BROKEN, HEARTBEAT, Peer, Tunnel
 from ...live.tunnels import Tunnels
+from ...workspace import sessions
 from .. import answer, auth, links
 from . import page
+from .files import session_key
 
 log = logging.getLogger(__name__)
 
@@ -74,8 +76,19 @@ def _ours(exc: Exception) -> bool:
 
 def socket_path(key: str) -> str:
     """The unprefixed path a socket link for ``key`` is signed over, the key
-    quoted as it is on the wire, so a link for one workspace opens no other."""
+    quoted as it is on the wire, so a link for one workspace opens no other. A
+    sub-session's key is signed over too, so a link opens no other session."""
     return SOCKET_PATH.format(key=quote(key, safe=""))
+
+
+def socket_url(workspace: str, name: str, query: str = "") -> str:
+    """The unprefixed socket URL of session ``name`` of ``workspace``: its
+    path names the workspace, and ``?session=`` the session unless it is the
+    default. ``query`` is the signed link's own (``exp=...&sig=...``)."""
+    parts = [] if name == sessions.DEFAULT else [f"session={quote(name, safe='')}"]
+    if query:
+        parts.append(query)
+    return socket_path(workspace) + ("?" + "&".join(parts) if parts else "")
 
 
 def websocket_route(mcp, path: str, endpoint, name: str) -> None:
@@ -180,16 +193,26 @@ def mount(
         principal, refusal = await answer.admitted(door, request)
         if refusal is not None:
             return refusal
-        key = request.path_params["key"]
+        workspace = request.path_params["key"]
+        try:
+            key, named = session_key(workspace, request)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
         _record, why = await run_in_threadpool(look, key)
         if why is not None:
             return JSONResponse({"error": why}, status_code=404)
-        path = socket_path(key)
         who = audit.viewer_of(principal)
+        # Signed over the session's key, sent as the workspace and `?session=`.
         signed_url = (
-            links.sign(path, token, LINK_TTL, by=who, exact=True)
+            socket_url(
+                workspace,
+                named,
+                links.sign(
+                    socket_path(key), token, LINK_TTL, by=who, exact=True
+                ).partition("?")[2],
+            )
             if token
-            else path
+            else socket_url(workspace, named)
         )
         return JSONResponse(
             {
@@ -210,9 +233,10 @@ def mount(
         principal, refusal = await answer.admitted(door, request)
         if refusal is not None:
             return refusal
-        key = request.path_params["key"]
+        workspace = request.path_params["key"]
         try:
             try:
+                key, _named = session_key(workspace, request)
                 body = await answer.read_body(request)
             except ValueError as exc:  # the body's own refusal, in our words
                 return answer.refused(exc, "paste", log)
@@ -270,6 +294,12 @@ def mount(
         key = websocket.path_params["key"]
         await websocket.accept()
         try:
+            try:
+                key, _named = session_key(key, websocket)
+            except ValueError:
+                # A name that cannot be a session has no live view.
+                await _refuse(websocket, NOT_AVAILABLE, NO_BROWSER)
+                return
             await serve(websocket, key)
         except Exception as error:  # noqa: BLE001 - by its type alone, below
             audit.failed(key, error)

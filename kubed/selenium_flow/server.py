@@ -407,7 +407,7 @@ class SeleniumMCP:
         self.mcp.add_middleware(clients.Carry())
         # The first added is outermost, so a failed call's notice follows the
         # sentence `Explained` has already written.
-        self.mcp.add_middleware(control.Notices(self.controls))
+        self.mcp.add_middleware(control.Notices(self.controls, self.workspaces))
         failures.install(self.mcp)
         # Inside `failures`, so a read that cannot be scrubbed answers the
         # fixed sentence and `Explained` passes it on as it is.

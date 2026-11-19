@@ -252,10 +252,13 @@ def register(
 
     # Awaited on the loop: a long poll holding a worker thread would starve
     # every other call while it waited.
-    async def awaited(caller, _body):
+    async def awaited(caller, body):
         """Wait for the person to hand back, up to `live.await_cap`."""
+        key = await run_in_threadpool(
+            workspaces.reading, caller, body.get("session")
+        )
         return await control_module.await_control(
-            workspaces.control, workspaces, caller.name,
+            workspaces.control, workspaces, key,
             cap=live.await_cap, surface="http",
         )
 

@@ -440,6 +440,12 @@ def _check_params(
                 "a flow uses the browser the caller already has"
             )
             continue
+        if in_flow and name in CALL_ONLY:
+            problems.append(
+                f"{where}: {name} cannot be set on a step; a flow runs in one "
+                f"session: set {name} on run_flow"
+            )
+            continue
         if name not in known:
             home = _home_of(name, properties)
             if home:
