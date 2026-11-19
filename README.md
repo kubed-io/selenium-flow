@@ -72,6 +72,8 @@ open_session()      # back where you were, with the settings you chose
 
 Between calls the server keeps your browser alive for 15 minutes, so an agent that stops to think doesn't come back to an empty page. `workspace://current` says where you are without opening anything.
 
+A workspace can hold more browsers: pass `session="tester"` to `open_session` and the sub-session is a browser of its own, with its own sign-ins, beside the default. Pin a connection to one with `https://flows.example.com/mcp?workspace=research-bot&session=tester`.
+
 ---
 
 ## 👀 Watch it live, and take the wheel

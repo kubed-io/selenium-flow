@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Sub-sessions**: name a session on any call (`session="tester"`, or pin it with `?session=` or `Sf-Session`) for a second browser in the workspace, with its own sign-ins, beside the default. The admin UI shows each as a chip.
 - **Tabs and popups**: a popup a page opens is followed, the session comes back when it closes, and `tab` lists, opens, switches and closes tabs.
 - Fixed: `write` replaces the text of a field a framework such as React holds, instead of appending to it.
 - Fixed: a stored flow file nested deeply enough to crash the YAML parser is listed as unreadable, instead of taking the server down.
