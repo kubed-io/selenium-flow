@@ -49,7 +49,8 @@ def test_keep_file_takes_a_uri_and_is_not_idempotent(data_server):
         async with Client(data_server.mcp) as c:
             return {t.name: t for t in await c.list_tools()}["keep_file"]
     tool = _run(go())
-    assert list(tool.input_schema["properties"]) == ["uri"]
+    # `session`: which session's downloads a download's uri is read from.
+    assert list(tool.input_schema["properties"]) == ["uri", "session"]
     assert tool.input_schema["required"] == ["uri"]
     assert tool.annotations.idempotent_hint is False
     # A download keep REPLACES a same-named file in Files — honest

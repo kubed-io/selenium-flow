@@ -39,8 +39,8 @@ def test_a_page_bumps_its_origin_to_the_top_with_its_url_and_time():
     record = Workspace().visited("https://a.test/1", now=10.0).visited("https://b.test/", now=20.0)
     record = record.visited("https://a.test/2", now=30.0)
     assert record.history == [
-        {"origin": "https://a.test", "url": "https://a.test/2", "at": 30.0},
-        {"origin": "https://b.test", "url": "https://b.test/", "at": 20.0},
+        {"origin": "https://a.test", "url": "https://a.test/2", "at": 30.0, "session": "default"},
+        {"origin": "https://b.test", "url": "https://b.test/", "at": 20.0, "session": "default"},
     ]
 
 
@@ -118,7 +118,7 @@ def test_a_malformed_entry_is_dropped_not_fatal():
         '{"origin": "https://b.test", "url": "https://b.test/", "at": "soon"}]}'
     )
     assert Workspace.from_json(raw).history == [
-        {"origin": "https://a.test", "url": "https://a.test/", "at": 1.0}
+        {"origin": "https://a.test", "url": "https://a.test/", "at": 1.0, "session": "default"}
     ]
     assert Workspace.from_json('{"session_id": "s", "history": {"a": 1}}').history == []
 

@@ -366,6 +366,7 @@ class FakeRedis:
         self.expiries = {}
         self.reachable = reachable
         self.calls = []
+        self.watching = set()
 
     def ping(self):
         if not self.reachable:
@@ -408,7 +409,8 @@ class FakePipeline:
     EXEC refuses with WatchError if a watched key was written since.
 
     ``fake.interfere`` runs just before EXEC — another replica's write landing
-    between this one's read and its write.
+    between this one's read and its write. ``fake.watching`` holds the keys
+    that EXEC is about to write, so it can pick its moment.
     """
 
     def __init__(self, fake):
@@ -446,6 +448,7 @@ class FakePipeline:
         from redis.exceptions import WatchError
 
         interfere = getattr(self.fake, "interfere", None)
+        self.fake.watching = set(self.watched)
         if interfere:
             interfere()
         changed = any(self.fake.data.get(k) != v for k, v in self.watched.items())

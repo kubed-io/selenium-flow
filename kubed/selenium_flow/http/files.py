@@ -15,7 +15,10 @@ tool that deletes: removing a file or clearing a section is an operator's
 action in the admin UI.
 
 A listing never opens a browser: ``root``, ``folder`` and ``sections`` read the
-record with ``Workspaces.browser(name)``, never ``Workspaces.resolve``. Reading
+record with ``Workspaces.browser(name)``, never ``Workspaces.resolve``.
+Downloads are one session's (WS-52): read from the browser of the session
+the caller reaches (``Workspaces.session_of``), while the other sections are
+the workspace's, whichever session asks (WS-54). Reading
 downloads with no session open is refused with ``NO_DOWNLOADS`` and costs no
 Grid call, while a failure from a browser the record says is live is never
 swallowed. Only the admin's ``sections`` answers an empty Downloads for an idle
@@ -36,9 +39,11 @@ import json
 import logging
 import mimetypes
 import stat
+from typing import Annotated
 from urllib.parse import quote, unquote
 
 from fastmcp.resources import ResourceContent, ResourceResult
+from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -67,6 +72,17 @@ ITEM_URI = {k: v + "/{name}" for k, v in FOLDER_URI.items()}
 KEEP_TOOL = "keep_file"
 
 LIST_URI = ROOT_URI
+
+# Which session's downloads `keep_file` copies from (WS-52).
+Session = Annotated[
+    str | None,
+    Field(
+        description=(
+            "Which session's downloads a session://downloads uri is read from: a "
+            "sub-session's name, or default. Leave it out for your own."
+        )
+    ),
+]
 
 SHAPES = (
     "workspace://files/<name> for a file in Files, "
@@ -318,12 +334,14 @@ def folder(
     base: str = "",
     mount: str = "",
     ttl: int = links.DEFAULT_TTL,
+    session: str | None = None,
 ) -> dict:
     """One section's own listing: Files, Screenshots, Recordings or Downloads.
 
-    Downloads are the session's: with none open they are refused with
-    ``NO_DOWNLOADS``, before anything else is asked. The other three are the
-    workspace's, and are ``OFF`` without a ``DATA_DIR``, browser or not.
+    Downloads are the session's, ``session`` (a key, the workspace's default
+    when None): with none open they are refused with ``NO_DOWNLOADS``, before
+    anything else is asked. The other three are the workspace's, and are
+    ``OFF`` without a ``DATA_DIR``, browser or not.
     """
     if which not in (FILES, SCREENSHOTS, RECORDINGS, DOWNLOADS):
         raise ValueError(f"{which!r} is not a file section: use {SHAPES}")
@@ -331,7 +349,7 @@ def folder(
     target = ""
     if which == DOWNLOADS:
         # Never `resolve`: see the module docstring.
-        target = workspaces.browser(name)
+        target = workspaces.browser(session or name)
         if not target:
             raise NoSession(NO_DOWNLOADS)
     elif store is None:
@@ -383,11 +401,16 @@ def sections(
     }
 
 
-def keep(actions, workspaces, store, uri, name: str, session_id=None) -> dict:
+def keep(
+    actions, workspaces, store, uri, name: str, session_id=None, session=None
+) -> dict:
     """Put one file in Files. A screenshot moves; a download is copied, because
     the Grid cannot delete one file; a Files URI answers with itself. A
     recording moves strictly: if its source cannot be removed the Files copy is
     rolled back and the error raised, never a success with the video in both.
+
+    A download is read from ``session_id``, else from the browser of
+    ``session`` (a key, the workspace's default when None).
     """
     if store is None:
         raise ValueError(OFF)
@@ -459,7 +482,7 @@ def keep(actions, workspaces, store, uri, name: str, session_id=None) -> dict:
         # Never resolved: a reopened browser cannot hold a download it never
         # took, so opening one would only spend a Grid slot.
         if session_id is None:
-            session_id = workspaces.browser(name)
+            session_id = workspaces.browser(session or name)
         if not session_id:
             raise NoSession(NO_DOWNLOADS)
         data = actions.grid.read_file(session_id, leaf)
@@ -501,14 +524,17 @@ def keep_made(
     return describe(folder, entry, url, base)
 
 
-def read_file(actions, workspaces, store, uri, name: str) -> tuple[str, bytes]:
+def read_file(
+    actions, workspaces, store, uri, name: str, session: str | None = None
+) -> tuple[str, bytes]:
     """The bytes of one file, by its address. ``name`` is the workspace to read
     from: a flow run passes the workspace running it, so a shared flow does not
-    read from `global`.
+    read from `global`. A download is read from the browser of ``session`` (a
+    key, the workspace's default when None).
     """
     folder_of, leaf = parse_uri(uri)
     if folder_of == DOWNLOADS:
-        target = workspaces.browser(name)
+        target = workspaces.browser(session or name)
         if not target:
             raise NoSession(NO_DOWNLOADS)
         return leaf, actions.grid.read_file(target, leaf)
@@ -618,12 +644,23 @@ def register(
             base=base, mount=prefix, ttl=ttl,
         )
 
+    def _session(caller, which: str, named: str | None = None) -> str | None:
+        """The key of the session whose downloads ``caller`` reads; None for
+        the other sections, which are the workspace's."""
+        if which != DOWNLOADS and not named:
+            return None
+        return workspaces.session_of(caller, named)
+
+    def _listed(which: str) -> dict:
+        caller = clients.caller()
+        return folder(
+            actions, workspaces, store, token, caller.name, which,
+            base=base, mount=prefix, ttl=ttl, session=_session(caller, which),
+        )
+
     def _folder_resource(which: str):
         def read() -> dict:
-            return folder(
-                actions, workspaces, store, token, clients.caller().name, which,
-                base=base, mount=prefix, ttl=ttl,
-            )
+            return _listed(which)
 
         return read
 
@@ -637,10 +674,7 @@ def register(
 
     def _entry(which: str, name: str) -> dict | None:
         """One stored file's entry, described and signed, or None."""
-        listing = folder(
-            actions, workspaces, store, token, clients.caller().name, which,
-            base=base, mount=prefix, ttl=ttl,
-        )
+        listing = _listed(which)
         return next((f for f in listing["files"] if f["name"] == unquote(name)), None)
 
     def _item_resource(which: str):
@@ -661,8 +695,10 @@ def register(
                 return ResourceResult(
                     [ResourceContent(json.dumps(entry), mime_type="application/json")]
                 )
+            caller = clients.caller()
             leaf, data = read_file(
-                actions, workspaces, store, uri_of(which, name), clients.caller().name
+                actions, workspaces, store, uri_of(which, name), caller.name,
+                session=_session(caller, folder_of),
             )
             return ResourceResult([ResourceContent(data, mime_type=content_type(leaf))])
 
@@ -710,26 +746,32 @@ def register(
             "same-named file as name (1); a download is copied, since the "
             "browser keeps its own until it ends, and REPLACES a same-named "
             "file in Files. The result is the file's new uri. "
-            "upload_file(file=uri) puts any file back into a page."
+            "upload_file(file=uri) puts any file back into a page.\n\n"
+            "A download is your session's, or the one session names: every "
+            "session has a browser, and so downloads, of its own."
         ),
         annotations=hints("Keep a file in Files", destructive=True, idempotent=False),
     )
-    def keep_file(uri: str) -> dict:
+    def keep_file(uri: str, session: Session = None) -> dict:
         # The caller is named last, for the reason `_item_resource` gives.
         if store is None:
             raise ValueError(OFF)
-        parse_uri(uri)
-        name = clients.caller().name
+        folder_of, _ = parse_uri(uri)
+        caller = clients.caller()
+        name = caller.name
+        key = _session(caller, folder_of, session)
         # A download's name is the site's: checked as its listing is.
         return workspaces.scrubbed(
-            name, lambda: keep(actions, workspaces, store, uri, name)
+            name, lambda: keep(actions, workspaces, store, uri, name, session=key)
         )
 
-    _routes(mcp, actions, workspaces, store, token, base, prefix, ttl)
+    _routes(mcp, actions, workspaces, store, token, base, prefix, ttl, _session)
     return set()
 
 
-def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
+def _routes(
+    mcp, actions, workspaces, store, token, base, prefix, ttl, session_of
+) -> None:
     """The same operations as REST, under ``/files``, with the downloads
     listing at ``/browser/downloads``.
 
@@ -770,6 +812,7 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
                 lambda caller, _body: folder(
                     actions, workspaces, store, token, caller.name, which,
                     base=base, mount=prefix, ttl=ttl,
+                    session=session_of(caller, which),
                 ),
             )
 
@@ -789,12 +832,15 @@ def _routes(mcp, actions, workspaces, store, token, base, prefix, ttl) -> None:
         which = request.path_params["folder"]
         leaf = request.path_params["name"]
 
-        def call(caller, _body):
+        def call(caller, body):
             if which not in (SCREENSHOTS, RECORDINGS, DOWNLOADS):
                 raise ValueError(
                     f"{which!r} is not something to keep: use {SCREENSHOTS}, "
                     f"{RECORDINGS} or {DOWNLOADS}"
                 )
-            return keep(actions, workspaces, store, uri_of(which, leaf), caller.name)
+            return keep(
+                actions, workspaces, store, uri_of(which, leaf), caller.name,
+                session=session_of(caller, which, body.get("session")),
+            )
 
         return await answer(request, "keep", call)

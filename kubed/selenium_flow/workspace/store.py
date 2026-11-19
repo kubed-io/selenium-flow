@@ -114,8 +114,9 @@ class Workspace:
     # key. A record whose sources are missing or do not match its settings is
     # not read (see `from_json`).
     set_by: dict = field(default_factory=dict)
-    # Where the workspace has been: one {"origin", "url", "at"} per origin,
-    # newest first. Written by `visited`; the admin History tab reads it.
+    # Where the workspace has been: one {"origin", "url", "at", "session"} per
+    # origin and session, newest first, every session's on the workspace's
+    # record (WS-54). Written by `visited`; the admin History tab reads it.
     history: list = field(default_factory=list)
     # Cookies and storage the workspace saved (site_data/). Kept with the
     # record so it expires with it; never on this server's disk (with Redis,
@@ -168,8 +169,16 @@ class Workspace:
 
     @property
     def url(self) -> str:
-        """The page the workspace is on: the top of its history, or ""."""
-        return self.history[0]["url"] if self.history else ""
+        """The page the default session is on: the top of its history, or ""."""
+        return self.page(sessions.DEFAULT)
+
+    def page(self, session: str) -> str:
+        """The page ``session`` (a name) is on: its newest entry, or ""."""
+        return next((v["url"] for v in self.history if _tag(v) == session), "")
+
+    def entries(self, session: str) -> list[dict]:
+        """``session``'s own entries, newest first."""
+        return [v for v in self.history if _tag(v) == session]
 
     @property
     def notice(self) -> dict | None:
@@ -263,11 +272,14 @@ class Workspace:
         *urls: str | None,
         now: float | None = None,
         ttl: float = DEFAULT_TTL_SECONDS,
+        session: str = sessions.DEFAULT,
     ) -> Workspace:
-        """The same record, having landed on ``urls`` in order, then pruned.
+        """The same record, ``session`` (a name) having landed on ``urls`` in
+        order, then pruned.
 
-        Each one with an origin moves that origin to the top with its URL and
-        the time. One without (None for a URL withheld after a secret write,
+        Each one with an origin moves that session's entry for the origin to
+        the top with its URL and the time; another session's entry for it
+        stays. One without (None for a URL withheld after a secret write,
         ``about:blank``, ``data:``) records nothing.
         """
         now = time.time() if now is None else now
@@ -276,24 +288,31 @@ class Workspace:
             origin = origin_of(url or "")
             if origin:
                 history = [
-                    {"origin": origin, "url": url, "at": now},
-                    *(v for v in history if v["origin"] != origin),
+                    {"origin": origin, "url": url, "at": now, "session": session},
+                    *(
+                        v for v in history
+                        if (v["origin"], _tag(v)) != (origin, session)
+                    ),
                 ]
         return replace(self, history=history).pruned(now, ttl)
 
     def pruned(self, now: float, ttl: float) -> Workspace:
         """The same record without the history entries older than ``ttl``,
-        except the top one: it is where a reopen goes back to.
+        except each session's top one: it is where that session's reopen goes
+        back to.
 
-        Only the top entry keeps its whole URL. Below it a URL keeps its origin,
-        path and hash route (never the route's query): a query string or
-        fragment carries OAuth codes and reset tokens, and nothing but a reopen
-        needs them.
+        Only a session's top entry keeps its whole URL. Below it a URL keeps
+        its origin, path and hash route (never the route's query): a query
+        string or fragment carries OAuth codes and reset tokens, and nothing but
+        a reopen needs them.
         """
-        history = self.history
-        kept = history[:1] + [
-            {**v, "url": page_of(v["url"])} for v in history[1:] if v["at"] >= now - ttl
-        ]
+        kept, tops = [], set()
+        for v in self.history:
+            if _tag(v) not in tops:
+                tops.add(_tag(v))
+                kept.append(v)
+            elif v["at"] >= now - ttl:
+                kept.append({**v, "url": page_of(v["url"])})
         return replace(self, history=kept[:HISTORY_CAP])
 
     def reshaped(self, settings: dict) -> Workspace:
@@ -314,8 +333,14 @@ class Workspace:
         return replace(self, site_data=dict(site_data or {}))
 
     def history_cleared(self) -> Workspace:
-        """The same record with only its current page left in the history."""
-        return replace(self, history=self.history[:1])
+        """The same record with only each session's current page left in the
+        history."""
+        kept, tops = [], set()
+        for v in self.history:
+            if _tag(v) not in tops:
+                tops.add(_tag(v))
+                kept.append(v)
+        return replace(self, history=kept)
 
     def delivered(self) -> Workspace:
         """The same record, its reopen notice handed to a caller."""
@@ -423,19 +448,32 @@ def _timeout(raw) -> int | None:
     return raw
 
 
+def _tag(visit: dict) -> str:
+    """The session a history entry names: the default for one from before
+    sessions were named."""
+    return visit.get("session", sessions.DEFAULT)
+
+
 def _visits(raw) -> list[dict]:
     """The well-formed entries of a stored history, none when there is none. A
     URL that does not parse is no entry, or every later write would trip on
-    it."""
+    it. An entry written before sessions were named is the default's."""
     if not isinstance(raw, list):
         return []
     return [
-        {"origin": v["origin"], "url": v["url"], "at": float(v["at"])}
+        {
+            "origin": v["origin"],
+            "url": v["url"],
+            "at": float(v["at"]),
+            "session": _tag(v),
+        }
         for v in raw
         if isinstance(v, dict)
         and isinstance(v.get("origin"), str) and v["origin"]
         and isinstance(v.get("url"), str) and origin_of(v["url"])
         and isinstance(v.get("at"), (int, float)) and not isinstance(v["at"], bool)
+        and isinstance(_tag(v), str)
+        and _tag(v)
     ]
 
 

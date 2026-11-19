@@ -52,8 +52,10 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
             return JSONResponse({"key": key, "sites": [], "clears": []})
         joined = site_data.history_view(record.history, record.site_data, secrets)
         # What Clear would take, by origin: rows are by host, so a second port
-        # of the current host has no row and would otherwise hide Clear.
-        clears = [v["origin"] for v in record.history[1:]]
+        # of the current host has no row and would otherwise hide Clear. Each
+        # session's current page stays (WS-54).
+        current = record.history_cleared().history
+        clears = [v["origin"] for v in record.history if v not in current]
         return JSONResponse({"key": key, **joined, "clears": clears})
 
     @mcp.custom_route(
@@ -64,13 +66,18 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     @guarded
     @changes
     async def admin_history_clear(request: Request) -> JSONResponse:
-        """Clear: the history down to the current site. Site data and the live
-        browser are untouched, and the history expires on its own anyway."""
+        """Clear: the history down to each session's current site. Site data
+        and the live browser are untouched, and the history expires on its own
+        anyway."""
         key = request.path_params["key"]
 
         def clear(record: Workspace) -> tuple[Workspace, list]:
-            hosts = site_data.history_hosts(record.history)[1:]
-            return record.history_cleared(), hosts
+            cleared = record.history_cleared()
+            left = site_data.history_hosts(cleared.history)
+            hosts = [
+                h for h in site_data.history_hosts(record.history) if h not in left
+            ]
+            return cleared, hosts
 
         try:
             _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)

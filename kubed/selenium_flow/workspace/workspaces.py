@@ -394,6 +394,16 @@ def _measured(opened: dict) -> str | None:
     return f"{width}x{height}" if width and height else None
 
 
+def _hinted(before: str, urls: tuple[str | None, ...]) -> str | None:
+    """The page to hint for after landing on ``urls``, ``before`` being the
+    page the session was on: the last of them with an origin, when its host,
+    port, path or route differs. Pure and never raises (`page_key` only), so it
+    runs inside a store's ``fn``."""
+    after = next((u for u in reversed(urls) if origin_of(u or "")), None)
+    key = page_key(after)
+    return after if key is not None and key != page_key(before) else None
+
+
 def _two_names(
     names: list[str], verb: str = "names", noun: str = "workspaces"
 ) -> str:
@@ -881,10 +891,11 @@ class Workspaces:
         sources = {
             k: record.set_by.get(k, settings_module.CALLER) for k in replay
         }
+        page = self._page(name, record)
         opened = self._opened(
             name,
             replay,
-            url=record.url or None,
+            url=page or None,
             version_from=settings_module.version_from(sources),
             **(self._recorded(name, replay) if replay.get("record") else {}),
             **({"site_data": saved} if saved else {}),
@@ -894,7 +905,7 @@ class Workspaces:
         # `touch` hands it to the first result. A reopen alongside this one may
         # bind first; then this acts on its browser.
         timeout = self._timeout_of(opened["session_id"])
-        reopened_at = opened.get("url", record.url or "")
+        reopened_at = opened.get("url", page)
         kept = self.remember(
             name,
             opened["session_id"],
@@ -1590,6 +1601,8 @@ class Workspaces:
         """
         if not captured:
             return
+        # The session's own sites, read off its workspace's history first.
+        history = self._history(name) if sessions.is_sub(name) else None
 
         def save(r: Workspace) -> tuple[Workspace | None, dict]:
             if producer is not None and r.session_id != producer:
@@ -1606,8 +1619,9 @@ class Workspaces:
                 return None, {
                     "cookies": 0, "sites": [], "skipped": [{"reason": INSECURE_SKIP}],
                 }
+            visits = r.entries(sessions.DEFAULT) if history is None else history
             data, receipt = site_data_module.snapshot(
-                r.site_data, captured, r.history, time.time()
+                r.site_data, captured, visits, time.time()
             )
             return r.with_site_data(data), receipt
 
@@ -1845,7 +1859,8 @@ class Workspaces:
                 "label": r.label or name,
                 "default": name == sessions.DEFAULT,
                 "live": bool(r.attached and self.actions.grid.is_alive(r.session_id)),
-                "url": r.url or None,
+                # Every session's page is on the workspace's history (WS-54).
+                "url": record.page(name) or None,
             }
             for name, r in found
         ]
@@ -1869,7 +1884,7 @@ class Workspaces:
         held = {
             "workspace": sessions.split(name)[0],
             "browser": settings.get("browser"),
-            "url": record.url if record else "",
+            "url": self._page(name, record),
             "settings": settings,
             "recording": bool(settings.get("record")),
             "capture": bool(settings.get("capture")),
@@ -1879,7 +1894,7 @@ class Workspaces:
         for key in ("width", "height"):
             if key in settings:
                 held[key] = settings[key]
-        self._hint(held, name, record.url if record else None)
+        self._hint(held, name, held["url"] or None)
         return held
 
     def remember(
@@ -1924,6 +1939,8 @@ class Workspaces:
         the caller's.
         """
         ttl = self.store.ttl
+        # A sub-session's page goes on its workspace's history, once bound.
+        sub = sessions.is_sub(name)
 
         def bound(r: Workspace | None) -> tuple[Workspace | None, str | None]:
             current = r.session_id if r is not None else ""
@@ -1952,12 +1969,14 @@ class Workspaces:
                 ran=dict(ran) if ran else None,
                 ended=None,
             )
-            return fresh.visited(url, ttl=ttl), None
+            return (fresh if sub else fresh.visited(url, ttl=ttl)), None
 
         # One atomic create-or-update: a save landing while the browser
         # opened is kept, and two first opens on a new name cannot both write.
         _, kept = self.store.change(name, bound, create=True)
         if not kept:
+            if sub:
+                self._visit(name, url)
             return session_id
         log.info(
             "two opens raced for workspace %s: quitting the loser's browser",
@@ -2020,21 +2039,66 @@ class Workspaces:
         only when ``deliver``.
         """
         ttl = self.store.ttl
+        # A sub-session's pages go on its workspace's history, after its own
+        # record says this browser is still the one it holds.
+        sub = sessions.is_sub(name)
 
-        def at(r: Workspace) -> tuple[Workspace, tuple[dict | None, str | None]]:
+        def at(r: Workspace) -> tuple[Workspace, tuple[dict | None, str | None, bool]]:
             now = time.time()
             if browser and r.session_id != browser:
-                return replace(r, called_at=now), (None, None)
+                return replace(r, called_at=now), (None, None, False)
             notice = r.notice if deliver else None
-            before = page_key(r.url if since is None else since)
-            after = next((u for u in reversed(urls) if origin_of(u or "")), None)
-            key = page_key(after)
-            page = after if key is not None and key != before else None
-            fresh = replace(r.visited(*urls, ttl=ttl), called_at=now)
-            return (fresh.delivered() if deliver else fresh), (notice, page)
+            if sub:
+                fresh, page = replace(r, called_at=now), None
+            else:
+                page = _hinted(r.url if since is None else since, urls)
+                fresh = replace(r.visited(*urls, ttl=ttl), called_at=now)
+            return (fresh.delivered() if deliver else fresh), (notice, page, True)
 
         noted = self.store.change(name, at)[1]
-        return noted if noted is not None else (None, None)
+        if noted is None:
+            return None, None
+        notice, page, held = noted
+        if sub and held:
+            page = self._visit(name, *urls, since=since)
+        return notice, page
+
+    def _visit(
+        self, key: str, *urls: str | None, since: str | None = None
+    ) -> str | None:
+        """The sub-session ``key`` landing on ``urls``, written to its
+        workspace's history tagged with its name (WS-54), through that record's
+        compare-and-set so no other session's entry is lost. Answers the page
+        to hint for, as `_touch` does. Nothing is written with no page to
+        record, nor when the workspace has no record."""
+        if not any(origin_of(u or "") for u in urls):
+            return None
+        workspace, name = sessions.split(key)
+        ttl = self.store.ttl
+
+        def at(r: Workspace) -> tuple[Workspace, str | None]:
+            page = _hinted(r.page(name) if since is None else since, urls)
+            return r.visited(*urls, ttl=ttl, session=name), page
+
+        return self.store.change(workspace, at)[1]
+
+    def _page(self, key: str, record: Workspace | None) -> str:
+        """The page the session ``key`` is on, ``record`` being its own: its
+        newest entry in its workspace's history, or ""."""
+        if not sessions.is_sub(key):
+            return record.url if record is not None else ""
+        workspace, name = sessions.split(key)
+        shared = self.store.get(workspace)
+        return shared.page(name) if shared is not None else ""
+
+    def _history(self, key: str) -> list[dict]:
+        """The session ``key``'s own entries in its workspace's history, newest
+        first, as the next write would keep them."""
+        workspace, name = sessions.split(key)
+        record = self.store.get(workspace)
+        if record is None:
+            return []
+        return record.pruned(time.time(), self.store.ttl).entries(name)
 
     def _hint(
         self, answer: dict, name: str, url: str | None, scrubbed: bool = False
@@ -2093,20 +2157,18 @@ class Workspaces:
         return {
             "settings": dict(record.settings or {}),
             "set_by": dict(record.set_by),
-            "url": record.url or "",
+            "url": self._page(name, record),
         }
 
     def visited(self, name: str) -> list[str]:
-        """The origins this workspace has been to, newest first.
+        """The origins the session ``name`` (a key) has been to, newest first:
+        its own entries only, never another session's sites.
 
         As the next write would keep them: a save reads this before its own
         touch prunes, so an origin that aged out since the last call would
         otherwise still be read and saved.
         """
-        record = self.store.get(name)
-        if record is None:
-            return []
-        return [v["origin"] for v in record.pruned(time.time(), self.store.ttl).history]
+        return [v["origin"] for v in self._history(name)]
 
     def end_browser(
         self, caller: Caller, *, admin: bool = False, session: str | None = None

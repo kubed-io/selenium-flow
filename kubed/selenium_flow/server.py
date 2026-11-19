@@ -356,13 +356,15 @@ class SeleniumMCP:
             folder,
             ttl=settings.link_ttl,
         )
-        # For `upload_file(file=...)`.
+        # For `upload_file(file=...)`: a download is the session the call acts
+        # in, the rest the workspace's.
         self.actions.read_file = lambda uri, workspace=None: files.read_file(
             self.actions,
             self.workspaces,
             self.flows,
             uri,
             workspace or clients.caller().name,
+            session=acting() or None,
         )
         # So one save reads every site's storage: the history of the session
         # the call acts in.
