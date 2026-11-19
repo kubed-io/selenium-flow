@@ -50,5 +50,14 @@ export function createApi(opts: {
   }
 }
 
-export const workspacePath = (key: string, rest = ''): string =>
-  '/admin/workspaces/' + encodeURIComponent(key) + rest
+/* The default session is the one no call names. */
+export const DEFAULT_SESSION = 'default'
+
+/* `?session=` names a sub-session; the default is what a call with none acts on. */
+export function withSession(path: string, session?: string | null): string {
+  if (!session || session === DEFAULT_SESSION) return path
+  return path + (path.includes('?') ? '&' : '?') + 'session=' + encodeURIComponent(session)
+}
+
+export const workspacePath = (key: string, rest = '', session?: string | null): string =>
+  withSession('/admin/workspaces/' + encodeURIComponent(key) + rest, session)

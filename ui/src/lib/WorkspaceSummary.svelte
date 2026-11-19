@@ -1,35 +1,17 @@
 <script lang="ts">
-  import { browserMark, browserState, safeHref } from './format'
+  import { browserMark } from './format'
   import type { WorkspaceRow } from './types'
 
-  /* The masthead: which workspace, how it is, and where it was. The facts
-     about it and its browser live on the Session tab (spec
-     2026-10-26-session-capabilities); the pills stay here as they were. */
+  /* The workspace card (UI-64): the workspace only. What a session is doing —
+     its browser, recording, capture, last page — is on its Session tab. */
   let { data }: { data: WorkspaceRow | null } = $props()
   const s = $derived(data ?? ({ key: '' } as WorkspaceRow))
-  const state = $derived(browserState(s))
-  const href = $derived(safeHref(s.url))
 </script>
 
 <div class="card">
-  <div class="row" style="margin-bottom:10px">
+  <div class="row">
     <span class="bmark" title={s.browser || 'browser'}>{browserMark(s.browser)}</span>
     <strong class="grow">{s.name || s.owner || 'Workspace'}</strong>
-    {#if state === 'open'}<span class="pill live">open</span>{:else}<span class="pill">{state}</span>{/if}
-    {#if s.recording}<span class="pill rec">● REC</span>{/if}
-    {#if s.capture}{#if s.capturing || state === 'unknown'}<span class="pill capture">● capture</span>{:else}<span class="pill capture-paused">capture paused</span>{/if}{/if}
-  </div>
-  <div class="lastpage masthead">
-    <div class="k small muted">last page</div>
-    {#if href}
-      <a {href} target="_blank" rel="noopener noreferrer">{s.url}</a>
-    {:else}
-      <span class="small muted">{s.url || 'nowhere yet'}</span>
-    {/if}
+    {#if s.kept}<span class="small muted">kept · config</span>{/if}
   </div>
 </div>
-
-<style>
-  /* Nothing sits below it any more, so no rule to close it off. */
-  .masthead { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-</style>

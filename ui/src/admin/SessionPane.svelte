@@ -6,7 +6,12 @@
   /* The Session tab (spec 2026-10-26-session-capabilities, design/session.md):
      what the workspace asks for, what the Grid gave, and every capability the
      last open sent with where it came from. Read-only, like Settings. */
-  let { row, hidden }: { row: WorkspaceRow; hidden: boolean } = $props()
+  let { row, hidden, label = null }: {
+    row: WorkspaceRow
+    hidden: boolean
+    /** The session's own label, once the workspace has more than one: the card is then that session's. */
+    label?: string | null
+  } = $props()
 
   const VENDOR = new Set(['goog:chromeOptions', 'moz:firefoxOptions'])
 
@@ -20,8 +25,8 @@
   const sources = (...keys: string[]): SetBy[] =>
     [...new Set(keys.map((k) => row.set_by?.[k]).filter((s): s is SetBy => Boolean(s)))]
   const workspace = $derived(([
-    ['key', row.name ? null : row.key, []],
-    ['held by', row.name ? null : row.owner, []],
+    ['key', row.name || label ? null : row.key, []],
+    ['held by', row.name || label ? null : row.owner, []],
     ['browser', `${browser} · ${asked}`, sources('browser', 'version')],
     ['window', windowSize(row.window), sources('width', 'height')],
     ['insecure', row.insecure ? 'on' : null, sources('insecure')],
@@ -75,7 +80,7 @@
 <div id="paneSession" {hidden}>
   <div class="groups">
     <div class="group" id="workspaceCard">
-      <div class="label">workspace</div>
+      <div class="label">{label ? `session · ${label}` : 'workspace'}</div>
       {#each workspace as [k, v, srcs] (k)}
         <div class="fact"><div class="k">{k}</div><div class="v">{v}</div>{#if srcs.length}<span class="pills">{#each srcs as s (s)}<span class={['pill', 'src', s]}>{s}</span>{/each}</span>{/if}</div>
       {/each}

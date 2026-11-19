@@ -3,9 +3,10 @@
   import type { Api } from './api'
   import { LiveView, PASTE_CAP } from './liveview.svelte'
 
-  let { api, key, name, root, load }: {
+  let { api, key, session, name, root, load }: {
     api: Api
     key: string
+    session?: string
     name: string
     root: string
     load: ConstructorParameters<typeof LiveView>[0]['load']
@@ -21,7 +22,7 @@
   let sending = $state(false)
 
   onMount(() => {
-    const v = new LiveView({ api, key, root, target: screen!, load })
+    const v = new LiveView({ api, key, session, root, target: screen!, load })
     view = v
     void v.connect()
     return () => v.dispose()

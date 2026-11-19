@@ -19,6 +19,13 @@
   } = $props()
 
   const data = $derived(m.history)
+  // History is the workspace's: its own session filter, never the chips'. All by default.
+  let only = $state('')
+  const sessions = $derived(m.row.sessions ?? [])
+  const many = $derived(sessions.length > 1)
+  const sessionOf = (r: HistoryRow) => r.session ?? 'default'
+  const total = $derived(data?.sites.length ?? 0)
+  const visits = $derived(!data ? [] : many && only ? data.sites.filter((r) => sessionOf(r) === only) : data.sites)
   // Ends in `Section`: Section derives its body's id by replacing that.
   const idOf = (r: HistoryRow) => 'visit-' + m.key + ':' + r.site + 'Section'
 
@@ -69,9 +76,10 @@
 {#snippet about(r: HistoryRow)}
   {@const saved = r.saved ? savedText(r.saved) : ''}
   <span class="small muted">{when(r)}</span>
+  {#if many}<span class="pill">{sessionOf(r)}</span>{/if}
   {#if saved}
     <!-- The counts alone read the same on every row to a screen reader. -->
-    <button class="pill link" aria-label="{r.site} in Site data: {saved}" onclick={() => go(hashes.site(m.key, r.site))}>{saved}</button>
+    <button class="pill link" aria-label="{r.site} in Site data: {saved}" onclick={() => go(hashes.site(m.key, r.site), sessionOf(r) === 'default' ? null : sessionOf(r))}>{saved}</button>
   {/if}
 {/snippet}
 
@@ -83,13 +91,20 @@
   {:else if !data.sites.length}
     <div class="empty">Nowhere yet.</div>
   {:else}
-    {#if data.clears?.length}
+    {#if many || data.clears?.length}
       <div class="row bar">
+        {#if many}
+          <select id="historySession" aria-label="Session" bind:value={only}>
+            <option value="">All sessions</option>
+            {#each sessions as s (s.name)}<option value={s.name}>{s.label}</option>{/each}
+          </select>
+          {#if only}<span class="small muted">{visits.length} of {total}</span>{/if}
+        {/if}
         <span class="grow"></span>
-        <button id="clearHistory" class="danger" onclick={clear}>Clear</button>
+        {#if data.clears?.length}<button id="clearHistory" class="danger" onclick={clear}>Clear</button>{/if}
       </div>
     {/if}
-    {#each data.sites as r (r.site)}
+    {#each visits as r (r.site)}
       {#if r.secrets.length}
         <Section id={idOf(r)} title={r.url}>
           {#snippet summary()}{@render about(r)}{/snippet}

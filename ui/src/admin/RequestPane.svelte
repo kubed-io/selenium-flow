@@ -5,12 +5,13 @@
   import { workspacePath, type Api } from './api'
   import { go, hashes } from './router.svelte'
 
-  let { api, key, id }: { api: Api; key: string; id: string } = $props()
+  let { api, key, id, session }: { api: Api; key: string; id: string; session?: string } = $props()
   let d = $state.raw<RequestDetail | null>(null)
   let error = $state<string | null>(null)
   let body = $state.raw<BodyResult | null>(null)
   let fetched = $state('')
-  const base = $derived(workspacePath(key, '/network/' + encodeURIComponent(id)))
+  const base = $derived(workspacePath(key, '/network/' + encodeURIComponent(id), session))
+  const bodyPath = $derived(workspacePath(key, '/network/' + encodeURIComponent(id) + '/body', session))
 
   onMount(() => {
     api<RequestDetail>(base).then((r) => (d = r), (e: Error) => (error = e.message))
@@ -19,7 +20,7 @@
   async function fetchBody() {
     error = null
     try {
-      body = await api<BodyResult>(base + '/body', 'POST')
+      body = await api<BodyResult>(bodyPath, 'POST')
       fetched = clock(Date.now() / 1000)
     } catch (e) {
       body = null

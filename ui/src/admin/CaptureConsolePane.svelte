@@ -4,7 +4,7 @@
   import type { Api } from './api'
   import CaptureList from './CaptureList.svelte'
 
-  let { api, key, root }: { api: Api; key: string; root: string } = $props()
+  let { api, key, root, session }: { api: Api; key: string; root: string; session?: string } = $props()
   const cells = (e: ConsoleEntry): [string, string][] => [
     [e.level, isError(e) ? 'pill warn' : 'pill'],
     [e.text, isError(e) ? 'text mono warn' : 'text mono'],
@@ -13,5 +13,5 @@
   ]
 </script>
 
-<CaptureList {api} {key} {root} kind="console" {cells} empty="No messages since the last navigation"
+<CaptureList {api} {key} {root} {session} kind="console" {cells} empty="No messages since the last navigation"
   cleared="Entries that arrive from now on show here. The browser keeps running; nothing was sent to it." />

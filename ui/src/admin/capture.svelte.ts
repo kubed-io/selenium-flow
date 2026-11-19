@@ -45,12 +45,15 @@ export class CaptureModel {
   readonly #api: Api
   readonly #root: string
   readonly #key: string
+  /* The session whose capture this is; none reads the default's. */
+  readonly #session: string | undefined
   readonly kind: 'console' | 'network'
 
-  constructor(api: Api, root: string, key: string, kind: 'console' | 'network') {
+  constructor(api: Api, root: string, key: string, kind: 'console' | 'network', session?: string) {
     this.#api = api
     this.#root = root
     this.#key = key
+    this.#session = session
     this.kind = kind
   }
 
@@ -101,7 +104,7 @@ export class CaptureModel {
 
   async load(): Promise<void> {
     try {
-      const d = await this.#api<ConsoleData | NetworkData | CaptureOff>(workspacePath(this.#key, `/${this.kind}?pages=${this.pages}`))
+      const d = await this.#api<ConsoleData | NetworkData | CaptureOff>(workspacePath(this.#key, `/${this.kind}?pages=${this.pages}`, this.#session))
       this.data = d
       // Live rows are not the load's to replace; it only refreshes the link.
       if (this.mode === 'captured') {
