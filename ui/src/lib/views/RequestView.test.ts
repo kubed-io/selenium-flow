@@ -78,3 +78,10 @@ test('a named session fetches its body with the session and goes back to its own
   await fireEvent.click(screen.getByRole('button', { name: '← Network' }))
   expect(onshow).toHaveBeenCalledWith('session://work/network')
 })
+
+test('a view opened at session://default names the default session', async () => {
+  const oncall = vi.fn().mockResolvedValue(body)
+  render(RequestView, { props: { data: detail, uri: 'session://default/network/1.1', oncall } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Fetch body' }))
+  expect(oncall).toHaveBeenCalledWith('network_body', { id: '1.1', session: 'default' })
+})

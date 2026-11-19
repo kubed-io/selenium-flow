@@ -50,7 +50,12 @@ export const CAPTURE_OFF = 'Capture is off for this workspace. Open the browser 
 
 /* The session a view was opened at: `session://<name>/…` names it; anything
    else is the caller's own session (`workspace://…`). */
-export const sessionOf = (uri?: string): string | undefined => uri?.match(/^session:\/\/([^/?#]+)/)?.[1]
+/* Words the server reads as the caller's own session, never as a name. */
+const RESERVED = ['current', 'downloads', 'console', 'network', 'files', 'site-data']
+export const sessionOf = (uri?: string): string | undefined => {
+  const name = uri?.match(/^session:\/\/([^/?#]+)/)?.[1]
+  return name && !RESERVED.includes(name) ? name : undefined
+}
 
 export const rootOf = (uri?: string): string => {
   const name = sessionOf(uri)

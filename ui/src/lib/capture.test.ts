@@ -49,3 +49,13 @@ test('a console source is its file name, never its query, and the host for a roo
   expect(sourceName('not a url/a.js?q=1')).toBe('a.js')
   expect(sourceName('')).toBe('')
 })
+
+test('sessionOf: reserved words are never a session name', async () => {
+  const { sessionOf, rootOf } = await import('./capture')
+  for (const u of ['session://downloads', 'session://downloads/x.pdf', 'session://current', 'session://files', 'workspace://network', undefined]) {
+    expect(sessionOf(u)).toBeUndefined()
+  }
+  expect(rootOf('session://downloads')).toBe('workspace://')
+  expect(sessionOf('session://tester/console')).toBe('tester')
+  expect(sessionOf('session://default/network/1.1')).toBe('default')
+})
