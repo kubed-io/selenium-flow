@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from fastmcp import Client
@@ -34,7 +35,7 @@ from kubed.selenium_flow.workspace.workspaces import (
 
 from .capture_events import done, log, nav_started, req
 from .conftest import NAMED, TOKEN, calling_as, http, manager
-from .fakes import Anywhere, FakeMonitor, PageActions
+from .fakes import Anywhere, FakeMonitor, PageActions, ScriptedDriver
 from .test_site_data_workspaces import SiteActions
 
 pytestmark = pytest.mark.unit
@@ -645,3 +646,32 @@ def test_rest_runs_writes_and_actions_point_at_the_session_they_named(wired):
         assert named.json()["page"]["see"] == SEE, path
         own = client.post(path, json=body)
         assert own.json()["page"]["see"] == OWN_SEE, path
+
+
+async def test_upload_file_types_another_sessions_download(server, monkeypatch):
+    """Over the tool: a download named by its session's address is read from
+    that session, and typed into the page of the session the call acts in,
+    whichever that is (ACT-40)."""
+    store = server.workspaces.store
+    store.update(NAMED, lambda r: replace(r, subs=[*r.subs, "zed"]))
+    store.set(sessions.key_of(NAMED, "zed"), Workspace(session_id="g-zed", label="zed"))
+    typed = []
+
+    def reconnect(session_id):
+        driver = ScriptedDriver()
+        send = driver.element.send_keys
+        driver.element.send_keys = lambda path: (
+            typed.append((session_id, Path(path).read_bytes())) or send(path)
+        )
+        return driver
+
+    server.actions.grid.reconnect = reconnect
+    uri = "session://tester/downloads/r.pdf"
+    async with Client(server.mcp) as c:
+        for session, into in (("zed", "g-zed"), (None, "g-default")):
+            args = {"selector": {"css": "input"}, "file": uri}
+            if session:
+                args["session"] = session
+            result = await c.call_tool("upload_file", args)
+            assert result.structured_content["filename"] == "r.pdf"
+            assert typed[-1] == (into, b"PDF of g-tester"), session
