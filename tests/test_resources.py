@@ -370,7 +370,7 @@ def test_every_key_the_context_carries_is_in_the_list_of_keys():
     m.store.update(NAMED, lambda r: replace(
         r, settings={**r.settings, "capture": True}, site_data={"origins": {"https://a.test": {"cookies": [], "local": {}, "session": {}}}},
     ))
-    m.capture = type("C", (), {"counts": lambda self, name: None})()
+    m.capture = type("C", (), {"counts": lambda self, name: None, "kept": lambda self: []})()
     carried = set(m.describe(Caller(NAMED)))
     assert carried - set(CONTEXT_KEYS) == set()
     assert {"flows_here", "guidance", "captured"} <= carried

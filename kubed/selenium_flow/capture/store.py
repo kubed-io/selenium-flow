@@ -437,6 +437,15 @@ class Capture:
 
     # ---- the workspace -------------------------------------------------------
 
+    def kept(self) -> list[str]:
+        """The keys (a workspace's, or a sub-session's) with anything kept."""
+        with self._lock:
+            return list({
+                *self._cache.keys(),
+                *(h.workspace for h in self._sessions.values()),
+                *self._parked,
+            })
+
     def discard(self, workspace: str) -> None:
         """Forget the workspace's capture and its session."""
         with self._lock:

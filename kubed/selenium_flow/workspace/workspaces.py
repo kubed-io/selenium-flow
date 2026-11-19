@@ -157,6 +157,9 @@ NAME_PARAM = "workspace"
 # context gains is added here.
 CONTEXT_KEYS = (
     "workspace",
+    "session",
+    "default",
+    "sessions",
     "named_by",
     "principal",
     "browser",
@@ -588,7 +591,8 @@ class Workspaces:
         ``resolve``. The Grid's session id is not in it. Scrubbed as a resource
         is, so `workspace://current` and its REST route answer alike.
         """
-        return self.scrubber.resource(caller.name, self._described(caller))
+        key = self.reading(caller)
+        return self.scrubber.resource(key, self._described(caller, key))
 
     def describe_part(self, caller: Caller, part: str) -> dict:
         """One key of `describe`, as ``{workspace, <part>: value}``: null when
@@ -602,11 +606,16 @@ class Workspaces:
         whole = self.describe(caller)
         return {"workspace": whole["workspace"], part: whole.get(part)}
 
-    def _described(self, caller: Caller) -> dict:
-        """`describe`, before the scrub."""
-        name = caller.name
+    def _described(self, caller: Caller, key: str) -> dict:
+        """`describe`, before the scrub: the context of the session ``key``
+        (`reading`), its workspace's config and tags beside it."""
+        workspace, session = sessions.split(key)
+        name = key
         status = {
-            "workspace": name,
+            "workspace": workspace,
+            "session": session,
+            "default": session == sessions.DEFAULT,
+            "sessions": self.listed_sessions(workspace),
             "named_by": caller.named_by,
             "principal": caller.principal.status() if caller.principal else None,
             "browser": None,
@@ -627,25 +636,25 @@ class Workspaces:
         if self.skill_available:
             status["guidance"] = guidance.pointer("WORKSPACES.md")
         if self.configs.enabled:
-            status["config"] = self.configs.rows(self.configs.load(name))
-            if url := self.configs.url(name):
+            status["config"] = self.configs.rows(self.configs.load(workspace))
+            if url := self.configs.url(workspace):
                 status["config_url"] = url
         if self.tags is not None:
             try:
-                status["tags"] = self.tags(name)
+                status["tags"] = self.tags(workspace)
             except Exception as exc:  # noqa: BLE001 - status must never fail
                 log.warning(
                     "tags for workspace %s could not be read: %s",
-                    sessions.logged(name), type(exc).__name__,
+                    sessions.logged(workspace), type(exc).__name__,
                 )
         record = self.store.get(name)
         if record is None:
             return status
 
-        status["url"] = record.url or None
+        status["url"] = self._page(name, record) or None
         # From the record, like `url`: a page that moved by itself since the
         # last call is not reflected.
-        self._hint(status, name, record.url)
+        self._hint(status, name, status["url"])
         status["settings"] = dict(record.settings or {})
         # At the top level too: "which browser am I driving" is what this
         # resource answers. A record without one is on the default browser.
@@ -767,13 +776,43 @@ class Workspaces:
         owner = self._claimed(workspace, subject)
         if chosen or owner in (None, subject):
             return workspace
+        own = self._own_name(subject)
+        return self._sub(workspace, own, principal.username or subject, made=True)
+
+    def reading(self, caller: Caller, named: str | None = None) -> str:
+        """The key of the session ``caller`` reads (WS-49), as `session_of`
+        resolves it but never writing: no record is made, no default claimed.
+        A named sub-session with no record is refused with `faults.NoSession`;
+        a subject's own that does not exist yet is the key it will be made
+        under, which reads as a session with nothing in it."""
+        workspace = caller.name
+        pin = caller.pinned
+        name = sessions.valid_session_name(named) if named else ""
+        if pin and name and name != pin:
+            raise ValueError(PIN_DIFFERS.format(pinned=pin, named=name))
+        chosen = pin or name
+        if chosen and chosen != sessions.DEFAULT:
+            return self._sub(workspace, chosen, chosen, made=False)
+        principal = caller.principal
+        subject = principal.subject if principal is not None else None
+        if not subject or chosen:
+            return workspace
+        record = self.store.get(workspace)
+        if record is None or record.owner in (None, subject):
+            return workspace
+        return sessions.key_of(workspace, self._own_name(subject))
+
+    @staticmethod
+    def _own_name(subject: str) -> str:
+        """The name of the sub-session ``subject`` gets when the default is
+        another's: its own name, or a refusal when that cannot name one."""
         try:
             own = sessions.valid_session_name(subject)
         except ValueError:
             own = sessions.DEFAULT
         if own == sessions.DEFAULT:
             raise ValueError(SUBJECT_UNNAMED)
-        return self._sub(workspace, own, principal.username or subject, made=True)
+        return own
 
     def claim(self, key: str, principal: Principal | None) -> None:
         """Make ``principal``'s subject the owner of the default session ``key``
@@ -800,6 +839,9 @@ class Workspaces:
         key = sessions.key_of(workspace, name)
         if not made:
             if self.store.get(key) is None:
+                if self.capture is not None:
+                    # Its record is gone, and its capture goes with it (CAP-81).
+                    self.capture.discard(key)
                 raise faults.NoSession(NO_SUB.format(name=name, workspace=workspace))
             return key
 
@@ -809,7 +851,18 @@ class Workspaces:
             r = r or Workspace()
             return replace(r, subs=[*r.subs, name])
 
-        self.store.upsert(key, lambda r: Workspace(label=label) if r is None else None)
+        created = []
+
+        def make(r: Workspace | None) -> Workspace | None:
+            if r is not None:
+                return None
+            created.append(key)
+            return Workspace(label=label)
+
+        self.store.upsert(key, make)
+        if created and self.capture is not None:
+            # What an expired record of this name captured is not this one's.
+            self.capture.discard(key)
         self.store.upsert(workspace, listed)
         return key
 
@@ -1844,10 +1897,14 @@ class Workspaces:
         """Every session of ``workspace``, the default first, as ``{name,
         label, default, live, url}``: the subs as its record lists them, one
         whose record expired left out. Asks the Grid whether each attached
-        browser lives."""
+        browser lives. A workspace with no record lists its default alone."""
+        self.sweep_captures()
         record = self.store.get(workspace)
         if record is None:
-            return []
+            return [{
+                "name": sessions.DEFAULT, "label": sessions.DEFAULT,
+                "default": True, "live": False, "url": None,
+            }]
         found = [(sessions.DEFAULT, record)]
         for name in record.subs:
             sub = self.store.get(sessions.key_of(workspace, name))
@@ -1864,6 +1921,23 @@ class Workspaces:
             }
             for name, r in found
         ]
+
+    def sweep_captures(self) -> None:
+        """Drop the capture of every sub-session whose record is gone: a
+        sub-session's capture lasts as its record (CAP-81)."""
+        if self.capture is None:
+            return
+        for key in self.capture.kept():
+            if sessions.is_sub(key) and self.store.get(key) is None:
+                self.capture.discard(key)
+
+    def forget(self, workspace: str) -> None:
+        """Forget ``workspace``: every session's record and its capture."""
+        self.store.forget_workspace(workspace)
+        if self.capture is not None:
+            for key in self.capture.kept():
+                if sessions.split(key)[0] == workspace:
+                    self.capture.discard(key)
 
     def _landing(self, name: str, url: str) -> str:
         """``url``, the page a new browser landed on, as the record may keep it:
@@ -2094,6 +2168,10 @@ class Workspaces:
         workspace, name = sessions.split(key)
         shared = self.store.get(workspace)
         return shared.page(name) if shared is not None else ""
+
+    def history(self, key: str) -> list[dict]:
+        """The session ``key``'s own history entries, newest first."""
+        return self._history(key)
 
     def _history(self, key: str) -> list[dict]:
         """The session ``key``'s own entries in its workspace's history, newest

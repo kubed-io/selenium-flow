@@ -183,13 +183,17 @@ def library_of(key: str) -> str | None:
 
 
 # URIs that moved, tried in order; the first match answers. A None is served:
-# nothing to refuse. The last row is for a saved flow that still names a
-# `session://` URI.
+# nothing to refuse. The last rows are for a saved flow that still names a
+# `session://` URI as it was before `session://{name}` read a session (WS-73):
+# only the roots it used to have, so any other name reads that session.
 MOVED: tuple[tuple[str, str | None], ...] = (
     ("workspace://files/downloads", "session://downloads"),
     ("session://files/downloads", "session://downloads"),
     ("session://downloads", None),
-    ("session://", "workspace://"),
+    *(
+        (f"session://{root}", f"workspace://{root}")
+        for root in ("current", "files", "site-data", "console", "network")
+    ),
 )
 
 

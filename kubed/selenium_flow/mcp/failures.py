@@ -122,6 +122,12 @@ class Explained(Middleware):
             said = f"{FAILED_READ} {uri!r}: {faults.message(cause)}"
             status = errors.status_for(cause)
             if status == 404:
+                # A `session://` name with no session may be a URI from before
+                # `session://{name}` read sessions: say where that one went.
+                try:
+                    retired_uri(getattr(context.message, "uri", ""))
+                except ValueError as moved:
+                    said = without_userinfo(str(moved))
                 raise MCPError(code=RESOURCE_NOT_FOUND, message=said) from cause
             if status < 500:
                 raise MCPError(code=INVALID_PARAMS, message=said) from cause

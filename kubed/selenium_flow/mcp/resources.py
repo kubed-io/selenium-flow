@@ -7,14 +7,18 @@ it through `mirror.read_resource`, at the same URI.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fastmcp import FastMCP
 
+from .. import faults
 from ..capture import CONSOLE_URI, NETWORK_URI
 from ..site_data import snapshot as site_data
-from ..workspace.workspaces import Workspaces
+from ..workspace.workspaces import Caller, Workspaces
 from . import clients
 
 RESOURCE_URI = "workspace://current"
+SESSION_URI = "session://{name}"
 
 CAPTURE_KEPT = (
     "What was captured is the workspace's, not the browser's: it stays readable "
@@ -81,7 +85,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def site_data_resource() -> dict:
-        return site_listing(workspaces, clients.caller().name)
+        return site_listing(workspaces, clients.caller())
 
     @mcp.resource(
         f"{site_data.LIST_URI}/{{site}}",
@@ -90,7 +94,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def one_site_resource(site: str) -> dict:
-        return one_site(workspaces, clients.caller().name, site)
+        return one_site(workspaces, clients.caller(), site)
 
     @mcp.resource(
         CONSOLE_URI,
@@ -99,7 +103,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def console_resource() -> dict:
-        return workspaces.captured(clients.caller().name, "console")
+        return workspaces.captured(_key(clients.caller()), "console")
 
     @mcp.resource(
         f"{CONSOLE_URI}{{?level,pages}}",
@@ -109,7 +113,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     )
     def console_query_resource(level: str = "all", pages: str = "1") -> dict:
         return workspaces.captured(
-            clients.caller().name, "console", level=level, pages=pages
+            _key(clients.caller()), "console", level=level, pages=pages
         )
 
     @mcp.resource(
@@ -119,7 +123,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def network_resource() -> dict:
-        return workspaces.captured(clients.caller().name, "network")
+        return workspaces.captured(_key(clients.caller()), "network")
 
     @mcp.resource(
         f"{NETWORK_URI}{{?filter,pages}}",
@@ -129,7 +133,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     )
     def network_query_resource(filter: str = "all", pages: str = "1") -> dict:
         return workspaces.captured(
-            clients.caller().name, "network", filter=filter, pages=pages
+            _key(clients.caller()), "network", filter=filter, pages=pages
         )
 
     @mcp.resource(
@@ -139,7 +143,77 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def request_resource(id: str) -> dict:
-        return workspaces.captured(clients.caller().name, "request", id=id)
+        return workspaces.captured(_key(clients.caller()), "request", id=id)
+
+    def _key(caller: Caller) -> str:
+        """The key of the session ``caller`` reads, never made by reading."""
+        return workspaces.reading(caller)
+
+    def _named(name: str) -> Caller:
+        """The caller, pinned to the session ``name`` of its workspace: a
+        valid name with no session behind it is not found."""
+        caller = replace(clients.caller(), pin=name)
+        try:
+            workspaces.reading(caller)
+        except faults.NoSession:
+            raise faults.NotFound(
+                f"no session {name!r} in workspace {caller.name!r}: "
+                f"{RESOURCE_URI} lists them"
+            ) from None
+        return caller
+
+    @mcp.resource(
+        SESSION_URI,
+        name="Session",
+        description=SESSION_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_resource(name: str) -> dict:
+        return workspaces.describe(_named(name))
+
+    @mcp.resource(
+        f"{SESSION_URI}/console",
+        name="Session Console",
+        description=CONSOLE_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_console_resource(name: str) -> dict:
+        return workspaces.captured(_key(_named(name)), "console")
+
+    @mcp.resource(
+        f"{SESSION_URI}/console{{?level,pages}}",
+        name="Session Console, narrowed",
+        description=CONSOLE_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_console_query_resource(
+        name: str, level: str = "all", pages: str = "1"
+    ) -> dict:
+        return workspaces.captured(
+            _key(_named(name)), "console", level=level, pages=pages
+        )
+
+    @mcp.resource(
+        f"{SESSION_URI}/network",
+        name="Session Network",
+        description=NETWORK_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_network_resource(name: str) -> dict:
+        return workspaces.captured(_key(_named(name)), "network")
+
+    @mcp.resource(
+        f"{SESSION_URI}/network{{?filter,pages}}",
+        name="Session Network, narrowed",
+        description=NETWORK_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_network_query_resource(
+        name: str, filter: str = "all", pages: str = "1"
+    ) -> dict:
+        return workspaces.captured(
+            _key(_named(name)), "network", filter=filter, pages=pages
+        )
 
 
 CONSOLE_DESCRIPTION = (
@@ -186,17 +260,26 @@ ONE_SITE_DESCRIPTION = (
 )
 
 
-def site_listing(workspaces: Workspaces, name: str) -> dict:
-    """``workspace://site-data``. Reads the record; never opens a browser."""
-    record = workspaces.store.get(name)
+SESSION_DESCRIPTION = (
+    "One session of this workspace, by name: the same answer as "
+    "workspace://current, for that session instead of yours. default is the "
+    "workspace's own; workspace://current's sessions lists the rest. A name "
+    "with no session is not found. Reading this never opens a browser."
+)
+
+def site_listing(workspaces: Workspaces, caller: Caller) -> dict:
+    """``workspace://site-data`` of the caller's session: its saved data, and
+    its own history for the ordering. Reads the record; never opens a browser."""
+    key = workspaces.reading(caller)
+    record = workspaces.store.get(key)
     if record is None:
         return site_data.view({})
-    return site_data.view(record.site_data, record.history)
+    return site_data.view(record.site_data, workspaces.history(key))
 
 
-def one_site(workspaces: Workspaces, name: str, site: str) -> dict:
+def one_site(workspaces: Workspaces, caller: Caller, site: str) -> dict:
     """``workspace://site-data/{site}``, or a ValueError that says where to look."""
-    record = workspaces.store.get(name)
+    record = workspaces.store.get(workspaces.reading(caller))
     found = site_data.site_view(record.site_data if record else {}, site)
     if found is None:
         raise ValueError(f"no saved data for {site!r}: {site_data.LIST_URI} lists them")

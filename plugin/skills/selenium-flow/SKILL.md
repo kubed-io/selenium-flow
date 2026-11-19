@@ -135,6 +135,12 @@ resources gets the tools `read_resource(uri)` and `list_resources()`.
 | `workspace://network` | the requests the page made, each with an id; needs capture too |
 | `workspace://network{?filter,pages}` | the same, narrowed: `?filter=failed`, `?filter=xhr` |
 | `workspace://network/{id}` | one request in full |
+| `session://{name}` | one session of the workspace, as `workspace://current` is yours; `default` is the workspace's own |
+| `session://{name}/console` | that session's console |
+| `session://{name}/console{?level,pages}` | the same, narrowed |
+| `session://{name}/network` | that session's requests |
+| `session://{name}/network{?filter,pages}` | the same, narrowed |
+| `session://{name}/downloads` | that session's downloads |
 | `secret://secrets` | the secrets you may type, never their values |
 | `flow://flows` | the flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

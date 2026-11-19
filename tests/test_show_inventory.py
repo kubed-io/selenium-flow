@@ -50,6 +50,12 @@ FORMS = {
     "workspace://network",
     "workspace://network{?filter,pages}",
     "workspace://network/{id}",
+    "session://{name}",
+    "session://{name}/downloads",
+    "session://{name}/console",
+    "session://{name}/console{?level,pages}",
+    "session://{name}/network",
+    "session://{name}/network{?filter,pages}",
     SKILL + "*",
 }
 

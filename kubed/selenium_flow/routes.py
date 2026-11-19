@@ -232,7 +232,7 @@ def register(
         """The sites this workspace has saved data for. Never a value."""
         return await answer_module.answer(
             request, token, "site-data/list",
-            lambda caller, _body: resources.site_listing(workspaces, caller.name), log,
+            lambda caller, _body: resources.site_listing(workspaces, caller), log,
             scrubbed=workspaces.scrubbed, configs=workspaces.configs,
         )
 
@@ -244,7 +244,7 @@ def register(
         site = request.path_params["site"]
         return await answer_module.answer(
             request, token, "site-data/get",
-            lambda caller, _body: resources.one_site(workspaces, caller.name, site),
+            lambda caller, _body: resources.one_site(workspaces, caller, site),
             log,
             scrubbed=workspaces.scrubbed,
             configs=workspaces.configs,

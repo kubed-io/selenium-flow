@@ -39,6 +39,7 @@ import json
 import logging
 import mimetypes
 import stat
+from dataclasses import replace
 from typing import Annotated
 from urllib.parse import quote, unquote
 
@@ -48,7 +49,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ..core.annotations import hints
-from ..faults import NoSession
+from ..faults import NoSession, NotFound
 from ..mcp import clients
 from ..names import RESERVED_IN_FILES, candidates, retired_uri, valid_file_name
 from . import answer as answer_module
@@ -663,6 +664,30 @@ def register(
             return _listed(which)
 
         return read
+
+    @mcp.resource(
+        "session://{name}/downloads",
+        name="Session Downloads",
+        description=(
+            "The downloads of one session's browser, by name, as "
+            f"{FOLDER_URI[DOWNLOADS]} lists yours. A name with no session is "
+            "not found."
+        ),
+        mime_type="application/json",
+    )
+    def session_downloads_resource(name: str) -> dict:
+        caller = replace(clients.caller(), pin=name)
+        try:
+            key = workspaces.reading(caller)
+        except NoSession:
+            raise NotFound(
+                f"no session {name!r} in workspace {caller.name!r}: "
+                "workspace://current lists them"
+            ) from None
+        return folder(
+            actions, workspaces, store, token, caller.name, DOWNLOADS,
+            base=base, mount=prefix, ttl=ttl, session=key,
+        )
 
     for which in (SCREENSHOTS, RECORDINGS, DOWNLOADS):
         mcp.resource(
