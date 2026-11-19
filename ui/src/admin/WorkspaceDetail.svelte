@@ -199,21 +199,22 @@
     })
   }
 
-  function clear(what: 'downloads' | 'screenshots' | 'recordings') {
+  function clear(what: 'downloads' | 'screenshots' | 'recordings', named?: string) {
     if (what === 'downloads') {
       // Which downloads Files also holds a copy of: the download goes, the
       // copy stays — said per row, the only version both complete and true.
       const kept = new Set(m.files.files.map((f) => f.name))
-      // Every session's browser holds its own downloads.
-      const subs = Object.keys(m.subDownloads)
-      const names = [...m.files.downloads, ...subs.flatMap((n) => m.subDownloads[n])].map((f) => ({ name: f.name, stays: kept.has(f.name) }))
+      // A download is its session's browser's: one clear per session, never several at once.
+      const session = named && named !== DEFAULT ? named : undefined
+      const label = hasSubs ? (sessions.find((x) => x.name === (session ?? DEFAULT))?.label ?? session ?? DEFAULT) : null
+      const listed = session ? (m.subDownloads[session] ?? []) : m.files.downloads
+      const names = listed.map((f) => ({ name: f.name, stays: kept.has(f.name) }))
       ask({
-        scope: 'downloads', title: 'Clear downloads', body: clearDownloadsBody, data: names, danger: true,
+        scope: 'downloads', title: label ? `Clear ${label} downloads` : 'Clear downloads', body: clearDownloadsBody, data: { label, names }, danger: true,
         confirm: names.length ? 'Clear ' + names.length + ' file' + (names.length === 1 ? '' : 's') : 'Clear',
         onconfirm: async () => {
           refuseIfGone()
-          await api(workspacePath(key, '/files/downloads'), 'DELETE')
-          for (const n of subs) await api(workspacePath(key, '/files/downloads', n), 'DELETE')
+          await api(workspacePath(key, '/files/downloads', session), 'DELETE')
           if (!destroyed) void m.loadFiles()
         },
       })
@@ -400,11 +401,12 @@
   <ul class="names"><li>{name}</li></ul>
 {/snippet}
 
-{#snippet clearDownloadsBody(names: { name: string; stays: boolean }[])}
-  <p>Deletes what this browser downloaded. The Grid has no per-file delete, so this clears all of them.</p>
+{#snippet clearDownloadsBody(d: { label: string | null; names: { name: string; stays: boolean }[] })}
+  {@const names = d.names}
+  <p>Deletes what {d.label ? `the ${d.label} session’s` : 'this'} browser downloaded. The Grid has no per-file delete, so this clears all of them.</p>
   {#if names.length}
     <ul class="names">
-      {#each names as n (n.name)}
+      {#each names as n, i (i)}
         <li>{n.name}{#if n.stays}<span class="fate stays">{STAYS}</span>{:else}<span class="fate gone">{GONE}</span>{/if}</li>
       {/each}
     </ul>

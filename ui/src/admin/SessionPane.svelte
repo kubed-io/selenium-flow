@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { captureFact, idle, windowSize } from '../lib/format'
+  import { captureFact, idle, safeHref, windowSize } from '../lib/format'
   import type { SentCapability, SetBy, WorkspaceRow } from '../lib/types'
   import Section from './Section.svelte'
 
@@ -32,6 +32,7 @@
     ['insecure', row.insecure ? 'on' : null, sources('insecure')],
     ['headless', row.headless ? 'on' : null, sources('headless')],
     ['record', (row.live || unlisted) && row.recording ? 'on' : null, []],
+    ['last page', row.url || null, []],
     ['capture', row.live ? captureFact(row) : unlisted ? (row.capture ? 'on' : 'off') : null, []],
   ] as [string, unknown, SetBy[]][]).filter(([, v]) => v))
 
@@ -82,7 +83,7 @@
     <div class="group" id="workspaceCard">
       <div class="label">{label ? `session · ${label}` : 'workspace'}</div>
       {#each workspace as [k, v, srcs] (k)}
-        <div class="fact"><div class="k">{k}</div><div class="v">{v}</div>{#if srcs.length}<span class="pills">{#each srcs as s (s)}<span class={['pill', 'src', s]}>{s}</span>{/each}</span>{/if}</div>
+        <div class="fact"><div class="k">{k}</div><div class="v">{#if k === 'last page' && safeHref(v)}<a href={safeHref(v)} target="_blank" rel="noopener noreferrer">{v}</a>{:else}{v}{/if}</div>{#if srcs.length}<span class="pills">{#each srcs as s (s)}<span class={['pill', 'src', s]}>{s}</span>{/each}</span>{/if}</div>
       {/each}
     </div>
     {#if opened}

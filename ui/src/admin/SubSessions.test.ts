@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { fakeFetch } from '../test/helpers'
+import { FakeRfb, FakeSocket, MINT } from '../test/live'
+import { networkData, req, stubEventSource } from '../test/capture'
 import { createApi } from './api'
 import { resetFolds } from './folds.svelte'
 import { Live } from './live.svelte'
@@ -133,27 +135,6 @@ test('the picked session is in the address: a reload or a shared link keeps it',
   expect((parse('#/workspaces/k/console') as { session?: string }).session).toBeUndefined()
 })
 
-test('picking a chip changes the session tabs and not Files', async () => {
-  const { container, calls } = setup([DEFAULT, TESTER], { tab: 'console', session: 'tester' })
-  await loaded(container)
-  await vi.waitFor(() => expect(calls.some((c) => c.path === '/admin/workspaces/k/console')).toBe(true))
-  // Console, Site data and the Session row follow the pick.
-  expect(calls.find((c) => c.path === '/admin/workspaces/k/console')!.search).toContain('session=tester')
-  expect(calls.find((c) => c.path === '/admin/workspaces/k/site-data')!.search).toContain('session=tester')
-  expect(calls.find((c) => c.path === '/admin/workspaces/k/session')!.search).toBe('?session=tester')
-  // The count is the picked session's.
-  expect(container.querySelector('#consoleTotal')).toHaveTextContent('7')
-  // Files, Flows and History never do.
-  for (const p of ['files', 'flows', 'history']) {
-    for (const c of calls.filter((x) => x.path === '/admin/workspaces/k/' + p)) expect(c.search).not.toContain('session')
-  }
-  // A tab click keeps the pick in the address.
-  await fireEvent.click(screen.getByRole('tab', { name: /Network/ }))
-  expect(location.hash).toBe('#/workspaces/k/network?session=tester')
-  // The picked session marks the session area, never a line of text.
-  expect(container.querySelector('#sessionArea')).toHaveClass('sub')
-})
-
 test('the Session tab names its session', async () => {
   const { container } = setup([DEFAULT, TESTER], { session: 'tester' })
   await loaded(container)
@@ -244,11 +225,164 @@ test('Files with only the default has no group labels', async () => {
   expect(container.querySelector('#downloads .group')).toBeNull()
 })
 
-test('Live and Site data calls name the picked session', async () => {
-  const { container, calls } = setup([DEFAULT, TESTER], { tab: 'site-data', session: 'tester' }, {
-    'DELETE /admin/workspaces/k/site-data': { body: { success: true } },
-  })
+const SITE = {
+  key: 'k', saved_at: 1, uri: '',
+  sites: [{ site: 't.example.test', uri: '', cookies: 1, storage: [] }],
+  details: { 't.example.test': { site: 't.example.test', uri: '', cookies: [], storage: [], own_cookies: ['x'], kept_shared: [] } },
+}
+const sessionOf = (c: { search: string }) => new URLSearchParams(c.search).get('session')
+const WORKSPACE_ONLY = ['/admin/workspaces/k/flows', '/admin/workspaces/k/history', '/admin/workspaces/k/config', '/admin/workspaces/k/files']
+
+test('picking a chip changes the session tabs and not Files', async () => {
+  history.replaceState(null, '', '/#/workspaces/k/console')
+  const r = setup([DEFAULT, TESTER], { tab: 'console' })
+  await loaded(r.container)
+  await vi.waitFor(() => expect(r.calls.some((c) => c.path === '/admin/workspaces/k/console')).toBe(true))
+  const mark = r.calls.length
+  await fireEvent.click(screen.getByRole('radio', { name: /tester/ }))
+  expect(location.hash).toBe('#/workspaces/k/console?session=tester')
+  await r.rerender({ session: 'tester' })
+  await vi.waitFor(() => expect(r.calls.slice(mark).some((c) => c.path === '/admin/workspaces/k/console')).toBe(true))
+  const fresh = r.calls.slice(mark)
+  for (const p of ['console', 'site-data', 'session']) {
+    const c = fresh.find((x) => x.path === '/admin/workspaces/k/' + p)
+    expect(c, p).toBeDefined()
+    expect(sessionOf(c!), p).toBe('tester')
+  }
+  // Nothing the workspace owns follows the pick.
+  for (const c of fresh.filter((x) => WORKSPACE_ONLY.includes(x.path))) expect(c.search).not.toContain('session')
+  await vi.waitFor(() => expect(r.container.querySelector('#consoleTotal')).toHaveTextContent('7'))
+  expect(r.container.querySelector('#sessionArea')).toHaveClass('sub')
+  // A tab click keeps the pick in the address.
+  await fireEvent.click(screen.getByRole('tab', { name: /Network/ }))
+  expect(location.hash).toBe('#/workspaces/k/network?session=tester')
+})
+
+test('the Files tab ignores the pick: its own loads name no session', async () => {
+  const { container, calls } = setup([DEFAULT, TESTER], { tab: 'files', session: 'tester' })
   await loaded(container)
-  await vi.waitFor(() => expect(calls.some((c) => c.path === '/admin/workspaces/k/site-data')).toBe(true))
-  expect(calls.find((c) => c.path === '/admin/workspaces/k/site-data')!.search).toContain('session=tester')
+  await vi.waitFor(() => expect(container.querySelector('#downloadsCount')).toHaveTextContent('2'))
+  for (const p of ['files', 'flows', 'history']) for (const c of calls.filter((x) => x.path === '/admin/workspaces/k/' + p)) expect(c.search).not.toContain('session')
+})
+
+test('the network list and a request open under the picked session', async () => {
+  stubEventSource()
+  const detail = { ...req({ id: '1.1', status: 200 }), uri: 'workspace://network/1.1', request_headers: [], response_headers: [] }
+  const body = { id: '1.1', uri: 'workspace://network/1.1', mime: 'text/plain', size: 2, binary: false, text: 'hi', truncated: false }
+  const { container, calls } = setup([DEFAULT, TESTER], { tab: 'network', session: 'tester' }, {
+    'GET /admin/workspaces/k/network': { body: networkData },
+    'GET /admin/workspaces/k/network/1.1': { body: detail },
+    'POST /admin/workspaces/k/network/1.1/body': { body },
+  })
+  await vi.waitFor(() => expect(calls.some((c) => c.path === '/admin/workspaces/k/network')).toBe(true))
+  expect(sessionOf(calls.find((c) => c.path === '/admin/workspaces/k/network')!)).toBe('tester')
+  expect(container.querySelector('#paneCapture')).not.toBeNull()
+})
+
+test('a request detail and its body are the picked session’s', async () => {
+  const detail = { ...req({ id: '1.1', status: 200 }), uri: 'workspace://network/1.1', request_headers: [], response_headers: [] }
+  const body = { id: '1.1', uri: 'workspace://network/1.1', mime: 'text/plain', size: 2, binary: false, text: 'hi', truncated: false }
+  const { calls } = setup([DEFAULT, TESTER], { tab: 'network', session: 'tester', request: '1.1' }, {
+    'GET /admin/workspaces/k/network/1.1': { body: detail },
+    'POST /admin/workspaces/k/network/1.1/body': { body },
+  })
+  await fireEvent.click(await screen.findByRole('button', { name: 'Fetch body' }))
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+  const get = calls.find((c) => c.path === '/admin/workspaces/k/network/1.1')!
+  const post = calls.find((c) => c.method === 'POST' && c.path.endsWith('/body'))!
+  expect([sessionOf(get), sessionOf(post)]).toEqual(['tester', 'tester'])
+})
+
+test('the live view mints for the picked session', async () => {
+  FakeSocket.all = []
+  vi.stubGlobal('WebSocket', FakeSocket)
+  const live = { ...TESTER_ROW, ran: { version: '4', node: 'n', live_view: true } }
+  const { calls } = setup([DEFAULT, TESTER], { tab: 'live', session: 'tester', viewer: async () => ({ RFB: FakeRfb as never }) }, {
+    'GET /admin/workspaces/k/session': { body: live },
+    'GET /admin/workspaces/k/live': { body: { ...MINT } },
+  })
+  await vi.waitFor(() => expect(FakeSocket.all).toHaveLength(1))
+  expect(sessionOf(calls.find((c) => c.path === '/admin/workspaces/k/live')!)).toBe('tester')
+})
+
+test('Site data forgets and clears in the picked session', async () => {
+  const { container, calls } = setup([DEFAULT, TESTER], { tab: 'site-data', session: 'tester' }, {
+    'GET /admin/workspaces/k/site-data': { body: SITE },
+    'DELETE /admin/workspaces/k/site-data/t.example.test': { body: { forgotten: {} } },
+    'DELETE /admin/workspaces/k/site-data': { body: { cleared: [] } },
+  })
+  await vi.waitFor(() => expect(container.querySelector('#paneSiteData section')).not.toBeNull())
+  expect(sessionOf(calls.find((c) => c.method === 'GET' && c.path === '/admin/workspaces/k/site-data')!)).toBe('tester')
+  const modal = () => document.querySelector('.modal') as HTMLElement
+  await fireEvent.click(within(container.querySelector('#paneSiteData section') as HTMLElement).getByRole('button', { name: 'Forget' }))
+  await fireEvent.click(within(modal()).getByRole('button', { name: 'Forget' }))
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/t.example.test'))).toBe(true))
+  await fireEvent.click(within(container.querySelector('#paneSiteData .bar') as HTMLElement).getByRole('button', { name: 'Clear' }))
+  await fireEvent.click(within(modal()).getByRole('button', { name: 'Clear' }))
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.path === '/admin/workspaces/k/site-data')).toBe(true))
+  for (const c of calls.filter((x) => x.method === 'DELETE')) expect(sessionOf(c)).toBe('tester')
+})
+
+test('Keep on a sub-session download names that session', async () => {
+  const { container, calls } = setup([DEFAULT, TESTER], { tab: 'files' }, {
+    'POST /admin/workspaces/k/files/downloads/t.pdf/keep': { body: {} },
+  })
+  await vi.waitFor(() => expect(container.querySelector('#downloads [data-session=tester]')).toHaveTextContent('t.pdf'))
+  await fireEvent.click(within(container.querySelector('#downloads [data-session=tester]') as HTMLElement).getByRole('button', { name: /Keep/ }))
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+  expect(sessionOf(calls.find((c) => c.method === 'POST')!)).toBe('tester')
+})
+
+test('each session’s downloads have their own Clear, live only, naming the session', async () => {
+  const same = { 'GET /admin/workspaces/k/files/downloads': { body: { key: 'k', session: 'tester', browser: true, downloads: [file('report.pdf')] } } }
+  const idle = { ...ALEX }
+  const { container, calls } = setup([DEFAULT, TESTER, idle], { tab: 'files' }, {
+    ...same,
+    'GET /admin/workspaces/k/files': { body: { workspace: rowWith([DEFAULT, TESTER, idle]), downloads: [file('report.pdf')], screenshots: [], recordings: [], files: [], browser: true } },
+    'DELETE /admin/workspaces/k/files/downloads': { status: 500, body: { error: 'grid said no' } },
+  })
+  await vi.waitFor(() => expect(container.querySelector('#downloads [data-session=tester]')).toHaveTextContent('report.pdf'))
+  expect(container.querySelector('#clearDownloads')).toBeNull()
+  expect(container.querySelector('#clearDownloads-default')).not.toBeDisabled()
+  expect(container.querySelector('#clearDownloads-tester')).not.toBeDisabled()
+  expect(container.querySelector('#clearDownloads-alex')).toBeDisabled()
+  const errors: string[] = []
+  const warn = vi.spyOn(console, 'error').mockImplementation((m) => { errors.push(String(m)) })
+  await fireEvent.click(container.querySelector('#clearDownloads-tester')!)
+  const sheet = document.querySelector('.modal') as HTMLElement
+  expect(sheet).toHaveTextContent('Clear tester downloads')
+  expect(sheet).toHaveTextContent('the tester session’s browser')
+  expect(sheet.querySelectorAll('li')).toHaveLength(1)
+  await fireEvent.click(within(sheet).getByRole('button', { name: /Clear 1 file/ }))
+  await vi.waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true))
+  // One DELETE, for that session alone; the default's same-named file is untouched.
+  expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path + c.search)).toEqual(['/admin/workspaces/k/files/downloads?session=tester'])
+  expect(errors.filter((e) => e.includes('each_key_duplicate'))).toEqual([])
+  warn.mockRestore()
+})
+
+test('a failing clear leaves the other sessions alone and says so once', async () => {
+  const { container, calls } = setup([DEFAULT, TESTER], { tab: 'files' }, {
+    'DELETE /admin/workspaces/k/files/downloads': { status: 500, body: { error: 'grid said no' } },
+  })
+  await vi.waitFor(() => expect(container.querySelector('#downloads [data-session=tester]')).toHaveTextContent('t.pdf'))
+  await fireEvent.click(container.querySelector('#clearDownloads-default')!)
+  await fireEvent.click(within(document.querySelector('.modal') as HTMLElement).getByRole('button', { name: /Clear 1 file/ }))
+  await vi.waitFor(() => expect(alert).toHaveBeenCalledTimes(1))
+  expect(alert).toHaveBeenCalledWith('grid said no')
+  expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1)
+})
+
+test('the Session tab shows the picked session’s last page, a link only for http(s)', async () => {
+  const dflt = rowWith([DEFAULT, TESTER])
+  const { container } = setup([DEFAULT, TESTER], { tab: 'session' }, {
+    'GET /admin/workspaces/k/files': { body: { workspace: { ...dflt, url: 'https://default.example.test/a' }, downloads: [], screenshots: [], recordings: [], files: [], browser: true } },
+  })
+  await vi.waitFor(() => expect(container.querySelector('#workspaceCard')).toHaveTextContent('https://default.example.test/a'))
+  expect(within(container.querySelector('#workspaceCard') as HTMLElement).getByRole('link', { name: 'https://default.example.test/a' })).toHaveAttribute('rel', 'noopener noreferrer')
+  const r = setup([DEFAULT, TESTER], { tab: 'session', session: 'tester' }, {
+    'GET /admin/workspaces/k/session': { body: { ...TESTER_ROW, url: 'javascript:x' } },
+  })
+  await vi.waitFor(() => expect(r.container.querySelector('#workspaceCard')).toHaveTextContent('javascript:x'))
+  expect(within(r.container.querySelector('#workspaceCard') as HTMLElement).queryByRole('link')).toBeNull()
 })
