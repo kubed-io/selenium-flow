@@ -107,17 +107,18 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         those are History's."""
         key = request.path_params["key"]
         try:
-            _session, named = await run_in_threadpool(
+            skey, named = await run_in_threadpool(
                 known_session, workspaces, key, request
             )
             record = await run_in_threadpool(workspaces.store.get, key)
+            own = await run_in_threadpool(workspaces.store.get, skey)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"site data for {key}", log)
-        # The picked session's own pages order the hosts: another session's
-        # visits are its tab's (UI-65).
-        data, history = (
-            (record.site_data, record.entries(named)) if record else ({}, [])
-        )
+        # The snapshot is the picked session's own record's (WS-59); the pages
+        # that order its hosts are its own entries on the workspace's history,
+        # another session's visits being its tab's (UI-65).
+        data = own.site_data if own else {}
+        history = record.entries(named) if record else []
         listed, details = site_data.views(data, history)
         return JSONResponse({"key": key, **listed, "details": details})
 
@@ -134,11 +135,16 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         key = request.path_params["key"]
 
         def clear(record: Workspace) -> tuple[Workspace, list]:
-            listed = site_data.view(record.site_data, record.history)
+            listed = site_data.view(record.site_data, history)
             return record.with_site_data({}), [s["site"] for s in listed["sites"]]
 
         try:
-            _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)
+            skey, named = await run_in_threadpool(
+                known_session, workspaces, key, request
+            )
+            top = await run_in_threadpool(workspaces.store.get, key)
+            history = top.entries(named) if top else []
+            _, cleared = await run_in_threadpool(workspaces.store.change, skey, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing site data for {key}", log)
         return JSONResponse({"cleared": cleared or []})
@@ -153,7 +159,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     async def admin_site_data_forget(request: Request) -> JSONResponse:
         """Forget one site. Parent-domain cookies stay: other sites use them.
 
-        It changes the workspace's record and nothing else: the history stays,
+        It changes the picked session's record and nothing else: the history stays,
         and a browser open now keeps what it has — only the next one opened
         comes back without it. A save after this saves the site again.
         """
@@ -170,8 +176,11 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
             return record.with_site_data(left), removed
 
         try:
+            skey, _named = await run_in_threadpool(
+                known_session, workspaces, key, request
+            )
             write = workspaces.store.change
-            stored, removed = await run_in_threadpool(write, key, forget)
+            stored, removed = await run_in_threadpool(write, skey, forget)
             if stored is None:
                 raise faults.NotFound(missing)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means

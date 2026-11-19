@@ -31,6 +31,12 @@ def visit(url, session, at):
     return {"origin": url.rstrip("/"), "url": url, "at": at, "session": session}
 
 
+TESTER_DATA = {
+    "cookies": [{"name": "t", "value": "1", "domain": "t.example.test", "path": "/"}],
+    "origins": {}, "session": {}, "saved_at": NOW,
+}
+
+
 class Grid:
     """Every browser lives; nothing else is asked of it."""
 
@@ -67,7 +73,7 @@ def server():
         },
     ))
     store.set(TESTER, Workspace(
-        session_id="g2", opened_at=NOW, label="tester",
+        session_id="g2", opened_at=NOW, label="tester", site_data=TESTER_DATA,
         settings={"capture": True, "browser": "chrome"},
     ))
     # A workspace that exists only because a sub-session was opened in it.
@@ -178,7 +184,9 @@ def test_site_data_orders_and_counts_by_the_picked_sessions_history(client):
     default = client.get(base).json()
     tester = client.get(base, params={"session": "tester"}).json()
     assert [s["site"] for s in default["sites"]] == ["a.example.test", "b.example.test"]
-    assert [s["site"] for s in tester["sites"]] == ["b.example.test", "a.example.test"]
+    # The sub's snapshot is its own record's, not the default's.
+    assert [s["site"] for s in tester["sites"]] == ["t.example.test"]
+    assert set(tester["details"]) == {"t.example.test"}
     listed = rows(client)[WS]
     assert listed["history_count"] == 2
     assert listed["site_data_count"] == 2
@@ -202,3 +210,34 @@ def test_admin_logs_never_name_a_sub_session(server, client, caplog):
     )
     assert "ended the browser" in ours and "refused" in ours
     assert "tester" not in ours and "typo" not in ours
+
+
+def hosts(client, session=None):
+    params = {"session": session} if session else {}
+    body = client.get(f"/admin/workspaces/{WS}/site-data", params=params).json()
+    return sorted(s["site"] for s in body["sites"])
+
+
+def test_clearing_and_forgetting_site_data_are_one_sessions(client):
+    base = f"/admin/workspaces/{WS}/site-data"
+    both = ["a.example.test", "b.example.test"]
+    # Forget in tester leaves the default's snapshot alone.
+    assert client.delete(f"{base}/t.example.test", params={"session": "tester"}).status_code == 200
+    assert hosts(client, "tester") == [] and hosts(client) == both
+    assert client.delete(f"{base}/a.example.test", params={"session": "tester"}).status_code == 404
+    assert hosts(client) == both
+    # Clear in the default leaves tester's.
+    assert client.delete(base).json()["cleared"] == both
+    assert hosts(client) == []
+    # A name with no session, or that cannot be one, is refused.
+    for method, params, code in (
+        ("delete", {"session": "typo"}, 404), ("delete", {"session": "files"}, 400),
+    ):
+        assert getattr(client, method)(base, params=params).status_code == code
+
+
+def test_clearing_tester_leaves_the_defaults_snapshot(client):
+    base = f"/admin/workspaces/{WS}/site-data"
+    assert client.delete(base, params={"session": "tester"}).json()["cleared"] == ["t.example.test"]
+    assert hosts(client, "tester") == []
+    assert hosts(client) == ["a.example.test", "b.example.test"]
