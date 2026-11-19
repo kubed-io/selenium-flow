@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from ..core.annotations import reads
 from ..names import retired_uri
 from . import apps, clients
+from .failures import nameless
 
 LIST_TOOL = "list_resources"
 READ_TOOL = "read_resource"
@@ -182,7 +183,9 @@ def register(mcp) -> frozenset[str]:
         retired_uri(uri)
         server = get_context().fastmcp
         if not _listed(uri):
-            raise ValueError(f"{uri} is an app for a host to draw, not to read")
+            raise ValueError(
+                f"{nameless(uri)} is an app for a host to draw, not to read"
+            )
         try:
             result = await server.read_resource(uri)
         except NotFoundError:
@@ -192,8 +195,8 @@ def register(mcp) -> frozenset[str]:
                 if "uri_template" in row
             )
             raise ValueError(
-                f"no resource at {uri!r}. list_resources shows every URI; the "
-                f"templates are {templates}"
+                f"no resource at {nameless(uri)!r}. list_resources shows every URI; "
+                f"the templates are {templates}"
             ) from None
         contents = []
         for item in result.contents:

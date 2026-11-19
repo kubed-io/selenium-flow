@@ -236,3 +236,22 @@ def _caller(session=None):
     return Caller.from_request(params, {})
 
 
+
+
+async def test_a_named_sessions_console_and_network_honour_their_query(server):
+    """The same narrowing and refusals as workspace://console and /network."""
+    heard(server, TESTER, "s2", "from tester")
+    for tail, says in (
+        ("console?level=bogus", "level is one of"),
+        ("console?pages=9", "1 to 5"),
+        ("network?filter=bogus", "filter is one of"),
+        ("network?pages=0", "1 to 5"),
+    ):
+        with pytest.raises(MCPError, match=says):
+            await read(server, "session://tester/" + tail)
+    errors = await read(server, "session://tester/console?level=error")
+    assert [e["text"] for e in errors["entries"]] == ["from tester"]
+    assert (await read(server, "session://tester/console?level=warn"))["entries"] == []
+    assert "entries" in await read(server, "session://tester/console")
+    assert "requests" in await read(server, "session://tester/network?filter=failed")
+    assert "requests" in await read(server, "session://tester/network")

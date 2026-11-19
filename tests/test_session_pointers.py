@@ -713,7 +713,7 @@ async def test_no_log_line_names_a_sub_session(server, caplog, monkeypatch):
         # A tool call in a session that is not there.
         with pytest.raises(ToolError) as by_tool:
             await c.call_tool("extract", {"session": GONE, "selector": {"css": "h1"}})
-        assert "session://" not in str(by_tool.value) or GONE not in str(by_tool.value)
+        assert GONE not in str(by_tool.value)
         assert "open_session" in str(by_tool.value)
         # Reads of a missing session, a missing download, request and site.
         for uri in (
@@ -726,15 +726,21 @@ async def test_no_log_line_names_a_sub_session(server, caplog, monkeypatch):
         ):
             with pytest.raises(MCPError):
                 await c.read_resource(uri)
-        # A bad ?level, and a file the fake Grid serves whatever its name, on a
-        # session that exists: refused or not, nothing may name the session.
-        for tail in ("console?level=bogus", "console?pages=9", "downloads/nothing.pdf"):
-            with contextlib.suppress(MCPError):
+        # A file the fake Grid serves whatever its name: refused or not, nothing
+        # may name the session.
+        for tail in ("console?level=bogus", "console?pages=9", "network?filter=bogus"):
+            with pytest.raises(MCPError):
                 await c.read_resource(f"session://{SUBJECT}/{tail}")
+        with contextlib.suppress(MCPError):
+            await c.read_resource(f"session://{SUBJECT}/downloads/nothing.pdf")
         # The mirror passes the URI in its error.
         for uri in (f"session://{GONE}/network", f"session://{SUBJECT}/nothing"):
-            with pytest.raises(ToolError):
+            with pytest.raises(ToolError) as refused:
                 await c.call_tool("read_resource", {"uri": uri})
+            assert "7f3a" not in str(refused.value)
+        with pytest.raises(ToolError) as shown:
+            await c.call_tool("show", {"uri": f"session://{SUBJECT}/nothing"})
+        assert "7f3a" not in str(shown.value)
     # A connection pinned to the sub-session, and a call naming another.
     calling_as_pinned = http({"workspace": NAMED, "session": SUBJECT})
     monkeypatch.setattr(clients_module, "request_values", lambda: calling_as_pinned)
@@ -756,6 +762,8 @@ def test_the_mask_names_no_session_but_keeps_the_callers_own():
     for own in ("session://downloads", "session://downloads/x.pdf", "'session://downloads'"):
         assert nameless(own) == own
     # A session that is called "downloads-2" is a name.
+    assert nameless("see session://{name}/network") == "see session://{name}/network"
+    assert nameless("SESSION://a-b/x and Session://c") == "session://…/x and session://…"
     assert nameless("session://downloads-2/network") == "session://…/network"
 
 

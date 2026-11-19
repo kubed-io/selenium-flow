@@ -34,6 +34,7 @@ from .. import errors, faults
 from ..flows.document import argument_problems
 from ..names import retired_uri
 from ..urls import without_userinfo
+from ..workspace.sessions import RESERVED
 
 # Where FastMCP logs a failed call or read, and the words it opens each with.
 FASTMCP_LOGGER = "fastmcp.server.server"
@@ -45,8 +46,16 @@ RESOURCE_NOT_FOUND = -32002
 
 
 # A `session://<name>…` URI: the name is a token's subject for a sub-session,
-# so a log line shows `session://…`. `session://downloads…` is the caller's own.
-SESSION_NAME = re.compile(r"session://(?!downloads(?![^/?#\s'\"]))[^/?#\s'\"]+")
+# so a log line shows `session://…`. Left as is: `session://downloads…` (the
+# caller's own), any other reserved word (a root that moved, `names.MOVED`, which
+# no session can be called) and `session://{name}`, the literal pointer an error
+# text gives.
+_STOP = "/?#\\s'\"`"
+_WORDS = "|".join(re.escape(word) for word in sorted(RESERVED))
+SESSION_NAME = re.compile(
+    rf"session://(?!\{{name\}})(?!(?:{_WORDS})(?![^{_STOP}]))[^{_STOP}]+",
+    re.IGNORECASE,
+)
 
 
 def nameless(text: str) -> str:
@@ -95,7 +104,8 @@ class Explained(Middleware):
             cause = exc.__cause__
             if cause is None or isinstance(cause, FastMCPError):
                 raise
-            said = faults.message(cause)
+            # A tool that reads a resource (the mirror) carries its URI.
+            said = nameless(faults.message(cause))
             raise ToolError(f"{FAILED_CALL} {name!r}: {said}") from cause
 
     async def on_read_resource(self, context, call_next):

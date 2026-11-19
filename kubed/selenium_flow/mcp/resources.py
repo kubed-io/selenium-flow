@@ -171,15 +171,8 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     def session_resource(name: str) -> dict:
         return workspaces.describe(_named(name), at=f"session://{name}")
 
-    @mcp.resource(
-        f"{SESSION_URI}/console",
-        name="Session Console",
-        description=CONSOLE_DESCRIPTION,
-        mime_type="application/json",
-    )
-    def session_console_resource(name: str) -> dict:
-        return workspaces.captured(_key(_named(name)), "console")
-
+    # The narrowed template first: FastMCP tries them in order and matches the
+    # plain one with its query dropped.
     @mcp.resource(
         f"{SESSION_URI}/console{{?level,pages}}",
         name="Session Console, narrowed",
@@ -194,14 +187,16 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         )
 
     @mcp.resource(
-        f"{SESSION_URI}/network",
-        name="Session Network",
-        description=NETWORK_DESCRIPTION,
+        f"{SESSION_URI}/console",
+        name="Session Console",
+        description=CONSOLE_DESCRIPTION,
         mime_type="application/json",
     )
-    def session_network_resource(name: str) -> dict:
-        return workspaces.captured(_key(_named(name)), "network")
+    def session_console_resource(name: str) -> dict:
+        return workspaces.captured(_key(_named(name)), "console")
 
+    # The narrowed template first: FastMCP tries them in order and matches the
+    # plain one with its query dropped.
     @mcp.resource(
         f"{SESSION_URI}/network{{?filter,pages}}",
         name="Session Network, narrowed",
@@ -214,6 +209,15 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         return workspaces.captured(
             _key(_named(name)), "network", filter=filter, pages=pages
         )
+
+    @mcp.resource(
+        f"{SESSION_URI}/network",
+        name="Session Network",
+        description=NETWORK_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_network_resource(name: str) -> dict:
+        return workspaces.captured(_key(_named(name)), "network")
 
     @mcp.resource(
         f"{SESSION_URI}/network/{{id}}",

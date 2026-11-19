@@ -35,6 +35,7 @@ from ..workspace.workspaces import (
     Caller,
     values_of,
 )
+from .failures import nameless
 
 _OFF = ("off", "false", "0", "no", "none")
 
@@ -248,7 +249,7 @@ class Refused(Middleware):
             return await call_next(context)
         refusal = await self._refusal()
         if refusal is not None:
-            uri = without_userinfo(uri)
+            uri = nameless(without_userinfo(uri))
             raise MCPError(
                 code=INVALID_PARAMS,
                 message=f"Error reading resource {uri!r}: {faults.message(refusal)}",
