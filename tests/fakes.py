@@ -34,17 +34,21 @@ MAIN = "main-1"
 
 
 class FakeGrid:
-    """Answers `Grid`: ``is_alive`` for liveness, ``files`` and ``read_file`` for
-    the download listing.
+    """Answers `Grid`: ``is_alive`` for liveness, ``sessions`` for its listing,
+    ``files`` and ``read_file`` for the download listing.
 
     ``alive`` is the set of live session ids and ``checked`` every liveness
-    question asked; ``entries`` and ``data`` are the listing and the bytes, and
-    ``reads`` every file read.
+    question asked, each a command sent to that browser; ``listed`` counts the
+    listings, and ``list_fails`` makes one fail as an unreachable Grid does.
+    ``entries`` and ``data`` are the downloads and the bytes, and ``reads``
+    every file read.
     """
 
     def __init__(self, entries=(), data=b"bytes"):
         self.alive = set()
         self.checked = []
+        self.listed = 0
+        self.list_fails = False
         self.entries = list(entries)
         self.data = data
         self.reads = []
@@ -52,6 +56,12 @@ class FakeGrid:
     def is_alive(self, session_id):
         self.checked.append(session_id)
         return session_id in self.alive
+
+    def sessions(self):
+        self.listed += 1
+        if self.list_fails:
+            raise ConnectionError("grid unavailable")
+        return [{"session_id": sid} for sid in sorted(self.alive)]
 
     def files(self, session_id):
         return list(self.entries)
@@ -982,6 +992,9 @@ class SessionGrid:
 
     def is_alive(self, sid):
         return sid in self.alive
+
+    def sessions(self):
+        return [{"session_id": sid} for sid in sorted(self.alive)]
 
     def session_timeout(self, sid):
         if self.timeout_fails:

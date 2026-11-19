@@ -1903,8 +1903,8 @@ class Workspaces:
     def listed_sessions(self, workspace: str) -> list[dict]:
         """Every session of ``workspace``, the default first, as ``{name,
         label, default, live, url}``: the subs as its record lists them, one
-        whose record expired left out. Asks the Grid whether each attached
-        browser lives. A workspace with no record lists its default alone."""
+        whose record expired left out. Which browsers live is one Grid listing
+        (`_running`). A workspace with no record lists its default alone."""
         self.sweep_captures()
         record = self.store.get(workspace)
         if record is None:
@@ -1917,17 +1917,38 @@ class Workspaces:
             sub = self.store.get(sessions.key_of(workspace, name))
             if sub is not None:
                 found.append((name, sub))
+        running = self._running([r for _, r in found])
+
+        def live(r: Workspace) -> bool:
+            return r.attached and (running is None or r.session_id in running)
+
         return [
             {
                 "name": name,
                 "label": r.label or name,
                 "default": name == sessions.DEFAULT,
-                "live": bool(r.attached and self.actions.grid.is_alive(r.session_id)),
+                "live": live(r),
                 # Every session's page is on the workspace's history (WS-54).
                 "url": record.page(name) or None,
             }
             for name, r in found
         ]
+
+    def _running(self, records: list[Workspace]) -> set[str] | None:
+        """The ids the Grid is running, from one listing, when any of
+        ``records`` holds a browser; None when it cannot be listed, which reads
+        an attached browser as alive, as `Grid.is_alive` does.
+
+        Never a command to a browser: one is activity that keeps it past its
+        keep-alive, and one to a session mid-call would wait on it (WS-53).
+        """
+        if not any(r.attached for r in records):
+            return set()
+        try:
+            return {s.get("session_id") for s in self.actions.grid.sessions()}
+        except Exception as exc:  # noqa: BLE001 - a listing never fails a read
+            log.debug("the grid could not be listed: %s", type(exc).__name__)
+            return None
 
     def sweep_captures(self) -> None:
         """Drop the capture of every sub-session whose record is gone: a

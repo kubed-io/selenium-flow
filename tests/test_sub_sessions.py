@@ -501,6 +501,41 @@ def test_a_subjects_own_sub_session_is_labelled_by_its_username():
     assert workspaces.open_browser(as_(FIRST))["others"][0]["label"] == "second"
 
 
+def test_listing_sessions_sends_no_browser_a_command():  # WS-53, WS-72
+    actions = RecordingActions()
+    workspaces, store = two_open(actions)
+    default, tester = ids(store)
+    grid = actions.grid
+    grid.checked.clear()
+    grid.listed = 0
+    listed = workspaces.listed_sessions("shop")
+    assert [(s["name"], s["live"]) for s in listed] == [
+        ("default", True), ("tester", True),
+    ]
+    assert grid.checked == [], "a command to a browser is activity that keeps it"
+    assert grid.listed == 1, "one Grid listing for every session"
+    # A context read asks after its own browser only.
+    grid.checked.clear()
+    workspaces.describe(as_())
+    assert tester not in grid.checked
+    grid.checked.clear()
+    told = workspaces.open_browser(as_(), session="tester")
+    assert default not in grid.checked
+    assert told["others"][0]["live"] is True
+    # Ended: the listing no longer has it.
+    workspaces.end_browser(as_(), session="tester")
+    assert [s["live"] for s in workspaces.listed_sessions("shop")] == [True, False]
+
+
+def test_a_grid_that_cannot_be_listed_lists_attached_sessions_as_live():
+    actions = RecordingActions()
+    workspaces, _ = two_open(actions)
+    actions.grid.list_fails = True
+    actions.grid.checked.clear()
+    assert [s["live"] for s in workspaces.listed_sessions("shop")] == [True, True]
+    assert actions.grid.checked == []
+
+
 def test_an_acting_call_naming_an_unknown_session_opens_nothing():  # WS-78
     actions = RecordingActions()
     workspaces, store = built(Workspace(), actions)
