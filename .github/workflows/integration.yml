@@ -52,6 +52,11 @@ jobs:
       # the browser production uses.
       selenium:
         image: selenium/standalone-chrome:4.48.0-20260905
+        # Two browsers at once: a sub-session is a browser of its own
+        # (tests/integration/test_sessions.py).
+        env:
+          SE_NODE_MAX_SESSIONS: '2'
+          SE_NODE_OVERRIDE_MAX_SESSIONS: 'true'
         ports:
         - 4444:4444
         # The health check is the image's own readiness script: /status answers
