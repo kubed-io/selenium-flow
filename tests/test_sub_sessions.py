@@ -558,6 +558,30 @@ def test_a_sub_sessions_recording_is_the_workspaces_and_known_by_its_key():
     assert actions.opened_settings[0]["video_name"] == "shop"
 
 
+def test_another_sessions_page_is_listed_without_its_query():  # WS-72
+    secret_page = "https://b.example.test/cb?code=SECRET#state=TOKEN"
+    workspaces, _ = built(Workspace())
+    workspaces.open_browser(as_(), url=A_SITE + "?mine=1")
+    workspaces.open_browser(as_(), url=secret_page, session="tester")
+
+    def urls(listed):
+        return {s["name"]: s["url"] for s in listed}
+
+    told = workspaces.open_browser(as_())
+    assert urls(told["others"]) == {"tester": "https://b.example.test/cb"}
+    assert urls(workspaces.describe(as_())["sessions"]) == {
+        "default": A_SITE + "?mine=1", "tester": "https://b.example.test/cb",
+    }
+    # Its own context has it whole: only a reopen needs it, and it is its own.
+    own = workspaces.describe(pinned("tester"))
+    assert own["url"] == secret_page
+    assert urls(own["sessions"]) == {
+        "default": A_SITE, "tester": secret_page,
+    }
+    told = workspaces.open_browser(as_(), session="tester")
+    assert urls(told["others"]) == {"default": A_SITE}
+
+
 def test_open_session_answers_session_default_and_others():  # WS-48, WS-72
     workspaces, _ = built(Workspace())
     first = workspaces.open_browser(as_(), url=A_SITE)

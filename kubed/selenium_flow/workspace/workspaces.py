@@ -615,7 +615,7 @@ class Workspaces:
             "workspace": workspace,
             "session": session,
             "default": session == sessions.DEFAULT,
-            "sessions": self.listed_sessions(workspace),
+            "sessions": self.listed_sessions(workspace, own=session),
             "named_by": caller.named_by,
             "principal": caller.principal.status() if caller.principal else None,
             "browser": None,
@@ -1921,17 +1921,26 @@ class Workspaces:
             "default": name == sessions.DEFAULT,
             **{k: v for k, v in answer.items() if k != "workspace"},
         }
-        others = [s for s in self.listed_sessions(workspace) if s["name"] != name]
+        others = [
+            s for s in self.listed_sessions(workspace, own=name) if s["name"] != name
+        ]
         if others:
             # Their pages may be on any origin: scrubbed as a resource is.
             named["others"] = self.scrubber.resource(key, others)
         return named
 
-    def listed_sessions(self, workspace: str) -> list[dict]:
+    def listed_sessions(
+        self, workspace: str, own: str = sessions.DEFAULT
+    ) -> list[dict]:
         """Every session of ``workspace``, the default first, as ``{name,
         label, default, live, url}``: the subs as its record lists them, one
         whose record expired left out. Which browsers live is one Grid listing
-        (`_running`). A workspace with no record lists its default alone."""
+        (`_running`). A workspace with no record lists its default alone.
+
+        The session ``own`` (the reader's) has its page whole; every other
+        has its origin, path and route only (`page_of`), as a pruned history
+        entry does: a query or fragment carries OAuth codes and reset tokens,
+        and the other session may be another token subject's (WS-49, 3)."""
         self.sweep_captures()
         record = self.store.get(workspace)
         if record is None:
@@ -1945,14 +1954,18 @@ class Workspaces:
         def live(r: Workspace) -> bool:
             return r.attached and (running is None or r.session_id in running)
 
+        def page(name: str) -> str | None:
+            # Every session's page is on the workspace's history (WS-54).
+            url = record.page(name)
+            return (url if name == own else page_of(url)) or None
+
         return [
             {
                 "name": name,
                 "label": r.label or name,
                 "default": name == sessions.DEFAULT,
                 "live": live(r),
-                # Every session's page is on the workspace's history (WS-54).
-                "url": record.page(name) or None,
+                "url": page(name),
             }
             for name, r in found
         ]
