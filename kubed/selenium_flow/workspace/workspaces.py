@@ -1938,7 +1938,7 @@ class Workspaces:
         ``set_by`` says who set each setting, by key; one it does not name is
         the caller's.
         """
-        ttl = self.store.ttl
+        ttl, sub_ttl = self.store.ttl, self.store.sub_ttl
         # A sub-session's page goes on its workspace's history, once bound.
         sub = sessions.is_sub(name)
 
@@ -1969,7 +1969,9 @@ class Workspaces:
                 ran=dict(ran) if ran else None,
                 ended=None,
             )
-            return (fresh if sub else fresh.visited(url, ttl=ttl)), None
+            if not sub:
+                fresh = fresh.visited(url, ttl=ttl, sub_ttl=sub_ttl)
+            return fresh, None
 
         # One atomic create-or-update: a save landing while the browser
         # opened is kept, and two first opens on a new name cannot both write.
@@ -2038,7 +2040,7 @@ class Workspaces:
         Stamps ``called_at`` on every write, and hands over the held notice
         only when ``deliver``.
         """
-        ttl = self.store.ttl
+        ttl, sub_ttl = self.store.ttl, self.store.sub_ttl
         # A sub-session's pages go on its workspace's history, after its own
         # record says this browser is still the one it holds.
         sub = sessions.is_sub(name)
@@ -2052,7 +2054,9 @@ class Workspaces:
                 fresh, page = replace(r, called_at=now), None
             else:
                 page = _hinted(r.url if since is None else since, urls)
-                fresh = replace(r.visited(*urls, ttl=ttl), called_at=now)
+                fresh = replace(
+                    r.visited(*urls, ttl=ttl, sub_ttl=sub_ttl), called_at=now
+                )
             return (fresh.delivered() if deliver else fresh), (notice, page, True)
 
         noted = self.store.change(name, at)[1]
@@ -2074,11 +2078,11 @@ class Workspaces:
         if not any(origin_of(u or "") for u in urls):
             return None
         workspace, name = sessions.split(key)
-        ttl = self.store.ttl
+        ttl, sub_ttl = self.store.ttl, self.store.sub_ttl
 
         def at(r: Workspace) -> tuple[Workspace, str | None]:
             page = _hinted(r.page(name) if since is None else since, urls)
-            return r.visited(*urls, ttl=ttl, session=name), page
+            return r.visited(*urls, ttl=ttl, session=name, sub_ttl=sub_ttl), page
 
         return self.store.change(workspace, at)[1]
 
@@ -2098,7 +2102,9 @@ class Workspaces:
         record = self.store.get(workspace)
         if record is None:
             return []
-        return record.pruned(time.time(), self.store.ttl).entries(name)
+        return record.pruned(
+            time.time(), self.store.ttl, self.store.sub_ttl
+        ).entries(name)
 
     def _hint(
         self, answer: dict, name: str, url: str | None, scrubbed: bool = False

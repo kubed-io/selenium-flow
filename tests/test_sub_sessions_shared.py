@@ -14,7 +14,7 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.names import GLOBAL_WORKSPACE
-from kubed.selenium_flow.workspace.store import RedisStore, Workspace
+from kubed.selenium_flow.workspace.store import HISTORY_CAP, RedisStore, Workspace
 from kubed.selenium_flow.workspace.workspaces import _acting_in, acting
 
 from .conftest import NAMED, TOKEN, http, manager
@@ -25,6 +25,7 @@ pytestmark = pytest.mark.unit
 
 C_SITE = "https://c.example.test/"
 DAY = 86400.0
+HOUR = 3600.0
 D_SITE = "https://d.example.test/"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
@@ -86,25 +87,48 @@ def test_two_sessions_on_one_origin_keep_an_entry_each():
     assert store.get("shop").url == A_SITE, "the default's page is still its own"
 
 
-def test_each_sessions_current_page_is_kept_whole_and_past_the_ttl():
+def test_each_live_sessions_current_page_is_kept_whole():
     record = (
         Workspace()
         .visited("https://a.test/cb?code=1", now=0.0)
         .visited("https://b.test/reset?token=2", now=1.0, session="tester")
-        .visited("https://c.test/", now=2.0, session="tester")
+        .visited("https://c.test/?q=3", now=2.0, session="tester")
     )
-    later = record.visited(None, now=DAY + 10.0, ttl=DAY)
-    assert [(v["session"], v["url"]) for v in later.history] == [
-        ("tester", "https://c.test/"),
-        ("default", "https://a.test/cb?code=1"),
-    ], "each session's top is where its reopen goes; below it, aged out"
-    assert record.page("tester") == "https://c.test/"
+    assert record.page("tester") == "https://c.test/?q=3"
     assert [v["url"] for v in record.entries("tester")] == [
-        "https://c.test/", "https://b.test/reset"
+        "https://c.test/?q=3", "https://b.test/reset"
     ], "below a session's top a query goes"
-    assert [(v["session"], v["origin"]) for v in record.history_cleared().history] == [
-        ("tester", "https://c.test"), ("default", "https://a.test"),
+    # The default's top stays whole past the TTL: its reopen goes there.
+    later = record.visited(None, now=DAY + 10.0, ttl=DAY, sub_ttl=HOUR)
+    assert [(v["session"], v["url"]) for v in later.history] == [
+        ("default", "https://a.test/cb?code=1"),
     ]
+
+
+def test_a_dead_sub_sessions_page_loses_its_query_then_ages_out():
+    """A sub-session unused past `sub_ttl` has no record to reopen from, so its
+    top is an entry like any other: no query, gone after the TTL."""
+    record = (
+        Workspace()
+        .visited("https://a.test/", now=0.0)
+        .visited("https://o.test/cb?code=SECRET#state=1", now=0.0, session="tester")
+    )
+    alive = record.visited(None, now=HOUR - 1.0, ttl=DAY, sub_ttl=HOUR)
+    assert alive.page("tester") == "https://o.test/cb?code=SECRET#state=1"
+    dead = record.visited(None, now=HOUR + 1.0, ttl=DAY, sub_ttl=HOUR)
+    assert dead.page("tester") == "https://o.test/cb"
+    assert "SECRET" not in json.dumps(dead.history)
+    gone = record.visited(None, now=DAY + 1.0, ttl=DAY, sub_ttl=HOUR)
+    assert tagged(gone) == [("default", "https://a.test")]
+
+
+def test_sub_sessions_never_push_the_defaults_page_out():
+    record = Workspace().visited("https://a.test/home", now=0.0)
+    for i in range(HISTORY_CAP + 5):
+        record = record.visited(f"https://h{i}.test/", now=1.0 + i, session=f"s{i}")
+    assert len(record.history) == HISTORY_CAP
+    assert record.url == "https://a.test/home"
+    assert record.history[-1]["session"] == "default"
 
 
 def test_a_stored_entry_names_its_session_or_is_the_defaults():
@@ -119,19 +143,26 @@ def test_a_stored_entry_names_its_session_or_is_the_defaults():
     ]
 
 
-def test_the_admins_clear_keeps_every_sessions_current_page(server):
+def test_the_admins_clear_keeps_every_live_sessions_current_page(server):
     store = server.workspaces.store
     store.set(
         NAMED,
-        Workspace()
+        Workspace(subs=["tester", "gone"])
         .visited("https://old.example.test/")
         .visited(A_SITE)
+        .visited(C_SITE, session="gone")
         .visited(B_SITE, session="tester"),
     )
+    # `gone`'s record expired: it cannot reopen, so its page is cleared too.
+    store.set(f"{NAMED}/tester", Workspace(label="tester"))
     client = TestClient(server.mcp.http_app(), headers=AUTH)
     url = f"/admin/workspaces/{NAMED}/history"
-    assert client.get(url).json()["clears"] == ["https://old.example.test"]
-    assert client.delete(url).json() == {"cleared": ["old.example.test"]}
+    assert client.get(url).json()["clears"] == [
+        origin(C_SITE), "https://old.example.test"
+    ]
+    assert client.delete(url).json() == {
+        "cleared": ["c.example.test", "old.example.test"]
+    }
     assert tagged(store.get(NAMED)) == [
         ("tester", origin(B_SITE)), ("default", origin(A_SITE)),
     ]

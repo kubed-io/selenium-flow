@@ -30,7 +30,7 @@ import math
 import re
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Protocol
@@ -273,9 +273,10 @@ class Workspace:
         now: float | None = None,
         ttl: float = DEFAULT_TTL_SECONDS,
         session: str = sessions.DEFAULT,
+        sub_ttl: float = DEFAULT_SUB_TTL_SECONDS,
     ) -> Workspace:
         """The same record, ``session`` (a name) having landed on ``urls`` in
-        order, then pruned.
+        order, then pruned (`pruned`).
 
         Each one with an origin moves that session's entry for the origin to
         the top with its URL and the time; another session's entry for it
@@ -294,26 +295,42 @@ class Workspace:
                         if (v["origin"], _tag(v)) != (origin, session)
                     ),
                 ]
-        return replace(self, history=history).pruned(now, ttl)
+        return replace(self, history=history).pruned(now, ttl, sub_ttl)
 
-    def pruned(self, now: float, ttl: float) -> Workspace:
+    def pruned(
+        self, now: float, ttl: float, sub_ttl: float = DEFAULT_SUB_TTL_SECONDS
+    ) -> Workspace:
         """The same record without the history entries older than ``ttl``,
-        except each session's top one: it is where that session's reopen goes
-        back to.
+        except each session's top one while that session can reopen: it is
+        where the reopen goes back to. The default's top always stays; a
+        sub-session's stays for ``sub_ttl``, as long as its record can live
+        unused, and is then an entry like any other.
 
-        Only a session's top entry keeps its whole URL. Below it a URL keeps
-        its origin, path and hash route (never the route's query): a query
-        string or fragment carries OAuth codes and reset tokens, and nothing but
-        a reopen needs them.
+        Only such a top entry keeps its whole URL. Elsewhere a URL keeps its
+        origin, path and hash route (never the route's query): a query string
+        or fragment carries OAuth codes and reset tokens, and nothing but a
+        reopen needs them.
+
+        At most ``HISTORY_CAP`` entries stay, the oldest dropped first, except
+        the default's top.
         """
-        kept, tops = [], set()
+        kept, tops, default_top = [], set(), None
         for v in self.history:
-            if _tag(v) not in tops:
-                tops.add(_tag(v))
+            session = _tag(v)
+            top = session not in tops
+            tops.add(session)
+            if top and session == sessions.DEFAULT:
+                default_top = v
+                kept.append(v)
+            elif top and v["at"] >= now - sub_ttl:
                 kept.append(v)
             elif v["at"] >= now - ttl:
                 kept.append({**v, "url": page_of(v["url"])})
-        return replace(self, history=kept[:HISTORY_CAP])
+        capped = kept[:HISTORY_CAP]
+        if default_top is not None and default_top not in capped:
+            # The oldest of what is kept, so it goes last.
+            capped = [*kept[: HISTORY_CAP - 1], default_top]
+        return replace(self, history=capped)
 
     def reshaped(self, settings: dict) -> Workspace:
         """The same record, with some of its settings replaced.
@@ -332,12 +349,15 @@ class Workspace:
         """The same record holding this site data."""
         return replace(self, site_data=dict(site_data or {}))
 
-    def history_cleared(self) -> Workspace:
-        """The same record with only each session's current page left in the
-        history."""
+    def history_cleared(self, live: Iterable[str] = ()) -> Workspace:
+        """The same record with only the current page of the default and of
+        each sub-session in ``live`` (those that still have a record) left in
+        the history: one with no record cannot reopen, so its page is
+        cleared too."""
+        keep = {sessions.DEFAULT, *live}
         kept, tops = [], set()
         for v in self.history:
-            if _tag(v) not in tops:
+            if _tag(v) not in tops and _tag(v) in keep:
                 tops.add(_tag(v))
                 kept.append(v)
         return replace(self, history=kept)

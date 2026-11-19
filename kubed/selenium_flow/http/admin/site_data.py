@@ -26,6 +26,13 @@ async def secret_rows(catalogue) -> list[dict]:
     return (await run_in_threadpool(catalogue.listing))["secrets"]
 
 
+def live_subs(store, key: str) -> list[str]:
+    """The names of ``key``'s sub-sessions that still have a record: only
+    their current pages are History's to keep (SITE-56)."""
+    listing = getattr(store, "sub_records", None)
+    return list(listing(key)) if listing is not None else []
+
+
 def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
     """Mount history and site data: read, clear, and forget one site.
 
@@ -46,6 +53,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         try:
             secrets = await secret_rows(catalogue)
             record = await run_in_threadpool(workspaces.store.get, key)
+            live = await run_in_threadpool(live_subs, workspaces.store, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"history for {key}", log)
         if record is None:
@@ -53,8 +61,8 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         joined = site_data.history_view(record.history, record.site_data, secrets)
         # What Clear would take, by origin: rows are by host, so a second port
         # of the current host has no row and would otherwise hide Clear. Each
-        # session's current page stays (WS-54).
-        current = record.history_cleared().history
+        # live session's current page stays (WS-54).
+        current = record.history_cleared(live).history
         clears = [v["origin"] for v in record.history if v not in current]
         return JSONResponse({"key": key, **joined, "clears": clears})
 
@@ -72,7 +80,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         key = request.path_params["key"]
 
         def clear(record: Workspace) -> tuple[Workspace, list]:
-            cleared = record.history_cleared()
+            cleared = record.history_cleared(live)
             left = site_data.history_hosts(cleared.history)
             hosts = [
                 h for h in site_data.history_hosts(record.history) if h not in left
@@ -80,6 +88,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
             return cleared, hosts
 
         try:
+            live = await run_in_threadpool(live_subs, workspaces.store, key)
             _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing the history of {key}", log)
