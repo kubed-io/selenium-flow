@@ -47,3 +47,12 @@ export function pathOf(url: string): string {
 }
 
 export const CAPTURE_OFF = 'Capture is off for this workspace. Open the browser with open_session(capture=true).'
+
+/* The session a view was opened at: `session://<name>/…` names it; anything
+   else is the caller's own session (`workspace://…`). */
+export const sessionOf = (uri?: string): string | undefined => uri?.match(/^session:\/\/([^/?#]+)/)?.[1]
+
+export const rootOf = (uri?: string): string => {
+  const name = sessionOf(uri)
+  return name ? `session://${name}/` : 'workspace://'
+}

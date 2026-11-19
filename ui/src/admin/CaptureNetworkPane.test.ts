@@ -55,3 +55,13 @@ test('a live row that was not kept does not open a request it cannot show', asyn
   await fireEvent.click(screen.getByText('https://a.test/api'))
   expect(location.hash).toBe('#/workspaces/ws/network/2.2')
 })
+
+test('a sub-session\'s footer names session://<name>', async () => {
+  render(CaptureNetworkPane, { props: { ...props(), session: 'work' } })
+  expect(await screen.findByText('5 requests · 19 static not kept · session://work/network')).toBeInTheDocument()
+})
+
+test('the default session\'s footer stays workspace://', async () => {
+  render(CaptureNetworkPane, { props: { ...props(), session: 'default' } })
+  expect(await screen.findByText('5 requests · 19 static not kept · workspace://network')).toBeInTheDocument()
+})

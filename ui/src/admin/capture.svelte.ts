@@ -1,6 +1,6 @@
 import { isError, isFailed } from '../lib/capture'
 import type { CaptureOff, ConsoleData, ConsoleEntry, NetworkData, RequestRow } from '../lib/types'
-import { workspacePath, type Api } from './api'
+import { DEFAULT_SESSION, workspacePath, type Api } from './api'
 
 export const TAIL_ROWS = 2000
 /* `live` numbers a Live row as it arrives: the server's seq starts again when a
@@ -91,7 +91,7 @@ export class CaptureModel {
   /* "Stream · 12 messages", "Paused · 12 messages · 3 new", or the Captured line. */
   readonly footer = $derived.by(() => {
     const noun = this.kind === 'console' ? 'messages' : 'requests'
-    const uri = 'workspace://' + this.kind
+    const uri = (this.#session && this.#session !== DEFAULT_SESSION ? `session://${this.#session}/` : 'workspace://') + this.kind
     if (this.mode === 'live') {
       return `${this.paused ? 'Paused' : 'Stream'} · ${num(this.seen)} ${noun}` + (this.paused ? ` · ${num(this.fresh)} new` : '')
     }

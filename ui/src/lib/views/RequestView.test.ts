@@ -68,3 +68,13 @@ test("a failed request shows its error", () => {
   render(RequestView, { props: { data: { ...detail, status: null, failed: true, error: 'net::ERR_CONNECTION_REFUSED' } } })
   expect(screen.getByText('net::ERR_CONNECTION_REFUSED')).toBeInTheDocument()
 })
+
+test('a named session fetches its body with the session and goes back to its own listing', async () => {
+  const onshow = vi.fn()
+  const oncall = vi.fn().mockResolvedValue(body)
+  render(RequestView, { props: { data: { ...detail, uri: 'session://work/network/1.1' }, uri: 'session://work/network/1.1', onshow, oncall } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Fetch body' }))
+  expect(oncall).toHaveBeenCalledWith('network_body', { id: '1.1', session: 'work' })
+  await fireEvent.click(screen.getByRole('button', { name: '← Network' }))
+  expect(onshow).toHaveBeenCalledWith('session://work/network')
+})

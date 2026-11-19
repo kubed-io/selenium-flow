@@ -1,8 +1,12 @@
 <script lang="ts">
+  import { rootOf, sessionOf } from '../capture'
   import { browserMark, safeHref, windowSize } from '../format'
   import type { ContextData } from '../types'
 
-  let { data, onshow }: { data: ContextData; onshow?: (uri: string) => void } = $props()
+  let { data, uri, onshow }: { data: ContextData; uri?: string; onshow?: (uri: string) => void } = $props()
+  /* Chips open this view's own session; an unnamed view keeps workspace://. */
+  const root = $derived(rootOf(uri))
+  const downloads = $derived(sessionOf(uri) ? root + 'downloads' : 'session://downloads')
   const href = $derived(safeHref(data.url))
   const who = $derived(data.principal ? (data.principal.username || data.principal.kind) : '')
 </script>
@@ -35,8 +39,8 @@
         {#each [
           /* With errors it opens on them: they are why anyone clicks, and a
              chatty page's whole console is more than show draws. */
-          { name: 'Console', uri: (data.captured?.errors ?? 0) > 0 ? 'workspace://console?level=error' : 'workspace://console', text: `${data.captured?.errors ?? 0} errors` },
-          { name: 'Network', uri: 'workspace://network', text: `${data.captured?.failed_requests ?? 0} failed` },
+          { name: 'Console', uri: (data.captured?.errors ?? 0) > 0 ? root + 'console?level=error' : root + 'console', text: `${data.captured?.errors ?? 0} errors` },
+          { name: 'Network', uri: root + 'network', text: `${data.captured?.failed_requests ?? 0} failed` },
         ] as c (c.uri)}
           {#if onshow}
             <button type="button" class="chip" onclick={() => onshow(c.uri)}><span>{c.name}</span><span class="pill">{c.text}</span></button>
@@ -56,7 +60,7 @@
       {/if}
       {#if data.live}
         {#if onshow}
-          <button type="button" class="chip" onclick={() => onshow('session://downloads')}><span>Downloads</span></button>
+          <button type="button" class="chip" onclick={() => onshow(downloads)}><span>Downloads</span></button>
         {:else}
           <span class="chip" title="Open isn't available in this client"><span>Downloads</span></span>
         {/if}

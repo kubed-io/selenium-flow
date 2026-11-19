@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { clock, isFailed, kb, statusText } from '../lib/capture'
   import type { BodyResult, Header, RequestDetail } from '../lib/types'
-  import { workspacePath, type Api } from './api'
+  import { DEFAULT_SESSION, workspacePath, type Api } from './api'
   import { go, hashes } from './router.svelte'
 
   let { api, key, id, session }: { api: Api; key: string; id: string; session?: string } = $props()
@@ -69,6 +69,6 @@
       {/if}
     </div>
   </div>
-  <p class="small muted">workspace://network/{id}</p>
+  <p class="small muted">{session && session !== DEFAULT_SESSION ? `session://${session}/` : 'workspace://'}network/{id}</p>
 {/if}
 {#if error}<p class="small warn">{error}</p>{/if}
