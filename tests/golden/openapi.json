@@ -5977,6 +5977,21 @@
             "description": "Whether the console and network are being captured right now; false while capture is paused.",
             "type": "boolean"
           },
+          "config": {
+            "description": "The workspace's own settings, with value and source.",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "config_url": {
+            "description": "Where an admin changes them, when the server has one.",
+            "type": "string"
+          },
+          "default": {
+            "description": "Whether that is the workspace's default session.",
+            "type": "boolean"
+          },
           "flows_here": {
             "description": "Present only when saved flows say they apply to url: at most 10, this workspace's own first. Read from the record, so a page that moved by itself since the last call is not reflected.",
             "items": {
@@ -6085,6 +6100,37 @@
           "recording": {
             "description": "Whether the browser this workspace holds is being recorded.",
             "type": "boolean"
+          },
+          "session": {
+            "description": "The session this describes: yours, by its name.",
+            "type": "string"
+          },
+          "sessions": {
+            "description": "Every session of the workspace, the default first.",
+            "items": {
+              "properties": {
+                "default": {
+                  "type": "boolean"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "live": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
           },
           "settings": {
             "type": "object"
