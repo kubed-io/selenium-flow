@@ -35,6 +35,14 @@ def is_sub(key: str) -> bool:
     return SEP in key
 
 
+def logged(key: str) -> str:
+    """How a log line names the session ``key``: its workspace, and whether it
+    is a sub-session, never the sub-session's name, which may be a token's
+    subject (WS-49, 3)."""
+    workspace, name = split(key)
+    return workspace if name == DEFAULT else f"{workspace} (a sub-session)"
+
+
 def valid_session_name(name) -> str:
     """``name`` if it can name a session, else raise ``ValueError``."""
     text = valid_name(name, "session name")

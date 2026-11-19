@@ -86,6 +86,7 @@ import anyio
 
 from ..bidi import Connection
 from ..faults import BidiUnavailable
+from ..workspace import sessions
 from .events import Bus, SessionEnded, SessionOpened
 
 log = logging.getLogger(__name__)
@@ -365,7 +366,7 @@ class Monitor:
             future.cancel()  # a hold still under way closes what it opened
             log.info(
                 "monitor: capture did not attach for %s (%s)",
-                workspace,
+                sessions.logged(workspace),
                 type(exc).__name__,
             )
             raise BidiUnavailable(ATTACH_FAILED) from exc
@@ -393,7 +394,7 @@ class Monitor:
             log.info(
                 "monitor: %s did not attach for %s (%s)",
                 reason,
-                workspace,
+                sessions.logged(workspace),
                 type(exc).__name__,
             )
             raise BidiUnavailable(UNAVAILABLE) from exc
@@ -574,7 +575,7 @@ class Monitor:
         except Exception as exc:  # noqa: BLE001 - the next interval tries again
             log.info(
                 "monitor: a keep-alive ping for %s failed (%s)",
-                w.workspace,
+                sessions.logged(w.workspace),
                 type(exc).__name__,
             )
             return
@@ -586,7 +587,7 @@ class Monitor:
             except Exception as exc:  # noqa: BLE001 - the ping itself went through
                 log.warning(
                     "monitor: a ping for %s could not be recorded (%s)",
-                    w.workspace,
+                    sessions.logged(w.workspace),
                     type(exc).__name__,
                 )
 
@@ -897,7 +898,7 @@ class Monitor:
             self._failed_logged.add(w.session_id)
             log.info(
                 "monitor: no BiDi connection for %s (%s); trying again",
-                w.workspace,
+                sessions.logged(w.workspace),
                 type(exc).__name__,
             )
 

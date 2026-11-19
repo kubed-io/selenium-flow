@@ -236,9 +236,11 @@ NO_SUB = (
     "name starts no browser."
 )
 
+# Never quotes the session's name: a subject's own is named by its subject,
+# and a refusal's text is logged.
 NO_BROWSER = (
-    "no browser is open in session {name!r} of workspace {workspace!r}: call "
-    "open_session with session={name!r} first. Only open_session opens one."
+    "no browser is open in this session of workspace {workspace!r}: call "
+    "open_session for the same session first. Only open_session opens one."
 )
 
 SUBJECT_UNNAMED = (
@@ -624,7 +626,7 @@ class Workspaces:
             except Exception as exc:  # noqa: BLE001 - status must never fail
                 log.warning(
                     "tags for workspace %s could not be read: %s",
-                    name, type(exc).__name__,
+                    sessions.logged(name), type(exc).__name__,
                 )
         record = self.store.get(name)
         if record is None:
@@ -837,10 +839,9 @@ class Workspaces:
             # Detached reads as absent: the caller is sent to open_session, the
             # one path that opens a browser.
             if sessions.is_sub(name):
-                workspace, session = sessions.split(name)
-                raise faults.NoSession(NO_BROWSER.format(
-                    name=session, workspace=workspace
-                ))
+                raise faults.NoSession(
+                    NO_BROWSER.format(workspace=sessions.split(name)[0])
+                )
             raise faults.NoSession(
                 f"no session is open in workspace {name!r} yet: call open_session "
                 "first. It takes the window size and timeouts this session "
@@ -848,7 +849,7 @@ class Workspaces:
             )
 
         if self.actions.grid.is_alive(record.session_id):
-            log.debug("browser recalled for workspace %s", name)
+            log.debug("browser recalled for workspace %s", sessions.logged(name))
             return record.session_id, _kind(record.settings)
         # A first page that failed may quote where it landed, and no browser
         # holds the slot yet.
@@ -860,7 +861,7 @@ class Workspaces:
         cause = self._cause(record, time.time())
         log.info(
             "the browser is gone from the grid (%s), reopening for workspace %s",
-            cause, name,
+            cause, sessions.logged(name),
         )
         self._ended(name, record.session_id, "lost")
         saved = self._restorable(record)
@@ -923,7 +924,8 @@ class Workspaces:
                 # The browser is open and remembered; failing the caller's
                 # action over the filing would help nobody.
                 log.warning(
-                    "recording for %s cannot be filed: %s", name, faults.message(exc)
+                    "recording for %s cannot be filed: %s",
+                    sessions.logged(name), faults.message(exc),
                 )
         return kept, _kind(replay)
 
@@ -970,7 +972,7 @@ class Workspaces:
                 # open's failure: the browser is made, and the open goes on.
                 log.warning(
                     "a recording for %s cannot be noted: %s",
-                    name, type(exc).__name__,
+                    sessions.logged(name), type(exc).__name__,
                 )
 
         return {"video_name": name, "on_created": created}
@@ -1018,7 +1020,8 @@ class Workspaces:
                 if isinstance(exc, faults.BidiUnavailable):
                     raise
                 log.info(
-                    "capture did not attach for %s: %s", name, type(exc).__name__
+                    "capture did not attach for %s: %s",
+                    sessions.logged(name), type(exc).__name__,
                 )
                 log.debug("%s", faults.Traceback(exc))
                 raise faults.BidiUnavailable(ATTACH_FAILED) from exc
@@ -1168,7 +1171,7 @@ class Workspaces:
             # By type: a driver's text quotes the page's URL.
             log.info(
                 "the tabs after a call for %s could not be checked: %s",
-                name, type(exc).__name__,
+                sessions.logged(name), type(exc).__name__,
             )
             return {}
         if "tab" in change:
@@ -1427,7 +1430,7 @@ class Workspaces:
             # By type: a Grid failure's text quotes the Grid's URL.
             log.info(
                 "the page after a hand-back could not be read for %s: %s",
-                name, type(exc).__name__,
+                sessions.logged(name), type(exc).__name__,
             )
             summary["page_error"] = faults.message(exc)
             return summary
@@ -1446,7 +1449,8 @@ class Workspaces:
         except Exception as exc:  # noqa: BLE001 - a TTL not slid is no reason
             # to lose a hand-back this answer has already said.
             log.warning(
-                "a hand-back for %s did not settle: %s", name, type(exc).__name__
+                "a hand-back for %s did not settle: %s",
+                sessions.logged(name), type(exc).__name__,
             )
         for key in ("reopened", "site_data"):
             if settled.get(key):
@@ -1556,7 +1560,7 @@ class Workspaces:
         except Exception as problem:  # noqa: BLE001 - never masks the caller's error
             log.warning(
                 "the reopen notice for %s was not said: %s",
-                name,
+                sessions.logged(name),
                 type(problem).__name__,
             )
 
@@ -1783,7 +1787,8 @@ class Workspaces:
                 # failed, so it is said in the result, never as a 400 and never
                 # with the path.
                 log.warning(
-                    "recording for %s cannot be filed: %s", name, faults.message(exc)
+                    "recording for %s cannot be filed: %s",
+                    sessions.logged(name), faults.message(exc),
                 )
                 noted = f"this recording cannot be filed: {type(exc).__name__}"
         if forgotten is not None:
@@ -1954,14 +1959,17 @@ class Workspaces:
         _, kept = self.store.change(name, bound, create=True)
         if not kept:
             return session_id
-        log.info("two opens raced for workspace %s: quitting the loser's browser", name)
+        log.info(
+            "two opens raced for workspace %s: quitting the loser's browser",
+            sessions.logged(name),
+        )
         try:
             self.actions.end_browser(session_id)
         except Exception as exc:  # noqa: BLE001 - it may be gone already
             # By type: an HTTPError quotes the Grid URL, Grid id and all.
             log.info(
                 "could not end the losing browser for workspace %s: %s",
-                name,
+                sessions.logged(name),
                 type(exc).__name__,
             )
             self._let_go(session_id)
@@ -2050,7 +2058,7 @@ class Workspaces:
         except Exception as exc:  # noqa: BLE001 - a hint never fails a call
             log.warning(
                 "flows for workspace %s could not be hinted: %s",
-                name, type(exc).__name__,
+                sessions.logged(name), type(exc).__name__,
             )
             return
         if here:
@@ -2148,7 +2156,7 @@ class Workspaces:
             # the Grid URL, Grid id and all.
             log.info(
                 "could not end the browser for workspace %s: %s",
-                name,
+                sessions.logged(name),
                 type(exc).__name__,
             )
         # Ending took a Grid round trip: detach the record as it is now, and
@@ -2171,5 +2179,5 @@ class Workspaces:
             self._ended(name, target, "ended")
         else:
             self._let_go(target)
-        log.info("ended the browser for workspace %s", name)
+        log.info("ended the browser for workspace %s", sessions.logged(name))
         return target

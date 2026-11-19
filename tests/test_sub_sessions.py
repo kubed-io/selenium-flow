@@ -573,3 +573,46 @@ async def test_a_tool_and_a_route_naming_a_session_act_in_it(twin):  # noqa: F81
         f"/browser/navigate?workspace={NAMED}", json={**args, "session": "typo"}
     )
     assert typo.status_code == 400 and "open_session" in typo.json()["error"]
+
+
+# ---- what is logged ----------------------------------------------------------
+
+
+def test_a_log_line_names_a_sub_session_by_its_workspace_alone():
+    from kubed.selenium_flow.workspace import sessions
+
+    assert sessions.logged("shop") == "shop"
+    assert sessions.logged("shop/opaque-subject-123") == "shop (a sub-session)"
+
+
+def test_a_subjects_own_sub_session_is_never_named_in_a_log_line(caplog):
+    """Its key is `<workspace>/<subject>`, and no log line carries a subject:
+    not as it opens, acts, is reopened after a reap and ends, nor in the
+    refusal an HTTP call without a browser is logged with."""
+    import logging
+
+    from kubed.selenium_flow.http import answer
+
+    caplog.set_level(logging.DEBUG, logger="kubed.selenium_flow")
+    subject = "opaque-subject-123"
+    caller = as_(Principal("oidc", subject=subject, username="tester"))
+    actions = RecordingActions()
+    workspaces, store = built(Workspace(owner="sub-a"), actions)
+    workspaces.open_browser(caller, url=A_SITE)
+    key = f"shop/{subject}"
+    workspaces.act(caller, lambda s: {"url": A_SITE}, tool="navigate")
+    actions.grid.alive.discard(store.get(key).session_id)
+    assert "reopened" in workspaces.act(caller, lambda s: {"url": A_SITE})
+    workspaces.end_browser(caller)
+    with pytest.raises(faults.NoSession) as refused:
+        workspaces.act(caller, lambda s: {})
+    response = answer.as_response(
+        refused.value, "navigate", logging.getLogger("kubed.selenium_flow.routes")
+    )
+    assert response.status_code == 400
+    assert subject not in response.body.decode()
+    said = [r.getMessage() for r in caplog.records]
+    assert any("ended the browser for workspace shop (a sub-session)" in m for m in said)
+    assert any("reopening for workspace shop (a sub-session)" in m for m in said)
+    assert any("refused (400)" in m for m in said)
+    assert not [m for m in said if subject in m]

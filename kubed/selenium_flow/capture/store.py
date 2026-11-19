@@ -68,6 +68,7 @@ from cachetools import TTLCache
 from ..bidi.connection import QUEUE_BYTES
 from ..redaction import Forms
 from ..urls import scope_origin
+from ..workspace import sessions
 from . import (
     CONSOLE_LIMIT,
     DEFAULT_TTL,
@@ -339,7 +340,9 @@ class Capture:
         if held is None:
             held = self._unpark(workspace, session_id)
         if held is None or held.workspace != workspace:
-            log.info("capture: a hold again in %s is not heard", workspace)
+            log.info(
+                "capture: a hold again in %s is not heard", sessions.logged(workspace)
+            )
             return
         self._sessions.move_to_end(session_id)
         held.live = True
