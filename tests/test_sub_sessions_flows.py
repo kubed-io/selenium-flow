@@ -4,6 +4,7 @@ FLOW-51, LIVE-42, LIVE-15)."""
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import replace
 
 import pytest
@@ -25,7 +26,7 @@ from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 from kubed.selenium_flow.workspace.workspaces import Workspaces, acting
 
 from .conftest import NAMED, calling_as
-from .fakes import RecordingActions, held, untabbed
+from .fakes import BindingCatalogue, RecordingActions, TabbedActions, held, untabbed
 from .test_admin_live import hub  # noqa: F401 - a fixture, used below
 from .test_await_control import (  # noqa: F401 - fixtures, used below
     GRID,
@@ -300,3 +301,73 @@ def test_the_live_view_and_its_control_are_one_sessions(hub, monkeypatch):  # no
         assert not app.controls.controlling("w1", "admin")
         assert app.controls.refusal("g-tester", "navigate") is not None
         assert app.controls.refusal(GRID_ID, "navigate") is None
+
+
+class Echoing(TabbedActions):
+    """Every page read says the secret's value, so the scrub is what hides it."""
+
+    def extract(self, session_id, **kwargs):
+        return {"url": B_SITE, "text": "beta-22"}
+
+
+def test_a_flow_types_and_scrubs_with_its_own_sessions_origin(tmp_path):
+    b = B_SITE.rstrip("/")
+    catalogue = BindingCatalogue({b: {("b", "password"): "beta-22"}}, on=b)
+    workspaces = Workspaces(Echoing(), MemoryStore(), catalogue=catalogue)
+    try:
+        workspaces.open_browser(as_(), url=A_SITE)
+        workspaces.open_browser(as_(), url=B_SITE, session="tester")
+        flows = flow_store.LocalFlowStore(tmp_path)
+        flows.save("shop", "login", {"steps": [
+            {"tool": "write", "args": {
+                "selector": {"css": "#p"}, "secret": {"name": "b", "key": "password"},
+            }},
+            {"tool": "extract", "args": {"selector": {"css": "h1"}}, "return": True},
+        ]})
+
+        def run(key):
+            return flowapi.run_for(
+                flows, workspaces.actions, workspaces, "shop", "login",
+                verbose=True, secrets_catalogue=catalogue, key=key,
+            )
+
+        # The secret is leashed to the sub's origin: typed there, never from
+        # the default's page.
+        report = run("shop/tester")
+        assert report["status"] == "ok", report
+        assert "beta-22" not in json.dumps(report)
+        assert "[secret:b/password]" in json.dumps(report)
+        refused = run("shop")
+        assert refused["status"] == "failed", refused
+        assert "beta-22" not in json.dumps(refused)
+    finally:
+        workspaces.scrubber.close()
+
+
+def test_a_paste_goes_to_the_controlled_session_only(hub, monkeypatch):  # noqa: F811
+    from .fakes import FocusedDriver, element
+    from .test_admin_live import AUTH as ADMIN
+
+    app = live_build()
+    grid = app.actions.grid
+    drivers = {}
+
+    def reconnect(session_id):
+        if session_id not in drivers:
+            driver = FocusedDriver()
+            driver.answers[:] = [element(driver.log)]
+            drivers[session_id] = driver
+        return drivers[session_id]
+
+    monkeypatch.setattr(grid, "is_alive", lambda session_id: True)
+    monkeypatch.setattr(grid, "reconnect", reconnect)
+    client = TestClient(app.mcp.http_app())
+    held(app.tunnels, "w1/tester", "admin", "control", "g-tester")
+    paste = "/admin/workspaces/w1/live/paste"
+    typed = client.post(f"{paste}?session=tester", json={"text": "hi"}, headers=ADMIN)
+    assert typed.status_code == 200, typed.text
+    assert typed.json() == {"typed": 2}
+    assert set(drivers) == {"g-tester"}, "the default's browser received nothing"
+    other = client.post(paste, json={"text": "hi"}, headers=ADMIN)
+    assert other.status_code == 409
+    assert set(drivers) == {"g-tester"}
