@@ -158,14 +158,9 @@ def session_facts(
 def listed_sessions(workspaces, workspace: str, record, running: dict) -> list[dict]:
     """The sessions of ``workspace`` for its row, the default first: ``{name,
     label, default, live, browser}``. A sub-session whose record expired is
-    left out, and one made only by opening a sub-session in a new workspace
-    lists with no browser."""
-    found = [(sessions.DEFAULT, record)]
-    store = getattr(workspaces, "store", None)
-    for name in record.subs:
-        sub = store.get(sessions.key_of(workspace, name)) if store else None
-        if sub is not None:
-            found.append((name, sub))
+    left out (and its name pruned), and one made only by opening a sub-session
+    in a new workspace lists with no browser."""
+    found = [(sessions.DEFAULT, record), *workspaces.sub_sessions(workspace, record)]
     return [
         {
             "name": name,

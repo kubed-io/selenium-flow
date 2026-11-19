@@ -147,6 +147,17 @@ def test_redis_forgetting_a_workspace_forgets_its_sub_sessions():
     assert store.get("shopper/a") is not None
 
 
+@pytest.mark.parametrize("backend", ["memory", "redis"])
+def test_get_many_reads_each_key_in_order(backend):
+    clock = Clock()
+    store = _memory(clock) if backend == "memory" else _redis()[0]
+    store.set("shop/a", Workspace(label="a"))
+    store.set("shop/c", Workspace(label="c"))
+    found = store.get_many(["shop/c", "shop/b", "shop/a"])
+    assert [r.label if r else None for r in found] == ["c", None, "a"]
+    assert store.get_many([]) == []
+
+
 @pytest.mark.parametrize("name", ["console", "network", "files", "site-data"])
 def test_a_name_a_session_uri_once_started_with_cannot_name_a_session(name):
     from kubed.selenium_flow.workspace.workspaces import Caller

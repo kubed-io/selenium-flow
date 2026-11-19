@@ -5,6 +5,7 @@ every one (WS-74, WS-77, UI-64, UI-65)."""
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from urllib.parse import parse_qsl, urlsplit
 
 import pytest
@@ -107,6 +108,13 @@ def test_admin_lists_sub_sessions_under_their_workspace(client):
         {"name": "only", "label": "only", "default": False, "live": False,
          "browser": "chrome"},
     ]
+
+
+def test_the_admin_list_prunes_a_dead_sub_session_name(server, client):
+    store = server.workspaces.store
+    store.update(WS, lambda r: replace(r, subs=["gone", *r.subs]))
+    assert [s["name"] for s in rows(client)[WS]["sessions"]] == ["default", "tester"]
+    assert store.get(WS).subs == ["tester"]
 
 
 def test_admin_session_routes_take_session(server, client):

@@ -769,11 +769,7 @@ class Workspaces:
         it (WS-50); a caller with no subject always reaches it.
         """
         workspace = caller.name
-        pin = caller.pinned
-        name = sessions.valid_session_name(named) if named else ""
-        if pin and name and name != pin:
-            raise ValueError(PIN_DIFFERS.format(pinned=pin, named=name))
-        chosen = pin or name
+        chosen = self._chosen(caller, named)
         if chosen and chosen != sessions.DEFAULT:
             return self._sub(workspace, chosen, chosen, made=opening)
         principal = caller.principal
@@ -793,11 +789,7 @@ class Workspaces:
         a subject's own that does not exist yet is the key it will be made
         under, which reads as a session with nothing in it."""
         workspace = caller.name
-        pin = caller.pinned
-        name = sessions.valid_session_name(named) if named else ""
-        if pin and name and name != pin:
-            raise ValueError(PIN_DIFFERS.format(pinned=pin, named=name))
-        chosen = pin or name
+        chosen = self._chosen(caller, named)
         if chosen and chosen != sessions.DEFAULT:
             return self._sub(workspace, chosen, chosen, made=False)
         principal = caller.principal
@@ -808,6 +800,16 @@ class Workspaces:
         if record is None or record.owner in (None, subject):
             return workspace
         return sessions.key_of(workspace, self._own_name(subject))
+
+    @staticmethod
+    def _chosen(caller: Caller, named: str | None) -> str:
+        """The session ``caller`` picks by its pin or by ``named``, "" when it
+        picks none; a name that differs from its pin is refused."""
+        pin = caller.pinned
+        name = sessions.valid_session_name(named) if named else ""
+        if pin and name and name != pin:
+            raise ValueError(PIN_DIFFERS.format(pinned=pin, named=name))
+        return pin or name
 
     @staticmethod
     def _own_name(subject: str) -> str:
@@ -866,6 +868,11 @@ class Workspaces:
             created.append(key)
             return Workspace(label=label)
 
+        # The name first, so a record whose write fails is never one no
+        # listing shows: the name with no record is what a listing prunes
+        # (`sub_sessions`). Listed again after, in case a listing pruned it in
+        # between.
+        self.store.upsert(workspace, listed)
         self.store.upsert(key, make)
         if created and self.capture is not None:
             # What an expired record of this name captured is not this one's.
@@ -1717,6 +1724,15 @@ class Workspaces:
         every leashed secret: a first page that failed may quote where it
         landed, and no browser holds the slot yet.
         """
+        chosen = self._chosen(caller, session)
+        if chosen and chosen != sessions.DEFAULT:
+            # Checked before its record is made, so a refused open makes and
+            # lists nothing (WS-78). `_open_browser` checks again, as it must
+            # for every other session.
+            planned = sessions.key_of(caller.name, chosen)
+            self._scrubbing(
+                planned, lambda: self._resolve_open(caller, planned, url, wanted)
+            )
         key = self.session_of(caller, session, opening=True)
         return self._scrubbing(
             key,
@@ -1755,46 +1771,8 @@ class Workspaces:
         """
         name = key
         self._refuse(key, "open_session")
-        previous = self.context(name)
-        sources = previous.get("set_by") or {}
-        # Resolved before the held browser is ended, because this validates as
-        # well as merges: a typo in `browser=` must not cost a good browser.
-        inherited_settings = {
-            k: v
-            for k, v in (previous.get("settings") or {}).items()
-            if k not in ("record", "capture")
-            and sources.get(k) == settings_module.CALLER
-        }
-        # `sourced` drops a version when a later layer names another browser,
-        # this call's included.
-        resolved = settings_module.sourced(
-            wanted,
-            defaults=self.defaults,
-            previous=inherited_settings,
-            client=caller.defaults,
-        )
+        previous, resolved = self._resolve_open(caller, key, url, wanted)
         settings = resolved.settings
-        if settings.get("record") and self.recordings is None:
-            raise ValueError(RECORDING_OFF)
-        if settings.get("record") and settings.get("headless"):
-            coerce = settings_module.SETTINGS["headless"][2]
-            passed = coerce(wanted.get("headless")) is not None
-            raise ValueError(
-                HEADLESS_RECORD if passed else HEADLESS_RECORD_REMEMBERED
-            )
-        if settings.get("capture") and not self._can_capture():
-            raise ValueError(CAPTURE_OFF)
-        # An owned key or a vendor block a merge cannot add to: a 400 before
-        # the held browser is ended, like a bad `browser=`. One this call did
-        # not pass is the workspace's, and the refusal says how to clear it.
-        session_caps.check(
-            settings.get("capabilities"),
-            remembered=wanted.get("capabilities") in (None, ""),
-        )
-        # The caller's page, checked for the same reason. A remembered one is
-        # where the browser already was, so it is not the caller's to check.
-        if url:
-            allowed_navigation(url)
         # A session holds one browser: a second opened without ending the
         # first would hold a Grid slot, referenced by nothing, until the idle
         # timeout.
@@ -1883,6 +1861,55 @@ class Workspaces:
         self._hint(told, name, told.get("url"), scrubbed=True)
         return self._named(key, told)
 
+    def _resolve_open(
+        self, caller: Caller, key: str, url: str | None, wanted: dict
+    ) -> tuple[dict, settings_module.Sourced]:
+        """What an open of the session ``key`` inherits (`context`) and the
+        settings it resolves to, or the ValueError that refuses it. Computes
+        and checks only: nothing is written and no browser is touched.
+        """
+        previous = self.context(key)
+        sources = previous.get("set_by") or {}
+        # Resolved before the held browser is ended, because this validates as
+        # well as merges: a typo in `browser=` must not cost a good browser.
+        inherited_settings = {
+            k: v
+            for k, v in (previous.get("settings") or {}).items()
+            if k not in ("record", "capture")
+            and sources.get(k) == settings_module.CALLER
+        }
+        # `sourced` drops a version when a later layer names another browser,
+        # this call's included.
+        resolved = settings_module.sourced(
+            wanted,
+            defaults=self.defaults,
+            previous=inherited_settings,
+            client=caller.defaults,
+        )
+        settings = resolved.settings
+        if settings.get("record") and self.recordings is None:
+            raise ValueError(RECORDING_OFF)
+        if settings.get("record") and settings.get("headless"):
+            coerce = settings_module.SETTINGS["headless"][2]
+            passed = coerce(wanted.get("headless")) is not None
+            raise ValueError(
+                HEADLESS_RECORD if passed else HEADLESS_RECORD_REMEMBERED
+            )
+        if settings.get("capture") and not self._can_capture():
+            raise ValueError(CAPTURE_OFF)
+        # An owned key or a vendor block a merge cannot add to: a 400 before
+        # the held browser is ended, like a bad `browser=`. One this call did
+        # not pass is the workspace's, and the refusal says how to clear it.
+        session_caps.check(
+            settings.get("capabilities"),
+            remembered=wanted.get("capabilities") in (None, ""),
+        )
+        # The caller's page, checked for the same reason. A remembered one is
+        # where the browser already was, so it is not the caller's to check.
+        if url:
+            allowed_navigation(url)
+        return previous, resolved
+
     def _named(self, key: str, answer: dict) -> dict:
         """``answer`` as `open_session` gives it: its workspace, its session's
         name and whether that is the default (WS-48), and ``others``, every
@@ -1912,11 +1939,7 @@ class Workspaces:
                 "name": sessions.DEFAULT, "label": sessions.DEFAULT,
                 "default": True, "live": False, "url": None,
             }]
-        found = [(sessions.DEFAULT, record)]
-        for name in record.subs:
-            sub = self.store.get(sessions.key_of(workspace, name))
-            if sub is not None:
-                found.append((name, sub))
+        found = [(sessions.DEFAULT, record), *self.sub_sessions(workspace, record)]
         running = self._running([r for _, r in found])
 
         def live(r: Workspace) -> bool:
@@ -1933,6 +1956,41 @@ class Workspaces:
             }
             for name, r in found
         ]
+
+    def sub_sessions(
+        self, workspace: str, record: Workspace
+    ) -> list[tuple[str, Workspace]]:
+        """``workspace``'s sub-sessions with a record, as ``(name, record)`` in
+        the order ``record`` (its own) lists them, read in one round trip.
+
+        A listed name whose record is gone (expired, or its write failed) is
+        dropped from the index, inside its compare-and-set, so the index never
+        outgrows what lives. Each is read again there: a record made since the
+        first read keeps its name.
+        """
+        names = list(record.subs)
+        if not names:
+            return []
+        keys = [sessions.key_of(workspace, name) for name in names]
+        read = list(zip(names, self.store.get_many(keys), strict=True))
+        dead = [name for name, sub in read if sub is None]
+        if dead:
+            self.store.update(workspace, lambda r: self._pruned(workspace, r, dead))
+        return [(name, sub) for name, sub in read if sub is not None]
+
+    def _pruned(
+        self, workspace: str, record: Workspace, dead: list[str]
+    ) -> Workspace | None:
+        """``record`` without those of ``dead`` that still have no record, or
+        None when there is nothing to drop."""
+        listed = [name for name in dead if name in record.subs]
+        if not listed:
+            return None
+        again = self.store.get_many([sessions.key_of(workspace, n) for n in listed])
+        gone = {n for n, sub in zip(listed, again, strict=True) if sub is None}
+        if not gone:
+            return None
+        return replace(record, subs=[n for n in record.subs if n not in gone])
 
     def _running(self, records: list[Workspace]) -> set[str] | None:
         """The ids the Grid is running, from one listing, when any of

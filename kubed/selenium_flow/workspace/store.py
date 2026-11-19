@@ -517,6 +517,10 @@ class WorkspaceStore(Protocol):
 
     def get(self, key: str) -> Workspace | None: ...
 
+    # `get` of each of ``keys``, in order, in one round trip where the backend
+    # allows: a listing of a workspace's sub-sessions reads them all at once.
+    def get_many(self, keys: list[str]) -> list[Workspace | None]: ...
+
     def set(self, key: str, record: Workspace) -> None: ...
 
     # A read-change-write that cannot revert a concurrent write, as a read, a
@@ -633,6 +637,9 @@ class MemoryStore(_Writes):
             del self._data[key]
             return None
         return record
+
+    def get_many(self, keys: list[str]) -> list[Workspace | None]:
+        return [self.get(key) for key in keys]
 
     @contextmanager
     def _locked(self, key: str) -> Iterator[None]:
@@ -761,6 +768,16 @@ class RedisStore(_Writes):
         if value is None:
             return None
         return Workspace.from_json(value)
+
+    def get_many(self, keys: list[str]) -> list[Workspace | None]:
+        """One MGET; a key that is absent or does not read is None."""
+        if not keys:
+            return []
+        values = self._redis.mget([self._k(key) for key in keys])
+        return [
+            Workspace.from_json(value) if value is not None else None
+            for value in values
+        ]
 
     def _ex(self, key: str) -> int | None:
         # A SET without EX also drops the expiry the key had.

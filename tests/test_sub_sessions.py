@@ -21,11 +21,16 @@ from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import waiting
 from kubed.selenium_flow.principal import ADMIN, Principal
 from kubed.selenium_flow.workspace import locks
-from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
+from kubed.selenium_flow.workspace.store import (
+    MemoryStore,
+    RedisStore,
+    StoreConflict,
+    Workspace,
+)
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 from .conftest import NAMED, manager
-from .fakes import BindingCatalogue, RecordingActions, TabbedActions
+from .fakes import BindingCatalogue, FakeRedis, RecordingActions, TabbedActions
 from .test_await_control import over_http
 from .test_golden import AUTH, twin  # noqa: F401 - a fixture, used below
 from .test_locks import in_thread
@@ -138,6 +143,91 @@ def test_opening_a_sub_session_in_a_workspace_with_no_record_lists_it():
     assert workspaces.session_of(as_(), "tester", opening=True) == "shop/tester"
     assert store.get("shop").subs == ["tester"]
     assert store.get("shop").owner is None
+
+
+def test_a_dead_sub_session_name_is_pruned_on_the_next_listing():  # WS-60, WS-77
+    workspaces, store = built(Workspace(subs=["gone", "tester"]))
+    store.set("shop/tester", Workspace(label="tester"))
+    assert [s["name"] for s in workspaces.listed_sessions("shop")] == [
+        "default", "tester",
+    ]
+    assert store.get("shop").subs == ["tester"]
+
+
+def test_a_listing_reads_every_sub_session_in_one_round_trip():
+    fake = FakeRedis()
+    store = RedisStore(fake, prefix="p:")
+    store.set("shop", Workspace(subs=["a", "b", "c"]))
+    for name in "abc":
+        store.set(f"shop/{name}", Workspace(label=name))
+    workspaces = manager(RecordingActions(), store)
+    fake.calls.clear()
+    listed = workspaces.listed_sessions("shop")
+    assert [s["name"] for s in listed] == ["default", "a", "b", "c"]
+    assert fake.calls == ["get", "mget"], "the workspace's record, then its subs at once"
+
+
+class HidingStore(MemoryStore):
+    """A store whose first batch read misses ``hidden``: a sub-session made
+    between a listing's read and its prune."""
+
+    hidden = ""
+
+    def get_many(self, keys):
+        found = super().get_many(keys)
+        if self.hidden:
+            found = [None if k == self.hidden else r for k, r in zip(keys, found, strict=True)]
+            self.hidden = ""
+        return found
+
+
+def test_a_name_whose_record_was_made_since_the_read_is_not_pruned():
+    store = HidingStore()
+    store.set("shop", Workspace(subs=["tester"]))
+    store.set("shop/tester", Workspace(label="tester"))
+    store.hidden = "shop/tester"
+    manager(RecordingActions(), store).listed_sessions("shop")
+    assert store.get("shop").subs == ["tester"]
+
+
+class FailingOnce(MemoryStore):
+    """A store whose next write to ``failing`` loses to other writers."""
+
+    failing = ""
+
+    def upsert(self, key, fn):
+        if key == self.failing:
+            self.failing = ""
+            raise StoreConflict("kept changing")
+        return super().upsert(key, fn)
+
+
+@pytest.mark.parametrize("failing", ["shop", "shop/tester"])
+def test_a_failed_open_leaves_no_sub_record_the_listing_misses(failing):
+    store = FailingOnce()
+    store.set("shop", Workspace())
+    store.failing = failing
+    workspaces = manager(RecordingActions(), store)
+    with pytest.raises(StoreConflict):
+        workspaces.session_of(as_(), "tester", opening=True)
+    workspaces.listed_sessions("shop")
+    # Either nothing, or a name the listing pruned: never a record no listing shows.
+    assert store.get("shop/tester") is None
+    assert store.get("shop").subs == []
+
+
+@pytest.mark.parametrize(
+    "wanted",
+    [{"browser": "netscape"}, {"url": "file:///etc/passwd"}, {"capabilities": "{nope"}],
+)
+def test_a_refused_open_makes_and_lists_no_sub_session(wanted):  # WS-78
+    actions = RecordingActions()
+    workspaces, store = built(Workspace(), actions)
+    with pytest.raises(ValueError):
+        workspaces.open_browser(as_(), session="tester", **wanted)
+    assert store.get("shop/tester") is None
+    assert store.get("shop").subs == []
+    assert actions.opened == 0
 
 
 def test_an_unowned_default_is_claimed_by_the_first_subject():
