@@ -184,7 +184,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         name: str, level: str = "all", pages: str = "1"
     ) -> dict:
         return workspaces.captured(
-            _key(_named(name)), "console", level=level, pages=pages
+            _key(_named(name)), "console", named=True, level=level, pages=pages
         )
 
     @mcp.resource(
@@ -194,7 +194,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def session_console_resource(name: str) -> dict:
-        return workspaces.captured(_key(_named(name)), "console")
+        return workspaces.captured(_key(_named(name)), "console", named=True)
 
     # The narrowed template first: FastMCP tries them in order and matches the
     # plain one with its query dropped.
@@ -208,7 +208,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         name: str, filter: str = "all", pages: str = "1"
     ) -> dict:
         return workspaces.captured(
-            _key(_named(name)), "network", filter=filter, pages=pages
+            _key(_named(name)), "network", named=True, filter=filter, pages=pages
         )
 
     @mcp.resource(
@@ -218,7 +218,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def session_network_resource(name: str) -> dict:
-        return workspaces.captured(_key(_named(name)), "network")
+        return workspaces.captured(_key(_named(name)), "network", named=True)
 
     @mcp.resource(
         f"{SESSION_URI}/network/{{id}}",
@@ -228,7 +228,11 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     )
     def session_request_resource(name: str, id: str) -> dict:
         return workspaces.captured(
-            _key(_named(name)), "request", at=f"session://{name}/network/{id}", id=id
+            _key(_named(name)),
+            "request",
+            at=f"session://{name}/network/{id}",
+            named=True,
+            id=id,
         )
 
     @mcp.resource(

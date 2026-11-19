@@ -49,6 +49,11 @@ Work in the session the hand-off names, or `explorer` when it names none. Open
 it with `open_session(session=…)`, then pass that same `session` on every call.
 A call without it acts in the main agent's session, not yours.
 
+A refusal saying the connection is pinned to another session will come back
+for every call. Stop at the first one, and report under *Couldn't* that this
+connection is pinned to one session, so you cannot work in your own. Never drop
+`session` to get past it: that drives the main agent's browser.
+
 Read your session's state at `session://<name>`, `session://<name>/console`
 and `session://<name>/network`, with your session's name as `<name>`; never
 `workspace://…`, which is the main agent's. A result's `see` or `uri` already

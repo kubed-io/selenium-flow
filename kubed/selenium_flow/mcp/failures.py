@@ -16,7 +16,6 @@ without their type codes and documentation links.
 from __future__ import annotations
 
 import logging
-import re
 
 from fastmcp.exceptions import (
     FastMCPError,
@@ -34,7 +33,7 @@ from .. import errors, faults
 from ..flows.document import argument_problems
 from ..names import retired_uri
 from ..urls import without_userinfo
-from ..workspace.sessions import RESERVED
+from ..workspace.sessions import nameless
 
 # Where FastMCP logs a failed call or read, and the words it opens each with.
 FASTMCP_LOGGER = "fastmcp.server.server"
@@ -43,24 +42,6 @@ FAILED_READ = "Error reading resource"
 # MCP's code for a resource that is not there (the spec's "Resource not
 # found"); `mcp_types` names only the JSON-RPC ones.
 RESOURCE_NOT_FOUND = -32002
-
-
-# A `session://<name>…` URI: the name is a token's subject for a sub-session,
-# so a log line shows `session://…`. Left as is: `session://downloads…` (the
-# caller's own), any other reserved word (a root that moved, `names.MOVED`, which
-# no session can be called) and `session://{name}`, the literal pointer an error
-# text gives.
-_STOP = "/?#\\s'\"`"
-_WORDS = "|".join(re.escape(word) for word in sorted(RESERVED))
-SESSION_NAME = re.compile(
-    rf"session://(?!\{{name\}})(?!(?:{_WORDS})(?![^{_STOP}]))[^{_STOP}]+",
-    re.IGNORECASE,
-)
-
-
-def nameless(text: str) -> str:
-    """``text`` with the name of any `session://<name>` URI in it masked."""
-    return SESSION_NAME.sub("session://…", text)
 
 
 def _pydantic_lines(exc: Exception) -> list[str]:

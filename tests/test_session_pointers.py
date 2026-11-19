@@ -590,7 +590,10 @@ def wired(tmp_path, monkeypatch):
     # On the class, before the server is built: `routes.py` binds each method
     # at registration.
     def navigate(self, session_id, url):
-        return threw(session_id)
+        landed = threw(session_id)
+        if url.endswith("/fail"):
+            raise TimeoutException("waited 30s for the page")
+        return landed
 
     def write(
         self, session_id, text, selector=None, url=None, clear=True,
@@ -765,6 +768,22 @@ def test_the_mask_names_no_session_but_keeps_the_callers_own():
     assert nameless("see session://{name}/network") == "see session://{name}/network"
     assert nameless("SESSION://a-b/x and Session://c") == "session://…/x and session://…"
     assert nameless("session://downloads-2/network") == "session://…/network"
+    # The reserved word only: followed by `/`, `?`, `#` or the end.
+    for own in ("session://downloads?x=1", "session://downloads#a", "session://console"):
+        assert nameless(own) == own
+    for name in ("downloads-2", "downloads.bot", "downloadsX", "downloads_7f3a"):
+        assert nameless(f"read session://{name}/console") == "read session://…/console"
+    # Session names are compared as written: `Downloads` is a name, not the word.
+    for name in ("Downloads", "Console", "Files", "Site-Data", "CURRENT"):
+        assert nameless(f"'session://{name}/nothing'") == "'session://…/nothing'", name
+    # A placeholder an error text writes is kept as written.
+    for written in (
+        "session://<session>/downloads/<name>",
+        "session://<name>/network",
+        "session://{name}/console?level=error",
+        "session://{session}/downloads",
+    ):
+        assert nameless(f"use {written}.") == f"use {written}.", written
 
 
 def test_the_texts_name_no_session_and_point_both_ways():
@@ -781,3 +800,160 @@ def test_a_missing_request_or_site_names_both_listings_and_no_session():
 
     for text in (NETWORK_LISTINGS, network_request_at("3.7"), SITE_LISTINGS):
         assert "workspace://" in text and "session://{name}/" in text
+
+
+# ---- a name that starts with a reserved word, or is one capitalised ------------
+
+DL = "downloads-7f3a"
+DL_KEY = sessions.key_of(NAMED, DL)
+FAIL = B_SITE + "fail"
+
+
+def _with_session(server, monkeypatch, name, sid):
+    """``name`` open in `NAMED` on ``sid``, capturing, its page throwing as
+    `wired`'s do."""
+    key = sessions.key_of(NAMED, name)
+    store = server.workspaces.store
+    store.set(key, Workspace(session_id=sid, settings={"capture": True}, label=name))
+    store.update(NAMED, lambda r: replace(r, subs=[*r.subs, name]))
+    monkeypatch.setitem(SIDS, sid, key)
+    server.capture.attached(key, sid, "chrome", "top-1", again=False)
+    return key
+
+
+def _sessions_named(caplog, *needles):
+    """Every record of every logger naming any of ``needles``."""
+    return [
+        (r.name, line)
+        for r in caplog.records
+        for line in [r.getMessage() + " " + (r.exc_text or "")]
+        if any(n in line for n in needles)
+    ]
+
+
+async def test_a_failed_runs_note_never_names_a_downloads_like_session(
+    wired, caplog, monkeypatch
+):
+    """I1: `downloads-7f3a` is a name, so its note is nameless, in the run's
+    report, a REST refusal and every log line."""
+    _with_session(wired, monkeypatch, DL, "g-dl")
+    _with_session(wired, monkeypatch, "Downloads", "g-cap")
+    wired.flows.save(NAMED, "broken", {"steps": [
+        {"tool": "navigate", "args": {"url": FAIL}},
+    ]})
+    caplog.set_level(logging.DEBUG)
+    note = f"read session://{{name}}/console?level=error, {NAMELESS}."
+    async with Client(wired.mcp) as c:
+        for name in (DL, "Downloads"):
+            run = await c.call_tool("run_flow", {"name": "broken", "session": name})
+            [step] = run.structured_content["steps"]
+            assert step["error"].endswith(note), step["error"]
+            assert name not in step["error"]
+    client = TestClient(wired.mcp.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
+    for name in (DL, "Downloads"):
+        refused = client.post("/browser/navigate", json={"url": FAIL, "session": name})
+        assert refused.status_code >= 400, refused.text
+        assert refused.json()["error"].endswith(note), refused.text
+        ran = client.post("/flows/broken/runs", json={"session": name})
+        assert ran.json()["steps"][0]["error"].endswith(note), ran.text
+    assert _sessions_named(caplog, "7f3a", "session://Downloads") == []
+
+
+async def test_a_refused_address_names_no_session_on_any_surface(
+    wired, caplog, monkeypatch
+):
+    """I2: a listing given where a file goes is refused without the name, over
+    REST, as a flow step and over MCP; and the log never names it."""
+    _with_session(wired, monkeypatch, DL, "g-dl")
+    caplog.set_level(logging.DEBUG)
+    upload = {"selector": {"css": "input"}}
+    addresses = [
+        f"session://{DL}/downloads",
+        f"session://{DL}/console",
+        "session://Downloads/downloads",
+    ]
+    client = TestClient(wired.mcp.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
+    for uri in addresses:
+        refused = client.post("/browser/upload", json={**upload, "file": uri})
+        assert refused.status_code == 400, refused.text
+        assert "session://…" in refused.json()["error"], refused.text
+        assert DL not in refused.text and "Downloads/" not in refused.text
+    wired.flows.save(NAMED, "listing", {"steps": [
+        {"tool": "upload_file", "args": {**upload, "file": addresses[0]}},
+    ]})
+    ran = client.post("/flows/listing/runs", json={})
+    assert ran.json()["status"] == "failed", ran.text
+    async with Client(wired.mcp) as c:
+        for uri in addresses:
+            with pytest.raises(ToolError) as said:
+                await c.call_tool("keep_file", {"uri": uri})
+            assert "7f3a" not in str(said.value) and "Downloads/" not in str(said.value)
+    assert _sessions_named(caplog, "7f3a", "session://Downloads") == []
+
+
+async def test_an_error_texts_placeholders_reach_the_caller_as_written(server):
+    """M2: the mask keeps `<…>` and `{…}`, so a caller reads the shapes."""
+    async with Client(server.mcp) as c:
+        with pytest.raises(ToolError) as shapes:
+            await c.call_tool("keep_file", {"uri": "workspace://nowhere/x"})
+        assert "session://<session>/downloads/<name>" in str(shapes.value)
+        with pytest.raises(ToolError) as step:
+            await c.call_tool("save_flow", {"name": "n", "steps": [
+                {"tool": "network_body", "args": {"id": "1.1"}},
+            ]})
+        assert "session://<name>/network" in str(step.value)
+
+
+async def test_a_named_sessions_capture_off_says_how_for_that_session(server):
+    """M5: a named session's capture is turned on by naming it."""
+    store = server.workspaces.store
+    store.update(TESTER, lambda r: replace(r, settings={"capture": False}))
+    store.update(NAMED, lambda r: replace(r, settings={"capture": False}))
+    for uri in ("session://tester/console", "session://tester/network",
+                "session://tester/network?filter=failed", "session://default/console"):
+        off = await read(server, uri)
+        assert off == {"capture": False, "how": "open_session(session=…, capture=true)"}, uri
+    own = await read(server, "workspace://console")
+    assert own == {"capture": False, "how": "open_session(capture=true)"}
+
+
+# ---- a named session's reads, scrubbed with that session's secrets -------------
+
+OLD = "hunter2"
+
+
+class TextGrid(AliveGrid):
+    """Each browser has a text download that holds what was typed in it."""
+
+    def files(self, session_id):
+        return [{"name": f"{OLD}.txt", "size": 9, "creationTime": 1}]
+
+    def read_file(self, session_id, name):
+        return f"typed {OLD} at b".encode()
+
+
+async def test_a_named_sessions_download_is_scrubbed_with_its_own_secrets(
+    wired, tmp_path
+):
+    """M3: a value `tester` typed, rotated out of the catalogue since, is still
+    `tester`'s to hide: its download, its listing and keep_file of it are
+    scrubbed with `tester`'s forms, not the default's."""
+    wired.workspaces.actions.grid = TextGrid()
+    async with Client(wired.mcp) as c:
+        await c.call_tool("write", {**TYPED, "session": "tester"})
+        # A rotation: the value tester typed is no longer a secret's.
+        (tmp_path / "secrets" / "demo" / "password").write_text("hunter3")
+        wired.workspaces.scrubber._catalogue._cache = None
+        [content] = await c.read_resource(f"session://tester/downloads/{OLD}.txt")
+        assert OLD not in base64.b64decode(content.blob).decode(), "the download"
+        [listing] = await c.read_resource("session://tester/downloads")
+        assert OLD not in listing.text, "the listing"
+        kept = await c.call_tool("keep_file", {"uri": f"session://tester/downloads/{OLD}.txt"})
+        assert OLD not in json.dumps(kept.structured_content), "keep_file"
+        # The default never typed it: its own reads are as they were.
+        [mine] = await c.read_resource(f"session://downloads/{OLD}.txt")
+        assert OLD in base64.b64decode(mine.blob).decode()
+    client = TestClient(wired.mcp.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
+    kept = client.put(f"/files/downloads/{OLD}.txt/kept", json={"session": "tester"})
+    assert kept.status_code == 200, kept.text
+    assert OLD not in kept.text, "REST keep"

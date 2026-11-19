@@ -113,3 +113,6 @@ def network_request_at(id: str) -> str:
 
 # What every capture resource of a workspace that does not capture answers.
 OFF = {"capture": False, "how": "open_session(capture=true)"}
+# The same, read by a session's name: the name is left out, since a resource's
+# answer may be logged.
+NAMED_OFF = {"capture": False, "how": "open_session(session=…, capture=true)"}

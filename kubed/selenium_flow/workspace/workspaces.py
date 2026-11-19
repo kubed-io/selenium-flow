@@ -49,6 +49,7 @@ from dataclasses import dataclass, field, replace
 from typing import Literal, NamedTuple
 
 from .. import faults
+from ..capture import NAMED_OFF as CAPTURE_NAMED_OFF
 from ..capture import NETWORK_LISTINGS
 from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
@@ -713,6 +714,7 @@ class Workspaces:
         name: str,
         kind: Literal["console", "network", "request"],
         at: str = "",
+        named: bool = False,
         **query,
     ) -> dict:
         """What this workspace's browsers logged and fetched, as one view.
@@ -722,12 +724,13 @@ class Workspaces:
         nothing yet, answers with an empty view. ``capturing`` says whether the
         connection is held right now: false while it is being re-held, so a quiet
         buffer is not mistaken for a quiet page. A request read at ``at``
-        says so as its ``uri``.
+        says so as its ``uri``. Read by a session's name (``named``), the way
+        to turn it on names that session.
         """
         record = self.store.get(name)
         on = bool(record and (record.settings or {}).get("capture"))
         if self.capture is None or not on:
-            return dict(CAPTURE_STATE_OFF)
+            return dict(CAPTURE_NAMED_OFF if named else CAPTURE_STATE_OFF)
         if kind == "console":
             view = self.capture.console(name, **query)
             if view is None:

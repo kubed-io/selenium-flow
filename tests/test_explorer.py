@@ -121,6 +121,18 @@ def test_it_works_in_a_session_of_its_own():  # PLG-47
     assert "pass that same `session` on every call" in text
 
 
+def test_it_stops_on_a_pinned_connection():  # PLG-47
+    """A pinned connection refuses every call naming its session: the explorer
+    stops and says so, and never drops `session`, which would drive the main
+    agent's browser."""
+    text = " ".join(body().split())
+    assert "pinned to another session" in text
+    assert "Stop at the first one" in text
+    assert "under *Couldn't* that this connection is pinned to one session" in text
+    assert "Never drop `session`" in text
+    assert "drives the main agent's browser" in text
+
+
 async def test_it_names_the_skill_by_uri(server):  # spec test 4
     assert f"`{SKILL_URI}`" in body()
     async with Client(server.mcp) as client:

@@ -186,6 +186,12 @@ def named_in(uri) -> str | None:
     return sessions.valid_session_name(parts[0])
 
 
+def _quoted(text: str) -> str:
+    """An address as a refusal quotes it: nameless (`sessions.nameless`), since
+    a refusal's text is logged (WS-49, 3)."""
+    return sessions.nameless(repr(text))
+
+
 def parse_uri(uri) -> tuple[str, str]:
     """``(folder, name)`` for a file's address, or a ValueError naming the shapes.
 
@@ -205,14 +211,14 @@ def parse_uri(uri) -> tuple[str, str]:
         leaf = text[len(downloads):]
         if leaf and "/" not in leaf:
             return DOWNLOADS, valid_file_name(unquote(leaf))
-        raise ValueError(f"{text!r} is not a file: use {SHAPES}")
+        raise ValueError(f"{_quoted(text)} is not a file: use {SHAPES}")
     prefix = ROOT_URI + "/"
     parts = text[len(prefix):].split("/") if text.startswith(prefix) else []
     if len(parts) == 1 and parts[0] and parts[0] not in RESERVED:
         return FILES, valid_file_name(unquote(parts[0]))
     if len(parts) == 2 and parts[0] in (SCREENSHOTS, RECORDINGS) and parts[1]:
         return parts[0], valid_file_name(unquote(parts[1]))
-    raise ValueError(f"{text!r} is not a file: use {SHAPES}")
+    raise ValueError(f"{_quoted(text)} is not a file: use {SHAPES}")
 
 
 def _unreserved(name: str) -> str:
@@ -886,9 +892,10 @@ def register(
             if folder_of == DOWNLOADS
             else ""
         )
-        # A download's name is the site's: checked as its listing is.
+        # A download's name is the site's: checked as its listing is, with
+        # the secrets of the session it was downloaded in.
         return workspaces.scrubbed(
-            name,
+            key if folder_of == DOWNLOADS and key else name,
             lambda: keep(actions, workspaces, store, uri, name, session=key, at=at),
         )
 
@@ -933,15 +940,20 @@ def _routes(
         """The handler for one folder's listing."""
 
         async def list_folder(request: Request) -> JSONResponse:
-            return await answer(
-                request,
-                which,
-                lambda caller, _body: folder(
-                    actions, workspaces, store, token, caller.name, which,
-                    base=base, mount=prefix, ttl=ttl,
-                    session=session_of(caller, which),
-                ),
-            )
+            def listed(caller, _body):
+                key = session_of(caller, which)
+
+                def read():
+                    return folder(
+                        actions, workspaces, store, token, caller.name, which,
+                        base=base, mount=prefix, ttl=ttl, session=key,
+                    )
+
+                # Downloads are also checked with the secrets of their own
+                # session; `answer` checks with the workspace's.
+                return workspaces.scrubbed(key, read) if key else read()
+
+            return await answer(request, which, listed)
 
         return list_folder
 
@@ -967,12 +979,18 @@ def _routes(
                 )
             named = body.get("session")
             key = session_of(caller, which, named)
-            return keep(
-                actions, workspaces, store, uri_of(which, leaf), caller.name,
-                session=key,
-                at=kept_from(workspaces, caller, key, named)
-                if which == DOWNLOADS
-                else "",
-            )
+
+            def kept():
+                return keep(
+                    actions, workspaces, store, uri_of(which, leaf), caller.name,
+                    session=key,
+                    at=kept_from(workspaces, caller, key, named)
+                    if which == DOWNLOADS
+                    else "",
+                )
+
+            # A download is also checked with the secrets of the session it
+            # was downloaded in; `answer` checks with the workspace's.
+            return workspaces.scrubbed(key, kept) if key else kept()
 
         return await answer(request, "keep", call)

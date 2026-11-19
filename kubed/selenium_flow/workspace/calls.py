@@ -119,9 +119,11 @@ def total(
 
 def sentence(page: dict) -> str:
     """The hint as the note a failed call's error carries. A ``see`` into a
-    named session keeps its form and drops the name, since the note is logged."""
+    named session keeps its form and drops the name, since the note is logged.
+    A hint points at the console or the network, never at downloads, so every
+    ``session://`` see is a named one (`downloads-2` is a name too)."""
     see, named = page["see"], ""
-    if see.startswith("session://") and not see.startswith("session://downloads"):
+    if see.startswith("session://"):
         see = NAMED + see.removeprefix("session://").partition("/")[2]
         named = ", {name} being the session this call named"
     return (
