@@ -31,9 +31,12 @@ IN = {
     "run_flow",
     "save_flow",
     "execute_script",
-}
-OUT = {
     "end_browser",
+}
+# The host's resource reader (Claude Code's names), listed beside the
+# registered tools (PLG-46).
+HOST = {"ReadMcpResourceTool", "ToolSearch"}
+OUT = {
     "delete_flow",
     "resize",
     "save_site_data",
@@ -79,13 +82,13 @@ def test_it_loads_strictly(caplog):  # spec test 1
 
 async def test_every_listed_tool_exists(server):  # spec test 2
     registered = {t.name for t in await server.mcp.list_tools()}
-    assert set(front()["tools"]) <= registered
+    assert set(front()["tools"]) - HOST <= registered
 
 
 def test_the_tools_are_ruling_3s():  # spec test 3
     tools = front()["tools"]
     assert len(tools) == len(set(tools))
-    assert set(tools) == IN
+    assert set(tools) == IN | HOST
     assert not set(tools) & OUT
 
 
@@ -99,13 +102,23 @@ async def test_it_routes_as_medium(server):  # spec test 5
 def test_no_name_is_host_qualified():  # spec test 6, Review Focus 3
     text = (agents.agents_path() / "explorer.md").read_text(encoding="utf-8")
     assert "mcp__" not in text
-    assert all(re.fullmatch(r"[a-z_]+", t) for t in front()["tools"])
+    assert all(re.fullmatch(r"[a-z_]+", t) for t in set(front()["tools"]) - HOST)
 
 
 def test_the_description_carries_both_rules():  # spec test 9, Review Focus 5
     description = shipped().card["description"]
-    assert "do not call selenium-flow tools until it reports" in description
+    assert "in a session of its own" in description
+    assert "keep using your own browser" in description
+    assert "no sign-ins of its own" in description
     assert "you may submit the search form" in description
+
+
+def test_it_works_in_a_session_of_its_own():  # PLG-47
+    text = body()
+    assert "`explorer`" in text
+    assert "`open_session(session=…)`" in text
+    assert "`end_browser(session=…)`" in text
+    assert "pass that same `session` on every call" in text
 
 
 async def test_it_names_the_skill_by_uri(server):  # spec test 4
@@ -129,10 +142,14 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
     assert {
         SKILL_URI,
         "skill://selenium-flow/references/FLOWS.md",
-        "workspace://current",
+        "session://{name}",
+        "session://{name}/console",
+        "session://{name}/network",
         "flow://flows",
         "flow://flows/{name}",
     } <= named
+    # A scheme named only to be avoided, as `workspace://…`, is not a read.
+    named = {uri for uri in named if not uri.endswith("…")}
     async with Client(server.mcp) as client:
         served = {str(r.uri) for r in await client.list_resources()} | {
             # MCP SDK v2 renamed the field; the older one warns on the new SDK.

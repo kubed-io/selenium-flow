@@ -35,7 +35,8 @@ token has a subject that does not own the default gets its own sub-session
 instead, made on its first call and opened with `open_session`. A
 sub-session is another Grid browser in the same workspace, opened with
 `open_session(session="tester")` and reached by passing the same `session` to
-any tool or resource name.
+every tool call, and its state read at `session://tester/…`. A blank `session`
+is none: your own.
 
 | Fact | Holds |
 |---|---|
@@ -46,7 +47,8 @@ any tool or resource name.
 | Opening | only `open_session` opens a browser; a typo is refused and opens nothing |
 | Callers | callers that name the same session are one caller and take turns; a main agent gives each subagent its own name |
 | Pin | `?session=tester` on the MCP URL, or an `Sf-Session` header, fixes a connection to a session; a call naming another is refused |
-| Reading | `session://{name}` is that session as `workspace://current` is yours; `session://{name}/console`, `/network` and `/downloads` are its own |
+| Reading | `session://{name}` is that session as `workspace://current` is yours; `/console`, `/network`, `/network/{id}`, `/site-data`, `/site-data/{site}` and `/downloads` are its own; a result's `see` and `uri` already point at the session the call acted in |
+| Subagents | a subagent shares its main agent's connection, so `workspace://…` is the main agent's session; it reads its own at `session://<name>/…`, and in Claude Code only when its `tools:` lists `ReadMcpResourceTool` and `ToolSearch` |
 
 A flow runs in one session: the one its `run_flow` names. A person's control
 covers one session, so `await_control` takes the `session` a refused call
@@ -160,13 +162,14 @@ call fails, its error says it instead.
 
 What only the old page held is gone: scroll position, an open dropdown, an
 unsubmitted form. Check the page and redo any unsaved step. Until your next call
-after a reap, `workspace://current` shows `live: false`.
+after a reap, your session's context shows `live: false`.
 
 ## Ending a session
 
 `end_browser()` quits the browser and keeps the workspace: its settings and its
 page, so `open_session()` later returns there. The browser's downloads
-(`session://downloads`) go with it, so `keep_file` what you need first.
+(`session://downloads`, or `session://<name>/downloads`) go with it, so
+`keep_file` what you need first.
 Screenshots and prints are in the workspace's files from the moment they are
 taken.
 

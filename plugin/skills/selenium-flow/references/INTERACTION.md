@@ -92,8 +92,8 @@ upload_file(selector={"xpath": "//input[@type='file']"}, text='{"rows": 3}', fil
 ```
 
 Send content you wrote as `text`, unencoded. A file on the server's own disk
-cannot be uploaded; a file the workspace has goes by its `workspace://files` or
-`session://downloads` URI as `file`. The result has the `filename` and `bytes`
+cannot be uploaded; a file the workspace has goes by its `workspace://files`,
+`session://downloads` or `session://<name>/downloads` URI as `file`. The result has the `filename` and `bytes`
 attached.
 
 ## Iframes
@@ -109,7 +109,8 @@ frame(action="default")
 
 `parent` goes up one level. A `selector` wins over `index` when both are given.
 The switch sticks for every later call, so switch back as soon as you are done.
-When something obvious fails, check `in_frame` on `workspace://current`.
+When something obvious fails, check `in_frame` on `workspace://current`, or
+`session://<name>` in a named session.
 
 ## Tabs and popups
 

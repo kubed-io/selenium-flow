@@ -88,7 +88,9 @@ Session = Annotated[
     Field(
         description=(
             "Which session of this workspace to act in: a sub-session's name, or "
-            "default. Leave it out to act in your own. Only open_session opens one."
+            "default. Leave it out, or blank, to act in your own. Only open_session "
+            "opens one. A named session's state is session://<name>/…; "
+            "workspace:// is your own."
         )
     ),
 ]
@@ -325,8 +327,9 @@ def register(
         - record=true films this browser's whole life as a video; it appears under
           workspace://files/recordings shortly after it ends. A person watches it,
           so only when one will — it costs the Grid. capture=true keeps what the
-          page logs and fetches — workspace://console and workspace://network —
-          and a call that caused a page error says so in its result. An open
+          page logs and fetches — workspace://console and workspace://network,
+          session://<name>/console and /network for a named session — and a call
+          that caused a page error says so in its result. An open
           without capture=true forgets what was captured, so read those first when
           you are debugging. Neither is kept: ask again for the next browser.
         - fresh=true starts on about:blank. Saved site data comes back by default;
@@ -334,7 +337,8 @@ def register(
           start as a new user.
         - session="tester" opens a sub-session: a browser of its own beside the
           workspace's default, starting empty, that another call reaches with the
-          same session. It never ends another session's browser; others lists them.
+          same session; its state is session://tester/…. It never ends another
+          session's browser; others lists them.
 
         capabilities is the last resort, only for something no option above covers:
         extra W3C capabilities sent to the Grid as given, best effort, and
@@ -347,7 +351,8 @@ def register(
     @action("network_body")
     def network_body(id: RequestId, session: Session = None) -> dict:
         """Fetch the response body of one request the page made, by its id from
-        workspace://network (an id looks like 3.7). Text comes back up to 100 kB,
+        workspace://network, or from session://<name>/network with that same
+        session (an id looks like 3.7). Text comes back up to 100 kB,
         with truncated=true beyond that; for an image or other binary you get its
         type and size, not its bytes. The browser keeps bodies only while it lives,
         so read one soon after the request; it needs open_session(capture=true).
@@ -355,7 +360,7 @@ def register(
 
     @action("save_site_data")
     def save_site_data(url: str | None = None, session: Session = None) -> dict:
-        """Save this workspace's site data, so a new browser comes back signed in.
+        """Save this session's site data, so a new browser comes back signed in.
 
         It keeps every cookie the browser holds, the localStorage of the sites it has
         been to, and the sessionStorage of the page it is on. Call it right after a
@@ -366,9 +371,10 @@ def register(
         history (a day by default, 100 sites): one passed through inside a call is not
         read, and one last visited longer ago loses its storage at the next save, its
         cookies staying. Each save replaces the last, so a save after signing out
-        saves you signed out. Every browser opened for this workspace has it back before
+        saves you signed out. Every browser this session opens has it back before
         open_session returns, the one that replaces a reaped browser included. Values
-        are never returned; workspace://site-data lists what is saved.
+        are never returned; the result's uri lists what is saved: workspace://site-data,
+        or session://<name>/site-data for a named session.
         """
 
     @own("end_browser")
@@ -491,8 +497,8 @@ def register(
             "one level (parent), or back to the page (default).\n\n"
             "Elements inside a frame are invisible to every tool until you "
             "switch in, and the switch sticks for every later call. If a "
-            "selector that should work keeps failing, read workspace://current: "
-            "in_frame says where you are."
+            "selector that should work keeps failing, read workspace://current "
+            "(session://<name> for a named session): in_frame says where you are."
         ),
     )
     def frame(
@@ -571,7 +577,8 @@ def register(
 
         - text, for anything you wrote (JSON, CSV, markdown), with a filename;
         - file, by its uri: a file in workspace://files or its folders, or a
-          download from session://downloads — without its bytes passing through you;
+          download from session://downloads (the session this call acts in) or
+          session://<name>/downloads — without its bytes passing through you;
         - content, base64, for other binary.
 
         The page reads the type from the filename's extension, so name it

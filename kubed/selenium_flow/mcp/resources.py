@@ -27,7 +27,8 @@ CAPTURE_KEPT = (
 )
 
 DESCRIPTION = (
-    "The workspace this client named, and the session (browser) open in it.\n\n"
+    "The workspace this client named, and your own session (browser) in it. "
+    "Any session, by name, is session://{name}.\n\n"
     "Returns the workspace name, which browser it is, the page it is on, the "
     "window size as WxH, whether it is inside a frame, and whether a session is "
     "currently open (live). Read it before judging anything about layout — the "
@@ -176,7 +177,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     @mcp.resource(
         f"{SESSION_URI}/console{{?level,pages}}",
         name="Session Console, narrowed",
-        description=CONSOLE_DESCRIPTION,
+        description=SESSION_CONSOLE_DESCRIPTION,
         mime_type="application/json",
     )
     def session_console_query_resource(
@@ -189,7 +190,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     @mcp.resource(
         f"{SESSION_URI}/console",
         name="Session Console",
-        description=CONSOLE_DESCRIPTION,
+        description=SESSION_CONSOLE_DESCRIPTION,
         mime_type="application/json",
     )
     def session_console_resource(name: str) -> dict:
@@ -200,7 +201,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     @mcp.resource(
         f"{SESSION_URI}/network{{?filter,pages}}",
         name="Session Network, narrowed",
-        description=NETWORK_DESCRIPTION,
+        description=SESSION_NETWORK_DESCRIPTION,
         mime_type="application/json",
     )
     def session_network_query_resource(
@@ -213,7 +214,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     @mcp.resource(
         f"{SESSION_URI}/network",
         name="Session Network",
-        description=NETWORK_DESCRIPTION,
+        description=SESSION_NETWORK_DESCRIPTION,
         mime_type="application/json",
     )
     def session_network_resource(name: str) -> dict:
@@ -222,7 +223,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     @mcp.resource(
         f"{SESSION_URI}/network/{{id}}",
         name="Session Request",
-        description=REQUEST_DESCRIPTION,
+        description=SESSION_REQUEST_DESCRIPTION,
         mime_type="application/json",
     )
     def session_request_resource(name: str, id: str) -> dict:
@@ -233,7 +234,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     @mcp.resource(
         f"{SESSION_URI}/site-data",
         name="Session Site Data",
-        description=SITE_DESCRIPTION,
+        description=SESSION_SITE_DESCRIPTION,
         mime_type="application/json",
     )
     def session_site_data_resource(name: str) -> dict:
@@ -244,7 +245,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
     @mcp.resource(
         f"{SESSION_URI}/site-data/{{site}}",
         name="Session Site Data for One Site",
-        description=ONE_SITE_DESCRIPTION,
+        description=SESSION_ONE_SITE_DESCRIPTION,
         mime_type="application/json",
     )
     def session_one_site_resource(name: str, site: str) -> dict:
@@ -260,7 +261,8 @@ CONSOLE_DESCRIPTION = (
     "over earlier pages. debug entries are counted, not kept. dropped, when "
     "present, counts events lost in a flood, so some may be missing. Present "
     "only for a workspace opened with open_session(capture=true); otherwise it "
-    "says so. Reading this never opens a browser. " + CAPTURE_KEPT
+    "says so. Reading this never opens a browser. " + CAPTURE_KEPT + " This is "
+    "your own session's; session://{name}/console is another's."
 )
 
 NETWORK_DESCRIPTION = (
@@ -272,7 +274,8 @@ NETWORK_DESCRIPTION = (
     "credentials too long to mask, which an echo may show. "
     "workspace://network/{id} shows one with its headers; network_body(id) "
     "fetches its response body while the browser lives. Credentials are shown "
-    "as \u2022\u2022\u2022. " + CAPTURE_KEPT
+    "as \u2022\u2022\u2022. " + CAPTURE_KEPT + " This is your own session's; "
+    "session://{name}/network is another's."
 )
 
 REQUEST_DESCRIPTION = (
@@ -282,10 +285,11 @@ REQUEST_DESCRIPTION = (
 )
 
 SITE_DESCRIPTION = (
-    "What this workspace's last save_site_data holds: one entry per site with "
+    "What your session's last save_site_data holds: one entry per site with "
     "counts, never a value; the sites the workspace went to come first. Every "
-    "browser this workspace opens has it back before open_session returns.\n\n"
-    "workspace://site-data/{site} shows one site in full. Reading this never "
+    "browser this session opens has it back before open_session returns.\n\n"
+    "workspace://site-data/{site} shows one site in full; "
+    "session://{name}/site-data is another session's. Reading this never "
     "opens a browser."
 )
 
@@ -300,8 +304,44 @@ ONE_SITE_DESCRIPTION = (
 SESSION_DESCRIPTION = (
     "One session of this workspace, by name: the same answer as "
     "workspace://current, for that session instead of yours. default is the "
-    "workspace's own; workspace://current's sessions lists the rest. A name "
-    "with no session is not found. Reading this never opens a browser."
+    "workspace's own; workspace://current's sessions lists the rest. Its "
+    "console, network, site data and downloads are session://{name}/console, "
+    "/network, /site-data and /downloads. A name with no session is not "
+    "found. Reading this never opens a browser."
+)
+
+NOT_FOUND = " A name with no session is not found."
+
+SESSION_CONSOLE_DESCRIPTION = (
+    "One session's console, by name, as workspace://console reads yours: "
+    "?level= and ?pages= narrow it the same, and it needs "
+    "open_session(session=name, capture=true)." + NOT_FOUND
+)
+
+SESSION_NETWORK_DESCRIPTION = (
+    "One session's requests, by name, as workspace://network lists yours, "
+    "?filter= and ?pages= included. session://{name}/network/{id} shows one "
+    "with its headers; network_body(id, session=name) fetches its response "
+    "body while the browser lives." + NOT_FOUND
+)
+
+SESSION_REQUEST_DESCRIPTION = (
+    "One of a session's captured requests in full, by name, as "
+    "workspace://network/{id} shows yours. network_body(id, session=name) "
+    "fetches its response body." + NOT_FOUND
+)
+
+SESSION_SITE_DESCRIPTION = (
+    "What one session's last save_site_data holds, by name, as "
+    "workspace://site-data lists yours: counts, never a value. "
+    "session://{name}/site-data/{site} shows one site in full. Reading this "
+    "never opens a browser." + NOT_FOUND
+)
+
+SESSION_ONE_SITE_DESCRIPTION = (
+    "One site of a session's saved data, by name, as "
+    "workspace://site-data/{site} shows yours; httpOnly values masked. The "
+    "site is a host from the session://{name}/site-data listing." + NOT_FOUND
 )
 
 

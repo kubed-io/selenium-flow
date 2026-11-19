@@ -82,7 +82,8 @@ Session = Annotated[
     Field(
         description=(
             "Which session's downloads a session://downloads uri is read from: a "
-            "sub-session's name, or default. Leave it out for your own."
+            "sub-session's name, or default. Leave it out, or blank, for your own. "
+            "A session://<name>/downloads uri already names its session."
         )
     ),
 ]
@@ -140,8 +141,8 @@ NO_DOWNLOADS = (
 DESCRIPTION = (
     "The files in Files: prints, and anything kept with keep_file. Also names "
     "two folders — workspace://files/screenshots and workspace://files/recordings "
-    "— each with its own listing. The open browser's downloads are "
-    "session://downloads.\n\n"
+    "— each with its own listing. Your session's downloads are "
+    "session://downloads, a named session's session://{name}/downloads.\n\n"
     "Every entry carries its own uri, to keep with keep_file(uri), and a URL "
     "that opens in a browser for a while, so an image can be shown to someone "
     "rather than described to them."
@@ -655,8 +656,8 @@ FOLDER_DESCRIPTION = {
         "reading one by its uri answers that entry, not the video."
     ),
     DOWNLOADS: (
-        "The downloads of the session open in this workspace. They belong to "
-        "the browser and "
+        "Your own session's downloads; session://{name}/downloads lists "
+        "another's. They belong to the browser and "
         f"disappear when it ends or the Grid reaps it; {KEEP_TOOL}(uri) copies "
         f"one into {ROOT_URI} before that happens. With no session open, "
         "reading it says so."
@@ -855,15 +856,16 @@ def register(
         name=KEEP_TOOL,
         description=(
             "Keep one file in Files, where it stays until a person deletes it.\n\n"
-            "uri is as workspace://files, its folders and session://downloads "
-            "list it. A screenshot "
+            "uri is as workspace://files, its folders, session://downloads and "
+            "session://<name>/downloads list it. A screenshot "
             "or a recording moves out of its folder and lands beside a "
             "same-named file as name (1); a download is copied, since the "
             "browser keeps its own until it ends, and REPLACES a same-named "
             "file in Files. The result is the file's new uri. "
             "upload_file(file=uri) puts any file back into a page.\n\n"
-            "A download is your session's, or the one session names: every "
-            "session has a browser, and so downloads, of its own."
+            "A session://downloads uri is your session's download, or the one "
+            "session names; a session://<name>/downloads uri already names its "
+            "session. Every session has a browser, and so downloads, of its own."
         ),
         annotations=hints("Keep a file in Files", destructive=True, idempotent=False),
     )

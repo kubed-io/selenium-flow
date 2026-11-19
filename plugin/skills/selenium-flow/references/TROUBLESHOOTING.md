@@ -11,7 +11,7 @@ dismiss, an invisible cover or a sibling), no size, outside the viewport
 The error names what it waited for, for how long, and the page the browser was
 on. If that is not the page you meant, the selector was never the problem: put
 the page on the call as `url=` and try again. `workspace://current` also
-reports the URL.
+reports the URL (`session://<name>` in a named session).
 
 If the page is right, in order of likelihood:
 
@@ -31,15 +31,16 @@ as a sentence on its error. It is often the real diagnosis: the click landed and
 the page threw.
 
 1. Read what `see` names: `workspace://console?level=error` or
-   `workspace://network?filter=failed`.
-2. For a request, read `workspace://network/{id}`, then `network_body(id)` for
-   the response.
+   `workspace://network?filter=failed`. For a call in a named session it
+   already names it: `session://<name>/console?level=error`.
+2. For a request, read `workspace://network/{id}` (`session://<name>/network/{id}`),
+   then `network_body(id)` for the response, with the same `session`.
 
 Warnings and failed images are never hinted, but they are in the buffers. On
 Chrome a `fetch` whose body the page never reads reports its failure late or
 never, so when a call looks wrong and says nothing, check
 `workspace://network?filter=failed`, and `workspace://network` for a request
-with no status yet.
+with no status yet; in a named session, `session://<name>/network`.
 
 All of this needs `open_session(capture=true)`. An `open_session()` without it
 turns capture off and forgets what was captured, so read the console and network

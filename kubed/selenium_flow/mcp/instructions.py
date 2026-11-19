@@ -30,6 +30,12 @@ the default is Chrome. Every other tool behaves identically on both.
 scarce resource and an abandoned one holds a slot until the Grid reaps it. Your \
 workspace survives it, so open_session picks up where you left off.
 
+A workspace can hold more sessions, each a browser of its own. To work in a \
+named one, pass its session on every call: a call without it acts in your own. \
+Its state is session://<name>/… (console, network, site-data, downloads), and \
+a result's see or uri already names it. workspace:// is the connection's own \
+session: for a subagent on its main agent's connection, the main agent's.
+
 Elements are addressed by XPath or by CSS - pass one or the other, never \
 both: selector={{"xpath": "//input[@name='q']"}} or \
 selector={{"css": "input[name=q]"}}.

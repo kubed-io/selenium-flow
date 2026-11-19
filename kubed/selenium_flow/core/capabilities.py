@@ -299,7 +299,10 @@ BODY_RESPONSE = {
         "id": {"type": "string", "description": "The request id that was asked for."},
         "uri": {
             "type": "string",
-            "description": "workspace://network/{id}, which shows the request itself.",
+            "description": (
+                "The request's own view: workspace://network/{id}, or "
+                "session://{name}/network/{id} for a session not your own."
+            ),
         },
         "mime": {"type": "string", "description": "The response's content type."},
         "size": {
@@ -963,7 +966,10 @@ CAPABILITIES: tuple[Capability, ...] = (
             },
             uri={
                 "type": "string",
-                "description": "workspace://site-data, which lists what is saved.",
+                "description": (
+                    "Where what is saved is listed: workspace://site-data, or "
+                    "session://{name}/site-data for a session not your own."
+                ),
             },
         ),
     ),
