@@ -16,6 +16,7 @@ from ... import faults
 from ...site_data import snapshot as site_data
 from ...workspace.store import Workspace
 from .. import answer
+from .workspaces import known_session
 
 log = logging.getLogger(__name__)
 
@@ -106,10 +107,17 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         those are History's."""
         key = request.path_params["key"]
         try:
+            _session, named = await run_in_threadpool(
+                known_session, workspaces, key, request
+            )
             record = await run_in_threadpool(workspaces.store.get, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"site data for {key}", log)
-        data, history = (record.site_data, record.history) if record else ({}, [])
+        # The picked session's own pages order the hosts: another session's
+        # visits are its tab's (UI-65).
+        data, history = (
+            (record.site_data, record.entries(named)) if record else ({}, [])
+        )
         listed, details = site_data.views(data, history)
         return JSONResponse({"key": key, **listed, "details": details})
 

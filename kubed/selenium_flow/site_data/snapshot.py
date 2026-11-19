@@ -341,8 +341,9 @@ def site_view(data: dict, site: str) -> dict | None:
 
 def history_view(history, data: dict, secrets: list[dict] | None = None) -> dict:
     """The History tab: one row per host the workspace landed on, the current
-    one first, each with its latest URL and when, what the snapshot holds for
-    it (None when nothing), and the secrets allowed there.
+    one first, each with its latest URL and when, the session that went
+    there, what the snapshot holds for it (None when nothing), and the
+    secrets allowed there.
 
     Secrets join a row and never make one: a host the workspace never reached
     is not listed, whatever a secret allows.
@@ -359,6 +360,8 @@ def history_view(history, data: dict, secrets: list[dict] | None = None) -> dict
                 "site": host,
                 "url": latest[host]["url"],
                 "at": latest[host]["at"],
+                # An entry from before sessions were named is the default's.
+                "session": latest[host].get("session", "default"),
                 "saved": {
                     "cookies": row["cookies"],
                     "local": sum(e["local_storage"] for e in row["storage"]),

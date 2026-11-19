@@ -21,8 +21,9 @@ from starlette.responses import JSONResponse, Response
 
 from ...core.actions import BODY_CLOSED, cut_body
 from ...faults import NotFound
+from ...workspace import sessions
 from .. import answer, links
-from .workspaces import HEARTBEAT
+from .workspaces import HEARTBEAT, known_session, session_key
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +33,8 @@ KINDS = ("console", "network")
 
 def tail_path(key: str) -> str:
     """The unprefixed path a tail link for ``key`` is signed over, the key
-    quoted as it is on the wire, so a link for one workspace opens no other."""
+    quoted as it is on the wire, so a link for one workspace opens no other. A
+    sub-session's key is signed over too, so a link opens no other session."""
     return TAIL_PATH.format(key=quote(key, safe=""))
 
 
@@ -59,18 +61,31 @@ class _Stream(EventSourceResponse):
 def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> None:
     """Mount console, network, one request, its body, and the live tail."""
 
-    def tail_url(key: str) -> str:
-        path = tail_path(key)
-        return prefix + (links.sign(path, token) if token else path)
+    def tail_url(key: str, name: str) -> str:
+        """The tail's URL for session ``name`` of workspace ``key``: its path
+        names the workspace, ``?session=`` the session unless it is the
+        default, and the link is signed over the session's own key, so it opens
+        no other."""
+        path = tail_path(sessions.key_of(key, name))
+        signed = links.sign(path, token) if token else ""
+        parts = []
+        if name != sessions.DEFAULT:
+            parts.append(f"session={quote(name, safe='')}")
+        if signed:
+            parts.append(signed.partition("?")[2])
+        return prefix + tail_path(key) + ("?" + "&".join(parts) if parts else "")
 
     async def view(request: Request, kind: str, *names: str, **fixed) -> JSONResponse:
-        key = request.path_params["key"]
+        workspace = request.path_params["key"]
         query = {
             name: request.query_params[name]
             for name in names
             if name in request.query_params
         }
         try:
+            key, named = await run_in_threadpool(
+                known_session, workspaces, workspace, request
+            )
             shown = await run_in_threadpool(
                 workspaces.captured, key, kind, **query, **fixed
             )
@@ -78,7 +93,7 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
             return answer.refused(exc, f"captured {kind}", log)
         # Minted here so only a caller the admin door admitted ever holds one.
         if kind in KINDS and shown.get("capture"):
-            shown = {**shown, "tail_url": tail_url(key)}
+            shown = {**shown, "tail_url": tail_url(workspace, named)}
         return JSONResponse(shown)
 
     @mcp.custom_route(
@@ -125,9 +140,10 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
         (`cut_body`): the action returns it whole.
         """
         try:
-            session_id = await run_in_threadpool(
-                workspaces.browser, request.path_params["key"]
+            key, _named = await run_in_threadpool(
+                known_session, workspaces, request.path_params["key"], request
             )
+            session_id = await run_in_threadpool(workspaces.browser, key)
             if not session_id:
                 raise NotFound(BODY_CLOSED)
             body = await run_in_threadpool(
@@ -144,12 +160,18 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
         """Rows as they land, one ``data:`` per row; ``{"dropped": n}`` when the
         server-side queue overflowed. Each event is one ``json.dumps``, which
         escapes newlines, so a captured value cannot forge a frame."""
-        key = request.path_params["key"]
+        try:
+            key, _named = session_key(request.path_params["key"], request)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
         refusal = await answer.stream_door(request, tail_path(key), token, door)
         if refusal is not None:
             return refusal
         kind = request.query_params.get("kind")
         try:
+            await run_in_threadpool(
+                known_session, workspaces, request.path_params["key"], request
+            )
             subscription = capture.tail(key, kind)  # a ValueError for a bad kind
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, "capture tail", log)

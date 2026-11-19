@@ -218,10 +218,10 @@ def test_the_history_is_one_row_per_host_current_first_with_counts_and_secrets()
                     origins={APP: {"a": "1", "b": "2"}})
     assert sd.history_view(history, data, SECRETS) == {"sites": [
         {"site": "app.example.com", "url": "https://app.example.com/x", "at": NOW - 60,
-         "saved": {"cookies": 2, "local": 2, "session": 0},
+         "session": "default", "saved": {"cookies": 2, "local": 2, "session": 0},
          "secrets": [{"name": "app", "description": "the app", "keys": ["user", "pass"]}]},
         {"site": "example.com", "url": "https://example.com/", "at": NOW - 3600,
-         "saved": None, "secrets": []},
+         "session": "default", "saved": None, "secrets": []},
     ]}
 
 

@@ -15,22 +15,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ...names import library_of
-from ...workspace import sessions
 from .. import answer
 from .. import files as stored
-from .workspaces import attached_id, header, library
+from .workspaces import attached_id, header, library, session_key
 
 log = logging.getLogger(__name__)
-
-
-def session_key(key: str, request: Request) -> tuple[str, str]:
-    """The session ``?session=`` names in the workspace ``key``, as ``(its
-    key, its name)``: the default when absent, a ValueError (a 400) for a name
-    that cannot be one."""
-    named = request.query_params.get("session") or sessions.DEFAULT
-    if named != sessions.DEFAULT:
-        named = sessions.valid_session_name(named)
-    return sessions.key_of(key, named), named
 
 
 def mount(
