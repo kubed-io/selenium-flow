@@ -23,6 +23,7 @@ from starlette.responses import JSONResponse
 from .. import errors, faults
 from ..faults import TooLarge
 from ..principal import ADMIN, Principal
+from ..workspace.sessions import nameless
 from ..workspace.workspaces import Caller, values_of
 from . import auth, links
 
@@ -86,12 +87,13 @@ def as_response(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
     """One failure, as the status and message ``errors`` says it deserves.
 
     Logged to the caller's logger, so the record names the module that failed.
-    Only a 500 gets a traceback; a refusal is one INFO line.
+    Only a 500 gets a traceback; a refusal is one INFO line. Neither, nor the
+    answer, names a sub-session (`sessions.nameless`), as MCP's do not.
     """
     status = errors.status_for(exc)
-    text = faults.message(exc)
+    text = nameless(faults.message(exc))
     if status == 500:
-        log.error("%s failed\n%s", what, faults.formatted(exc))
+        log.error("%s failed\n%s", what, nameless(faults.formatted(exc)))
     elif status > 500:
         log.warning("%s unavailable (%s): %s", what, status, text)
     else:
@@ -104,10 +106,11 @@ def refused(exc: Exception, what: str, log: logging.Logger) -> JSONResponse:
 
     Every status logs at INFO, with the path a filesystem failure names, so an
     operator knows which mount. The body gives such a failure by its strerror
-    and type, keeping DATA_DIR's layout out of it.
+    and type, keeping DATA_DIR's layout out of it. Neither names a
+    sub-session (`sessions.nameless`).
     """
     status = errors.status_for(exc)
-    text = faults.message(exc)
+    text = nameless(faults.message(exc))
     log.info("%s refused (%s): %s", what, status, text)
     if isinstance(exc, OSError) and exc.filename:
         text = f"{exc.strerror or type(exc).__name__} ({type(exc).__name__})"

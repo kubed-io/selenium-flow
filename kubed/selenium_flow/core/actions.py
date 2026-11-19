@@ -30,7 +30,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.print_page_options import PrintOptions
 
 from ..bidi.connection import REPLY_TIMEOUT, BidiError, MessageTooBig
-from ..capture import NETWORK_URI
+from ..capture import NETWORK_LISTINGS, NETWORK_URI, network_request_at
 from ..errors import GONE, UNAVAILABLE
 from ..faults import (
     BidiUnavailable,
@@ -1849,12 +1849,14 @@ class Actions:
         caller scrubs it, then cuts it (`cut_body`).
         """
         if not isinstance(id, str) or not 0 < len(id) <= ID_LIMIT:
-            raise ValueError(f"id is a request id from {NETWORK_URI}, like 3.7")
+            raise ValueError(f"id is a request id like 3.7: {NETWORK_LISTINGS}")
         located = (
             None if self.capture is None else self.capture.request_for(session_id, id)
         )
         if located is None:
-            raise ValueError(f"no captured request {id!r}: {NETWORK_URI} lists them")
+            raise ValueError(
+                f"no captured request {id!r}: {NETWORK_LISTINGS}"
+            )
         if located.session_id != session_id:
             raise NotFound(_body_ended(id))
         answer = {
@@ -1873,7 +1875,7 @@ class Actions:
                 f"request {id}'s body is {located.size / 1e6:.1f} MB, too large to "
                 f"fetch: the browser holds it, but bodies over "
                 f"{BODY_FETCH_LIMIT // 1_000_000} MB are not read from it. "
-                f"{NETWORK_URI}/{id} has its headers and size"
+                f"its headers and size are at {network_request_at(id)}"
             )
         try:
             with self.channels.open_channel(session_id, private=True) as channel:
@@ -1887,7 +1889,7 @@ class Actions:
             raise ValueError(
                 f"request {id}'s body could not be read: the browser sent a "
                 f"message too large to read while fetching this body. "
-                f"{NETWORK_URI}/{id} has its headers and size"
+                f"its headers and size are at {network_request_at(id)}"
             ) from None
         except BidiError as exc:
             # The browser's own words are never passed on: they can carry paths.

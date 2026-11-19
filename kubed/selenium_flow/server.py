@@ -357,7 +357,7 @@ class SeleniumMCP:
             ttl=settings.link_ttl,
         )
         # For `upload_file(file=...)`: a download is the session the call acts
-        # in, the rest the workspace's.
+        # in, or the one its URI names, the rest the workspace's.
         self.actions.read_file = lambda uri, workspace=None: files.read_file(
             self.actions,
             self.workspaces,

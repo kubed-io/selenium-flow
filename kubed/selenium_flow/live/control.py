@@ -497,8 +497,11 @@ async def await_control(
     *,
     cap: float | None,
     surface: str = "mcp",
+    own: str | None = None,
 ) -> dict:
-    """`await_control`'s one body, for both surfaces.
+    """`await_control`'s one body, for both surfaces. ``own`` is the caller's
+    own session (`Workspaces.own`), which the summary's pointers name ``name``
+    from.
 
     Waits for the workspace's episode to end, up to ``cap`` (None: until it
     does, as a background task). With nobody in control it answers at once,
@@ -516,7 +519,9 @@ async def await_control(
     told = None if episode is None else handed(episode)
     try:
         summary = await anyio.to_thread.run_sync(
-            functools.partial(workspaces.handed_back, name, told, surface=surface)
+            functools.partial(
+                workspaces.handed_back, name, told, surface=surface, own=own
+            )
         )
     except asyncio.CancelledError:
         # A task is marked cancelled a moment before its coroutine is, so a

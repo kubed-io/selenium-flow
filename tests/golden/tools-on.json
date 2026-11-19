@@ -35,7 +35,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "stable_for": {
           "default": 0,
@@ -86,7 +86,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         }
       },
       "type": "object"
@@ -148,7 +148,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "text": {
           "anyOf": [
@@ -257,7 +257,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "to": {
           "anyOf": [
@@ -340,7 +340,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         }
       },
       "type": "object"
@@ -372,7 +372,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -454,7 +454,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -484,7 +484,7 @@
       "read_only_hint": false,
       "title": "Switch into or out of an iframe"
     },
-    "description": "Move into an iframe (switch, with a selector or an index), up one level (parent), or back to the page (default).\n\nElements inside a frame are invisible to every tool until you switch in, and the switch sticks for every later call. If a selector that should work keeps failing, read workspace://current: in_frame says where you are.",
+    "description": "Move into an iframe (switch, with a selector or an index), up one level (parent), or back to the page (default).\n\nElements inside a frame are invisible to every tool until you switch in, and the switch sticks for every later call. If a selector that should work keeps failing, read workspace://current (session://<name> for a named session): in_frame says where you are.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -557,7 +557,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "wait_timeout": {
           "default": 30,
@@ -643,7 +643,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -676,7 +676,7 @@
       "read_only_hint": false,
       "title": "Keep a file in Files"
     },
-    "description": "Keep one file in Files, where it stays until a person deletes it.\n\nuri is as workspace://files, its folders and session://downloads list it. A screenshot or a recording moves out of its folder and lands beside a same-named file as name (1); a download is copied, since the browser keeps its own until it ends, and REPLACES a same-named file in Files. The result is the file's new uri. upload_file(file=uri) puts any file back into a page.\n\nA download is your session's, or the one session names: every session has a browser, and so downloads, of its own.",
+    "description": "Keep one file in Files, where it stays until a person deletes it.\n\nuri is as workspace://files, its folders, session://downloads and session://<name>/downloads list it. A screenshot or a recording moves out of its folder and lands beside a same-named file as name (1); a download is copied, since the browser keeps its own until it ends, and REPLACES a same-named file in Files. The result is the file's new uri. upload_file(file=uri) puts any file back into a page.\n\nA session://downloads uri is your session's download, or the one session names; a session://<name>/downloads uri already names its session. Every session has a browser, and so downloads, of its own.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -690,7 +690,7 @@
             }
           ],
           "default": null,
-          "description": "Which session's downloads a session://downloads uri is read from: a sub-session's name, or default. Leave it out for your own."
+          "description": "Which session's downloads a session://downloads uri is read from: a sub-session's name, or default. Leave it out, or blank, for your own. A session://<name>/downloads uri already names its session."
         },
         "uri": {
           "type": "string"
@@ -725,7 +725,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "type": "string"
@@ -746,7 +746,7 @@
       "read_only_hint": true,
       "title": "Fetch a response body"
     },
-    "description": "Fetch the response body of one request the page made, by its id from\nworkspace://network (an id looks like 3.7). Text comes back up to 100 kB,\nwith truncated=true beyond that; for an image or other binary you get its\ntype and size, not its bytes. The browser keeps bodies only while it lives,\nso read one soon after the request; it needs open_session(capture=true).",
+    "description": "Fetch the response body of one request the page made, by its id from\nworkspace://network, or from session://<name>/network with that same\nsession (an id looks like 3.7). Text comes back up to 100 kB,\nwith truncated=true beyond that; for an image or other binary you get its\ntype and size, not its bytes. The browser keeps bodies only while it lives,\nso read one soon after the request; it needs open_session(capture=true).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -765,7 +765,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         }
       },
       "required": [
@@ -783,7 +783,7 @@
       "read_only_hint": false,
       "title": "Open browser session"
     },
-    "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it opens a browser from the server's and your connection's\ndefaults, plus the options you passed before, and goes back to the page you were\non: the right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nThe options:\n- browser is chrome (default) or firefox. version=\"152\" asks the Grid for\n  that version, and the result's version says which one ran;\n  version=\"latest\" forgets a remembered one, and switching browser forgets\n  it too.\n- width and height set the window when layout matters; the default\n  window is narrow. page_load_timeout bounds a navigation that hangs,\n  script_timeout a script. insecure=true accepts a self-signed certificate;\n  use it only for a site you know has one, and an insecure browser gets no\n  saved site data. Everything above is remembered when you pass it; one you\n  leave out comes from the server's and your connection's defaults, read at\n  each open.\n- headless=true opens a browser that draws nothing on the node's screen, which\n  is quicker. It cannot be recorded and nobody can watch it live, and sites'\n  bot checks spot it more easily, so leave it off for real sites. Remembered\n  like the options above until you pass headless=false.\n- record=true films this browser's whole life as a video; it appears under\n  workspace://files/recordings shortly after it ends. A person watches it,\n  so only when one will — it costs the Grid. capture=true keeps what the\n  page logs and fetches — workspace://console and workspace://network —\n  and a call that caused a page error says so in its result. An open\n  without capture=true forgets what was captured, so read those first when\n  you are debugging. Neither is kept: ask again for the next browser.\n- fresh=true starts on about:blank. Saved site data comes back by default;\n  restore_site_data=false opens without it and deletes it, which is how you\n  start as a new user.\n- session=\"tester\" opens a sub-session: a browser of its own beside the\n  workspace's default, starting empty, that another call reaches with the\n  same session. It never ends another session's browser; others lists them.\n\ncapabilities is the last resort, only for something no option above covers:\nextra W3C capabilities sent to the Grid as given, best effort, and\nremembered whole; {} forgets them. A key an option controls is refused\nwith the option to use. Inside goog:chromeOptions or moz:firefoxOptions\nyour args and prefs are added to selenium-flow's, and the result's ignored\nlists any of yours that lost.",
+    "description": "Start a session in this workspace, or come back to the one it had. Call it\nbefore anything else: nothing opens a browser for you.\n\nWith no arguments it opens a browser from the server's and your connection's\ndefaults, plus the options you passed before, and goes back to the page you were\non: the right call after a browser was reaped or ended. Calling it while you\nhold a browser ends that one first, which is how you switch:\nopen_session(browser=\"firefox\"). Files that browser had and you did not keep\ngo with it.\n\nThe options:\n- browser is chrome (default) or firefox. version=\"152\" asks the Grid for\n  that version, and the result's version says which one ran;\n  version=\"latest\" forgets a remembered one, and switching browser forgets\n  it too.\n- width and height set the window when layout matters; the default\n  window is narrow. page_load_timeout bounds a navigation that hangs,\n  script_timeout a script. insecure=true accepts a self-signed certificate;\n  use it only for a site you know has one, and an insecure browser gets no\n  saved site data. Everything above is remembered when you pass it; one you\n  leave out comes from the server's and your connection's defaults, read at\n  each open.\n- headless=true opens a browser that draws nothing on the node's screen, which\n  is quicker. It cannot be recorded and nobody can watch it live, and sites'\n  bot checks spot it more easily, so leave it off for real sites. Remembered\n  like the options above until you pass headless=false.\n- record=true films this browser's whole life as a video; it appears under\n  workspace://files/recordings shortly after it ends. A person watches it,\n  so only when one will — it costs the Grid. capture=true keeps what the\n  page logs and fetches — workspace://console and workspace://network,\n  session://<name>/console and /network for a named session — and a call\n  that caused a page error says so in its result. An open\n  without capture=true forgets what was captured, so read those first when\n  you are debugging. Neither is kept: ask again for the next browser.\n- fresh=true starts on about:blank. Saved site data comes back by default;\n  restore_site_data=false opens without it and deletes it, which is how you\n  start as a new user.\n- session=\"tester\" opens a sub-session: a browser of its own beside the\n  workspace's default, starting empty, that another call reaches with the\n  same session; its state is session://tester/…. It never ends another\n  session's browser; others lists them.\n\ncapabilities is the last resort, only for something no option above covers:\nextra W3C capabilities sent to the Grid as given, best effort, and\nremembered whole; {} forgets them. A key an option controls is refused\nwith the option to use. Inside goog:chromeOptions or moz:firefoxOptions\nyour args and prefs are added to selenium-flow's, and the result's ignored\nlists any of yours that lost.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -909,7 +909,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -1018,7 +1018,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "text": {
           "anyOf": [
@@ -1115,7 +1115,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -1189,7 +1189,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -1240,7 +1240,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "width": {
           "anyOf": [
@@ -1295,7 +1295,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "verbose": {
           "default": false,
@@ -1431,7 +1431,7 @@
       "read_only_hint": false,
       "title": "Save site data"
     },
-    "description": "Save this workspace's site data, so a new browser comes back signed in.\n\nIt keeps every cookie the browser holds, the localStorage of the sites it has\nbeen to, and the sessionStorage of the page it is on. Call it right after a\nsign-in is confirmed, and after changing a setting you want kept; never before\nchecking you landed, or you keep a failed sign-in.\n\nOne save covers every site a call ended on, while the workspace keeps its\nhistory (a day by default, 100 sites): one passed through inside a call is not\nread, and one last visited longer ago loses its storage at the next save, its\ncookies staying. Each save replaces the last, so a save after signing out\nsaves you signed out. Every browser opened for this workspace has it back before\nopen_session returns, the one that replaces a reaped browser included. Values\nare never returned; workspace://site-data lists what is saved.",
+    "description": "Save this session's site data, so a new browser comes back signed in.\n\nIt keeps every cookie the browser holds, the localStorage of the sites it has\nbeen to, and the sessionStorage of the page it is on. Call it right after a\nsign-in is confirmed, and after changing a setting you want kept; never before\nchecking you landed, or you keep a failed sign-in.\n\nOne save covers every site a call ended on, while the workspace keeps its\nhistory (a day by default, 100 sites): one passed through inside a call is not\nread, and one last visited longer ago loses its storage at the next save, its\ncookies staying. Each save replaces the last, so a save after signing out\nsaves you signed out. Every browser this session opens has it back before\nopen_session returns, the one that replaces a reaped browser included. Values\nare never returned; the result's uri lists what is saved: workspace://site-data,\nor session://<name>/site-data for a named session.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1445,7 +1445,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -1554,7 +1554,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -1630,7 +1630,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "url": {
           "anyOf": [
@@ -1656,7 +1656,7 @@
       "read_only_hint": false,
       "title": "Attach a file to a file input"
     },
-    "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, by its uri: a file in workspace://files or its folders, or a\n  download from session://downloads — without its bytes passing through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
+    "description": "Attach a file to a file input (selector). Give exactly one source:\n\n- text, for anything you wrote (JSON, CSV, markdown), with a filename;\n- file, by its uri: a file in workspace://files or its folders, or a\n  download from session://downloads (the session this call acts in) or\n  session://<name>/downloads — without its bytes passing through you;\n- content, base64, for other binary.\n\nThe page reads the type from the filename's extension, so name it\nreport.csv, not report; without one, mime_type picks it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -1753,7 +1753,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "text": {
           "anyOf": [
@@ -1878,7 +1878,7 @@
             }
           ],
           "default": null,
-          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out to act in your own. Only open_session opens one."
+          "description": "Which session of this workspace to act in: a sub-session's name, or default. Leave it out, or blank, to act in your own. Only open_session opens one. A named session's state is session://<name>/…; workspace:// is your own."
         },
         "submit": {
           "default": false,

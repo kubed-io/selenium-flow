@@ -257,9 +257,12 @@ def register(
         key = await run_in_threadpool(
             workspaces.reading, caller, body.get("session")
         )
+        own = await run_in_threadpool(
+            workspaces.own, caller, body.get("session"), key
+        )
         return await control_module.await_control(
             workspaces.control, workspaces, key,
-            cap=live.await_cap, surface="http",
+            cap=live.await_cap, surface="http", own=own,
         )
 
     waiting = {"await_control": awaited}
@@ -326,10 +329,10 @@ def _add(mcp, actions, workspaces, token, prefix, row: Capability, catalogue) ->
                 kwargs["action"] = request.path_params["action"]
             if binds and kwargs.get("secret") is not None:
                 # A bound write must not let `act` store the page it landed on.
+                key = workspaces.session_of(caller, session)
                 return secrets_module.perform_write(
-                    catalogue, actions, workspaces,
-                    workspaces.session_of(caller, session), kwargs,
-                    surface="http",
+                    catalogue, actions, workspaces, key, kwargs,
+                    surface="http", own=workspaces.own(caller, session, key),
                 )
             kwargs.pop("secret", None)
             return workspaces.act(

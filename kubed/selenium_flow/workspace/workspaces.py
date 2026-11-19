@@ -49,7 +49,8 @@ from dataclasses import dataclass, field, replace
 from typing import Literal, NamedTuple
 
 from .. import faults
-from ..capture import NETWORK_URI
+from ..capture import NAMED_OFF as CAPTURE_NAMED_OFF
+from ..capture import NETWORK_LISTINGS
 from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
 from ..capture.store import Buffer
@@ -228,15 +229,17 @@ BOTH_SESSIONS = (
     "you control and drop the other."
 )
 
+# Neither text quotes a session's name, the pin's or the call's: a subject's own
+# is named by its subject, and a refusal's text is logged (WS-49).
 PIN_DIFFERS = (
-    "this connection is pinned to session {pinned!r} and the call names "
-    "{named!r}: drop the session argument, or name {pinned!r}"
+    "this connection is pinned to a session and the call names another: drop "
+    "the session argument, or name the one the connection is pinned to"
 )
 
 NO_SUB = (
-    "no session named {name!r} in workspace {workspace!r}: call open_session "
-    "with session={name!r} to open it. No other call opens one, so a mistyped "
-    "name starts no browser."
+    "no such session in workspace {workspace!r}: call open_session with the "
+    "same session to open it. No other call opens one, so a mistyped name "
+    "starts no browser."
 )
 
 # Never quotes the session's name: a subject's own is named by its subject,
@@ -584,15 +587,16 @@ class Workspaces:
         """Which backend is in play, for /ready, /info and the config log line."""
         return getattr(self.store, "kind", "memory")
 
-    def describe(self, caller: Caller) -> dict:
+    def describe(self, caller: Caller, at: str = "") -> dict:
         """What this workspace is, and whether it currently holds a browser.
 
         Never opens a browser: it peeks at the store rather than going through
         ``resolve``. The Grid's session id is not in it. Scrubbed as a resource
-        is, so `workspace://current` and its REST route answer alike.
+        is, so `workspace://current` and its REST route answer alike. ``at``
+        is the ``session://<name>`` it was read at, when it was.
         """
         key = self.reading(caller)
-        return self.scrubber.resource(key, self._described(caller, key))
+        return self.scrubber.resource(key, self._described(caller, key, at))
 
     def describe_part(self, caller: Caller, part: str) -> dict:
         """One key of `describe`, as ``{workspace, <part>: value}``: null when
@@ -606,7 +610,7 @@ class Workspaces:
         whole = self.describe(caller)
         return {"workspace": whole["workspace"], part: whole.get(part)}
 
-    def _described(self, caller: Caller, key: str) -> dict:
+    def _described(self, caller: Caller, key: str, at: str = "") -> dict:
         """`describe`, before the scrub: the context of the session ``key``
         (`reading`), its workspace's config and tags beside it."""
         workspace, session = sessions.split(key)
@@ -668,7 +672,10 @@ class Workspaces:
         # The version as it ran, beside `browser`; `settings` holds the one
         # asked for. Kept when the session ends, like the idle timeout.
         status["version"] = (record.ran or {}).get("version")
-        saved = site_data_module.summary(record.site_data)
+        saved = site_data_module.summary(
+            record.site_data,
+            f"{at}/site-data" if at else site_data_module.LIST_URI,
+        )
         if saved is not None:
             status["site_data"] = saved
         # A record with no browser is an ordinary state: the Grid reaped it or
@@ -703,7 +710,12 @@ class Workspaces:
         return status
 
     def captured(
-        self, name: str, kind: Literal["console", "network", "request"], **query
+        self,
+        name: str,
+        kind: Literal["console", "network", "request"],
+        at: str = "",
+        named: bool = False,
+        **query,
     ) -> dict:
         """What this workspace's browsers logged and fetched, as one view.
 
@@ -711,12 +723,14 @@ class Workspaces:
         is an answer and not an error. One that does, and has seen
         nothing yet, answers with an empty view. ``capturing`` says whether the
         connection is held right now: false while it is being re-held, so a quiet
-        buffer is not mistaken for a quiet page.
+        buffer is not mistaken for a quiet page. A request read at ``at``
+        says so as its ``uri``. Read by a session's name (``named``), the way
+        to turn it on names that session.
         """
         record = self.store.get(name)
         on = bool(record and (record.settings or {}).get("capture"))
         if self.capture is None or not on:
-            return dict(CAPTURE_STATE_OFF)
+            return dict(CAPTURE_NAMED_OFF if named else CAPTURE_STATE_OFF)
         if kind == "console":
             view = self.capture.console(name, **query)
             if view is None:
@@ -738,8 +752,10 @@ class Workspaces:
             if view is None:
                 raise ValueError(
                     f"no captured request {query.get('id')!r}: "
-                    f"{NETWORK_URI} lists them"
+                    f"{NETWORK_LISTINGS}"
                 )
+            if at:
+                view = {**view, "uri": at}
         capturing = bool(
             record.attached and self._told("capturing", record.session_id)
         )
@@ -753,6 +769,18 @@ class Workspaces:
         layer asks back about it (`acting`): a flow's steps, which no `_said`
         wraps one by one."""
         return _acting_in(key)
+
+    def own(self, caller: Caller, named: str | None, acted: str) -> str:
+        """The key of ``caller``'s own session, for a call that named
+        ``named`` and acts in ``acted``: what its pointers are read against
+        (`sessions.pointer`). An unnamed call acts in its own. One whose own
+        cannot be read has none: ``""``, which no session's key equals."""
+        if not named:
+            return acted
+        try:
+            return self.reading(caller)
+        except ValueError:
+            return ""
 
     def session_of(
         self, caller: Caller, named: str | None = None, *, opening: bool = False
@@ -808,7 +836,7 @@ class Workspaces:
         pin = caller.pinned
         name = sessions.valid_session_name(named) if named else ""
         if pin and name and name != pin:
-            raise ValueError(PIN_DIFFERS.format(pinned=pin, named=name))
+            raise ValueError(PIN_DIFFERS)
         return pin or name
 
     @staticmethod
@@ -851,7 +879,7 @@ class Workspaces:
                 if self.capture is not None:
                     # Its record is gone, and its capture goes with it (CAP-81).
                     self.capture.discard(key)
-                raise faults.NoSession(NO_SUB.format(name=name, workspace=workspace))
+                raise faults.NoSession(NO_SUB.format(workspace=workspace))
             return key
 
         def listed(r: Workspace | None) -> Workspace | None:
@@ -1148,11 +1176,13 @@ class Workspaces:
         *,
         tool: str,
         surface: str,
+        own: str | None = None,
     ) -> Said:
         """Run ``call(session_id)`` as one said call: the result, scrubbed, the
         page hint (or None), and whether the result's URL was withheld.
         ``name`` is the session's key: its origin, frame and secret forms are
-        that session's, and the turn is its browser's.
+        that session's, and the turn is its browser's. ``own`` is the
+        caller's own session (`own`), which the page hint points from.
 
         The bracket every host of a call shares. The call holds the session's
         turn from before it begins to after it ends (the lock is reentrant, so
@@ -1188,7 +1218,9 @@ class Workspaces:
             begun = None
             try:
                 # A refusal here (a person in control) begins nothing.
-                begun = self.calls.begin(name, session_id, browser=kind, tool=tool)
+                begun = self.calls.begin(
+                    name, session_id, browser=kind, tool=tool, own=own
+                )
                 with _acting_in(name):
                     result = call(session_id)
             except Exception as exc:  # noqa: BLE001 - re-raised below, scrubbed
@@ -1393,8 +1425,16 @@ class Workspaces:
         ``closed`` is asked first when no session is open, with the session's
         key: a call whose answer went with the browser raises its own refusal
         there (`network_body`'s 404), since opening one cannot bring it back.
+
+        A pointer the result carries (``page.see``, ``uri``, ``site_data.uri``)
+        names the session it acted in, ``session://<name>/…``, when the call
+        named one that is not the caller's own (`sessions.pointer`).
         """
         name = self.session_of(caller, session)
+        # What its pointers are read against: they name the session it acted
+        # in when that is not the caller's own. Read before the browser is
+        # touched, so a store that fails here has reopened nothing.
+        own = self.own(caller, session, name)
         try:
             resolved, kind = self.resolved(name)
         except faults.NoSession:
@@ -1403,11 +1443,14 @@ class Workspaces:
             raise
         try:
             result, page, hidden = self._said(
-                name, resolved, kind, call, tool=tool, surface=surface
+                name, resolved, kind, call, tool=tool, surface=surface, own=own
             )
             # A URL the scrub changed carried a value: never recorded.
             withheld = {"url": None} if hidden else {}
-            self.settle(name, result, browser=resolved, reshapes=reshapes, **withheld)
+            self.settle(
+                name, result, browser=resolved, reshapes=reshapes, own=own,
+                **withheld,
+            )
             if page is not None and isinstance(result, dict):
                 result["page"] = page
         except Exception as exc:
@@ -1447,7 +1490,12 @@ class Workspaces:
         return {"typed": result["typed"]}
 
     def handed_back(
-        self, name: str, episode: dict | None, *, surface: str = "mcp"
+        self,
+        name: str,
+        episode: dict | None,
+        *,
+        surface: str = "mcp",
+        own: str | None = None,
     ) -> dict:
         """`await_control`'s summary of a hand-back, or of nobody in control
         (``episode`` None): everything but its sentence, which
@@ -1464,7 +1512,8 @@ class Workspaces:
         It settles with the URL withheld: the TTL slides, History is not
         written. ``visited`` is shaped as History keeps a URL: the last
         page whole, credentials cut; earlier ones origin, path and hash route
-        (never the route's query).
+        (never the route's query). ``own`` is the caller's own session: a
+        restore report it carries names ``name`` when that is another (`act`).
         """
         summary: dict = {
             "handed_back": episode is not None,
@@ -1523,7 +1572,7 @@ class Workspaces:
         }
         settled: dict = {}
         try:
-            self.settle(name, settled, browser=session_id, url=None)
+            self.settle(name, settled, browser=session_id, url=None, own=own)
         except Exception as exc:  # noqa: BLE001 - a TTL not slid is no reason
             # to lose a hand-back this answer has already said.
             log.warning(
@@ -1547,6 +1596,7 @@ class Workspaces:
         since: str | None = None,
         hint: bool = True,
         deliver: bool = True,
+        own: str | None = None,
     ) -> None:
         """What a finished action means for the record, in place on ``result``.
 
@@ -1576,6 +1626,9 @@ class Workspaces:
         withheld page never hints, nor does a step (``touch=False``) or a run's
         flush before a save (``hint=False``); ``since`` is the page a run began
         on, which a flush has moved the record from.
+
+        ``own`` is the caller's own session: the result's pointers into this
+        one's state are made to name it when they differ (`pointed`).
         """
         if not isinstance(result, dict):
             return
@@ -1606,12 +1659,28 @@ class Workspaces:
             if reshapes:
                 self.reshape(name, result, browser=browser)
             self._save_site_data(name, result, captured, browser)
+            self.pointed(name, own, result)
         except Exception:
             # The caller gets the error, not this result: the reopen's notice
             # goes back on the record for the next one.
             if told:
                 self._hold_again(name, told, browser)
             raise
+
+    @staticmethod
+    def pointed(name: str, own: str | None, result: dict) -> None:
+        """``result``'s ``uri`` and ``site_data.uri``, pointers into the
+        caller's own session, made to point into ``name`` when ``own`` is
+        another (`sessions.repointed`). In place."""
+        if own is None or own == name:
+            return
+        if "uri" in result:
+            result["uri"] = sessions.repointed(result["uri"], name, own)
+        report = result.get("site_data")
+        if isinstance(report, dict) and "uri" in report:
+            result["site_data"] = {
+                **report, "uri": sessions.repointed(report["uri"], name, own)
+            }
 
     def failed(self, name: str, exc: BaseException, *, browser: str) -> None:
         """Say the reopen's notice on ``exc``, once, and stamp the call's end.
@@ -1734,12 +1803,17 @@ class Workspaces:
                 planned, lambda: self._resolve_open(caller, planned, url, wanted)
             )
         key = self.session_of(caller, session, opening=True)
-        return self._scrubbing(
+        # Read before the open, as `act` reads it.
+        own = self.own(caller, session, key)
+        told = self._scrubbing(
             key,
             lambda: self._open_browser(
                 caller, key, url, fresh, restore_site_data, **wanted
             ),
         )
+        # Its restore report names the session it opened (`act`).
+        self.pointed(key, own, told)
+        return told
 
     def _open_browser(
         self,
@@ -1933,7 +2007,7 @@ class Workspaces:
         self, workspace: str, own: str = sessions.DEFAULT
     ) -> list[dict]:
         """Every session of ``workspace``, the default first, as ``{name,
-        label, default, live, url}``: the subs as its record lists them, one
+        label, default, live, url, uri}``: the subs as its record lists them, one
         whose record expired left out. Which browsers live is one Grid listing
         (`_running`). A workspace with no record lists its default alone.
 
@@ -1947,6 +2021,7 @@ class Workspaces:
             return [{
                 "name": sessions.DEFAULT, "label": sessions.DEFAULT,
                 "default": True, "live": False, "url": None,
+                "uri": f"session://{sessions.DEFAULT}",
             }]
         found = [(sessions.DEFAULT, record), *self.sub_sessions(workspace, record)]
         running = self._running([r for _, r in found])
@@ -1966,6 +2041,7 @@ class Workspaces:
                 "default": name == sessions.DEFAULT,
                 "live": live(r),
                 "url": page(name),
+                "uri": f"session://{name}",
             }
             for name, r in found
         ]

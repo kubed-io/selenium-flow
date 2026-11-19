@@ -21,6 +21,7 @@ from mcp.types import TextContent
 from ..core.annotations import reads
 from ..http import files
 from ..names import retired_uri
+from .failures import nameless
 
 TOOL = "show"
 
@@ -89,11 +90,17 @@ VIEWS: tuple[View, ...] = (
         "request",
     ),
     View("workspace://network", re.compile(r"workspace://network(\?.*)?"), "network"),
-    # A named session, its capture and its downloads, as the caller's own are drawn.
+    # A named session, its capture, site data and downloads, as the caller's
+    # own are drawn.
     View(
         "session://{name}/console",
         re.compile(r"session://[^/?]+/console(\?.*)?"),
         "console",
+    ),
+    View(
+        "session://{name}/network/{id}",
+        re.compile(r"session://[^/?]+/network/[^/?]+"),
+        "request",
     ),
     View(
         "session://{name}/network",
@@ -101,9 +108,25 @@ VIEWS: tuple[View, ...] = (
         "network",
     ),
     View(
+        "session://{name}/site-data",
+        re.compile(r"session://[^/?]+/site-data"),
+        "sites",
+    ),
+    View(
+        "session://{name}/site-data/{site}",
+        re.compile(r"session://[^/?]+/site-data/[^/]+"),
+        "site",
+    ),
+    View(
         "session://{name}/downloads",
         re.compile(r"session://[^/?]+/downloads"),
         "folder",
+    ),
+    View(
+        "session://{name}/downloads/{file}",
+        re.compile(r"session://[^/?]+/downloads/[^/]+"),
+        "file",
+        entry=True,
     ),
     View("session://{name}", re.compile(r"session://[^/?]+"), "context"),
     # There is no single-secret resource; the app looks closer by itself.
@@ -145,7 +168,7 @@ def row_for(uri: str) -> View:
     for view in VIEWS:
         if view.pattern.fullmatch(uri):
             return view
-    raise ValueError(f"{uri} has no view; show draws {', '.join(SHOWABLE)}")
+    raise ValueError(f"{nameless(uri)} has no view; show draws {', '.join(SHOWABLE)}")
 
 
 def view_for(uri: str) -> str:
@@ -191,7 +214,7 @@ async def _content(uri: str):
     try:
         result = await get_context().fastmcp.read_resource(uri)
     except NotFoundError:
-        raise ValueError(f"no resource at {uri!r}") from None
+        raise ValueError(f"no resource at {nameless(uri)!r}") from None
     item = result.contents[0]
     content = item.content
     kind = getattr(item, "mime_type", None) or ""
@@ -199,9 +222,11 @@ async def _content(uri: str):
         try:
             content = content.decode("utf-8")
         except UnicodeDecodeError:
-            raise ValueError(f"{uri} is not a resource show can draw") from None
+            raise ValueError(
+                f"{nameless(uri)} is not a resource show can draw"
+            ) from None
     if not isinstance(content, str):
-        raise ValueError(f"{uri} is not a resource show can draw")
+        raise ValueError(f"{nameless(uri)} is not a resource show can draw")
     if kind.startswith(MARKDOWN):
         return content
     try:
@@ -238,7 +263,9 @@ async def _entry(uri: str) -> dict:
         (f for f in files if isinstance(f, dict) and f.get("name") == name), None
     )
     if found is None:
-        raise ValueError(f"no file at {uri}. {listing_uri} lists what there is")
+        raise ValueError(
+            f"no file at {nameless(uri)}. {nameless(listing_uri)} lists what there is"
+        )
     return found
 
 
@@ -269,7 +296,7 @@ def register(mcp, app_config) -> set[str]:
         )
         if size > MAX_SHOWN:
             raise ValueError(
-                f"{uri} is too large to draw here ({size} characters); "
+                f"{nameless(uri)} is too large to draw here ({size} characters); "
                 "read it with the resource instead"
             )
         return ToolResult(

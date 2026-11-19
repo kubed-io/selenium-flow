@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { hostPath, isFailed, statusText } from '../capture'
+  import { hostPath, sessionOf, isFailed, statusText } from '../capture'
   import type { CaptureOff, NetworkData, RequestRow } from '../types'
 
   let { data, uri, onshow }: { data: NetworkData | CaptureOff; uri?: string; onshow?: (uri: string) => void } = $props()
   const UNAVAILABLE = "Open isn't available in this client"
 
+  /* A row opens at its listing's base, so a named session stays named. */
+  const base = $derived(sessionOf(uri) ? uri!.replace(/[?#].*$/, '') : 'workspace://network')
   const requests = $derived('requests' in data ? data.requests : [])
   /* The listing's own tally: show sends only the newest rows. */
   const tally = $derived('tally' in data ? data.tally : undefined)
@@ -31,7 +33,7 @@
       {#each requests as r (r.id)}
         <li>
           {#if onshow}
-            <button type="button" class="req" onclick={() => onshow('workspace://network/' + r.id)}>
+            <button type="button" class="req" onclick={() => onshow(base + '/' + r.id)}>
               {@render line(r)}
             </button>
           {:else}

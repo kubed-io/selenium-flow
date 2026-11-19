@@ -56,6 +56,10 @@ FORMS = {
     "session://{name}/console{?level,pages}",
     "session://{name}/network",
     "session://{name}/network{?filter,pages}",
+    "session://{name}/network/{id}",
+    "session://{name}/site-data",
+    "session://{name}/site-data/{site}",
+    "session://{name}/downloads/{file}",
     SKILL + "*",
 }
 

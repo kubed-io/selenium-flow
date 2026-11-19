@@ -64,6 +64,11 @@ needs `open_session` for a browser.
 - A main agent gives each subagent its own session name. The server cannot tell
   callers on one connection apart, and callers that name the same session are one
   caller: their calls take turns.
+- Read a named session's state at `session://<name>`, `/console`, `/network`,
+  `/network/{id}`, `/site-data` and `/downloads`. A result's `see` or `uri`
+  already names the session the call acted in. `workspace://…` is the
+  connection's own session: for a subagent, the main agent's.
+- A blank `session` is the same as none: your own.
 - A sub-session starts empty: no cookies, settings or page from another session.
   It lives `session.sub_ttl` (an hour) after its last use; after that, name it
   again with `open_session`.
@@ -126,7 +131,7 @@ Open the one row that matches, at `skill://selenium-flow/` plus its path.
 | `execute_script` | what no tool does |
 | `assert` | check or wait for something no element shows |
 | `save_site_data` | after a sign-in you have confirmed |
-| `network_body` | a response body, by id from `workspace://network` |
+| `network_body` | a response body, by id from `workspace://network`; pass the `session` the id came from |
 | `await_control` | a person holds your browser |
 | `show` | draw a resource for the person, in a client that shows apps |
 | `keep_file` | keep a screenshot, recording or download in Files |
@@ -137,12 +142,14 @@ Open the one row that matches, at `skill://selenium-flow/` plus its path.
 ## Everything to read
 
 Read a URI the way your client reads MCP resources: in Claude Code,
-`ReadMcpResourceTool` with server `selenium-flow`. A client that cannot read
-resources gets the tools `read_resource(uri)` and `list_resources()`.
+`ReadMcpResourceTool` with server `selenium-flow`. A Claude Code subagent reads
+resources only when its agent definition's `tools:` lists `ReadMcpResourceTool`
+and `ToolSearch`. A client that cannot read resources gets the tools
+`read_resource(uri)` and `list_resources()`.
 
 | URI | Is |
 |---|---|
-| `workspace://current` | what you hold: page, browser, window, `live`, `in_frame`, `tabs` |
+| `workspace://current` | your own session: page, browser, window, `live`, `in_frame`, `tabs`, and `sessions` |
 | `workspace://current/{part}` | one key of that, for instance `url` or `grid_timeout`; null when there is none |
 | `workspace://files` | Files, each file with a link, and the two folders below |
 | `workspace://files/{name}` | one file in Files |
@@ -150,21 +157,25 @@ resources gets the tools `read_resource(uri)` and `list_resources()`.
 | `workspace://files/screenshots/{name}` | one of those |
 | `workspace://files/recordings` | recordings not kept yet, each with a link that plays it |
 | `workspace://files/recordings/{name}` | one of those |
-| `session://downloads` | the open browser's downloads |
+| `session://downloads` | your own session's downloads |
 | `session://downloads/{name}` | one of those |
-| `workspace://site-data` | the sites with saved site data, never a value |
-| `workspace://site-data/{site}` | one site's saved data; httpOnly values masked |
-| `workspace://console` | what the page logged; needs `open_session(capture=true)` |
+| `workspace://site-data` | your own session's sites with saved site data, never a value |
+| `workspace://site-data/{site}` | one site of your own session's saved data; httpOnly values masked |
+| `workspace://console` | what your own session's page logged; needs `open_session(capture=true)` |
 | `workspace://console{?level,pages}` | the same, narrowed: `?level=error`, `?pages=2` |
-| `workspace://network` | the requests the page made, each with an id; needs capture too |
+| `workspace://network` | the requests your own session's page made, each with an id; needs capture too |
 | `workspace://network{?filter,pages}` | the same, narrowed: `?filter=failed`, `?filter=xhr` |
-| `workspace://network/{id}` | one request in full |
-| `session://{name}` | one session of the workspace, as `workspace://current` is yours; `default` is the workspace's own, and a name with no session is not found |
-| `session://{name}/console` | that session's console |
+| `workspace://network/{id}` | one of your own session's requests in full |
+| `session://{name}` | a session by name, as `workspace://current` is your own; `default` is the workspace's own, and a name with no session is not found |
+| `session://{name}/console` | that session's console, as `workspace://console` is yours |
 | `session://{name}/console{?level,pages}` | the same, narrowed |
-| `session://{name}/network` | that session's requests |
+| `session://{name}/network` | that session's requests; `network_body(id, session=name)` for a body |
 | `session://{name}/network{?filter,pages}` | the same, narrowed |
-| `session://{name}/downloads` | that session's downloads |
+| `session://{name}/network/{id}` | one of that session's requests in full |
+| `session://{name}/site-data` | that session's saved site data, never a value |
+| `session://{name}/site-data/{site}` | one site of it; httpOnly values masked |
+| `session://{name}/downloads` | that session's downloads, to `keep_file` or `upload_file` |
+| `session://{name}/downloads/{file}` | one of those |
 | `secret://secrets` | the secrets you may type, never their values |
 | `flow://flows` | the flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |

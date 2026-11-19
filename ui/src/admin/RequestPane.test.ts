@@ -38,3 +38,9 @@ test('a body that cannot be read says why', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Fetch body' }))
   expect(await screen.findByText('the browser has gone')).toBeInTheDocument()
 })
+
+test('a sub-session\'s request is labelled session://<name>/network/{id}', async () => {
+  api.mockResolvedValueOnce(detail)
+  render(RequestPane, { props: { api, key: 'ws', id: '1.1', session: 'work' } })
+  expect(await screen.findByText('session://work/network/1.1')).toBeInTheDocument()
+})

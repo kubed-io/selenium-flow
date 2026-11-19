@@ -52,3 +52,10 @@ test('no footer without static requests; capture off says so', () => {
   render(NetworkView, { props: { data: { capture: false, how: 'x' } } })
   expect(screen.getByText(/Capture is off for this workspace/)).toBeInTheDocument()
 })
+
+test('a named session\'s row opens at its own listing, query dropped', async () => {
+  const onshow = vi.fn()
+  render(NetworkView, { props: { data: networkData, uri: 'session://work/network?filter=failed', onshow } })
+  await fireEvent.click(screen.getByText('the-internet.herokuapp.com/api/orders'))
+  expect(onshow).toHaveBeenCalledWith('session://work/network/1.1')
+})

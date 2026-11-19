@@ -27,7 +27,8 @@ CAPTURE_KEPT = (
 )
 
 DESCRIPTION = (
-    "The workspace this client named, and the session (browser) open in it.\n\n"
+    "The workspace this client named, and your own session (browser) in it. "
+    "Any session, by name, is session://{name}.\n\n"
     "Returns the workspace name, which browser it is, the page it is on, the "
     "window size as WxH, whether it is inside a frame, and whether a session is "
     "currently open (live). Read it before judging anything about layout — the "
@@ -157,7 +158,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
             workspaces.reading(caller)
         except faults.NoSession:
             raise faults.NotFound(
-                f"no session {name!r} in workspace {caller.name!r}: "
+                f"no such session in workspace {caller.name!r}: "
                 f"{RESOURCE_URI} lists them"
             ) from None
         return caller
@@ -169,50 +170,91 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
         mime_type="application/json",
     )
     def session_resource(name: str) -> dict:
-        return workspaces.describe(_named(name))
+        return workspaces.describe(_named(name), at=f"session://{name}")
 
-    @mcp.resource(
-        f"{SESSION_URI}/console",
-        name="Session Console",
-        description=CONSOLE_DESCRIPTION,
-        mime_type="application/json",
-    )
-    def session_console_resource(name: str) -> dict:
-        return workspaces.captured(_key(_named(name)), "console")
-
+    # The narrowed template first: FastMCP tries them in order and matches the
+    # plain one with its query dropped.
     @mcp.resource(
         f"{SESSION_URI}/console{{?level,pages}}",
         name="Session Console, narrowed",
-        description=CONSOLE_DESCRIPTION,
+        description=SESSION_CONSOLE_DESCRIPTION,
         mime_type="application/json",
     )
     def session_console_query_resource(
         name: str, level: str = "all", pages: str = "1"
     ) -> dict:
         return workspaces.captured(
-            _key(_named(name)), "console", level=level, pages=pages
+            _key(_named(name)), "console", named=True, level=level, pages=pages
         )
 
     @mcp.resource(
-        f"{SESSION_URI}/network",
-        name="Session Network",
-        description=NETWORK_DESCRIPTION,
+        f"{SESSION_URI}/console",
+        name="Session Console",
+        description=SESSION_CONSOLE_DESCRIPTION,
         mime_type="application/json",
     )
-    def session_network_resource(name: str) -> dict:
-        return workspaces.captured(_key(_named(name)), "network")
+    def session_console_resource(name: str) -> dict:
+        return workspaces.captured(_key(_named(name)), "console", named=True)
 
+    # The narrowed template first: FastMCP tries them in order and matches the
+    # plain one with its query dropped.
     @mcp.resource(
         f"{SESSION_URI}/network{{?filter,pages}}",
         name="Session Network, narrowed",
-        description=NETWORK_DESCRIPTION,
+        description=SESSION_NETWORK_DESCRIPTION,
         mime_type="application/json",
     )
     def session_network_query_resource(
         name: str, filter: str = "all", pages: str = "1"
     ) -> dict:
         return workspaces.captured(
-            _key(_named(name)), "network", filter=filter, pages=pages
+            _key(_named(name)), "network", named=True, filter=filter, pages=pages
+        )
+
+    @mcp.resource(
+        f"{SESSION_URI}/network",
+        name="Session Network",
+        description=SESSION_NETWORK_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_network_resource(name: str) -> dict:
+        return workspaces.captured(_key(_named(name)), "network", named=True)
+
+    @mcp.resource(
+        f"{SESSION_URI}/network/{{id}}",
+        name="Session Request",
+        description=SESSION_REQUEST_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_request_resource(name: str, id: str) -> dict:
+        return workspaces.captured(
+            _key(_named(name)),
+            "request",
+            at=f"session://{name}/network/{id}",
+            named=True,
+            id=id,
+        )
+
+    @mcp.resource(
+        f"{SESSION_URI}/site-data",
+        name="Session Site Data",
+        description=SESSION_SITE_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_site_data_resource(name: str) -> dict:
+        return site_listing(
+            workspaces, _named(name), base=f"session://{name}/site-data"
+        )
+
+    @mcp.resource(
+        f"{SESSION_URI}/site-data/{{site}}",
+        name="Session Site Data for One Site",
+        description=SESSION_ONE_SITE_DESCRIPTION,
+        mime_type="application/json",
+    )
+    def session_one_site_resource(name: str, site: str) -> dict:
+        return one_site(
+            workspaces, _named(name), site, base=f"session://{name}/site-data"
         )
 
 
@@ -223,7 +265,8 @@ CONSOLE_DESCRIPTION = (
     "over earlier pages. debug entries are counted, not kept. dropped, when "
     "present, counts events lost in a flood, so some may be missing. Present "
     "only for a workspace opened with open_session(capture=true); otherwise it "
-    "says so. Reading this never opens a browser. " + CAPTURE_KEPT
+    "says so. Reading this never opens a browser. " + CAPTURE_KEPT + " This is "
+    "your own session's; session://{name}/console is another's."
 )
 
 NETWORK_DESCRIPTION = (
@@ -235,20 +278,24 @@ NETWORK_DESCRIPTION = (
     "credentials too long to mask, which an echo may show. "
     "workspace://network/{id} shows one with its headers; network_body(id) "
     "fetches its response body while the browser lives. Credentials are shown "
-    "as \u2022\u2022\u2022. " + CAPTURE_KEPT
+    "as \u2022\u2022\u2022. " + CAPTURE_KEPT + " This is your own session's; "
+    "session://{name}/network is another's."
 )
 
 REQUEST_DESCRIPTION = (
     "One captured request in full: its headers (authorization, cookies and any "
     "secret you typed shown as \u2022\u2022\u2022), status, timing and size. "
-    "network_body(id) fetches its response body."
+    "network_body(id) fetches its response body. This is your own session's; "
+    "session://{name}/network/{id} is another's, and network_body(id, "
+    "session=name) fetches its body."
 )
 
 SITE_DESCRIPTION = (
-    "What this workspace's last save_site_data holds: one entry per site with "
+    "What your session's last save_site_data holds: one entry per site with "
     "counts, never a value; the sites the workspace went to come first. Every "
-    "browser this workspace opens has it back before open_session returns.\n\n"
-    "workspace://site-data/{site} shows one site in full. Reading this never "
+    "browser this session opens has it back before open_session returns.\n\n"
+    "workspace://site-data/{site} shows one site in full; "
+    "session://{name}/site-data is another session's. Reading this never "
     "opens a browser."
 )
 
@@ -256,32 +303,76 @@ ONE_SITE_DESCRIPTION = (
     "One site's saved data: its cookies, and the localStorage and sessionStorage "
     "of each of its origins. "
     "An httpOnly cookie's value is shown as \u2022\u2022\u2022; nothing else is "
-    "hidden. The site is a host from the workspace://site-data listing."
+    "hidden. The site is a host from the workspace://site-data listing. This "
+    "is your own session's; session://{name}/site-data/{site} is another's."
 )
 
 
 SESSION_DESCRIPTION = (
     "One session of this workspace, by name: the same answer as "
     "workspace://current, for that session instead of yours. default is the "
-    "workspace's own; workspace://current's sessions lists the rest. A name "
-    "with no session is not found. Reading this never opens a browser."
+    "workspace's own; workspace://current's sessions lists the rest. Its "
+    "console, network, site data and downloads are session://{name}/console, "
+    "/network, /site-data and /downloads. A name with no session is not "
+    "found. Reading this never opens a browser."
+)
+
+NOT_FOUND = " A name with no session is not found."
+
+SESSION_CONSOLE_DESCRIPTION = (
+    "One session's console, by name, as workspace://console reads yours: "
+    "?level= and ?pages= narrow it the same, and it needs "
+    "open_session(session=name, capture=true)." + NOT_FOUND
+)
+
+SESSION_NETWORK_DESCRIPTION = (
+    "One session's requests, by name, as workspace://network lists yours, "
+    "?filter= and ?pages= included. session://{name}/network/{id} shows one "
+    "with its headers; network_body(id, session=name) fetches its response "
+    "body while the browser lives." + NOT_FOUND
+)
+
+SESSION_REQUEST_DESCRIPTION = (
+    "One of a session's captured requests in full, by name, as "
+    "workspace://network/{id} shows yours. network_body(id, session=name) "
+    "fetches its response body." + NOT_FOUND
+)
+
+SESSION_SITE_DESCRIPTION = (
+    "What one session's last save_site_data holds, by name, as "
+    "workspace://site-data lists yours: counts, never a value. "
+    "session://{name}/site-data/{site} shows one site in full. Reading this "
+    "never opens a browser." + NOT_FOUND
+)
+
+SESSION_ONE_SITE_DESCRIPTION = (
+    "One site of a session's saved data, by name, as "
+    "workspace://site-data/{site} shows yours; httpOnly values masked. The "
+    "site is a host from the session://{name}/site-data listing." + NOT_FOUND
 )
 
 
-def site_listing(workspaces: Workspaces, caller: Caller) -> dict:
+def site_listing(
+    workspaces: Workspaces, caller: Caller, base: str = site_data.LIST_URI
+) -> dict:
     """``workspace://site-data`` of the caller's session: its saved data, and
-    its own history for the ordering. Reads the record; never opens a browser."""
+    its own history for the ordering. Reads the record; never opens a browser.
+    ``base`` is the URI it is read at."""
     key = workspaces.reading(caller)
     record = workspaces.store.get(key)
     if record is None:
-        return site_data.view({})
-    return site_data.view(record.site_data, workspaces.history(key))
+        return site_data.view({}, base=base)
+    return site_data.view(record.site_data, workspaces.history(key), base)
 
 
-def one_site(workspaces: Workspaces, caller: Caller, site: str) -> dict:
+def one_site(
+    workspaces: Workspaces, caller: Caller, site: str, base: str = site_data.LIST_URI
+) -> dict:
     """``workspace://site-data/{site}``, or a ValueError that says where to look."""
     record = workspaces.store.get(workspaces.reading(caller))
-    found = site_data.site_view(record.site_data if record else {}, site)
+    found = site_data.site_view(record.site_data if record else {}, site, base)
     if found is None:
-        raise ValueError(f"no saved data for {site!r}: {site_data.LIST_URI} lists them")
+        raise ValueError(
+            f"no saved data for {site!r}: {site_data.SITE_LISTINGS}"
+        )
     return found

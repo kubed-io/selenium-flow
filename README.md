@@ -72,7 +72,7 @@ open_session()      # back where you were, with the settings you chose
 
 Between calls the server keeps your browser alive for 15 minutes, so an agent that stops to think doesn't come back to an empty page. `workspace://current` says where you are without opening anything.
 
-A workspace can hold more browsers: pass `session="tester"` to `open_session` and the sub-session is a browser of its own, with its own sign-ins, beside the default. Pin a connection to one with `https://flows.example.com/mcp?workspace=research-bot&session=tester`.
+A workspace can hold more browsers: pass `session="tester"` to `open_session` and the sub-session is a browser of its own, with its own sign-ins, beside the default, and its console, network, site data and downloads read at `session://tester/…`. Pin a connection to one with `https://flows.example.com/mcp?workspace=research-bot&session=tester`.
 
 ---
 
@@ -114,7 +114,7 @@ The server types it. If the value shows up later in a page, a result or a resour
 
 ## 🧾 See what the page saw
 
-`open_session(capture=true)` keeps the browser's console and network traffic, masked, at `workspace://console` and `workspace://network`. A call that set off a page error says so in its result, and `network_body` fetches the response behind a failing request.
+`open_session(capture=true)` keeps the browser's console and network traffic, masked, at `workspace://console` and `workspace://network` (`session://<name>/console` and `/network` for a named session). A call that set off a page error says so in its result, and `network_body` fetches the response behind a failing request.
 
 ---
 
@@ -128,7 +128,7 @@ Give the server a data directory and every screenshot and print is kept with the
 
 The server ships an Agent Skill at `skill://selenium-flow/SKILL.md`: seven rules, a whole task end to end, and a table of when to reach for each tool. Eight references, from reading pages to troubleshooting, are each their own resource, so an agent loads only the one its task needs.
 
-A client that speaks the agents extension also finds the explorer, a subagent that explores a site in your workspace, runs the flows that fit each page, saves new ones and reports back.
+A client that speaks the agents extension also finds the explorer, a subagent that explores a site in your workspace, in a browser of its own beside yours, runs the flows that fit each page, saves new ones and reports back.
 
 ---
 

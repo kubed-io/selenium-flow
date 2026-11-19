@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { kb, pathOf, statusText } from '../capture'
+  import { kb, pathOf, sessionOf, statusText } from '../capture'
   import type { BodyResult, Header, RequestDetail } from '../types'
 
   let { data, uri, onshow, oncall }: {
@@ -13,11 +13,15 @@
   let problem = $state<string | null>(null)
   let busy = $state(false)
 
+  const session = $derived(sessionOf(uri ?? data.uri))
+  /* Back goes to this request's own listing: its URI minus `/{id}`. */
+  const listing = $derived(session ? (uri ?? data.uri ?? '').replace(/\/[^/]*$/, '') : 'workspace://network')
+
   async function fetchBody() {
     busy = true
     problem = null
     try {
-      body = (await oncall!('network_body', { id: data.id })) as BodyResult
+      body = (await oncall!('network_body', session ? { id: data.id, session } : { id: data.id })) as BodyResult
     } catch (err) {
       problem = err instanceof Error ? err.message : String(err)
     } finally {
@@ -30,7 +34,7 @@
 
 <div class="card">
   {#if onshow}
-    <button type="button" class="back" onclick={() => onshow('workspace://network')}>← Network</button>
+    <button type="button" class="back" onclick={() => onshow(listing)}>← Network</button>
   {/if}
   <div class="row head">
     <strong class="grow">{data.method} {pathOf(data.url)}</strong>

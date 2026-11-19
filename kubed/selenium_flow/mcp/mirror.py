@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 
 from fastmcp.exceptions import NotFoundError
 from fastmcp.server.dependencies import get_context
@@ -28,6 +29,7 @@ from pydantic import BaseModel
 from ..core.annotations import reads
 from ..names import retired_uri
 from . import apps, clients
+from .failures import nameless
 
 LIST_TOOL = "list_resources"
 READ_TOOL = "read_resource"
@@ -106,10 +108,16 @@ LINKED_FROM = (
 )
 
 
+# A named session's downloads: its listing is the URI up to the file.
+NAMED_DOWNLOAD = re.compile(r"(session://[^/?]+/downloads)/[^/]+")
+
+
 def _where_to_read(uri: str) -> str:
     """What a model is told in place of bytes it cannot use."""
     said = "Not returned: binary content is not text."
-    for prefix, listing in LINKED_FROM:
+    named = NAMED_DOWNLOAD.fullmatch(uri)
+    linked = ((uri, named.group(1)),) if named else LINKED_FROM
+    for prefix, listing in linked:
         if uri.startswith(prefix):
             return (
                 f"{said} Read {listing} for this file's link, which any HTTP "
@@ -175,7 +183,9 @@ def register(mcp) -> frozenset[str]:
         retired_uri(uri)
         server = get_context().fastmcp
         if not _listed(uri):
-            raise ValueError(f"{uri} is an app for a host to draw, not to read")
+            raise ValueError(
+                f"{nameless(uri)} is an app for a host to draw, not to read"
+            )
         try:
             result = await server.read_resource(uri)
         except NotFoundError:
@@ -185,8 +195,8 @@ def register(mcp) -> frozenset[str]:
                 if "uri_template" in row
             )
             raise ValueError(
-                f"no resource at {uri!r}. list_resources shows every URI; the "
-                f"templates are {templates}"
+                f"no resource at {nameless(uri)!r}. list_resources shows every URI; "
+                f"the templates are {templates}"
             ) from None
         contents = []
         for item in result.contents:

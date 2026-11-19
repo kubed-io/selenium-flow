@@ -27,6 +27,9 @@ so a save after signing out keeps you signed out.
  "uri": "workspace://site-data"}
 ```
 
+Site data is each session's own. In a named session the `uri` is
+`session://<name>/site-data`, and a sub-session starts with none.
+
 `skipped` names a site whose storage is not in this save, and why:
 
 - "a service worker answered: save while on this site": `navigate` there and
@@ -53,8 +56,8 @@ saved on. `open_session` names the sites, never a value:
   save again.
 
 `document.cookie` shows what the page can see. `workspace://site-data/{site}`
-shows what was saved, httpOnly cookies included, with their values read as
-`•••`.
+(`session://<name>/site-data/{site}` in a named session) shows what was saved,
+httpOnly cookies included, with their values read as `•••`.
 
 ## Starting as a new user
 
@@ -80,4 +83,4 @@ page history is kept.
 - Site data is stored on the workspace and expires with it.
 - A token typed from a secret that the page keeps in localStorage or
   sessionStorage is saved, and shows in `workspace://site-data/{site}`
-  (SECRETS.md).
+  (`session://<name>/site-data/{site}` in a named session; SECRETS.md).

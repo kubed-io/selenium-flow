@@ -109,3 +109,20 @@ test('the MCP App names a sub-session and says nothing for the default (UI-78)',
   expect(screen.queryByText('default')).toBeNull()
   expect(screen.queryByText('tester')).toBeNull()
 })
+
+test('a view opened at a named session opens that session\'s console, network and downloads', async () => {
+  const onshow = vi.fn()
+  render(ContextView, { props: { uri: 'session://work', data: { ...base, live: true, capture: true, capturing: true,
+    captured: { console: 4, network: 9, errors: 2, failed_requests: 1 }, site_data: { sites: 2, uri: 'session://work/site-data' } }, onshow } })
+  for (const name of [/Console/, /Network/, /Site data/, /Downloads/]) await fireEvent.click(screen.getByRole('button', { name }))
+  expect(onshow.mock.calls).toEqual([['session://work/console?level=error'], ['session://work/network'],
+    ['session://work/site-data'], ['session://work/downloads']])
+})
+
+test('a view opened at workspace:// keeps the unnamed URIs', async () => {
+  const onshow = vi.fn()
+  render(ContextView, { props: { uri: 'workspace://', data: { ...base, live: true, capture: true, capturing: true,
+    captured: { console: 0, network: 0, errors: 0, failed_requests: 0 } }, onshow } })
+  for (const name of [/Console/, /Network/, /Downloads/]) await fireEvent.click(screen.getByRole('button', { name }))
+  expect(onshow.mock.calls).toEqual([['workspace://console'], ['workspace://network'], ['session://downloads']])
+})

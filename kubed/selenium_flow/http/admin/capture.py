@@ -58,6 +58,14 @@ class _Stream(EventSourceResponse):
             self._subscription.close()
 
 
+def request_uri(workspace: str, name: str, id: str) -> str:
+    """Where an agent of ``workspace`` reads request ``id`` of its session
+    ``name``: the default's at ``workspace://``, as the workspace's own."""
+    return sessions.pointer(
+        sessions.key_of(workspace, name), workspace, f"network/{id}"
+    )
+
+
 def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> None:
     """Mount console, network, one request, its body, and the live tail."""
 
@@ -86,6 +94,9 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
             key, named = await run_in_threadpool(
                 known_session, workspaces, workspace, request
             )
+            if kind == "request":
+                # The URI it is read at by an agent in that session's workspace.
+                fixed["at"] = request_uri(workspace, named, fixed["id"])
             shown = await run_in_threadpool(
                 workspaces.captured, key, kind, **query, **fixed
             )
@@ -140,7 +151,7 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
         (`cut_body`): the action returns it whole.
         """
         try:
-            key, _named = await run_in_threadpool(
+            key, named = await run_in_threadpool(
                 known_session, workspaces, request.path_params["key"], request
             )
             session_id = await run_in_threadpool(workspaces.browser, key)
@@ -151,6 +162,13 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, "request body", log)
+        if isinstance(body, dict) and "uri" in body:
+            body = {
+                **body,
+                "uri": request_uri(
+                    request.path_params["key"], named, request.path_params["id"]
+                ),
+            }
         return JSONResponse(cut_body(body))
 
     @mcp.custom_route(

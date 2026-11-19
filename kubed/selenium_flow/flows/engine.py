@@ -27,6 +27,7 @@ from ..core import cancel
 from ..core import tabs as tabs_module
 from ..redaction import Forms, Id
 from ..workspace import locks
+from ..workspace.sessions import nameless
 from .document import ARGS, ASSERTION, declared_timeout
 from .redact import scrub, scrub_values, taints
 from .report import OUT_OF_TIME, clean, refused, summarise, with_hint
@@ -603,12 +604,13 @@ def _failed(
     # call answers.
     outcome.error = scrub(faults.message(exc), forms)
     run.landed(outcome, page_state(call.actions, call.session_id), guarded, forms)
+    # The report may name the session the step ran in; the log may not.
     log.info(
         "flow %s step %s (%s) failed: %s",
         run.name,
         outcome.n,
         outcome.label,
-        outcome.error,
+        nameless(outcome.error),
     )
     run.reports.append(outcome.entry())
     # Never continued past: an assertion, a cancelled run, or a step refused

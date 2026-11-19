@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import replace
 
 import pytest
@@ -96,6 +97,40 @@ async def test_run_flow_runs_every_step_in_its_session(flows):
     typo = http.post(f"/flows/trip/runs?workspace={NAMED}", json={"session": "typo"})
     assert typo.status_code == 400 and "open_session" in typo.json()["error"]
     assert len(double.calls) == 6
+
+
+async def test_a_flow_failing_in_a_sub_session_logs_no_name(flows, monkeypatch, caplog):
+    """A step's failure is logged at INFO with its error, and a run in a session
+    that is not there is refused: neither line names the session (WS-49)."""
+    app, double = flows
+    subject = "subject-7f3a"
+    store = app.workspaces.store
+    store.set(f"{NAMED}/{subject}", Workspace(session_id="b-3", label=subject))
+    store.update(NAMED, lambda r: replace(r, subs=[*r.subs, subject]))
+    double.grid.alive.add("b-3")
+
+    def refuse(self, session_id, url):
+        raise ValueError("the page refused")
+
+    monkeypatch.setattr(Actions, "navigate", refuse)
+    caplog.set_level(logging.DEBUG)
+    async with Client(app.mcp) as client:
+        failed = await client.call_tool(
+            "run_flow", {"name": "trip", "session": subject}, raise_on_error=False
+        )
+        gone = await client.call_tool(
+            "run_flow", {"name": "trip", "session": "gone-7f3a"}, raise_on_error=False
+        )
+    assert "the page refused" in json.dumps(failed.structured_content or str(failed))
+    assert gone.is_error and "open_session" in str(gone.content)
+    steps = [r.getMessage() for r in caplog.records if "failed" in r.getMessage()]
+    assert any("the page refused" in line for line in steps), steps
+    leaks = [
+        r.getMessage() + str(r.exc_info[1] if r.exc_info else "")
+        for r in caplog.records
+        if "7f3a" in r.getMessage() + str(r.exc_info[1] if r.exc_info else "")
+    ]
+    assert leaks == []
 
 
 async def test_the_run_is_scrubbed_and_checked_as_its_session(flows):

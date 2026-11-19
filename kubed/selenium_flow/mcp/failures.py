@@ -33,6 +33,7 @@ from .. import errors, faults
 from ..flows.document import argument_problems
 from ..names import retired_uri
 from ..urls import without_userinfo
+from ..workspace.sessions import nameless
 
 # Where FastMCP logs a failed call or read, and the words it opens each with.
 FASTMCP_LOGGER = "fastmcp.server.server"
@@ -84,7 +85,8 @@ class Explained(Middleware):
             cause = exc.__cause__
             if cause is None or isinstance(cause, FastMCPError):
                 raise
-            said = faults.message(cause)
+            # A tool that reads a resource (the mirror) carries its URI.
+            said = nameless(faults.message(cause))
             raise ToolError(f"{FAILED_CALL} {name!r}: {said}") from cause
 
     async def on_read_resource(self, context, call_next):
@@ -146,12 +148,12 @@ class QuietCallerMistakes(logging.Filter):
         if exc is None or not str(record.msg).startswith((FAILED_CALL, FAILED_READ)):
             return True
         # FastMCP's line quotes the requested URI as sent.
-        said = without_userinfo(record.getMessage())
+        said = nameless(without_userinfo(record.getMessage()))
         if errors.status_for(exc) != 500:
             record.levelno, record.levelname = logging.WARNING, "WARNING"
-            record.msg = f"{said}: {faults.message(exc)}"
+            record.msg = f"{said}: {nameless(faults.message(exc))}"
         else:
-            record.msg = f"{said}\n{faults.formatted(exc)}"
+            record.msg = f"{said}\n{nameless(faults.formatted(exc))}"
         record.args = ()
         record.exc_info = None
         record.exc_text = None

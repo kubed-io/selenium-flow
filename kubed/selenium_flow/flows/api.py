@@ -477,13 +477,15 @@ def register(
         watch = progress.Watch()
 
         def work():
+            key = workspaces.session_of(caller, session)
             return run_for(
                 store,
                 actions,
                 workspaces,
                 workspace,
                 name,
-                key=workspaces.session_of(caller, session),
+                key=key,
+                own=workspaces.own(caller, session, key),
                 params=params,
                 verbose=verbose,
                 secrets_catalogue=secrets_catalogue,
@@ -622,12 +624,14 @@ def run_for(
     store, actions, workspaces, workspace: str, name: str,
     params=None, verbose: bool = False,
     secrets_catalogue=None, skill_available: bool = True,
-    before_step=None, stop=None, key: str | None = None,
+    before_step=None, stop=None, key: str | None = None, own: str | None = None,
 ) -> dict:
     """Run a saved flow in a session's browser, and update its record.
 
     ``workspace`` is the library the flow is read from; ``key`` is the session
-    key it runs in (`Workspaces.session_of`), the workspace's own when unset.
+    key it runs in (`Workspaces.session_of`), the workspace's own when unset;
+    ``own`` the caller's own session (`Workspaces.own`), which the run's and
+    its steps' pointers are read against.
     The run's browser, turn, origins, scrubbing and record are that session's.
 
     Shared by the tool and the endpoint. Each step is a call like any other
@@ -660,7 +664,9 @@ def run_for(
         # A step refused because a person holds the browser is never begun, and
         # stops the run.
         begun[:] = [
-            calls.begin(workspace, resolved, browser=kind, tool=entry["tool"])
+            calls.begin(
+                workspace, resolved, browser=kind, tool=entry["tool"], own=own
+            )
         ]
 
     def watched(entry):
@@ -706,6 +712,7 @@ def run_for(
             browser=resolved,
             reshapes=capability(tool).reshapes,
             touch=False,
+            own=own,
         )
 
     # A save reads the localStorage of every site in the history, so just
@@ -742,7 +749,9 @@ def run_for(
                 secrets_catalogue=secrets_catalogue,
                 skill_available=skill_available,
             )
-        page = calls_module.total(step_hints)
+        page = calls_module.total(
+            step_hints, workspace, workspace if own is None else own
+        )
         if page is not None:
             report["page"] = page
         # One touch at the end, carrying every page reached since the last
@@ -761,6 +770,7 @@ def run_for(
             # A withheld page never hints, and the last page `visited` holds is
             # one the run left.
             hint=not report.get("url_redacted"),
+            own=own,
         )
     except Exception as exc:
         workspaces.failed(workspace, exc, browser=resolved)
@@ -863,22 +873,23 @@ def _routes(
     @mcp.custom_route(flows_root + "/{name}/runs", methods=["POST"], name="flows_run")
     async def run_flow(request: Request) -> JSONResponse:
         """Run a flow in this workspace's browser. A run is created, not fetched."""
-        return await answer(
-            request,
-            "run",
-            scrub=False,
-            call=lambda caller, body: run_for(
+        def call(caller, body):
+            session = body.get("session")
+            key = workspaces.session_of(caller, session)
+            return run_for(
                 store,
                 actions,
                 workspaces,
                 caller.name,  # a run drives a browser
                 request.path_params["name"],
-                key=workspaces.session_of(caller, body.get("session")),
+                key=key,
+                own=workspaces.own(caller, session, key),
                 params=body.get("params"),
                 # Over HTTP "false" arrives as a string, and bool("false") is
                 # True.
                 verbose=as_bool(body.get("verbose"), False),
                 secrets_catalogue=secrets_catalogue,
                 skill_available=skill_available,
-            ),
-        )
+            )
+
+        return await answer(request, "run", scrub=False, call=call)

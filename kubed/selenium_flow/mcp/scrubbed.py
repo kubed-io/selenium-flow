@@ -2,8 +2,8 @@
 
 A read is not a call on a page, and what it holds is often from another site
 than the browser's (a site-data entry, a kept file, a captured request), so
-each read is scrubbed with every leashed secret and whatever the workspace's
-browser holds (`Scrubber.resource`).
+each read is scrubbed with every leashed secret and whatever the browser of the
+session it belongs to holds (`Scrubber.resource`, `_owner`).
 
 `Scrubbed` is a middleware on `on_read_resource`, which FastMCP also runs for
 `FastMCP.read_resource`, so a client's own reader, `read_resource` (`mirror`)
@@ -32,6 +32,9 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import re
+from dataclasses import replace
+from urllib.parse import unquote
 
 import anyio
 from fastmcp.exceptions import ResourceError
@@ -39,6 +42,7 @@ from fastmcp.resources import ResourceContent, ResourceResult
 from fastmcp.server.middleware import Middleware
 
 from .. import faults
+from ..workspace import sessions
 from . import clients
 
 log = logging.getLogger(__name__)
@@ -78,17 +82,37 @@ def _media(uri: str, declared: str | None) -> str:
     return guessed or declared or "application/octet-stream"
 
 
-def _caller_name() -> str:
-    """The workspace the read is about, or "" when the request names none: a
+def _owner(workspaces, caller, uri: str) -> str:
+    """The key of the session whose secrets a read at ``uri`` is scrubbed with,
+    since each session holds its own (`Scrubber`): the session a
+    `session://<name>/…` URI names; the caller's own (`Workspaces.reading`) for
+    its downloads and its session's state; the workspace's for what the
+    workspace holds (Files, flows). "" when the request names no workspace: a
     read with no name is scrubbed with every leashed secret, and nothing a
-    workspace holds."""
-    return clients.caller().named
+    session holds. Blocking: it reads the store, and makes nothing."""
+    workspace = caller.named
+    if not workspace:
+        return ""
+    scheme, _, rest = uri.partition("://")
+    first = re.split(r"[/?#]", rest, maxsplit=1)[0]
+    if scheme == "session" and first not in sessions.RESERVED:
+        caller = replace(caller, pin=unquote(first))
+    elif not (
+        (scheme == "session" and first == sessions.DOWNLOADS)
+        or (scheme == "workspace" and first in (*sessions.STATE, "current"))
+    ):
+        return workspace
+    try:
+        return workspaces.reading(caller)
+    except Exception:  # noqa: BLE001 - no such session: what the workspace holds
+        return workspace
 
 
 class Scrubbed(Middleware):
     """Scrub every resource read outside `EXEMPT`."""
 
     def __init__(self, workspaces) -> None:
+        self.workspaces = workspaces
         self.scrubber = workspaces.scrubber
 
     async def on_read_resource(self, context, call_next):
@@ -103,7 +127,8 @@ class Scrubbed(Middleware):
         failure = None
         try:
             # On the request, before the thread: who is asking lives in it.
-            name = _caller_name()
+            caller = clients.caller()
+            name = await anyio.to_thread.run_sync(_owner, self.workspaces, caller, uri)
             if refused is not None:
                 # A refusal is an answer too: scrubbed in place, its chain
                 # included, so `Explained` still reads what it means.

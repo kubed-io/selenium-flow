@@ -833,7 +833,8 @@ FILE_SCHEMAS = {
         "type": "object",
         "description": (
             "One folder's own listing: workspace://files/screenshots, "
-            "workspace://files/recordings or session://downloads."
+            "workspace://files/recordings, session://downloads or "
+            "session://{name}/downloads."
         ),
         "properties": {
             "workspace": {"type": ["string", "null"]},
@@ -889,8 +890,9 @@ SITE_DATA_SCHEMAS = {
     "SiteList": {
         "type": "object",
         "description": (
-            "workspace://site-data: one entry per site the last save holds data "
-            "for, counts only, the sites the workspace went to first."
+            "workspace://site-data, or session://{name}/site-data for another "
+            "session: one entry per site the last save holds data for, counts "
+            "only, the sites the workspace went to first."
         ),
         "properties": {
             "sites": {
@@ -922,8 +924,9 @@ SITE_DATA_SCHEMAS = {
     "SiteData": {
         "type": "object",
         "description": (
-            "workspace://site-data/{site}: one site in full. An httpOnly cookie's "
-            "value is shown as \u2022\u2022\u2022."
+            "workspace://site-data/{site}, or session://{name}/site-data/{site} "
+            "for another session: one site in full. An httpOnly cookie's value is "
+            "shown as \u2022\u2022\u2022."
         ),
         "properties": {
             "site": {"type": "string"},
@@ -1002,7 +1005,7 @@ _FILE_OPERATIONS = {
     ),
     "downloads": (
         "listDownloads",
-        "The downloads of the session open in this workspace.",
+        "Your own session's downloads.",
         "Newest first, read from the browser itself. With no session open it is "
         "a 400 saying so: a download lives only as long as the browser that took "
         "it. A Grid failure from one that is open is a real fault and is not "

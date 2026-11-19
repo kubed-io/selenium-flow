@@ -100,5 +100,6 @@ shows it. The scrub cannot reach:
 - a file opened from its signed link, a text file included. Read a text file
   through its `workspace://` resource instead, which is scrubbed;
 - what the site stores: a token kept in localStorage or sessionStorage is saved
-  by `save_site_data` and shown in `workspace://site-data/{site}`. httpOnly
+  by `save_site_data` and shown in `workspace://site-data/{site}` (or
+  `session://<name>/site-data/{site}`). httpOnly
   cookies stay masked.
