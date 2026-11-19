@@ -29,7 +29,10 @@ workspace has a default session and may have sub-sessions (below). The server ne
 
 ## Sessions in a workspace
 
-The default session is the one a call reaches when it names none. A
+The default session is the one a call reaches when it names none; a caller
+with no token subject (the static token, stdio) always does. A caller whose
+token has a subject that does not own the default gets its own sub-session
+instead, made on its first call and opened with `open_session`. A
 sub-session is another Grid browser in the same workspace, opened with
 `open_session(session="tester")` and reached by passing the same `session` to
 any tool or resource name.
@@ -39,7 +42,7 @@ any tool or resource name.
 | Name | letters, digits, dots, dashes and underscores like a workspace's; `default` is the workspace's own; `current`, `downloads`, `console`, `network`, `files` and `site-data` are reserved |
 | Contents | its own cookies, storage, downloads, capture and window; it starts empty and nothing is copied from another session |
 | Shared | the workspace's files, flows, config and history; each history entry names its session |
-| Life | `session.sub_ttl` (default 3600 seconds) after its last use; then it is gone and a call naming it is `NoSession` |
+| Life | `session.sub_ttl` (default 3600 seconds) after its last use; then it is gone and a tool call naming it is `NoSession`; reading `session://{name}` says not found |
 | Opening | only `open_session` opens a browser; a typo is refused and opens nothing |
 | Callers | callers that name the same session are one caller and take turns; a main agent gives each subagent its own name |
 | Pin | `?session=tester` on the MCP URL, or an `Sf-Session` header, fixes a connection to a session; a call naming another is refused |

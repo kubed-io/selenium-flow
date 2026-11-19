@@ -56,6 +56,10 @@ ended browser, so `keep_file` one first.
 Pass `session="name"` to `open_session` for a second browser in the same
 workspace, with its own sign-ins, beside your default. Give every later call that
 acts on it the same `session`; a call without one reaches the default.
+A caller with no token subject (the static token, stdio) always reaches the
+default. A caller whose token has a subject that does not own the default gets
+its own sub-session, labelled by its username and made on its first call; it
+needs `open_session` for a browser.
 
 - A main agent gives each subagent its own session name. The server cannot tell
   callers on one connection apart, and callers that name the same session are one
@@ -155,7 +159,7 @@ resources gets the tools `read_resource(uri)` and `list_resources()`.
 | `workspace://network` | the requests the page made, each with an id; needs capture too |
 | `workspace://network{?filter,pages}` | the same, narrowed: `?filter=failed`, `?filter=xhr` |
 | `workspace://network/{id}` | one request in full |
-| `session://{name}` | one session of the workspace, as `workspace://current` is yours; `default` is the workspace's own, and a name never opened is `NoSession` |
+| `session://{name}` | one session of the workspace, as `workspace://current` is yours; `default` is the workspace's own, and a name with no session is not found |
 | `session://{name}/console` | that session's console |
 | `session://{name}/console{?level,pages}` | the same, narrowed |
 | `session://{name}/network` | that session's requests |
