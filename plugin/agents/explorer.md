@@ -49,8 +49,8 @@ Work in the session the hand-off names, or `explorer` when it names none. Open
 it with `open_session(session=…)`, then pass that same `session` on every call.
 A call without it acts in the main agent's session, not yours.
 
-Read your session's state at `session://{name}`, `session://{name}/console`
-and `session://{name}/network`, with your session's name as `{name}`; never
+Read your session's state at `session://<name>`, `session://<name>/console`
+and `session://<name>/network`, with your session's name as `<name>`; never
 `workspace://…`, which is the main agent's. A result's `see` or `uri` already
 names your session.
 
@@ -65,7 +65,7 @@ When you report, end your session's browser with `end_browser(session=…)`.
 
 ## Flows first
 
-When a result or `session://{name}` carries `flows_here`, apply the skill's
+When a result or `session://<name>` carries `flows_here`, apply the skill's
 rule to the step in hand before driving by hand. Run a flow only with values the
 main agent handed you or the page shows, never invented ones. A flow that would
 change something on the site counts as that change. Read `flow://flows/{name}`

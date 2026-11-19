@@ -281,7 +281,9 @@ NETWORK_DESCRIPTION = (
 REQUEST_DESCRIPTION = (
     "One captured request in full: its headers (authorization, cookies and any "
     "secret you typed shown as \u2022\u2022\u2022), status, timing and size. "
-    "network_body(id) fetches its response body."
+    "network_body(id) fetches its response body. This is your own session's; "
+    "session://{name}/network/{id} is another's, and network_body(id, "
+    "session=name) fetches its body."
 )
 
 SITE_DESCRIPTION = (
@@ -297,7 +299,8 @@ ONE_SITE_DESCRIPTION = (
     "One site's saved data: its cookies, and the localStorage and sessionStorage "
     "of each of its origins. "
     "An httpOnly cookie's value is shown as \u2022\u2022\u2022; nothing else is "
-    "hidden. The site is a host from the workspace://site-data listing."
+    "hidden. The site is a host from the workspace://site-data listing. This "
+    "is your own session's; session://{name}/site-data/{site} is another's."
 )
 
 

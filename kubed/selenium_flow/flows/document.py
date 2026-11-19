@@ -109,8 +109,8 @@ NOT_STEPS = {
     ),
     "network_body": (
         "A request id belongs to one page load, which a saved flow cannot know "
-        "when it is written; read workspace://network and fetch a body while "
-        "working one out"
+        "when it is written; read workspace://network (session://<name>/network "
+        "for a named session) and fetch a body while working one out"
     ),
 }
 

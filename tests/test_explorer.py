@@ -142,14 +142,17 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
     assert {
         SKILL_URI,
         "skill://selenium-flow/references/FLOWS.md",
-        "session://{name}",
-        "session://{name}/console",
-        "session://{name}/network",
+        "session://<name>",
+        "session://<name>/console",
+        "session://<name>/network",
         "flow://flows",
         "flow://flows/{name}",
     } <= named
-    # A scheme named only to be avoided, as `workspace://…`, is not a read.
-    named = {uri for uri in named if not uri.endswith("…")}
+    # A scheme named only to be avoided, as `workspace://…`, is not a read,
+    # and a session's `<name>` is the template's `{name}`.
+    named = {
+        uri.replace("<name>", "{name}") for uri in named if not uri.endswith("…")
+    }
     async with Client(server.mcp) as client:
         served = {str(r.uri) for r in await client.list_resources()} | {
             # MCP SDK v2 renamed the field; the older one warns on the new SDK.

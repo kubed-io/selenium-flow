@@ -114,7 +114,7 @@ The server types it. If the value shows up later in a page, a result or a resour
 
 ## 🧾 See what the page saw
 
-`open_session(capture=true)` keeps the browser's console and network traffic, masked, at `workspace://console` and `workspace://network`. A call that set off a page error says so in its result, and `network_body` fetches the response behind a failing request.
+`open_session(capture=true)` keeps the browser's console and network traffic, masked, at `workspace://console` and `workspace://network` (`session://<name>/console` and `/network` for a named session). A call that set off a page error says so in its result, and `network_body` fetches the response behind a failing request.
 
 ---
 

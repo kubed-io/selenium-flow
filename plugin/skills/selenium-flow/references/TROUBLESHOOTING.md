@@ -16,8 +16,9 @@ reports the URL (`session://<name>` in a named session).
 If the page is right, in order of likelihood:
 
 1. The element is inside an iframe, or you are inside one and it is not. Check
-   `in_frame` on `workspace://current`; a `frame` switch sticks until something
-   switches back (INTERACTION.md, *Iframes*).
+   `in_frame` on `workspace://current` (`session://<name>` in a named session);
+   a `frame` switch sticks until something switches back (INTERACTION.md,
+   *Iframes*).
 2. It has not rendered yet: raise `wait_timeout`.
 3. It is off-screen in a virtualised list: scroll it into view first.
 4. The XPath is positional and the layout changed: match an attribute or
