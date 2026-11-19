@@ -94,7 +94,9 @@ class SeleniumMCP:
         self.store = (
             store
             if store is not None
-            else store_module.from_settings(settings.workspace, settings.redis)
+            else store_module.from_settings(
+                settings.workspace, settings.redis, settings.session
+            )
         )
         # The pointers live on the workspace store's backend, derived from the
         # store itself: an injected Redis store beside a memory environment

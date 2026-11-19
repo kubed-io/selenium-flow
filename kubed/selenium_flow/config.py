@@ -221,6 +221,11 @@ class SessionSettings(Section):
         description="Seconds a browser is kept alive after its last call, "
         "0 for off; each holds a Grid slot.",
     )
+    sub_ttl: int = Field(
+        3600,
+        gt=0,
+        description="Seconds a sub-session's record is kept after its last use.",
+    )
     version: str | None = Field(
         None, description="The browser version new sessions ask for, such as 152."
     )
