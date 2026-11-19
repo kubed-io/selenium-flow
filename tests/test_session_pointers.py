@@ -6,7 +6,9 @@ did; and every `session://<name>/…` a pointer names can be read."""
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
+import logging
 from dataclasses import replace
 from pathlib import Path
 
@@ -675,3 +677,99 @@ async def test_upload_file_types_another_sessions_download(server, monkeypatch):
             result = await c.call_tool("upload_file", args)
             assert result.structured_content["filename"] == "r.pdf"
             assert typed[-1] == (into, b"PDF of g-tester"), session
+
+
+# ---- no log line names a sub-session (WS-49 (3), ERR-35) -----------------------
+
+SUBJECT = "subject-7f3a"
+GONE = "gone-7f3a"
+
+
+def named_anywhere(caplog):
+    """Every record of every logger, as a line and with its traceback, that
+    carries the distinctive part of a sub-session's name."""
+    out = []
+    for record in caplog.records:
+        text = record.getMessage()
+        if record.exc_info:
+            text += " " + " ".join(map(str, record.exc_info[1:2]))
+        if record.exc_text:
+            text += " " + record.exc_text
+        if "7f3a" in text:
+            out.append((record.name, text))
+    return out
+
+
+async def test_no_log_line_names_a_sub_session(server, caplog, monkeypatch):
+    store = server.workspaces.store
+    key = sessions.key_of(NAMED, SUBJECT)
+    store.set(key, Workspace(
+        session_id="g-subject", settings={"capture": True}, label=SUBJECT,
+    ))
+    store.update(NAMED, lambda r: replace(r, subs=[*r.subs, SUBJECT]))
+    server.capture.attached(key, "g-subject", "chrome", "top-1", again=False)
+    caplog.set_level(logging.DEBUG)
+    async with Client(server.mcp) as c:
+        # A tool call in a session that is not there.
+        with pytest.raises(ToolError) as by_tool:
+            await c.call_tool("extract", {"session": GONE, "selector": {"css": "h1"}})
+        assert "session://" not in str(by_tool.value) or GONE not in str(by_tool.value)
+        assert "open_session" in str(by_tool.value)
+        # Reads of a missing session, a missing download, request and site.
+        for uri in (
+            f"session://{GONE}",
+            f"session://{GONE}/console",
+            f"session://{GONE}/console?level=bogus",
+            f"session://{GONE}/downloads/a.pdf",
+            f"session://{SUBJECT}/network/9.9",
+            f"session://{SUBJECT}/site-data/nowhere.test",
+        ):
+            with pytest.raises(MCPError):
+                await c.read_resource(uri)
+        # A bad ?level, and a file the fake Grid serves whatever its name, on a
+        # session that exists: refused or not, nothing may name the session.
+        for tail in ("console?level=bogus", "console?pages=9", "downloads/nothing.pdf"):
+            with contextlib.suppress(MCPError):
+                await c.read_resource(f"session://{SUBJECT}/{tail}")
+        # The mirror passes the URI in its error.
+        for uri in (f"session://{GONE}/network", f"session://{SUBJECT}/nothing"):
+            with pytest.raises(ToolError):
+                await c.call_tool("read_resource", {"uri": uri})
+    # A connection pinned to the sub-session, and a call naming another.
+    calling_as_pinned = http({"workspace": NAMED, "session": SUBJECT})
+    monkeypatch.setattr(clients_module, "request_values", lambda: calling_as_pinned)
+    async with Client(server.mcp) as c:
+        with pytest.raises(ToolError, match="pinned to a session"):
+            await c.call_tool("extract", {"session": "other", "selector": {"css": "h1"}})
+    assert named_anywhere(caplog) == []
+    lines = [r.getMessage() for r in caplog.records if r.name.startswith("fastmcp")]
+    assert any("session://…" in line for line in lines), lines
+
+
+def test_the_mask_names_no_session_but_keeps_the_callers_own():
+    from kubed.selenium_flow.mcp.failures import nameless
+
+    assert nameless("Error reading resource 'session://a-b/downloads/x?y=1'") == (
+        "Error reading resource 'session://…/downloads/x?y=1'"
+    )
+    assert nameless("session://a-b and session://c") == "session://… and session://…"
+    for own in ("session://downloads", "session://downloads/x.pdf", "'session://downloads'"):
+        assert nameless(own) == own
+    # A session that is called "downloads-2" is a name.
+    assert nameless("session://downloads-2/network") == "session://…/network"
+
+
+def test_the_texts_name_no_session_and_point_both_ways():
+    from kubed.selenium_flow.workspace.workspaces import NO_SUB, PIN_DIFFERS
+
+    assert "{name}" not in NO_SUB.format(workspace="w")
+    assert "{name!r}" not in NO_SUB and "same session" in NO_SUB
+    assert "{pinned" not in PIN_DIFFERS and "{named" not in PIN_DIFFERS
+
+
+def test_a_missing_request_or_site_names_both_listings_and_no_session():
+    from kubed.selenium_flow.capture import NETWORK_LISTINGS, network_request_at
+    from kubed.selenium_flow.site_data.snapshot import SITE_LISTINGS
+
+    for text in (NETWORK_LISTINGS, network_request_at("3.7"), SITE_LISTINGS):
+        assert "workspace://" in text and "session://{name}/" in text

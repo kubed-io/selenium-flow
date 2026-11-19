@@ -35,6 +35,10 @@ MASK = "•••"
 # spare tab.
 SW_REASON = "a service worker answered: save while on this site"
 LIST_URI = "workspace://site-data"
+SITE_LISTINGS = (
+    f"{LIST_URI} lists them for your own session, "
+    "session://{name}/site-data for a named one"
+)
 
 
 def site_uri(host: str, base: str = LIST_URI) -> str:

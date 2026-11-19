@@ -84,7 +84,7 @@ def test_a_pin_wins_and_a_different_argument_is_refused():
     assert caller.pinned == "tester"
     assert workspaces.session_of(caller) == "shop/tester"
     assert workspaces.session_of(caller, "tester") == "shop/tester"
-    with pytest.raises(ValueError, match="pinned to session 'tester' and the call names 'default'"):
+    with pytest.raises(ValueError, match="pinned to a session and the call names another"):
         workspaces.session_of(caller, "default")
 
 

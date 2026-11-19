@@ -757,7 +757,7 @@ def register(
             return caller, workspaces.reading(caller)
         except NoSession:
             raise NotFound(
-                f"no session {name!r} in workspace {caller.name!r}: "
+                f"no such session in workspace {caller.name!r}: "
                 "workspace://current lists them"
             ) from None
 

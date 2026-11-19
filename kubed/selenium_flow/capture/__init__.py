@@ -96,6 +96,20 @@ MAX_PAGES = NAVIGATIONS
 
 CONSOLE_URI = "workspace://console"
 NETWORK_URI = "workspace://network"
+# Where a request id is listed, for an error that cannot know the session asked in
+# (a named one's name is never put in an error's text).
+NETWORK_LISTINGS = (
+    f"{NETWORK_URI} lists them for your own session, "
+    "session://{name}/network for a named one"
+)
+
+
+def network_request_at(id: str) -> str:
+    """Where request ``id`` is read, for an error that cannot name the session."""
+    return (
+        f"{NETWORK_URI}/{id} for your own session, "
+        f"session://{{name}}/network/{id} for a named one"
+    )
 
 # What every capture resource of a workspace that does not capture answers.
 OFF = {"capture": False, "how": "open_session(capture=true)"}

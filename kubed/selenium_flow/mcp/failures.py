@@ -16,6 +16,7 @@ without their type codes and documentation links.
 from __future__ import annotations
 
 import logging
+import re
 
 from fastmcp.exceptions import (
     FastMCPError,
@@ -41,6 +42,16 @@ FAILED_READ = "Error reading resource"
 # MCP's code for a resource that is not there (the spec's "Resource not
 # found"); `mcp_types` names only the JSON-RPC ones.
 RESOURCE_NOT_FOUND = -32002
+
+
+# A `session://<name>…` URI: the name is a token's subject for a sub-session,
+# so a log line shows `session://…`. `session://downloads…` is the caller's own.
+SESSION_NAME = re.compile(r"session://(?!downloads(?![^/?#\s'\"]))[^/?#\s'\"]+")
+
+
+def nameless(text: str) -> str:
+    """``text`` with the name of any `session://<name>` URI in it masked."""
+    return SESSION_NAME.sub("session://…", text)
 
 
 def _pydantic_lines(exc: Exception) -> list[str]:
@@ -146,12 +157,12 @@ class QuietCallerMistakes(logging.Filter):
         if exc is None or not str(record.msg).startswith((FAILED_CALL, FAILED_READ)):
             return True
         # FastMCP's line quotes the requested URI as sent.
-        said = without_userinfo(record.getMessage())
+        said = nameless(without_userinfo(record.getMessage()))
         if errors.status_for(exc) != 500:
             record.levelno, record.levelname = logging.WARNING, "WARNING"
-            record.msg = f"{said}: {faults.message(exc)}"
+            record.msg = f"{said}: {nameless(faults.message(exc))}"
         else:
-            record.msg = f"{said}\n{faults.formatted(exc)}"
+            record.msg = f"{said}\n{nameless(faults.formatted(exc))}"
         record.args = ()
         record.exc_info = None
         record.exc_text = None

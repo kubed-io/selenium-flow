@@ -49,7 +49,7 @@ from dataclasses import dataclass, field, replace
 from typing import Literal, NamedTuple
 
 from .. import faults
-from ..capture import NETWORK_URI
+from ..capture import NETWORK_LISTINGS
 from ..capture import OFF as CAPTURE_STATE_OFF
 from ..capture import views as capture_views
 from ..capture.store import Buffer
@@ -228,15 +228,17 @@ BOTH_SESSIONS = (
     "you control and drop the other."
 )
 
+# Neither text quotes a session's name, the pin's or the call's: a subject's own
+# is named by its subject, and a refusal's text is logged (WS-49).
 PIN_DIFFERS = (
-    "this connection is pinned to session {pinned!r} and the call names "
-    "{named!r}: drop the session argument, or name {pinned!r}"
+    "this connection is pinned to a session and the call names another: drop "
+    "the session argument, or name the one the connection is pinned to"
 )
 
 NO_SUB = (
-    "no session named {name!r} in workspace {workspace!r}: call open_session "
-    "with session={name!r} to open it. No other call opens one, so a mistyped "
-    "name starts no browser."
+    "no such session in workspace {workspace!r}: call open_session with the "
+    "same session to open it. No other call opens one, so a mistyped name "
+    "starts no browser."
 )
 
 # Never quotes the session's name: a subject's own is named by its subject,
@@ -747,7 +749,7 @@ class Workspaces:
             if view is None:
                 raise ValueError(
                     f"no captured request {query.get('id')!r}: "
-                    f"{NETWORK_URI} lists them"
+                    f"{NETWORK_LISTINGS}"
                 )
             if at:
                 view = {**view, "uri": at}
@@ -831,7 +833,7 @@ class Workspaces:
         pin = caller.pinned
         name = sessions.valid_session_name(named) if named else ""
         if pin and name and name != pin:
-            raise ValueError(PIN_DIFFERS.format(pinned=pin, named=name))
+            raise ValueError(PIN_DIFFERS)
         return pin or name
 
     @staticmethod
@@ -874,7 +876,7 @@ class Workspaces:
                 if self.capture is not None:
                     # Its record is gone, and its capture goes with it (CAP-81).
                     self.capture.discard(key)
-                raise faults.NoSession(NO_SUB.format(name=name, workspace=workspace))
+                raise faults.NoSession(NO_SUB.format(workspace=workspace))
             return key
 
         def listed(r: Workspace | None) -> Workspace | None:

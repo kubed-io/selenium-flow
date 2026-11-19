@@ -106,7 +106,7 @@ def stored(store):
 def test_reading_the_context_makes_no_record_and_refuses_an_unopened_session(server):
     store = server.workspaces.store
     before = stored(store)
-    with pytest.raises(ValueError, match=r"never opened|no session"):
+    with pytest.raises(ValueError, match="no such session"):
         server.workspaces.describe(_caller("typo"))
     assert stored(store) == before
 

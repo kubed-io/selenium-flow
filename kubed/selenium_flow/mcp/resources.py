@@ -157,7 +157,7 @@ def register(mcp: FastMCP, workspaces: Workspaces) -> None:
             workspaces.reading(caller)
         except faults.NoSession:
             raise faults.NotFound(
-                f"no session {name!r} in workspace {caller.name!r}: "
+                f"no such session in workspace {caller.name!r}: "
                 f"{RESOURCE_URI} lists them"
             ) from None
         return caller
@@ -321,5 +321,7 @@ def one_site(
     record = workspaces.store.get(workspaces.reading(caller))
     found = site_data.site_view(record.site_data if record else {}, site, base)
     if found is None:
-        raise ValueError(f"no saved data for {site!r}: {site_data.LIST_URI} lists them")
+        raise ValueError(
+            f"no saved data for {site!r}: {site_data.SITE_LISTINGS}"
+        )
     return found
