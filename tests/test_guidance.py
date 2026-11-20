@@ -176,7 +176,7 @@ async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode)
 
     async def told(name):
         info = Implementation(name=name, version="1")
-        async with Client(server.mcp, client_info=info, mode=mode) as client:
+        async with Client(server.mcp.server, client_info=info, mode=mode) as client:
             return client.instructions or ""
 
     vscode = await told("Visual Studio Code")
@@ -228,7 +228,7 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
     texts = {}
     for client in ("Claude Code", "Visual Studio Code"):
         info = Implementation(name=client, version="1")
-        async with Client(server.mcp, client_info=info) as c:
+        async with Client(server.mcp.server, client_info=info) as c:
             texts[f"instructions for {client}"] = c.instructions or ""
             for tool in await c.list_tools():
                 texts[f"tool {tool.name}"] = tool.description or ""

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from . import config
-from .server import SeleniumMCP
+from .server import create_app
 from .urls import without_userinfo
 from .workspace.store import StoreUnavailable
 
@@ -64,7 +64,7 @@ def main(argv: list[str] | None = None) -> None:
         loaded = config.load(argv)
         settings = loaded.settings
         configure_logging(settings.log_level)
-        server = SeleniumMCP(settings, sources=loaded.sources)
+        server = create_app(settings, sources=loaded.sources)
     except (config.ConfigError, StoreUnavailable) as exc:
         # Restarted until fixed beats started on something misread.
         raise SystemExit(f"selenium-flow: {exc}") from None
@@ -99,7 +99,7 @@ def main(argv: list[str] | None = None) -> None:
             settings.host,
             settings.port,
         )
-    server.run(transport=settings.transport, host=settings.host, port=settings.port)
+    server.run()
 
 
 if __name__ == "__main__":

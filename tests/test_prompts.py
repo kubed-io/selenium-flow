@@ -147,13 +147,13 @@ def test_the_prompts_are_where_claude_code_reads_commands():
 
 
 async def test_the_server_publishes_them(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         listed = {prompt.name for prompt in await client.list_prompts()}
     assert {"repair_flow", "build_flow"} <= listed
 
 
 async def test_a_client_can_render_one(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await client.get_prompt("repair_flow", {"flow": "sign-in"})
     rendered = result.messages[0].content.text
     assert "sign-in" in rendered

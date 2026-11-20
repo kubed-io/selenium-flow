@@ -155,7 +155,7 @@ def test_the_admins_clear_keeps_every_live_sessions_current_page(server):
     )
     # `gone`'s record expired: it cannot reopen, so its page is cleared too.
     store.set(f"{NAMED}/tester", Workspace(label="tester"))
-    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     url = f"/admin/workspaces/{NAMED}/history"
     assert client.get(url).json()["clears"] == [
         origin(C_SITE), "https://old.example.test"
@@ -247,7 +247,7 @@ def test_flows_files_and_config_are_the_same_from_every_session(data_server):
     data_server.flows.save(GLOBAL_WORKSPACE, "offered", {"steps": [], "tags": ["web"]})
     data_server.flows.save(GLOBAL_WORKSPACE, "hidden", {"steps": [], "tags": ["mail"]})
     data_server.configs.save(NAMED, "flows:\n  global: [web]\n")
-    client = TestClient(data_server.mcp.http_app(), headers=AUTH)
+    client = TestClient(data_server.mcp.server.http_app(), headers=AUTH)
 
     def read(session):
         pin = f"&session={session}" if session else ""
@@ -287,7 +287,7 @@ def _names(listing):
 
 async def test_each_session_has_its_own_downloads(data_server, monkeypatch):
     _two_browsers(data_server)
-    client = TestClient(data_server.mcp.http_app(), headers=AUTH)
+    client = TestClient(data_server.mcp.server.http_app(), headers=AUTH)
     admin = f"/admin/workspaces/{NAMED}/files/downloads"
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
@@ -305,7 +305,7 @@ async def test_each_session_has_its_own_downloads(data_server, monkeypatch):
             "request_values",
             lambda: http({"workspace": NAMED, "session": "tester"}),
         )
-        async with Client(data_server.mcp) as mcp:
+        async with Client(data_server.mcp.server) as mcp:
             read = await mcp.read_resource("session://downloads")
         assert _names(json.loads(read[0].text)["files"]) == ["g-tester.pdf"]
         # The admin's: `session` names one, the default when absent.
@@ -338,12 +338,12 @@ async def test_keep_file_reads_the_callers_sessions_downloads(
     monkeypatch.setattr(
         clients_module, "request_values", lambda: http({"workspace": NAMED})
     )
-    client = TestClient(data_server.mcp.http_app(), headers=AUTH)
+    client = TestClient(data_server.mcp.server.http_app(), headers=AUTH)
     with (
         patch.object(browser.Grid, "is_alive", return_value=True),
         patch.object(browser.Grid, "read_file", read_file),
     ):
-        async with Client(data_server.mcp) as mcp:
+        async with Client(data_server.mcp.server) as mcp:
             await mcp.call_tool("keep_file", {"uri": uri, "session": "tester"})
             await mcp.call_tool("keep_file", {"uri": uri})
         kept = client.put(
@@ -363,7 +363,7 @@ async def test_keep_file_reads_the_callers_sessions_downloads(
             "request_values",
             lambda: http({"workspace": NAMED, "session": "tester"}),
         )
-        async with Client(data_server.mcp) as mcp:
+        async with Client(data_server.mcp.server) as mcp:
             await mcp.call_tool("keep_file", {"uri": uri})
     assert reads == [
         "g-tester", "g-default", "g-tester", "g-tester", "g-tester", "g-tester"

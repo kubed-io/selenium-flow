@@ -59,7 +59,6 @@ dependencies = [
   # disk, polling on a network filesystem where events cannot see the other
   # side's writes. abi3 wheels from cp310 cover every Python CI runs.
   "watchfiles>=1.3",
-  "mcp>=2.0,<3",
   "sse-starlette>=3.3",
   # The one BiDi client's socket (bidi/connection.py, the only importer): an
   # asyncio client with pings. It already arrives with fastmcp,

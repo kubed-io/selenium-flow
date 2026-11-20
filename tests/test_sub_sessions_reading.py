@@ -75,7 +75,7 @@ def heard(server, key, session_id, text):
 
 
 async def read(server, uri):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         return json.loads((await c.read_resource(uri))[0].text)
 
 

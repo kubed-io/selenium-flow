@@ -97,7 +97,7 @@ async def test_request_schemas_are_the_tool_schemas(server, spec):
     for action in ENDPOINTS.values():
         if action == ACTION_IN_PATH:
             continue  # its `action` is a path parameter; asserted below
-        tool = await server.mcp.get_tool(action)
+        tool = await server.mcp.server.get_tool(action)
         documented = spec["components"]["schemas"][
             "".join(p.capitalize() for p in action.split("_")) + "Request"
         ]
@@ -143,7 +143,7 @@ async def test_no_endpoint_publishes_a_browser_id(server, spec):
 
 async def test_tools_leave_session_id_optional(server):
     """The mirror of the above: the workspace fills it in for an agent."""
-    click = await server.mcp.get_tool("interact")
+    click = await server.mcp.server.get_tool("interact")
     assert "session_id" not in click.parameters["required"]
 
 
@@ -187,7 +187,7 @@ async def server_spec_yaml(server):
 
 def test_the_endpoint_serves_it_without_a_token(open_server):
     """The contract is readable before you hold a credential."""
-    client = TestClient(open_server.mcp.http_app())
+    client = TestClient(open_server.mcp.server.http_app())
     response = client.get("/openapi.yaml")
     assert response.status_code == 200
     assert "yaml" in response.headers["content-type"]
@@ -195,7 +195,7 @@ def test_the_endpoint_serves_it_without_a_token(open_server):
 
 
 def test_json_is_served_too(open_server):
-    client = TestClient(open_server.mcp.http_app())
+    client = TestClient(open_server.mcp.server.http_app())
     response = client.get("/openapi.json")
     assert response.status_code == 200
     assert response.json()["info"]["title"] == "Selenium Flow"
@@ -310,7 +310,7 @@ async def test_the_http_surface_has_a_workspace_to_be_fresh_from_now(spec, serve
     the same one now."""
     published = spec["components"]["schemas"]["OpenSessionRequest"]["properties"]
     assert "fresh" in published
-    assert "fresh" in (await server.mcp.get_tool("open_session")).parameters["properties"]
+    assert "fresh" in (await server.mcp.server.get_tool("open_session")).parameters["properties"]
 
 
 async def test_a_saved_flows_warnings_are_in_the_published_contract(spec):
@@ -330,7 +330,7 @@ async def test_the_upload_form_offers_every_source_the_action_takes(spec, server
     """The multipart schema is hand-written while the JSON one is derived, so
     the two drift in exactly one direction: a new source appears in JSON and
     not in the form."""
-    upload = await server.mcp.get_tool("upload_file")
+    upload = await server.mcp.server.get_tool("upload_file")
     sources = {"text", "content", "file"} & set(upload.parameters["properties"])
     form = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"][
         "multipart/form-data"
@@ -353,7 +353,7 @@ async def test_uploading_a_kept_file_needs_no_library_field_on_either_surface(
     upload = spec["paths"]["/browser/upload"]["post"]["requestBody"]["content"]
     published = spec["components"]["schemas"]["UploadFileRequest"]["properties"]
     multipart = upload["multipart/form-data"]["schema"]["properties"]
-    tool = await server.mcp.get_tool("upload_file")
+    tool = await server.mcp.server.get_tool("upload_file")
     assert "workspace" not in published
     assert "workspace" not in multipart
     assert "workspace" not in tool.parameters["properties"]

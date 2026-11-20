@@ -335,7 +335,7 @@ def test_over_http_an_assert_whose_browser_was_ended_is_a_404(ended_server):
     from starlette.testclient import TestClient
 
     server, polling, token = ended_server
-    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": NAMED})
+    client = TestClient(server.mcp.server.http_app(), headers={"Sf-Workspace": NAMED})
     ender = end_once_polling(server.workspaces, polling)
     response = client.post(
         "/browser/assert",
@@ -353,7 +353,7 @@ async def test_over_mcp_an_assert_whose_browser_was_ended_says_so(ended_server):
 
     server, polling, _ = ended_server
     ender = end_once_polling(server.workspaces, polling)
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(ToolError, match=ENDED):
             await client.call_tool(
                 "assert", {"script": "return false", "wait_timeout": 10}

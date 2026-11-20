@@ -996,7 +996,7 @@ async def test_a_flow_with_an_unknown_top_level_key_is_refused(server):
 
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):
-        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
+        tools[name] = (await server.mcp.server.get_tool(name)).parameters or {}
     document = {
         "description": "x",
         "step": [{"tool": "navigate", "args": {"url": "https://example.test/"}}],

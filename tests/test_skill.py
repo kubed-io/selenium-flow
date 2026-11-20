@@ -138,7 +138,7 @@ def test_flows_says_to_reuse_a_tag_in_use():
 
 async def test_the_listing_names_the_skill_once(server):
     """One row, so a client scanning resources/list sees one skill, not its files."""
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         listed = await client.list_resources()
     rows = [r for r in listed if str(r.uri).startswith("skill://")]
     assert {str(r.uri) for r in rows} == {RESOURCE_URI}
@@ -146,14 +146,14 @@ async def test_the_listing_names_the_skill_once(server):
 
 
 async def test_no_skill_template_is_listed(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         templates = await client.list_resource_templates()
     assert not [t for t in templates if t.uri_template.startswith("skill://")]
 
 
 @pytest.mark.parametrize("path", [MANIFEST, *sorted(set(references()))])
 async def test_every_file_still_reads_by_its_uri(server, path):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         contents = await client.read_resource(f"skill://{SKILL_NAME}/{path}")
     assert contents[0].text
     if path.endswith(".md"):
@@ -163,7 +163,7 @@ async def test_every_file_still_reads_by_its_uri(server, path):
 
 
 async def test_an_unknown_skill_file_is_not_found(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError):
             await client.read_resource(f"skill://{SKILL_NAME}/NOPE.md")
 
@@ -172,7 +172,7 @@ async def test_an_unknown_skill_file_is_not_found(server):
 async def test_a_fastmcp_client_reads_the_whole_skill(server, extensions):
     """Every file the manifest names, verified against its digest, with or
     without the Skills extension."""
-    async with Client(server.mcp, extensions=extensions) as client:
+    async with Client(server.mcp.server, extensions=extensions) as client:
         manifest = json.loads((await client.read_resource(MANIFEST_URI))[0].text)
         read = await client.read_skill(RESOURCE_URI)
     assert read.name == SKILL_NAME
@@ -184,7 +184,7 @@ async def test_a_fastmcp_client_reads_the_whole_skill(server, extensions):
 
 async def test_a_fastmcp_client_discovers_the_skill(server):
     """The real thing: FastMCP's own client, against this server."""
-    async with Client(server.mcp, extensions=[SkillsClientExtension()]) as client:
+    async with Client(server.mcp.server, extensions=[SkillsClientExtension()]) as client:
         found = await client.list_skills()
         listed = await client.list_skill_resources()
     assert [s.frontmatter.name for s in found] == [SKILL_NAME]
@@ -194,7 +194,7 @@ async def test_a_fastmcp_client_discovers_the_skill(server):
 
 async def test_a_fastmcp_client_can_read_the_manifest(server):
     """What `read_skill` relies on without the extension."""
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         manifest = json.loads((await client.read_resource(MANIFEST_URI))[0].text)
     assert manifest["skill"] == SKILL_NAME
     assert ENTRY in [f["path"] for f in manifest["files"]]
@@ -289,7 +289,7 @@ async def test_an_invalid_skill_is_not_served_at_all(tmp_path, monkeypatch, capl
     )
     assert built.skill is None
     for mode in ("auto", "legacy"):
-        async with Client(built.mcp, mode=mode) as client:
+        async with Client(built.mcp.server, mode=mode) as client:
             uris = [str(r.uri) for r in await client.list_resources()]
             extensions = client.session.server_capabilities.extensions or {}
             with pytest.raises(MCPError) as caught:
@@ -306,7 +306,7 @@ async def test_an_invalid_skill_is_not_served_at_all(tmp_path, monkeypatch, capl
 
 async def test_the_served_text_keeps_its_frontmatter(server):
     """The metadata is part of what a reader uses to judge relevance."""
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         contents = await client.read_resource(RESOURCE_URI)
     assert contents[0].text.startswith("---")
 
@@ -327,7 +327,7 @@ async def test_switching_the_skill_off_removes_its_resources():
                  mcp={"skill": False})
     )
     assert off.skill is None
-    uris = {str(r.uri) for r in await off.mcp.list_resources()}
+    uris = {str(r.uri) for r in await off.mcp.server.list_resources()}
     assert RESOURCE_URI not in uris and MANIFEST_URI not in uris
 
 
@@ -345,12 +345,12 @@ async def test_every_tool_and_resource_has_a_row_on_the_page_it_always_reads(bui
     from kubed.selenium_flow.mcp import mirror
 
     body = (SKILL_DIR / ENTRY).read_text()
-    tools = {t.name for t in await server.mcp.list_tools()} - set(mirror.MIRROR_TOOLS)
+    tools = {t.name for t in await server.mcp.server.list_tools()} - set(mirror.MIRROR_TOOLS)
     missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.MULTILINE))
     assert not missing, f"SKILL.md's tool table has no row for {missing}"
 
-    reads = {str(r.uri) for r in await server.mcp.list_resources()} | {
-        t.uri_template for t in await server.mcp.list_resource_templates()
+    reads = {str(r.uri) for r in await server.mcp.server.list_resources()} | {
+        t.uri_template for t in await server.mcp.server.list_resource_templates()
     }
     reads = {u for u in reads if not u.startswith(("ui://", "skill://"))}
     missing = sorted(u for u in reads if not re.search(rf"^\| `{re.escape(u)}` \|", body, re.MULTILINE))

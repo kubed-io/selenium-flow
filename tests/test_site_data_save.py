@@ -311,7 +311,7 @@ def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monk
     server.workspaces.store.set(
         NAMED, Workspace(session_id="live-id").visited(SSO + "/", now=now - 60).visited(APP + "/x", now=now)
     )
-    response = TestClient(server.mcp.http_app()).post(
+    response = TestClient(server.mcp.server.http_app()).post(
         "/browser/save-site-data", headers={"Authorization": f"Bearer {TOKEN}"},
         params={"workspace": NAMED}, json={},
     )

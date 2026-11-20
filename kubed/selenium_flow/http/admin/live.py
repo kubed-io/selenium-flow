@@ -93,8 +93,9 @@ def socket_url(workspace: str, name: str, query: str = "") -> str:
 
 def websocket_route(mcp, path: str, endpoint, name: str) -> None:
     """Mount a WebSocket route beside the custom HTTP ones: FastMCP's
-    ``custom_route`` makes only HTTP routes, and its app takes these alike."""
-    mcp._additional_http_routes.append(WebSocketRoute(path, endpoint, name=name))
+    ``custom_route`` makes only HTTP routes, and its app takes these alike.
+    FastMCP's own list, so through ``mcp.server``."""
+    mcp.server._additional_http_routes.append(WebSocketRoute(path, endpoint, name=name))
 
 
 class _Viewer:

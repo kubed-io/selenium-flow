@@ -154,7 +154,7 @@ def test_a_malformed_json_body_does_not_open_a_browser(server, monkeypatch):
     monkeypatch.setattr(
         server.workspaces, "open_browser", lambda *a, **k: opened.append(k) or {}
     )
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     response = client.post(
         "/browser",
         content=b"{not json",

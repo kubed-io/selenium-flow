@@ -18,7 +18,7 @@ def client():
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, redis={"password": "pw!"}),
         sources={"auth.token": "env", "redis.password": "config", "port": "args"},
     )
-    return TestClient(server.mcp.http_app())
+    return TestClient(server.mcp.server.http_app())
 
 
 def test_it_needs_the_token(client):

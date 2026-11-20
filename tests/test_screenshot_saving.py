@@ -311,7 +311,7 @@ def test_print_over_http_keeps_the_file_for_the_workspace_that_asked(
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
     monkeypatch.setattr(keeping_server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     client = TestClient(
-        keeping_server.mcp.http_app(),
+        keeping_server.mcp.server.http_app(),
         headers={"Authorization": "Bearer tok", "Sf-Workspace": "desk"},
     )
     response = client.post(
@@ -341,7 +341,7 @@ def test_a_kept_page_opens_without_its_scripts(keeping_server):
 
     inert = "default-src 'none'; style-src 'unsafe-inline'"
     media = "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'"
-    client = TestClient(keeping_server.mcp.http_app())
+    client = TestClient(keeping_server.mcp.server.http_app())
     for name, csp in (
         ("page.html", "sandbox"),
         ("shot.svg", "sandbox"),
@@ -390,12 +390,12 @@ async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
     kept = server.actions.keep("shot.png", b"png", "screenshots")
     assert day - 5 <= lasts(kept["url"]) < day + links.EXPIRY_STEP
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         listed = await client.read_resource("workspace://files/screenshots")
     entry = json.loads(listed[0].text)["files"][0]
     assert day - 5 <= lasts(entry["url"]) < day + links.EXPIRY_STEP
 
-    body = TestClient(server.mcp.http_app()).get(
+    body = TestClient(server.mcp.server.http_app()).get(
         "/admin/workspaces/stdio/files", headers={"Authorization": "Bearer tok"}
     ).json()
     assert [f["name"] for f in body["screenshots"]] == ["shot.png"]
@@ -415,7 +415,7 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
     driver = _Driver()
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
     monkeypatch.setattr(keeping_server.workspaces, "resolved", lambda name: ("abc", "chrome"))
-    async with Client(keeping_server.mcp) as client:
+    async with Client(keeping_server.mcp.server) as client:
         result = await client.call_tool("print", {"format": "html"})
     assert result.structured_content["file"]["name"] == "page.html"
     assert result.structured_content["file"]["uri"] == "workspace://files/page.html"
@@ -433,7 +433,7 @@ async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypat
     monkeypatch.setattr(keeping_server.workspaces, "act", lambda name, call, **kw: {
         "image": png, "site_data": hint, **kept})
     calling_as(monkeypatch, "s")
-    async with Client(keeping_server.mcp) as client:
+    async with Client(keeping_server.mcp.server) as client:
         result = await client.call_tool("screenshot", {})
     assert result.content[0].type == "image"
     assert result.structured_content == {"site_data": hint, **kept}
@@ -452,7 +452,7 @@ async def test_a_screenshot_that_lands_on_a_new_page_names_the_flows_there(
     monkeypatch.setattr(keeping_server.workspaces, "act", lambda name, call, **kw: {
         "image": png, "flows_here": here})
     calling_as(monkeypatch, "s")
-    async with Client(keeping_server.mcp) as client:
+    async with Client(keeping_server.mcp.server) as client:
         result = await client.call_tool("screenshot", {})
     assert result.content[0].type == "image"
     assert result.structured_content == {"flows_here": here}
@@ -481,14 +481,14 @@ def test_the_image_block_keeps_every_optional_field_screenshot_publishes():
 async def test_the_tools_tell_the_agent_to_hand_over_the_link(server):
     """A hint the model reads while deciding, not after."""
     for name in ("screenshot", "print"):
-        description = (await server.mcp.get_tool(name)).description or ""
+        description = (await server.mcp.server.get_tool(name)).description or ""
         assert "the file's url" in description, f"{name} does not mention the link"
 
 
 async def test_the_prompt_does_not_promise_a_file_that_may_not_exist(server):
     """`save=false` and a failed save both mean there is no file, and a model
     told otherwise will hand a person a name that does not exist."""
-    description = (await server.mcp.get_tool("screenshot")).description or ""
+    description = (await server.mcp.server.get_tool("screenshot")).description or ""
     assert "By default" in description
     assert "file_error" in description
 
@@ -497,7 +497,7 @@ async def test_the_prompt_does_not_promise_a_signature_auth_off_cannot_give(serv
     """With AUTH_TOKEN unset there is nothing to sign with, and links.py
     emits the plain path deliberately."""
     for name in ("screenshot", "print"):
-        description = (await server.mcp.get_tool(name)).description or ""
+        description = (await server.mcp.server.get_tool(name)).description or ""
         assert "signed" not in description or "when this server has a token" in description
 
 
@@ -585,7 +585,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
     monkeypatch.setattr(server.grid, "quit", lambda *_: None)
 
     async def go():
-        async with Client(server.mcp) as client:
+        async with Client(server.mcp.server) as client:
             await client.call_tool("open_session", {})
             await client.call_tool("open_session", {"insecure": True})
             opened = await client.call_tool("open_session", {})

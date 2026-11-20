@@ -317,12 +317,12 @@ def test_the_provider_refuses_oidc_without_the_token(issuer):
 
 
 def test_a_token_turns_on_the_mcp_verifier(server):
-    assert isinstance(server.mcp.auth, auth.ServerTokenVerifier)
+    assert isinstance(server.mcp.server.auth, auth.ServerTokenVerifier)
 
 
 def test_no_token_leaves_the_server_open(open_server):
     """`docker compose up` runs without a token on purpose."""
-    assert open_server.mcp.auth is None
+    assert open_server.mcp.server.auth is None
     assert open_server.auth_token is None
 
 

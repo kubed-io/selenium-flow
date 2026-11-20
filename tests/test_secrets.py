@@ -351,14 +351,14 @@ def secret_server(tmp_path, monkeypatch):
 async def _read(server, uri):
     import json
 
-    result = await server.mcp.read_resource(uri)
+    result = await server.mcp.server.read_resource(uri)
     return json.loads(result.contents[0].content)
 
 
 async def test_the_catalogue_is_a_resource(secret_server):
-    uris = {str(r.uri) for r in await secret_server.mcp.list_resources()}
+    uris = {str(r.uri) for r in await secret_server.mcp.server.list_resources()}
     assert secrets.LIST_URI in uris
-    assert await secret_server.mcp.get_tool("list_secrets") is None
+    assert await secret_server.mcp.server.get_tool("list_secrets") is None
 
 
 async def test_listing_secrets_never_returns_a_value(secret_server):
@@ -386,7 +386,7 @@ async def test_nothing_readable_on_this_server_returns_a_secret_value(
 
     # A saved flow that BINDS the secret is the case that matters most: the
     # document names it, and must never carry it.
-    save = await secret_server.mcp.get_tool("save_flow")
+    save = await secret_server.mcp.server.get_tool("save_flow")
     await save.fn(
         name="login",
         steps=[
@@ -396,7 +396,7 @@ async def test_nothing_readable_on_this_server_returns_a_secret_value(
             }
         ],
     )
-    async with Client(secret_server.mcp) as client:
+    async with Client(secret_server.mcp.server) as client:
         rows = (await client.call_tool("list_resources", {})).structured_content["result"]
         uris = [row["uri"] for row in rows if "uri" in row] + ["flow://flows/login"]
         assert secrets.LIST_URI in uris
@@ -414,7 +414,7 @@ async def test_with_no_directories_the_catalogue_says_so():
     server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"})))
     assert server.secrets is None
     with pytest.raises(MCPError, match=r"secrets\.dirs"):
-        await server.mcp.read_resource(secrets.LIST_URI)
+        await server.mcp.server.read_resource(secrets.LIST_URI)
 
 
 def test_the_endpoint_serves_the_catalogue_and_needs_the_token(secret_server):
@@ -422,7 +422,7 @@ def test_the_endpoint_serves_the_catalogue_and_needs_the_token(secret_server):
 
     from .conftest import NAMED, TOKEN
 
-    client = TestClient(secret_server.mcp.http_app())
+    client = TestClient(secret_server.mcp.server.http_app())
     assert client.get("/secrets").status_code == 401
     response = client.get(
         "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": NAMED}
@@ -847,7 +847,7 @@ def bound_http(tmp_path, monkeypatch):
     # A named workspace holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body.
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("b1", "chrome"))
-    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": "desktop"})
+    client = TestClient(server.mcp.server.http_app(), headers={"Sf-Workspace": "desktop"})
     return client, typed
 
 
@@ -1024,10 +1024,11 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     touched = []
     monkeypatch.setattr(server.workspaces, "_touch", recording(touched))
 
-    write = await server.mcp.get_tool("write")
+    write = await server.mcp.server.get_tool("write")
     result = write.fn(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
+        actions=server.actions,
     )
     # The value is the marker itself, which scrub leaves alone (ruling 20), so
     # only `taints` knows it reached the page.
@@ -1074,10 +1075,11 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     touched = []
     monkeypatch.setattr(server.workspaces, "_touch", recording(touched))
 
-    write = await server.mcp.get_tool("write")
+    write = await server.mcp.server.get_tool("write")
     write.fn(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
+        actions=server.actions,
     )
     assert touched == [("https://nc.example.com/home", "browser-1")]
 
@@ -1127,9 +1129,10 @@ async def test_a_direct_bound_write_scrubs_every_spelling_it_comes_back_in(
         }
 
     server, touched = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.get_tool("write")
+    tool = await server.mcp.server.get_tool("write")
     result = tool.fn(
-        selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+        selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
+        actions=server.actions,
     )
     shown = json.dumps(result)
     assert VALUE not in shown and quote_plus(VALUE) not in shown, shown
@@ -1145,10 +1148,11 @@ async def test_a_direct_bound_writes_failure_never_quotes_the_value(
         raise ValueError(f"could not type {text!r} into #p")
 
     server, _ = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.get_tool("write")
+    tool = await server.mcp.server.get_tool("write")
     with pytest.raises(ValueError) as caught:
         tool.fn(
-            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
+            actions=server.actions,
         )
     assert VALUE not in str(caught.value)
     # Scrubbed in place (ruling 23): the same exception, so its type survives.
@@ -1193,10 +1197,11 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         lambda name, url, browser=None, **kw: ({"cause": "lost", "report": report}, None),
     )
 
-    write = await server.mcp.get_tool("write")
+    write = await server.mcp.server.get_tool("write")
     result = write.fn(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
+        actions=server.actions,
     )
     assert result["site_data"] == report
     assert result["reopened"]["cause"] == "lost"
@@ -1357,7 +1362,7 @@ async def test_the_http_catalogue_is_in_the_published_contract(secret_server):
     operation = spec["paths"]["/secrets"]["get"]
     assert operation["x-mcp-resource"] == secrets.LIST_URI
 
-    body = TestClient(secret_server.mcp.http_app()).get(
+    body = TestClient(secret_server.mcp.server.http_app()).get(
         "/secrets", headers={"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": NAMED}
     ).json()
     schemas = spec["components"]["schemas"]
@@ -1603,10 +1608,11 @@ async def test_a_direct_bound_writes_dead_browser_keeps_its_type_and_status(
         raise InvalidSessionIdException(f"window gone while typing {text!r}")
 
     server, _ = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.get_tool("write")
+    tool = await server.mcp.server.get_tool("write")
     with pytest.raises(InvalidSessionIdException) as caught:
         tool.fn(
-            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
+            actions=server.actions,
         )
     assert errors.status_for(caught.value) == 404
     assert VALUE not in str(caught.value)
@@ -1623,10 +1629,11 @@ async def test_a_failed_bound_write_keeps_its_status(tmp_path, monkeypatch):
         raise faults.NoSession(f"no session while typing {text!r}")
 
     server, touched = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.get_tool("write")
+    tool = await server.mcp.server.get_tool("write")
     with pytest.raises(faults.NoSession) as caught:
         tool.fn(
-            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+            selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
+            actions=server.actions,
         )
     assert type(caught.value) is faults.NoSession
     assert errors.status_for(caught.value) == errors.status_for(faults.NoSession("x"))
@@ -1654,7 +1661,7 @@ async def test_an_mcp_write_whose_scrub_fails_answers_the_fixed_sentence(
         raise OSError(f"cannot stat {VALUE}")
 
     monkeypatch.setattr(server.secrets, "revision", broken)
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await client.call_tool(
             "write",
             {"selector": {"css": "#p"}, "secret": {"name": "nextcloud", "key": "password"}},
@@ -1677,9 +1684,10 @@ async def test_a_bound_write_marks_the_value_in_its_result(tmp_path, monkeypatch
         }
 
     server, touched = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.get_tool("write")
+    tool = await server.mcp.server.get_tool("write")
     result = tool.fn(
-        selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"}
+        selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
+        actions=server.actions,
     )
     assert result["html"] == "<p>[secret:nextcloud/password]</p>"
     assert "<hidden>" not in json.dumps(result)

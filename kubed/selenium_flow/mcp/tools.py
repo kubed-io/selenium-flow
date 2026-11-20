@@ -23,8 +23,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal
 
 import anyio
-from fastmcp import FastMCP
-from kubed.mcp import Context, Image, ToolResult
+from kubed.mcp import Context, Image, Inject, QuickMCP, ToolResult
 from kubed.mcp.protocol import AppConfig
 from pydantic import (
     BaseModel,
@@ -194,8 +193,7 @@ def _forwarding(body: Callable[[dict], object]):
 
 
 def register(
-    mcp: FastMCP,
-    actions: Actions,
+    mcp: QuickMCP,
     workspaces: Workspaces,
     catalogue=None,
     *,
@@ -224,8 +222,10 @@ def register(
 
     def act(row: Capability, arguments: dict):
         """Whose browser this is, then act on it through ``Workspaces.act``."""
-        # The tool's, never the action's: which session it acts in.
+        # The tool's, never the action's: which session it acts in, and the
+        # `Actions` it acts through.
         session = arguments.pop("session", None)
+        actions = arguments.pop("actions")
         if "secret" in arguments:
             # `write` types a secret through the catalogue.
             if arguments["secret"] is None and arguments.get("text") is None:
@@ -348,7 +348,9 @@ def register(
         """
 
     @action("network_body")
-    def network_body(id: RequestId, session: Session = None) -> dict:
+    def network_body(
+        id: RequestId, session: Session = None, *, actions: Inject[Actions]
+    ) -> dict:
         """Fetch the response body of one request the page made, by its id from
         workspace://network, or from session://<name>/network with that same
         session (an id looks like 3.7). Text comes back up to 100 kB,
@@ -358,7 +360,9 @@ def register(
         """
 
     @action("save_site_data")
-    def save_site_data(url: str | None = None, session: Session = None) -> dict:
+    def save_site_data(
+        url: str | None = None, session: Session = None, *, actions: Inject[Actions]
+    ) -> dict:
         """Save this session's site data, so a new browser comes back signed in.
 
         It keeps every cookie the browser holds, the localStorage of the sites it has
@@ -427,7 +431,9 @@ def register(
         )
 
     @action("navigate")
-    def navigate(url: str, session: Session = None) -> dict:
+    def navigate(
+        url: str, session: Session = None, *, actions: Inject[Actions]
+    ) -> dict:
         """Go to a URL. Returns the URL and title the browser ended on.
 
         Every other action also takes url, and navigates there first only if the
@@ -464,6 +470,8 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = False,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict: ...
 
     @action(
@@ -487,6 +495,8 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         glide: bool = True,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict: ...
 
     @action(
@@ -506,6 +516,8 @@ def register(
         index: int | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict: ...
 
     @action(
@@ -528,6 +540,8 @@ def register(
         id: str | None = None,
         url: str | None = None,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict: ...
 
     @action("resize")
@@ -535,6 +549,8 @@ def register(
         width: int | None = None,
         height: int | None = None,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict:
         """Resize the browser window.
 
@@ -558,6 +574,8 @@ def register(
         text: str | None = None,
         wait_timeout: int = DIALOG_TIMEOUT,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict: ...
 
     @action("upload_file")
@@ -571,6 +589,8 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         file: str | None = None,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict:
         """Attach a file to a file input (selector). Give exactly one source:
 
@@ -594,6 +614,8 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         secret: SecretRef | None = None,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict:
         """Type into an input, textarea or contenteditable, and read the value back so
         you can see it landed. clear (default true) replaces what is there;
@@ -628,6 +650,8 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict: ...
 
     @action("extract")
@@ -636,6 +660,8 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict:
         """Read an element's visible text and HTML.
 
@@ -672,11 +698,17 @@ def register(
         url: str | None = None,
         wait_timeout: int = WAIT_TIMEOUT,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict: ...
 
     @action("execute_script")
     def execute_script(
-        script: str, url: str | None = None, session: Session = None
+        script: str,
+        url: str | None = None,
+        session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict:
         """Run JavaScript in the page and return what it returns.
 
@@ -710,6 +742,8 @@ def register(
         wait_timeout: int = WAIT_TIMEOUT,
         stable_for: float = 0,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict: ...
 
     @action("screenshot", shape=_as_image)
@@ -723,6 +757,8 @@ def register(
         save: bool = True,
         filename: str | None = None,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> Image | ToolResult:
         """Capture a PNG of the viewport, of one element (selector), or of the whole
         page (full_page), returned as an image. Use it only when the look is the
@@ -748,6 +784,8 @@ def register(
         landscape: bool = False,
         background: bool = False,
         session: Session = None,
+        *,
+        actions: Inject[Actions],
     ) -> dict:
         """Print the page into the workspace's files, kept past the browser.
 

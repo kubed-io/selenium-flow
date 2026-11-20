@@ -71,7 +71,7 @@ def serve(folder) -> FastMCP:
 
 
 async def test_index_json_reads_beside_each_folder(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         root = await read_json(client, f"{ROOT}/_index.json")
         references = await read_json(client, f"{REFERENCES}/_index.json")
     assert [r["uri"] for r in root] == [f"{ROOT}/SKILL.md", REFERENCES]
@@ -80,7 +80,7 @@ async def test_index_json_reads_beside_each_folder(server):
 
 @pytest.mark.parametrize("folder", [ROOT, REFERENCES])
 async def test_index_md_is_one_line_per_child(server, folder):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         children = await read_json(client, f"{folder}/_index.json")
         contents = await client.read_resource(f"{folder}/_index.md")
     assert contents[0].mime_type == "text/markdown"
@@ -90,7 +90,7 @@ async def test_index_md_is_one_line_per_child(server, folder):
 
 
 async def test_a_folder_child_is_a_directory_resource(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         root = await read_json(client, f"{ROOT}/_index.json")
     folder = next(r for r in root if r["uri"] == REFERENCES)
     assert folder["mimeType"] == DIRECTORY
@@ -99,7 +99,7 @@ async def test_a_folder_child_is_a_directory_resource(server):
 
 
 async def test_no_folder_uri_ends_in_a_slash(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         root = await read_json(client, f"{ROOT}/_index.json")
     folders = [r["uri"] for r in root if r["mimeType"] == DIRECTORY]
     assert folders
@@ -107,7 +107,7 @@ async def test_no_folder_uri_ends_in_a_slash(server):
 
 
 async def test_a_markdown_child_is_described_by_its_heading(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         references = await read_json(client, f"{REFERENCES}/_index.json")
     flows = next(r for r in references if r["uri"].endswith("/FLOWS.md"))
     assert flows["description"] == "Flows"
@@ -115,7 +115,7 @@ async def test_a_markdown_child_is_described_by_its_heading(server):
 
 
 async def test_skill_md_is_described_as_the_listing_describes_it(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         listed = next(
             r for r in await client.list_resources() if str(r.uri) == f"{ROOT}/SKILL.md"
         )
@@ -124,7 +124,7 @@ async def test_skill_md_is_described_as_the_listing_describes_it(server):
 
 
 async def test_folders_and_indexes_are_unlisted(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         rows = await client.list_resources()
         templates = await client.list_resource_templates()
     uris = [str(r.uri) for r in rows]
@@ -134,7 +134,7 @@ async def test_folders_and_indexes_are_unlisted(server):
 
 
 async def test_the_manifest_is_never_a_child_and_still_reads(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         root = await read_json(client, f"{ROOT}/_index.json")
         manifest = await read_json(client, f"{ROOT}/_manifest")
     assert not [r for r in root if "_manifest" in r["uri"] or "_index" in r["uri"]]
@@ -142,7 +142,7 @@ async def test_the_manifest_is_never_a_child_and_still_reads(server):
 
 
 async def test_an_index_of_no_folder_is_not_found(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError) as caught:
             await client.read_resource(f"{ROOT}/nope/_index.json")
     assert caught.value.error.code == INVALID_PARAMS
@@ -397,7 +397,7 @@ async def read_directory(client, **params) -> dict:
 
 
 async def test_the_root_lists_its_direct_children(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await read_directory(client, uri=ROOT)
     assert [r["uri"] for r in result["resources"]] == [f"{ROOT}/SKILL.md", REFERENCES]
     assert result["resources"][1]["mimeType"] == DIRECTORY
@@ -405,21 +405,21 @@ async def test_the_root_lists_its_direct_children(server):
 
 
 async def test_descending_lists_the_folder_alone(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await read_directory(client, uri=REFERENCES)
     assert [r["uri"] for r in result["resources"]] == reference_uris()
 
 
 @pytest.mark.parametrize("folder", [ROOT, REFERENCES])
 async def test_the_method_returns_what_the_index_holds(server, folder):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await read_directory(client, uri=folder)
         index = await read_json(client, f"{folder}/_index.json")
     assert result["resources"] == index
 
 
 async def test_a_file_child_is_its_resources_list_row(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         listed = next(
             r for r in (await client.session.list_resources()).resources
             if str(r.uri) == f"{ROOT}/SKILL.md"
@@ -448,7 +448,7 @@ async def test_a_file_child_is_its_resources_list_row(server):
          "cursor-zero", "cursor-past-end", "cursor-5000-digits", "empty-uri", "no-uri"],
 )
 async def test_refusals_are_invalid_params(server, params, message):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError) as caught:
             await read_directory(client, **params)
     assert caught.value.error.code == INVALID_PARAMS
@@ -479,7 +479,7 @@ async def test_switching_the_skill_off_removes_the_method(mode):
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "t"},
                  mcp={"skill": False})
     )
-    async with Client(off.mcp, mode=mode) as client:
+    async with Client(off.mcp.server, mode=mode) as client:
         with pytest.raises(MCPError) as caught:
             await read_directory(client, uri=ROOT)
     assert caught.value.error.code == METHOD_NOT_FOUND
@@ -490,7 +490,7 @@ async def test_switching_the_skill_off_removes_the_method(mode):
 
 @pytest.mark.parametrize("folder", [ROOT, REFERENCES])
 async def test_reading_a_folder_names_its_index(server, folder):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError) as caught:
             await client.read_resource(folder)
     error = caught.value.error
@@ -501,7 +501,7 @@ async def test_reading_a_folder_names_its_index(server, folder):
 
 
 async def test_a_trailing_slash_is_a_plain_miss(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError) as caught:
             await client.read_resource(f"{REFERENCES}/")
     assert caught.value.error.code == INVALID_PARAMS
@@ -509,7 +509,7 @@ async def test_a_trailing_slash_is_a_plain_miss(server):
 
 
 async def test_read_resource_passes_the_hint_on(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await client.call_tool(
             "read_resource", {"uri": REFERENCES}, raise_on_error=False
         )
@@ -521,7 +521,7 @@ async def test_read_resource_passes_the_hint_on(server):
 async def test_show_on_a_folder_is_a_plain_miss_naming_the_index(server):
     from fastmcp.exceptions import ToolError
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(ToolError) as refused:
             await client.call_tool("show", {"uri": REFERENCES})
     said = str(refused.value)
@@ -532,7 +532,7 @@ async def test_show_on_a_folder_is_a_plain_miss_naming_the_index(server):
 
 async def test_the_method_matches_the_uri_as_sent_while_a_read_normalises(server):
     dotted = f"{ROOT}/x/../references"
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError) as caught:
             await read_directory(client, uri=dotted)
         index = await read_json(client, f"{dotted}/_index.json")

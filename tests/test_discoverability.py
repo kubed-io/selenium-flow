@@ -59,7 +59,7 @@ def _enum(prop: dict):
 async def test_a_closed_set_is_an_enum_in_the_tool_schema(
     server, tool, argument, _name, values
 ):
-    schema = (await server.mcp.get_tool(tool)).parameters
+    schema = (await server.mcp.server.get_tool(tool)).parameters
     prop = schema["properties"][argument]
     assert _enum(prop) == list(values), (
         f"{tool}.{argument} is validated against a fixed list but the schema "
@@ -79,7 +79,7 @@ def test_every_closed_set_the_action_layer_checks_is_listed_here():
 async def test_press_key_is_deliberately_not_an_enum(server):
     """Any character is a key, so the set is open. It stays a string and says
     what it accepts instead."""
-    prop = (await server.mcp.get_tool("press_key")).parameters["properties"]["key"]
+    prop = (await server.mcp.server.get_tool("press_key")).parameters["properties"]["key"]
     assert _enum(prop) is None
     assert prop["type"] == "string"
 
@@ -150,7 +150,7 @@ def test_press_key_sends_the_resolved_combination(actions, monkeypatch):
 
 
 async def test_press_key_describes_names_characters_and_combinations(server):
-    description = (await server.mcp.get_tool("press_key")).description
+    description = (await server.mcp.server.get_tool("press_key")).description
     assert "ArrowLeft" in description
     assert "Control+a" in description
     assert "back_space" not in description, "aliases are not choices"
@@ -158,12 +158,12 @@ async def test_press_key_describes_names_characters_and_combinations(server):
 
 async def test_interact_says_a_hover_stays(server):
     """The fact that makes hover-then-click a two-call pattern."""
-    description = (await server.mcp.get_tool("interact")).description
+    description = (await server.mcp.server.get_tool("interact")).description
     assert "stays open" in description
 
 
 async def test_execute_script_points_back_before_taking_the_job(server):
-    description = (await server.mcp.get_tool("execute_script")).description
+    description = (await server.mcp.server.get_tool("execute_script")).description
     assert "interact" in description
     assert ":hover" in description, "a script cannot open a :hover menu"
 
@@ -197,7 +197,7 @@ async def test_a_choice_is_accepted_in_any_case_over_mcp(
     )
     server.workspaces.remember(NAMED, "abc", "", {"browser": "chrome"})
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await client.call_tool(tool, given)
     assert result.data["action"] == expected
 
@@ -206,7 +206,7 @@ async def test_a_choice_outside_the_set_is_still_refused_over_mcp(server):
     from fastmcp import Client
     from fastmcp.exceptions import ToolError
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(ToolError):
             await client.call_tool("interact", {"action": "mouseover", "selector": {"css": "a"}})
 
@@ -233,7 +233,7 @@ async def test_a_blank_browser_still_means_the_default(server, monkeypatch, give
 
         calling_as(monkeypatch, NAMED)
         monkeypatch.setattr(server.actions, "open_session", fake_open)
-        async with Client(server.mcp) as client:
+        async with Client(server.mcp.server) as client:
             await client.call_tool("open_session", arguments)
         return seen
 
@@ -247,6 +247,6 @@ async def test_a_blank_browser_still_means_the_default(server, monkeypatch, give
 
 
 async def test_tab_says_a_background_tab_is_not_rendered(server):  # ACT-45
-    description = (await server.mcp.get_tool("tab")).description
+    description = (await server.mcp.server.get_tool("tab")).description
     assert "Chrome does not render" in description
     assert "Firefox slows its timers" in description

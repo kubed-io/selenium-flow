@@ -60,7 +60,7 @@ def server():
 
 @pytest.fixture
 def client(server):
-    return TestClient(server.mcp.http_app(), headers=AUTH)
+    return TestClient(server.mcp.server.http_app(), headers=AUTH)
 
 
 URL = f"/admin/workspaces/{KEY}/history"
@@ -119,7 +119,7 @@ def test_clear_keeps_the_current_site_and_nothing_else(client, server):
 
 
 def test_the_routes_need_the_token(server):
-    bare = TestClient(server.mcp.http_app())
+    bare = TestClient(server.mcp.server.http_app())
     assert bare.get(URL).status_code == 401
     assert bare.delete(URL).status_code == 401
 

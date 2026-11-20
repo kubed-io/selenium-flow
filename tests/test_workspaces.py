@@ -208,7 +208,7 @@ def test_a_session_name_is_unnamed_over_http(server, path, headers):  # ruling 1
 
     from .conftest import TOKEN
 
-    client = TestClient(server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}", **headers})
+    client = TestClient(server.mcp.server.http_app(), headers={"Authorization": f"Bearer {TOKEN}", **headers})
     response = client.get(path)
     assert response.status_code == 400
     assert response.json() == {"error": UNNAMED}
@@ -1416,7 +1416,7 @@ async def test_open_session_comes_back_to_the_page_it_was_on(server, monkeypatch
     server.workspaces.store.set(
         NAMED, Workspace(session_id="").visited("https://app.test/orders")
     )
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         await client.call_tool("open_session", {})
     assert seen["url"] == "https://app.test/orders"
 
@@ -1449,7 +1449,7 @@ async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
             set_by={"browser": "caller", "width": "caller", "height": "caller"},
         ).visited("https://app.test/orders"),
     )
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         await client.call_tool("open_session", {"fresh": True})
 
     assert seen["url"] is None, "the remembered page is dropped"
@@ -1478,7 +1478,7 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
     server.workspaces.store.set(
         NAMED, Workspace(session_id="").visited("https://app.test/orders")
     )
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         await client.call_tool(
             "open_session", {"fresh": True, "url": "https://app.test/login"}
         )
@@ -1666,7 +1666,7 @@ def test_a_repeated_name_is_a_400_over_http(server):
     from .conftest import TOKEN
 
     client = TestClient(
-        server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}"}
+        server.mcp.server.http_app(), headers={"Authorization": f"Bearer {TOKEN}"}
     )
     response = client.get("/browser?workspace=a&workspace=b")
     assert response.status_code == 400
@@ -1686,7 +1686,7 @@ def test_an_old_name_is_a_400_over_http(server, path, headers, error):
     from .conftest import TOKEN
 
     client = TestClient(
-        server.mcp.http_app(),
+        server.mcp.server.http_app(),
         headers={"Authorization": f"Bearer {TOKEN}", **headers},
     )
     response = client.get(path)
@@ -1699,7 +1699,7 @@ def test_a_new_header_in_any_case_names_the_workspace_over_http(open_server, mon
     from starlette.testclient import TestClient
 
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
-    response = TestClient(open_server.mcp.http_app()).get(
+    response = TestClient(open_server.mcp.server.http_app()).get(
         "/browser", headers={header: "desk"}
     )
     assert response.status_code == 200
@@ -1817,7 +1817,7 @@ def test_describe_says_request_when_a_route_names_it(server):
     from .conftest import TOKEN
 
     client = TestClient(
-        server.mcp.http_app(), headers={"Authorization": f"Bearer {TOKEN}"}
+        server.mcp.server.http_app(), headers={"Authorization": f"Bearer {TOKEN}"}
     )
     status = client.get("/browser", params={"workspace": "desk"}).json()
     assert status["workspace"] == "desk"

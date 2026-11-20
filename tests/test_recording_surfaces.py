@@ -115,7 +115,7 @@ def srv(tmp_path):
 
 def test_the_folder_and_its_template_are_resources(srv):
     async def go():
-        async with Client(srv.mcp) as c:
+        async with Client(srv.mcp.server) as c:
             listed = {str(r.uri) for r in await c.list_resources()}
             templated = {t.uri_template for t in await c.list_resource_templates()}
             return listed, templated
@@ -126,7 +126,7 @@ def test_the_folder_and_its_template_are_resources(srv):
 
 def test_reading_one_recording_answers_its_entry_not_the_video(srv):
     async def go():
-        async with Client(srv.mcp) as c:
+        async with Client(srv.mcp.server) as c:
             return await c.read_resource("workspace://files/recordings/rec-20261008-1403.mp4")
     got = asyncio.run(go())
     entry = json.loads(got[0].text)
@@ -136,7 +136,7 @@ def test_reading_one_recording_answers_its_entry_not_the_video(srv):
 
 def test_keep_file_moves_a_recording(srv):
     async def go():
-        async with Client(srv.mcp) as c:
+        async with Client(srv.mcp.server) as c:
             return await c.call_tool("keep_file", {"uri": "workspace://files/recordings/rec-20261008-1403.mp4"})
     result = asyncio.run(go())
     assert result.structured_content["uri"] == "workspace://files/rec-20261008-1403.mp4"
@@ -149,7 +149,7 @@ def test_a_kept_recording_read_from_files_answers_its_entry_not_the_video(srv):
     srv.flows.write_file(STDIO_NAME, "notes.txt", b"plain", FILES_DIR)
 
     async def go():
-        async with Client(srv.mcp) as c:
+        async with Client(srv.mcp.server) as c:
             await c.call_tool(
                 "keep_file", {"uri": "workspace://files/recordings/rec-20261008-1403.mp4"}
             )

@@ -81,7 +81,7 @@ def test_it_loads_strictly(caplog):  # spec test 1
 
 
 async def test_every_listed_tool_exists(server):  # spec test 2
-    registered = {t.name for t in await server.mcp.list_tools()}
+    registered = {t.name for t in await server.mcp.server.list_tools()}
     assert set(front()["tools"]) - HOST <= registered
 
 
@@ -93,7 +93,7 @@ def test_the_tools_are_ruling_3s():  # spec test 3
 
 
 async def test_it_routes_as_medium(server):  # spec test 5
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         got = await request(client, "agents/get", name="explorer")
     assert got["modelRoutingHint"] == {"role": "medium", "vision": False}
     assert got["_meta"]["io.kubed/agent"]["frontmatter"] == front()
@@ -135,14 +135,14 @@ def test_it_stops_on_a_pinned_connection():  # PLG-47
 
 async def test_it_names_the_skill_by_uri(server):  # spec test 4
     assert f"`{SKILL_URI}`" in body()
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         got = await request(client, "agents/get", name="explorer")
     assert got["_meta"]["io.kubed/agent"]["skills"] == {"selenium-flow": SKILL_URI}
     assert got["instructions"] == body()
 
 
 async def test_it_names_no_tool_it_does_not_have(server):  # spec test 7, Review Focus 1
-    known = {t.name for t in await server.mcp.list_tools()} | OUT | MIRROR
+    known = {t.name for t in await server.mcp.server.list_tools()} | OUT | MIRROR
     named = set(QUOTED_NAME.findall(body() + " " + shipped().card["description"]))
     assert named & known <= IN, named & known - IN
 
@@ -165,7 +165,7 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
     named = {
         uri.replace("<name>", "{name}") for uri in named if not uri.endswith("…")
     }
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         served = {str(r.uri) for r in await client.list_resources()} | {
             # MCP SDK v2 renamed the field; the older one warns on the new SDK.
             getattr(t, "uri_template", None) or t.uriTemplate

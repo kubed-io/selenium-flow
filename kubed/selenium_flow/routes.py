@@ -19,7 +19,7 @@ import time
 from dataclasses import replace
 
 import yaml
-from fastmcp import FastMCP
+from kubed.mcp import QuickMCP
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -55,7 +55,7 @@ def mount(value: str | None) -> str:
 
 
 def register(
-    mcp: FastMCP,
+    mcp: QuickMCP,
     actions: Actions,
     workspaces: Workspaces,
     token: str | None,

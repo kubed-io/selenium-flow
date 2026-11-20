@@ -55,7 +55,7 @@ def test_the_keyword_is_aliased_in_exactly_one_place(actions):
 
 
 async def test_the_tool_publishes_script_message_and_a_wait(server):
-    schema = (await server.mcp.get_tool("assert")).parameters
+    schema = (await server.mcp.server.get_tool("assert")).parameters
     assert {"script", "message", "wait_timeout"} <= set(schema["properties"])
     assert schema["required"] == ["script"]
 
@@ -204,7 +204,7 @@ async def test_an_assert_cannot_be_continued_past(server):
 
     tools = {}
     for name in sorted(set(ROUTES.values())):
-        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
+        tools[name] = (await server.mcp.server.get_tool(name)).parameters or {}
 
     document = {
         "description": "Sign in",
@@ -262,7 +262,7 @@ async def test_a_flow_with_an_assert_step_saves(server):
 
     tools = {}
     for name in sorted(set(ROUTES.values())):
-        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
+        tools[name] = (await server.mcp.server.get_tool(name)).parameters or {}
     assert validate(LOGIN_GUARD, step_schemas(tools))
 
 
@@ -373,7 +373,7 @@ def clock(monkeypatch):
 
 
 async def test_the_tool_publishes_stable_for(server):
-    schema = (await server.mcp.get_tool("assert")).parameters
+    schema = (await server.mcp.server.get_tool("assert")).parameters
     assert "stable_for" in schema["properties"]
 
 

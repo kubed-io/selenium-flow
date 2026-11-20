@@ -19,8 +19,7 @@ import re
 from pathlib import Path
 
 import yaml
-from fastmcp import FastMCP
-from kubed.mcp import Prompt, PromptArgument, PromptError
+from kubed.mcp import Prompt, PromptArgument, PromptError, QuickMCP
 from pydantic import Field
 
 from .skill import plugin_folder
@@ -146,9 +145,10 @@ def load_prompts(base: Path | None = None) -> list[FilePrompt]:
     return found
 
 
-def register(mcp: FastMCP, prompts=None) -> set[str]:
+def register(mcp: QuickMCP, prompts=None) -> set[str]:
     """Publish the prompts. Returns their names."""
     published = load_prompts() if prompts is None else prompts
     for prompt in published:
-        mcp.add_prompt(prompt)
+        # FastMCP's own: QuickMCP passes the decorator through, not this.
+        mcp.server.add_prompt(prompt)
     return {prompt.name for prompt in published}

@@ -44,19 +44,19 @@ def saved(server, monkeypatch):
 
 
 async def read(server, uri):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         return json.loads((await c.read_resource(uri))[0].text)
 
 
 async def test_save_site_data_is_a_tool_and_an_endpoint(server):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         names = {t.name for t in await c.list_tools()}
     assert "save_site_data" in names
     assert capabilities.ENDPOINTS["save-site-data"] == "save_site_data"
 
 
 async def test_open_session_takes_restore_site_data(server):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         tool = next(t for t in await c.list_tools() if t.name == "open_session")
     assert tool.input_schema["properties"]["restore_site_data"]["default"] is True
 
@@ -77,7 +77,7 @@ async def test_the_resources_list_and_show_one_site_masking_httponly(saved):
 
 
 async def test_the_http_routes_answer_the_same(saved):
-    client = TestClient(saved.mcp.http_app())
+    client = TestClient(saved.mcp.server.http_app())
     params = {"workspace": NAMED}
     listed = client.get("/site-data", headers=AUTH, params=params)
     one = client.get(f"/site-data/{SITE}", headers=AUTH, params=params)
@@ -115,7 +115,7 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     server.workspaces.store.set(
         NAMED, Workspace(session_id="live-id").visited(f"https://{SITE}/")
     )
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
     )
@@ -166,7 +166,7 @@ def _save_through_the_server(monkeypatch, channel, broken=None):
     ))
     server.actions.channels = channels_for(channel, broken=broken)
     server.workspaces.store.set(NAMED, Workspace().visited(f"https://{SITE}/"))
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
     )
@@ -198,7 +198,7 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch, caplog):
     server, response = _save_through_the_server(monkeypatch, None)
     server.actions.channels = channels
     with caplog.at_level("DEBUG"):
-        response = TestClient(server.mcp.http_app()).post(
+        response = TestClient(server.mcp.server.http_app()).post(
             "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
         )
     assert response.status_code == 503, response.json()

@@ -18,7 +18,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": S}
 
 @pytest.fixture
 def http(data_server):
-    return TestClient(data_server.mcp.http_app(), headers=AUTH)
+    return TestClient(data_server.mcp.server.http_app(), headers=AUTH)
 
 
 def _run(coro):
@@ -27,7 +27,7 @@ def _run(coro):
 
 def test_the_resources_are_files_with_two_sub_folders_and_the_session_downloads(data_server):
     async def go():
-        async with Client(data_server.mcp) as c:
+        async with Client(data_server.mcp.server) as c:
             listed = {str(r.uri) for r in await c.list_resources()}
             templated = {t.uri_template for t in await c.list_resource_templates()}
             return listed, templated
@@ -46,7 +46,7 @@ def test_the_resources_are_files_with_two_sub_folders_and_the_session_downloads(
 
 def test_keep_file_takes_a_uri_and_is_not_idempotent(data_server):
     async def go():
-        async with Client(data_server.mcp) as c:
+        async with Client(data_server.mcp.server) as c:
             return {t.name: t for t in await c.list_tools()}["keep_file"]
     tool = _run(go())
     # `session`: which session's downloads a download's uri is read from.
@@ -85,7 +85,7 @@ def test_reading_a_screenshot_resource_returns_its_bytes(data_server):
     data_server.flows.create_file(STDIO_NAME, "shot.png", b"\x89PNG", SCREENSHOTS_DIR)
 
     async def go():
-        async with Client(data_server.mcp) as c:  # stdio-like: the workspace is `stdio`
+        async with Client(data_server.mcp.server) as c:  # stdio-like: the workspace is `stdio`
             return await c.read_resource("workspace://files/screenshots/shot.png")
     got = _run(go())
     assert got[0].blob or got[0].text
@@ -112,7 +112,7 @@ def test_a_file_read_carries_its_own_media_type(data_server, folder, name, expec
         uri = f"session://downloads/{name}"
 
     async def go():
-        async with Client(data_server.mcp) as c:
+        async with Client(data_server.mcp.server) as c:
             return await c.read_resource(uri)
 
     got = _run(go())

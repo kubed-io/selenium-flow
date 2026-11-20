@@ -104,7 +104,7 @@ async def test_another_workspace_is_offered_by_its_own_config(library, monkeypat
 async def test_a_saved_change_applies_from_the_next_call(library):
     configure(library, "flows:\n  global: [reports]\n")
     assert await listed(library) == ["nightly"]
-    client = TestClient(library.mcp.http_app(), headers=AUTH)
+    client = TestClient(library.mcp.server.http_app(), headers=AUTH)
     saved = client.put(
         f"/admin/workspaces/{NAMED}/config", json={"text": "flows:\n  global: [shop]\n"}
     )
@@ -120,7 +120,7 @@ def test_a_refused_file_offers_nothing(library):
 
 def test_the_admin_sees_every_global_flow_and_which_are_offered(library):
     configure(library, "flows:\n  global: [reports]\n")
-    client = TestClient(library.mcp.http_app(), headers=AUTH)
+    client = TestClient(library.mcp.server.http_app(), headers=AUTH)
     entries = {e["name"]: e for e in client.get(admin()).json()["flows"]}
     assert sorted(entries) == ["nightly", "plain", "shop-buy", "shop-login"]
     assert {n: e["offered"] for n, e in entries.items()} == {
@@ -130,5 +130,5 @@ def test_the_admin_sees_every_global_flow_and_which_are_offered(library):
 
 
 def test_the_admin_listing_marks_nothing_when_unset(library):
-    client = TestClient(library.mcp.http_app(), headers=AUTH)
+    client = TestClient(library.mcp.server.http_app(), headers=AUTH)
     assert all(e["offered"] for e in client.get(admin()).json()["flows"])

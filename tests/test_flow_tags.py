@@ -36,11 +36,11 @@ def server(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(server):
-    return TestClient(server.mcp.http_app())
+    return TestClient(server.mcp.server.http_app())
 
 
 async def call(server, tool_name, /, **kwargs):
-    tool = await server.mcp.get_tool(tool_name)
+    tool = await server.mcp.server.get_tool(tool_name)
     result = tool.fn(**kwargs)
     if hasattr(result, "__await__"):
         result = await result
@@ -50,7 +50,7 @@ async def call(server, tool_name, /, **kwargs):
 async def resource(server, uri: str):
     import json
 
-    result = await server.mcp.read_resource(uri)
+    result = await server.mcp.server.read_resource(uri)
     return json.loads(result.contents[0].content)
 
 
@@ -294,7 +294,7 @@ async def test_the_shared_library_itself_is_offered_everything(hiding, monkeypat
 
 
 def test_the_admin_still_sees_and_opens_every_global_flow(hiding):
-    client = TestClient(hiding.mcp.http_app())
+    client = TestClient(hiding.mcp.server.http_app())
     listing = client.get(admin(), headers=AUTH).json()
     assert [e["name"] for e in listing["flows"]] == ["open", "secret"]
     assert client.get(admin("secret"), headers=AUTH).status_code == 200

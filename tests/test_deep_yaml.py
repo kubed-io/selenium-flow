@@ -28,7 +28,7 @@ SERVE = textwrap.dedent(
         auth={"token": "t"},
         data={"dir": sys.argv[3]},
     ))
-    client = TestClient(server.mcp.http_app(), headers={"Authorization": "Bearer t"})
+    client = TestClient(server.mcp.server.http_app(), headers={"Authorization": "Bearer t"})
     if field:
         response = client.put(path, json={field: text})
     else:

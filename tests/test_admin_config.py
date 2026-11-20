@@ -27,7 +27,7 @@ def url(key: str = KEY) -> str:
 
 @pytest.fixture
 def client(data_server):
-    return TestClient(data_server.mcp.http_app())
+    return TestClient(data_server.mcp.server.http_app())
 
 
 def test_every_route_is_behind_the_admin_door(client, tmp_path):
@@ -114,7 +114,7 @@ def test_the_answer_carries_how_long_an_unkept_workspace_lasts(tmp_path):
             workspace={"ttl": 3600},
         )
     )
-    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     assert client.get(url()).json()["ttl"] == 3600
 
 
@@ -130,7 +130,7 @@ def test_a_key_that_cannot_be_a_folder_is_refused(client):
 
 
 def test_with_no_data_dir_every_route_is_a_conflict(server):
-    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     for response in (
         client.get(url()),
         client.put(url(), json={"text": VALID}),
@@ -147,7 +147,7 @@ def test_only_the_admin_route_reaches_the_config(data_server):
     the admin's."""
     paths = [
         route.path
-        for route in data_server.mcp._additional_http_routes
+        for route in data_server.mcp.server._additional_http_routes
         if "config" in route.path.lower()
     ]
     assert paths == ["/admin/workspaces/{key}/config"]
@@ -156,7 +156,7 @@ def test_only_the_admin_route_reaches_the_config(data_server):
 async def test_no_tool_writes_the_config(data_server):
     """An agent's boundary it cannot move: no tool takes the config, and the
     tools that write files cannot reach the workspace's root."""
-    tools = await data_server.mcp.list_tools()
+    tools = await data_server.mcp.server.list_tools()
     assert not [t.name for t in tools if "config" in t.name.lower()]
 
 
@@ -205,7 +205,7 @@ def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
         store=redis,
     )
     redis.set(KEY, Workspace(session_id="a"))
-    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     client.put(url(), json={"text": VALID})
     assert fake.expiries[f"p:{KEY}"] is None
     client.delete(url())

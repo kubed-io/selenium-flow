@@ -98,7 +98,7 @@ def data_server(tmp_path):
 @pytest.fixture
 def client(server):
     """An HTTP client of ``server`` that sends no credentials of its own."""
-    return TestClient(server.mcp.http_app())
+    return TestClient(server.mcp.server.http_app())
 
 
 # ---- doubles ---------------------------------------------------------------
@@ -293,7 +293,7 @@ async def step_schema_map(server):
 
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):
-        full = await server.mcp.get_tool(name)
+        full = await server.mcp.server.get_tool(name)
         tools[name] = full.parameters or {}
     return step_schemas(tools)
 

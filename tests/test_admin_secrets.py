@@ -26,7 +26,7 @@ def test_the_endpoint_lists_the_catalogue(tmp_path, secrets_dir):
         grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
         data={"dir": str(tmp_path / "flows")}, secrets={"dirs": str(secrets_dir)},
     ))
-    body = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH).json()
+    body = TestClient(srv.mcp.server.http_app()).get("/admin/secrets", headers=AUTH).json()
     assert body["enabled"] is True
     demo = next(s for s in body["secrets"] if s["name"] == "demo")
     assert demo["name"] == "demo"
@@ -40,7 +40,7 @@ def test_no_value_is_ever_sent(tmp_path, secrets_dir):
         grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
         secrets={"dirs": str(secrets_dir)},
     ))
-    text = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH).text
+    text = TestClient(srv.mcp.server.http_app()).get("/admin/secrets", headers=AUTH).text
     assert '"u"' not in text and '"p"' not in text
 
 
@@ -48,14 +48,14 @@ def test_it_needs_the_token(tmp_path):
     srv = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    assert TestClient(srv.mcp.http_app()).get("/admin/secrets").status_code == 401
+    assert TestClient(srv.mcp.server.http_app()).get("/admin/secrets").status_code == 401
 
 
 def test_with_no_catalogue_it_says_off(tmp_path):
     srv = SeleniumMCP(
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
-    body = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH).json()
+    body = TestClient(srv.mcp.server.http_app()).get("/admin/secrets", headers=AUTH).json()
     assert body == {"enabled": False, "count": 0, "secrets": []}
 
 
@@ -77,6 +77,6 @@ def test_a_broken_store_answers_through_errors_not_a_bare_500(
         raise OSError("secrets store is unmounted")
 
     monkeypatch.setattr(secrets_module.Catalogue, "listing", boom)
-    resp = TestClient(srv.mcp.http_app()).get("/admin/secrets", headers=AUTH)
+    resp = TestClient(srv.mcp.server.http_app()).get("/admin/secrets", headers=AUTH)
     assert resp.status_code == 500
     assert resp.json() == {"error": "secrets store is unmounted"}

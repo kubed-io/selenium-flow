@@ -56,12 +56,12 @@ def capturing(server):
 
 
 async def read(server, uri):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         return json.loads((await c.read_resource(uri))[0].text)
 
 
 async def test_the_five_forms_are_served(server):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         listed = {str(r.uri) for r in await c.list_resources()}
         templates = {t.uri_template for t in await c.list_resource_templates()}
     assert {"workspace://console", "workspace://network"} <= listed
@@ -122,7 +122,7 @@ async def test_a_bad_argument_through_read_resource_says_the_same(server, uri, s
     from fastmcp.exceptions import ToolError
 
     capturing(server)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         with pytest.raises(ToolError, match=says) as refused:
             await c.call_tool("read_resource", {"uri": uri})
     assert "refused its arguments" not in str(refused.value)
@@ -159,13 +159,13 @@ async def test_current_carries_the_capture_fields(server):
 
 
 async def test_the_capture_listings_say_they_outlive_the_browser(server):  # ruling 1
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         listed = {str(r.uri): r.description for r in await c.list_resources()}
     for uri in ("workspace://console", "workspace://network", "workspace://current"):
         assert resources.CAPTURE_KEPT in listed[uri], uri
 
 
 async def test_reading_the_old_console_uri_directly_names_where_it_went(server):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         with pytest.raises(Exception, match=r"workspace://console\?level=error"):
             await c.read_resource("session://console?level=error")

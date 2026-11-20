@@ -46,9 +46,14 @@ async def _names(mcp, source) -> list[str]:
 
 
 def register(mcp) -> None:
-    """Answer `completion/complete` for flow and file names."""
+    """Answer `completion/complete` for flow and file names.
 
-    @mcp.completion
+    Through FastMCP's own server, `mcp.server`: QuickMCP passes neither its
+    completion handler nor its `read_resource` through.
+    """
+    server = mcp.server
+
+    @server.completion
     async def complete(reference, argument, context):
         if isinstance(reference, ResourceTemplateReference):
             source = TEMPLATES.get((reference.uri, argument.name))
@@ -59,4 +64,4 @@ def register(mcp) -> None:
         if source is None:
             return None
         typed = (argument.value or "").lower()
-        return [name for name in await _names(mcp, source) if typed in name.lower()]
+        return [name for name in await _names(server, source) if typed in name.lower()]

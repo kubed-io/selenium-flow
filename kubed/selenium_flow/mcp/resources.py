@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from fastmcp import FastMCP
+from kubed.mcp import QuickMCP
 
 from .. import faults
 from ..capture import CONSOLE_URI, NETWORK_URI
@@ -58,7 +58,7 @@ PART_DESCRIPTION = (
 )
 
 
-def register(mcp: FastMCP, workspaces: Workspaces) -> None:
+def register(mcp: QuickMCP, workspaces: Workspaces) -> None:
     """Register the workspace status resource."""
 
     @mcp.resource(

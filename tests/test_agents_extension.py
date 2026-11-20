@@ -253,14 +253,14 @@ def folder(tmp_path):
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 async def test_the_extension_is_declared_beside_skills(monkeypatch, folder, mode):
-    async with Client(serving(monkeypatch, folder).mcp, mode=mode) as client:
+    async with Client(serving(monkeypatch, folder).mcp.server, mode=mode) as client:
         extensions = client.session.server_capabilities.extensions
     assert extensions[EXTENSION_ID] == {"listChanged": False}
     assert extensions[skill_extension.EXTENSION_ID] == {"directoryRead": True}
 
 
 async def test_the_listing_is_the_cards_in_name_order(monkeypatch, folder):
-    async with Client(serving(monkeypatch, folder).mcp) as client:
+    async with Client(serving(monkeypatch, folder).mcp.server) as client:
         listing = await request(client, "agents/list")
     # In auto mode FastMCP adds its serverInfo under _meta to extension results.
     assert set(listing.pop("_meta", {})) <= {"io.modelcontextprotocol/serverInfo"}
@@ -278,7 +278,7 @@ async def test_the_listing_is_the_cards_in_name_order(monkeypatch, folder):
 
 
 async def test_get_returns_the_detail(monkeypatch, folder):
-    async with Client(serving(monkeypatch, folder).mcp) as client:
+    async with Client(serving(monkeypatch, folder).mcp.server) as client:
         got = await request(client, "agents/get", name="zeta")
         alpha = await request(client, "agents/get", name="alpha")
         skill = got["_meta"]["io.kubed/agent"]["skills"]["selenium-flow"]
@@ -302,7 +302,7 @@ async def test_get_returns_the_detail(monkeypatch, folder):
     ],
 )
 async def test_refusals_are_invalid_params(monkeypatch, folder, method, params, message):
-    async with Client(serving(monkeypatch, folder).mcp) as client:
+    async with Client(serving(monkeypatch, folder).mcp.server) as client:
         with pytest.raises(MCPError) as caught:
             await request(client, method, **params)
     assert caught.value.error.code == INVALID_PARAMS
@@ -317,7 +317,7 @@ async def test_refusals_are_invalid_params(monkeypatch, folder, method, params, 
 
 async def test_a_broken_file_costs_only_itself(monkeypatch, folder):
     (folder / "broken.md").write_text("# no header\n", encoding="utf-8")
-    async with Client(serving(monkeypatch, folder).mcp) as client:
+    async with Client(serving(monkeypatch, folder).mcp.server) as client:
         listing = await request(client, "agents/list")
     assert [a["name"] for a in listing["agents"]] == ["alpha", "zeta"]
 
@@ -325,7 +325,7 @@ async def test_a_broken_file_costs_only_itself(monkeypatch, folder):
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 async def test_switching_the_skill_off_removes_the_extension(monkeypatch, folder, mode):
     server = serving(monkeypatch, folder, mcp={"skill": False})
-    async with Client(server.mcp, mode=mode) as client:
+    async with Client(server.mcp.server, mode=mode) as client:
         extensions = client.session.server_capabilities.extensions or {}
         assert EXTENSION_ID not in extensions
         with pytest.raises(MCPError) as caught:
@@ -335,7 +335,7 @@ async def test_switching_the_skill_off_removes_the_extension(monkeypatch, folder
 
 async def test_no_agents_folder_is_an_empty_listing(monkeypatch, tmp_path):
     server = serving(monkeypatch, tmp_path / "missing")
-    async with Client(server.mcp, mode="legacy") as client:
+    async with Client(server.mcp.server, mode="legacy") as client:
         assert client.session.server_capabilities.extensions[EXTENSION_ID] == {
             "listChanged": False
         }

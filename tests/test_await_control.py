@@ -174,7 +174,7 @@ async def hold(server, who="alex"):
 
 
 def legacy(server):
-    return Client(server.mcp, mode="legacy")
+    return Client(server.mcp.server, mode="legacy")
 
 
 # ---- the blocking path -----------------------------------------------------
@@ -350,7 +350,7 @@ async def test_a_tasks_client_gets_a_task_and_the_summary_at_the_hand_back(
     began = entered(server, monkeypatch)
     # The cap is the blocking path's: a task waits until the hand-back.
     monkeypatch.setattr(server.settings.live, "await_cap", 0.2)
-    async with asyncio.timeout(SOON), Client(server.mcp) as client:
+    async with asyncio.timeout(SOON), Client(server.mcp.server) as client:
         task = await call_tool_task(client, "await_control")
         await began.wait()
         await asyncio.sleep(0.4)
@@ -366,7 +366,7 @@ async def test_a_cancelled_wait_leaves_the_episode_holding(server, named, monkey
     tunnel = await hold(server)
     stopped = cancelled(server, monkeypatch)
     began = entered(server, monkeypatch)
-    async with asyncio.timeout(SOON), Client(server.mcp) as client:
+    async with asyncio.timeout(SOON), Client(server.mcp.server) as client:
         task = await call_tool_task(client, "await_control")
         await began.wait()
         await task.cancel()
@@ -442,7 +442,7 @@ async def test_stopping_the_server_releases_a_waiting_task(server, named, monkey
     async with asyncio.timeout(SOON):
         held_turn = turn_held()
         held_turn.__enter__()
-        client = Client(server.mcp)
+        client = Client(server.mcp.server)
         await client.__aenter__()
         try:
             await call_tool_task(client, "await_control")
@@ -508,7 +508,7 @@ async def test_a_page_that_cannot_be_read_is_said_and_the_hand_back_spent(
 
 @asynccontextmanager
 async def over_http(server, url, headers=None, mode="auto"):
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
 
     def factory(headers=None, timeout=None, auth=None, **kwargs):
         return httpx2.AsyncClient(
@@ -635,7 +635,7 @@ async def test_a_task_over_stdio_is_still_stdio(server):
     """No HTTP request behind the task at all: one process, one client, and
     the stdio name is right."""
     hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "alex", "control"))
-    async with asyncio.timeout(SOON), Client(server.mcp) as client:
+    async with asyncio.timeout(SOON), Client(server.mcp.server) as client:
         result = await (await call_tool_task(client, "await_control")).result()
     assert result.structured_content["handed_back"] is True
     assert result.structured_content["control"]["who"] == ["alex"]
@@ -670,7 +670,7 @@ async def test_every_task_tool_is_carried_and_no_tool_hears_a_client_s_header(se
 
 @asynccontextmanager
 async def web(server):
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
     async with (
         asyncio.timeout(SOON),
         app.router.lifespan_context(app),
@@ -728,7 +728,7 @@ async def test_the_long_poll_answers_at_the_cap(server, monkeypatch):
 async def test_it_is_not_a_flow_step(server):
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):
-        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
+        tools[name] = (await server.mcp.server.get_tool(name)).parameters or {}
     document = {"description": "Wait", "steps": [{"tool": "await_control"}]}
     with pytest.raises(InvalidFlow, match="await_control is not a step") as refused:
         validate(document, step_schemas(tools))

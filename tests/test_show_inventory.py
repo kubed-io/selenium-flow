@@ -91,7 +91,7 @@ def every_section(tmp_path) -> SeleniumMCP:
 
 async def served(server) -> list[str]:
     """Every listed resource's URI and every template, as a client sees them."""
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         resources = [str(r.uri) for r in await c.list_resources()]
         # MCP SDK v2 renamed the field; the older one warns on the new SDK.
         templates = [
@@ -126,7 +126,7 @@ async def undrawn(server) -> dict[str, str]:
     """Every listed resource `show` refuses, with why: a row in VIEWS proves the
     URI routes, and only drawing it proves the view can take what it serves."""
     refused = {}
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         uris = [str(r.uri) for r in await c.list_resources()]
         # The listing names SKILL.md alone; the manifest has the rest.
         manifest = json.loads((await c.read_resource(SKILL + "_manifest"))[0].text)

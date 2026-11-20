@@ -196,7 +196,7 @@ def open_over_http(settings=None, headers=None, json=None):
         raise SessionNotCreatedException(REFUSED)
 
     server.grid.open = refuse
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     return client.post(
         "/browser",
         headers={
@@ -251,7 +251,7 @@ def test_headless_over_http_reaches_the_open():
     )
     grid = Grid(RAN)
     server.actions.grid = grid
-    response = TestClient(server.mcp.http_app()).post(
+    response = TestClient(server.mcp.server.http_app()).post(
         "/browser",
         headers={"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": "h"},
         json={"headless": True},

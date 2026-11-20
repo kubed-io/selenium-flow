@@ -374,7 +374,7 @@ async def test_a_rejected_browser_does_not_cost_you_the_one_you_have(
     """
     from .conftest import NAMED, calling_as
 
-    open_session = (await server.mcp.get_tool("open_session")).fn
+    open_session = (await server.mcp.server.get_tool("open_session")).fn
     ended = []
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "end_browser", lambda *a: ended.append(a))
