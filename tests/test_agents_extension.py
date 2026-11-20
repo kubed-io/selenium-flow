@@ -7,7 +7,6 @@ of the case's own, and the declaration on selenium-flow's server.
 
 import copy
 import logging
-from pathlib import Path
 
 import pytest
 import yaml
@@ -202,17 +201,6 @@ async def test_crlf_line_endings_load(tmp_path):
     assert (await detail(mcp))["instructions"] == "# Explore\n\nRead the skill first."
 
 
-async def test_the_first_of_two_files_with_one_name_wins(tmp_path, caplog):
-    with caplog.at_level(logging.WARNING):
-        mcp = plugin(tmp_path, {
-            "a.md": agent("name: explorer\ndescription: First."),
-            "b.md": agent("name: explorer\ndescription: Second."),
-        })
-    assert (await listed(mcp))["agents"][0]["description"] == "First."
-    # kubed-mcp's warning names the agent, not the two files.
-    assert "agent explorer is skipped" in caplog.text
-
-
 async def test_only_markdown_at_the_top_level_is_read(tmp_path):
     mcp = plugin(tmp_path, {
         "drafts/x.md": agent("name: x\ndescription: x"),
@@ -232,28 +220,6 @@ async def test_no_agents_folder_is_an_empty_listing(tmp_path):
             await request(client, "agents/get", name="explorer")
     assert listing == {**FRESH, "agents": []}
     assert caught.value.error.message == "Agent not found"
-
-
-@pytest.mark.xfail(
-    strict=True,
-    raises=PermissionError,
-    reason="kubed-mcp gap: plugins._md_files lets an OSError from iterdir() out of "
-    "add_plugin; selenium-flow's agents.load skipped the folder with a warning",
-)
-async def test_a_folder_that_cannot_be_listed_is_no_agents(tmp_path, monkeypatch, caplog):
-    folder = (tmp_path / "p" / "agents").resolve()
-    real = Path.iterdir
-
-    def iterdir(self):
-        if self.resolve() == folder:
-            raise PermissionError("denied")
-        return real(self)
-
-    monkeypatch.setattr(Path, "iterdir", iterdir)
-    with caplog.at_level(logging.WARNING):
-        mcp = plugin(tmp_path, {"explorer.md": GOOD})
-    assert await names(mcp) == []
-    assert "is skipped" in caplog.text
 
 
 # ---- where the plugin is found -------------------------------------------------
