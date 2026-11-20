@@ -27,7 +27,9 @@ classifiers = [
 authors = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
 maintainers = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
 dependencies = [
-  "fastmcp[tasks]>=4.1.4,<5",
+  # SkillProvider is removed in 4.3; lift the cap when the server moves to
+  # SkillCatalogProvider.
+  "fastmcp[tasks]>=4.1.4,<4.3",
   "selenium>=4.48.0,<5",
   "requests>=2.32.0",
   "pyyaml>=6.0",

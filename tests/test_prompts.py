@@ -128,6 +128,12 @@ def test_the_format_matches_the_one_skills_mcp_serves():
         assert prompts_module.PLACEHOLDER.search(body), "a template with no slots"
 
 
+def test_the_prompts_are_where_claude_code_reads_commands():
+    path = prompts_module.prompts_path()
+    assert path.name == "commands"
+    assert {p.stem for p in path.glob("*.md")} == {"build_flow", "repair_flow"}
+
+
 # ---- served ------------------------------------------------------------------
 
 

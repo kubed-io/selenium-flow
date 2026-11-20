@@ -209,6 +209,7 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
     removed name in any is an instruction to call something that is not there.
     Read from the running server rather than the source, because that is what
     an agent is actually given."""
+    import json
     import tempfile
 
     from fastmcp import Client
@@ -241,10 +242,17 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
                 ) + " ".join(a.description or "" for a in prompt.arguments or [])
             for resource in await c.list_resources():
                 texts[f"resource {resource.uri}"] = resource.description or ""
-                if str(resource.uri).startswith("skill://"):
-                    body = await c.read_resource(resource.uri)
-                    texts[f"file {resource.uri}"] = getattr(body[0], "text", "")
-    assert any(k.startswith("file skill://") for k in texts), "no skill files read"
+            # The listing names SKILL.md alone; the manifest names the rest.
+            manifest = json.loads(
+                (await c.read_resource("skill://selenium-flow/_manifest"))[0].text
+            )
+            for f in manifest["files"]:
+                uri = f"skill://selenium-flow/{f['path']}"
+                body = await c.read_resource(uri)
+                texts[f"file {uri}"] = getattr(body[0], "text", "")
+    assert any(
+        k.endswith("references/FLOWS.md") for k in texts
+    ), "no skill reference read"
     found = [
         (where, word) for where, text in texts.items() for word in REMOVED if word in text
     ]

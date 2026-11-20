@@ -27,7 +27,7 @@ from .skill import plugin_folder
 
 log = logging.getLogger(__name__)
 
-PROMPTS_DIR = "prompts"
+PROMPTS_DIR = "commands"
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 

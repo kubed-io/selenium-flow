@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- `build_flow` and `repair_flow` are Claude Code commands when `plugin/` is installed as a plugin (#184).
+- The skill lists once in resources/list, as `skill://selenium-flow/SKILL.md`; its other files still read by the URIs it names (#183).
 - **Sub-sessions**: name a session on any call (`session="tester"`, or pin it with `?session=` or `Sf-Session`) for a second browser in the workspace, with its own sign-ins, beside the default. The admin UI shows each as a chip.
 - A sub-session's console, network, site data and downloads read at `session://<name>/…`, and every `see` and `uri` a call hands back names the session it acted in (#181).
 - The explorer works in a session of its own, so you keep your browser while it explores, and ends its browser when it reports (#181).

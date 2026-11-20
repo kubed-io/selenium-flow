@@ -7,6 +7,7 @@ row (and its view in the app) rather than editing the expectation.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 from pathlib import Path
@@ -126,8 +127,13 @@ async def undrawn(server) -> dict[str, str]:
     URI routes, and only drawing it proves the view can take what it serves."""
     refused = {}
     async with Client(server.mcp) as c:
-        for r in await c.list_resources():
-            uri = str(r.uri)
+        uris = [str(r.uri) for r in await c.list_resources()]
+        # The listing names SKILL.md alone; the manifest has the rest.
+        manifest = json.loads((await c.read_resource(SKILL + "_manifest"))[0].text)
+        uris += [
+            SKILL + f["path"] for f in manifest["files"] if SKILL + f["path"] not in uris
+        ]
+        for uri in uris:
             if uri.startswith(EXEMPT) or uri in BROWSER:
                 continue
             result = await c.call_tool("show", {"uri": uri}, raise_on_error=False)
