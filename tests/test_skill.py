@@ -142,7 +142,7 @@ async def test_the_listing_names_the_skill_once(server):
 async def test_no_skill_template_is_listed(server):
     async with Client(server.mcp) as client:
         templates = await client.list_resource_templates()
-    assert not [t for t in templates if t.uriTemplate.startswith("skill://")]
+    assert not [t for t in templates if t.uri_template.startswith("skill://")]
 
 
 @pytest.mark.parametrize("path", [MANIFEST, *sorted(set(references()))])

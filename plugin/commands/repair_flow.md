@@ -1,4 +1,5 @@
 ---
+argument-hint: <flow> [step] [symptom]
 description: Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.
 arguments:
 - name: flow

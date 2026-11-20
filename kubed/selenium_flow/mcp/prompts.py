@@ -1,8 +1,9 @@
 """Prompts: templates a person picks, served from markdown files.
 
-A person picks a prompt (Claude Code lists them as slash commands) and fills in
-its arguments before the model sees anything. An agent cannot invoke one, so a
-failed run's `hint` names the prompt for the person to pick.
+Over MCP a person picks a prompt and fills in its arguments before the model
+sees anything, and this server offers no tool that fetches one. The same files
+are `plugin/commands/`, so a Claude Code plugin install also lets the model run
+them, and a failed run's `hint` names the prompt to use.
 
 The format and this loader are a copy of `kubed-io/skills-mcp`'s
 (`kubed/skills_mcp/prompts.py`): frontmatter declaring the arguments, a body
