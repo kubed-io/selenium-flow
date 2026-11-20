@@ -294,9 +294,14 @@ async def test_an_invalid_skill_is_not_served_at_all(tmp_path, monkeypatch, capl
             extensions = client.session.server_capabilities.extensions or {}
             with pytest.raises(MCPError) as caught:
                 await request(client, "skills/list")
+            with pytest.raises(MCPError) as folder_read:
+                await request(
+                    client, "resources/directory/read", uri=f"skill://{folder.name}"
+                )
         assert not [u for u in uris if u.startswith("skill://")]
         assert EXTENSION_ID not in extensions
         assert caught.value.error.code == METHOD_NOT_FOUND
+        assert folder_read.value.error.code == METHOD_NOT_FOUND
 
 
 async def test_the_served_text_keeps_its_frontmatter(server):

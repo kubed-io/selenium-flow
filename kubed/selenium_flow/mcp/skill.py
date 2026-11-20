@@ -35,6 +35,8 @@ PLUGIN_DIR = "plugin"
 SKILLS_DIR = "skills"
 SKILL_NAME = "selenium-flow"
 ENTRY = "SKILL.md"
+# FastMCP answers skill://<name>/_manifest with the skill's file listing.
+MANIFEST = "_manifest"
 
 
 def plugin_folder(module: str, *parts: str) -> Path:
@@ -101,11 +103,13 @@ def _folders_of(paths) -> set[str]:
     }
 
 
-def _without_indexes(skill: Skill) -> Skill:
-    """The skill minus any file whose URI is its folder's index, each named.
+def _without_reserved(skill: Skill) -> Skill:
+    """The skill minus any file whose URI the server answers otherwise, each named.
 
-    Such a file is not served: its URI reads as the index, so FastMCP would
-    find it unreadable as listed and drop the whole skill from ``skills/list``.
+    That is a file with an index's name, which reads as its folder's index, and
+    a ``_manifest`` at the root, which reads as the manifest. FastMCP would find
+    such a file unreadable as listed and drop the whole skill from
+    ``skills/list``. A ``_manifest`` below the root is an ordinary file.
     """
     for rel in sorted(_all_folders(skill.files)):
         if directories.reserved(rel):
@@ -122,6 +126,13 @@ def _without_indexes(skill: Skill) -> Skill:
             skill.name,
             name,
         )
+    if MANIFEST in skill.files:
+        reserved.append(MANIFEST)
+        log.warning(
+            "skill %s: %s is not served, the skill's manifest answers that URI",
+            skill.name,
+            MANIFEST,
+        )
     if not reserved:
         return skill
     return Skill.from_files(
@@ -135,12 +146,12 @@ class EntryOnlySkillProvider(SkillCatalogProvider):
     ``_get_resource`` still answers the manifest and every other file by exact
     URI, and also each folder's two index files. The provider is the
     ``directories.Folders`` of its skill: a folder is every one the skill's
-    files sit in, so it is the same for a skill built from code. A file with an
-    index's name is left out of the skill it serves.
+    files sit in, so it is the same for a skill built from code. A file whose
+    URI the server answers otherwise is left out of the skill it serves.
     """
 
     def __init__(self, skill: Skill):
-        skill = _without_indexes(skill)
+        skill = _without_reserved(skill)
         super().__init__([skill])
         self.skill = skill
         self.name = skill.name

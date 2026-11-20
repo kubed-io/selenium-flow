@@ -155,8 +155,8 @@ packages = [
 
 # Everything under it, not just *.md, and `.claude-plugin/*` spelt out: setuptools
 # expands these with the stdlib glob, whose `*` and `**` skip a name starting with
-# a dot, so `**/*` alone would leave plugin.json out. A skill's directory name IS
-# its name: SkillProvider publishes skill://<folder>/SKILL.md.
+# a dot, so `**/*` alone would leave plugin.json out. A skill's directory must be
+# named as its SKILL.md names it: fastmcp.skills refuses the skill otherwise.
 [tool.setuptools.package-data]
 "kubed.selenium_flow.core.js" = ["*.js"]
 "kubed.selenium_flow.mcp.plugin" = ["*", "**/*", ".claude-plugin/*"]

@@ -1,7 +1,8 @@
-"""What the Skills and Agents extensions share, under mcp-kb's names.
+"""What the extensions need beside FastMCP, under mcp-kb's names.
 
-Each extension imports these from here, not from the other, so either can be
-deleted alone.
+``AdvertiseLegacyExtensions`` is shared by ``skill`` and ``agents``, which
+import it from here, not from one another, so either can be deleted alone.
+``complete`` is the Agents extension's envelope.
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ from fastmcp.server.middleware import Middleware
 
 
 def complete(**fields: object) -> dict:
-    """An extension result in the envelope both extensions answer with.
+    """An extension result in the Agents extension's envelope.
+
+    FastMCP's Skills results carry the same fields.
 
     mcp-kb's freshness fields: a hint, not an integrity property.
     """

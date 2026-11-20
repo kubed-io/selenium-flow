@@ -202,6 +202,31 @@ async def test_a_provider_built_from_a_skill_leaves_out_index_named_files(caplog
     ]
 
 
+async def test_a_root_manifest_file_is_not_served(tmp_path, caplog):
+    """FastMCP answers that URI with the manifest; below the root it is a file."""
+    with caplog.at_level("WARNING"):
+        mcp = make_skill(tmp_path, {"_manifest": "a file", "references/_manifest": "b"})
+    assert "_manifest is not served" in caplog.text
+    async with Client(mcp) as client:
+        skills = (await request(client, "skills/list"))["skills"]
+        manifest = await read_json(client, "skill://tmp-skill/_manifest")
+        root = await read_directory(client, uri="skill://tmp-skill")
+        references = await read_directory(client, uri="skill://tmp-skill/references")
+    assert [entry["uri"] for entry in skills] == ["skill://tmp-skill/SKILL.md"]
+    named = [r["uri"] for r in skills[0]["resources"]]
+    assert "skill://tmp-skill/_manifest" not in named
+    assert "skill://tmp-skill/references/_manifest" in named
+    assert manifest["skill"] == "tmp-skill"
+    assert [f["path"] for f in manifest["files"]] == ["SKILL.md", "references/_manifest"]
+    assert [r["uri"] for r in root["resources"]] == [
+        "skill://tmp-skill/SKILL.md",
+        "skill://tmp-skill/references",
+    ]
+    assert [r["uri"] for r in references["resources"]] == [
+        "skill://tmp-skill/references/_manifest"
+    ]
+
+
 @pytest.mark.parametrize("name", ["_index.md", "_index.json"])
 async def test_a_folder_with_an_index_name_never_breaks_its_parent(tmp_path, caplog, name):
     with caplog.at_level("WARNING"):
