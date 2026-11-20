@@ -711,7 +711,7 @@
       "read_only_hint": true,
       "title": "List resources"
     },
-    "description": "List every resource this server has to read: each row's uri, name and description, and uri_template rows whose {placeholders} you fill in. Read one with read_resource.",
+    "description": "List the resources and templates to start from: each row's uri, name and description, and uri_template rows whose {placeholders} you fill in. A skill's other files are named in its SKILL.md. Read one with read_resource.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},

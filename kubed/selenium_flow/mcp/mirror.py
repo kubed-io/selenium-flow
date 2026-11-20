@@ -5,7 +5,7 @@ prompt and skill page names it by URI. A client whose model cannot read
 resources (VS Code's) gets these two tools, the same pair mcp-kb serves, so the
 same URIs work there too:
 
-    list_resources()                        every URI there is to read
+    list_resources()                        where to start reading
     read_resource("flow://flows/login")     one of them
 
 `HideMirrors` hides both from a client that reads resources
@@ -154,9 +154,10 @@ def register(mcp) -> frozenset[str]:
     @mcp.tool(
         name=LIST_TOOL,
         description=(
-            "List every resource this server has to read: each row's uri, name "
+            "List the resources and templates to start from: each row's uri, name "
             "and description, and uri_template rows whose {placeholders} you "
-            "fill in. Read one with read_resource."
+            "fill in. A skill's other files are named in its SKILL.md. Read one "
+            "with read_resource."
         ),
         annotations=reads("List resources", open_world=False),
     )

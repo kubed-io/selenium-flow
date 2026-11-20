@@ -191,8 +191,8 @@ MARKDOWN = "text/markdown"
 
 DESCRIPTION = (
     "Draw any resource this server serves - a workspace://, session://, flow://, "
-    "secret:// or skill:// URI, as its resources and resource templates list "
-    "them - for the person to see. For you to read one, read the resource "
+    "secret:// or skill:// URI, listed or named by a skill page - for the "
+    "person to see. For you to read one, read the resource "
     "instead. The "
     "view the person is looking at is shared with you as context."
 )
