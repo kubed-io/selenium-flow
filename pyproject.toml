@@ -68,6 +68,10 @@ dependencies = [
   # JWT verifier; declared because the module imports it. 43 is where
   # hazmat.decrepit arrived.
   "cryptography>=43",
+  # The platform this server shares with mcp-kb (kubed.mcp, a namespace package
+  # beside kubed.selenium_flow). It holds only its version today, so nothing
+  # imports it yet; declared so the install carries it and a broken one fails CI.
+  "kubed-mcp>=0.0.1,<0.1",
 ]
 
 [project.optional-dependencies]
