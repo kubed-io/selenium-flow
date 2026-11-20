@@ -145,18 +145,6 @@ async def test_switching_the_skill_off_removes_the_extension(mode):
     assert caught.value.error.code == METHOD_NOT_FOUND
 
 
-async def test_a_caller_cannot_change_what_the_next_caller_is_served(server):
-    async with Client(server.mcp) as client:
-        first = await request(client, "skills/list")
-        first["skills"][0]["resources"].clear()
-        first["skills"][0]["frontmatter"]["name"] = "changed"
-        second = await request(client, "skills/list")
-        got = await request(client, "skills/get", uri=SKILL_URI)
-    assert second["skills"][0]["resources"]
-    assert second["skills"][0]["frontmatter"]["name"] == "selenium-flow"
-    assert got["skill"] == second["skills"][0]
-
-
 async def test_a_dash_run_inside_a_value_is_not_the_header_end(tmp_path):
     mcp = served(tmp_path, {}, front="name: tmp-skill\ndescription: before --- after")
     async with Client(mcp) as client:

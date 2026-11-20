@@ -4,17 +4,17 @@ FastMCP's ``SkillsExtension`` answers ``skills/list`` and ``skills/get`` from
 its skill providers, but binds them for the modern protocol versions only. This
 subclass binds the same handlers for every version, declares ``directoryRead``,
 and binds ``resources/directory/read`` from ``directories`` over the folders of
-every skill provider that knows its folders. ``skill.register`` puts it in place
+every provider that knows its folders. ``skill.register`` puts it in place
 of the one FastMCP's provider brings.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Sequence
 
 from fastmcp.server.extensions import MethodBinding
 from fastmcp.skills import extension
-from fastmcp.skills.models import GetSkillParams, ListSkillsParams
 
 from . import directories
 
@@ -29,10 +29,13 @@ class SkillsExtension(extension.SkillsExtension):
         return dict(SETTINGS)
 
     def methods(self) -> Sequence[MethodBinding]:
-        # No protocol_versions: a handshake-era client is answered too.
+        # FastMCP's bindings with no protocol_versions: a handshake-era client
+        # is answered too.
         return (
-            MethodBinding("skills/list", ListSkillsParams, self._handle_list),
-            MethodBinding("skills/get", GetSkillParams, self._handle_get),
+            *(
+                dataclasses.replace(binding, protocol_versions=None)
+                for binding in super().methods()
+            ),
             directories.DirectoryRead(self).binding(),
         )
 
@@ -40,9 +43,9 @@ class SkillsExtension(extension.SkillsExtension):
         return type(self)()
 
     async def children(self, uri: str) -> list[dict] | None:
-        """The ``directories.Folders`` of the server's skill providers."""
-        for source in self._candidate_sources():
-            children = getattr(source, "children", None)
+        """The ``directories.Folders`` of the server's providers that know theirs."""
+        for provider in self.server.providers:
+            children = getattr(provider, "children", None)
             if children is not None and (found := await children(uri)) is not None:
                 return found
         return None

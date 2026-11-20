@@ -94,12 +94,14 @@ def _all_folders(paths) -> set[str]:
 def _folders_of(paths) -> set[str]:
     """The skill's folders, the root ``""`` included.
 
-    A folder with an index's name is none, and neither is any folder under it.
+    A folder with an index's name is none, and neither is any folder under it;
+    nor is a ``_manifest`` at the root, whose URI reads as the manifest.
     """
     return {""} | {
         rel
         for rel in _all_folders(paths)
         if not any(directories.reserved(part) for part in rel.split("/"))
+        and rel.split("/")[0] != MANIFEST
     }
 
 
@@ -110,11 +112,20 @@ def _without_reserved(skill: Skill) -> Skill:
     a ``_manifest`` at the root, which reads as the manifest. FastMCP would find
     such a file unreadable as listed and drop the whole skill from
     ``skills/list``. A ``_manifest`` below the root is an ordinary file.
+
+    A folder at such a URI is named too, though its files stay in the skill.
     """
     for rel in sorted(_all_folders(skill.files)):
         if directories.reserved(rel):
             log.warning(
                 "skill %s: folder %s is not served, its parent's index "
+                "answers that URI",
+                skill.name,
+                rel,
+            )
+        elif rel == MANIFEST:
+            log.warning(
+                "skill %s: folder %s is not served, the skill's manifest "
                 "answers that URI",
                 skill.name,
                 rel,
@@ -237,7 +248,7 @@ def load(path: Path | None = None) -> EntryOnlySkillProvider | None:
     """
     path = skill_path() if path is None else path
     if not (path / ENTRY).is_file():
-        log.warning("no packaged skill at %s", path)
+        log.warning("no SKILL.md at %s", path)
         return None
     try:
         skill = Skill.from_directory(path)

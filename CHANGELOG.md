@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The skill is served with FastMCP's supported `fastmcp.skills` API; `fastmcp` is `>=4.2,<5` (#193).
 - An invalid skill is no longer served at all, and the server logs an error saying why (#193).
 - Skill files are served byte for byte, so a `\r\n` file keeps its `\r\n` (#193).
+- An empty directory in the skill is no longer a folder (#193).
+- `skills/get` on an unknown URI now says `Unknown skill URI: <uri>` (#193).
+- A `skills/list` cursor is ignored instead of refused (#193).
+- Skill file rows no longer carry `_meta.fastmcp.skill` (#193).
 - Fixed: a skill text file that isn't valid UTF-8 no longer stops the server from starting.
 - The skill's folders read as directory resources (`resources/directory/read`), with `_index.json` and `_index.md` beside each for clients and proxies without it (#185).
 - `build_flow` and `repair_flow` are Claude Code commands when `plugin/` is installed as a plugin (#184).

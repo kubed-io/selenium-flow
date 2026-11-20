@@ -227,6 +227,36 @@ async def test_a_root_manifest_file_is_not_served(tmp_path, caplog):
     ]
 
 
+async def test_a_root_manifest_folder_is_no_folder(tmp_path, caplog):
+    """Its URI reads as the manifest; its files still read and stay in the skill.
+    Below the root, ``_manifest/`` is an ordinary folder."""
+    with caplog.at_level("WARNING"):
+        mcp = make_skill(
+            tmp_path, {"_manifest/x.md": "# X\n", "references/_manifest/y.md": "# Y\n"}
+        )
+    assert "folder _manifest is not served" in caplog.text
+    async with Client(mcp) as client:
+        root = await read_json(client, "skill://tmp-skill/_index.json")
+        manifest = await read_json(client, "skill://tmp-skill/_manifest")
+        inner = (await client.read_resource("skill://tmp-skill/_manifest/x.md"))[0]
+        with pytest.raises(MCPError) as caught:
+            await read_directory(client, uri="skill://tmp-skill/_manifest")
+        nested = await read_directory(client, uri="skill://tmp-skill/references/_manifest")
+        skills = (await request(client, "skills/list"))["skills"]
+    assert [r["uri"] for r in root] == [
+        "skill://tmp-skill/SKILL.md",
+        "skill://tmp-skill/references",
+    ]
+    assert manifest["skill"] == "tmp-skill"
+    assert "_manifest/x.md" in [f["path"] for f in manifest["files"]]
+    assert inner.text == "# X\n"
+    assert caught.value.error.code == INVALID_PARAMS
+    assert [r["uri"] for r in nested["resources"]] == [
+        "skill://tmp-skill/references/_manifest/y.md"
+    ]
+    assert "skill://tmp-skill/_manifest/x.md" in [r["uri"] for r in skills[0]["resources"]]
+
+
 @pytest.mark.parametrize("name", ["_index.md", "_index.json"])
 async def test_a_folder_with_an_index_name_never_breaks_its_parent(tmp_path, caplog, name):
     with caplog.at_level("WARNING"):
