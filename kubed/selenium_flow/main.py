@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from kubed.mcp.plugins import PluginError
+
 from . import config
 from .server import create_app
 from .urls import without_userinfo
@@ -65,8 +67,9 @@ def main(argv: list[str] | None = None) -> None:
         settings = loaded.settings
         configure_logging(settings.log_level)
         server = create_app(settings, sources=loaded.sources)
-    except (config.ConfigError, StoreUnavailable) as exc:
-        # Restarted until fixed beats started on something misread.
+    except (config.ConfigError, StoreUnavailable, PluginError) as exc:
+        # Restarted until fixed beats started on something misread. A PluginError is
+        # a plugin/ folder kubed-mcp refuses: missing package data, a broken manifest.
         raise SystemExit(f"selenium-flow: {exc}") from None
     log.info(
         "config=%s grid=%s auth=%s oidc=%s workspaces=%s skill=%s flows=%s secrets=%s "
