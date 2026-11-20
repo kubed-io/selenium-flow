@@ -315,7 +315,7 @@ class SeleniumMCP:
             skill.register(self.mcp, self.skill)
             # An agent's first step is to read the skill, so agents are served
             # only with it, and declared even when there are none.
-            agents.register(self.mcp, agents.load(skills={self.skill.skill_info.name}))
+            agents.register(self.mcp, agents.load(skills={self.skill.name}))
         # A client that cannot read resources gets `mirror`'s two tools, which
         # read the same URIs.
         mirror.register(self.mcp)

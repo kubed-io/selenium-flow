@@ -316,7 +316,7 @@ def reading(server, content, mime_type=None):
     ("content", "mime_type", "drawn"),
     [
         ("not json", None, "```\nnot json\n```\n"),
-        # How SkillProvider serves a supporting file that is not markdown.
+        # How FastMCP serves a skill file whose type is not text/*.
         (b"a: 1\n# no heading\n", "application/yaml", "```\na: 1\n# no heading\n```\n"),
         ("a ``` b", "text/plain", "````\na ``` b\n````\n"),
     ],

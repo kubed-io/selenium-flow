@@ -209,8 +209,8 @@ def _preformatted(text: str) -> str:
 
 async def _content(uri: str):
     """A resource as a view takes it: markdown as its text, JSON as its JSON,
-    and any other text as one preformatted block. SkillProvider serves a
-    supporting file that is not markdown as bytes, so text is what decodes."""
+    and any other text as one preformatted block. FastMCP serves a skill file
+    whose type is not ``text/*`` as bytes, so text is what decodes."""
     try:
         result = await get_context().fastmcp.read_resource(uri)
     except directories.FolderNotFound as folder:
