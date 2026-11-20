@@ -132,14 +132,17 @@ def test_flows_says_to_reuse_a_tag_in_use():
 
 async def test_the_listing_names_the_skill_once(server):
     """One row, so a client scanning resources/list sees one skill, not its files."""
-    rows = [r for r in await server.mcp.list_resources() if str(r.uri).startswith("skill://")]
+    async with Client(server.mcp) as client:
+        listed = await client.list_resources()
+    rows = [r for r in listed if str(r.uri).startswith("skill://")]
     assert {str(r.uri) for r in rows} == {RESOURCE_URI}
     assert rows[0].description == frontmatter()["description"]
 
 
 async def test_no_skill_template_is_listed(server):
-    templates = await server.mcp.list_resource_templates()
-    assert not [t for t in templates if t.uri_template.startswith("skill://")]
+    async with Client(server.mcp) as client:
+        templates = await client.list_resource_templates()
+    assert not [t for t in templates if t.uriTemplate.startswith("skill://")]
 
 
 @pytest.mark.parametrize("path", [MANIFEST, *sorted(set(references()))])

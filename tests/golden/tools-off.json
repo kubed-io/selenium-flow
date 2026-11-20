@@ -1231,7 +1231,7 @@
       "read_only_hint": true,
       "title": "Read a resource"
     },
-    "description": "Read the resource at uri: workspace://current, skill://selenium-flow/SKILL.md, flow://flows/{name}, anything list_resources shows. Images come back as images; other binary files are described, not returned.",
+    "description": "Read the resource at uri: workspace://current, skill://selenium-flow/SKILL.md, flow://flows/{name}, anything list_resources shows or a skill page names. Images come back as images; other binary files are described, not returned.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

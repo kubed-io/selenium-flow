@@ -60,7 +60,8 @@ class EntryOnlySkillProvider(SkillProvider):
     """
 
     async def _list_resources(self) -> list[Resource]:
-        entry = f"{self.skill_info.uri_prefix}{quote(self._main_file_name, safe='/')}"
+        main = quote(self.skill_info.main_file, safe="/")
+        entry = f"{self.skill_info.uri_prefix}{main}"
         return [r for r in await super()._list_resources() if str(r.uri) == entry]
 
 
