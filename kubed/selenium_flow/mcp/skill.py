@@ -90,21 +90,17 @@ class EntryOnlySkillProvider(SkillProvider):
     under the skill, the skill's own included, so an empty one has no children.
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, skill_path: str | Path, main_file_name: str = ENTRY):
+        # Always "resources": in SkillProvider's default "template" mode a file
+        # has no resource of its own, so a folder could not list it, and a
+        # file would be served as application/octet-stream (PLG-15).
+        super().__init__(skill_path, main_file_name, supporting_files="resources")
         info = self.skill_info
         root = info.path
-        found = {""} | {
-            d.relative_to(root).as_posix()
-            for d in root.rglob("*")
-            if d.is_dir() and d.resolve().is_relative_to(root)
-        }
-        # folder path -> (its files, its subfolders), paths from the skill root.
-        self._folders: dict[str, tuple[list[str], list[str]]] = {
-            rel: ([], []) for rel in found
-        }
-        for rel in found - {""}:
-            self._folders[posixpath.dirname(rel)][1].append(rel)
+        # A file whose URI is its folder's index is not served at all. The
+        # list is set once by SkillProvider at load and read on every request,
+        # so trimming it here keeps it out of _manifest, the Skills entry and
+        # the reads by exact URI.
         for file in info.files:
             if directories.reserved(file.path):
                 log.warning(
@@ -112,8 +108,31 @@ class EntryOnlySkillProvider(SkillProvider):
                     info.name,
                     file.path,
                 )
+        info.files = [f for f in info.files if not directories.reserved(f.path)]
+        found = {""}
+        for d in root.rglob("*"):
+            if not (d.is_dir() and d.resolve().is_relative_to(root)):
                 continue
-            self._folders[posixpath.dirname(file.path)][0].append(file.path)
+            rel = d.relative_to(root).as_posix()
+            if directories.reserved(rel):
+                log.warning(
+                    "skill %s: folder %s is not served, its parent's index "
+                    "answers that URI",
+                    info.name,
+                    rel,
+                )
+            if not any(directories.reserved(part) for part in rel.split("/")):
+                found.add(rel)
+        # folder path -> (its files, its subfolders), paths from the skill root.
+        self._folders: dict[str, tuple[list[str], list[str]]] = {
+            rel: ([], []) for rel in found
+        }
+        for rel in found - {""}:
+            self._folders[posixpath.dirname(rel)][1].append(rel)
+        for file in info.files:
+            parent = posixpath.dirname(file.path)
+            if parent in self._folders:  # else under a folder that is not served
+                self._folders[parent][0].append(file.path)
         self._by_uri = {self.folder_uri(rel): rel for rel in found}
         # Package data cannot change under a running process.
         self._titles = {
@@ -175,10 +194,9 @@ def load() -> EntryOnlySkillProvider | None:
         log.warning("no packaged skill at %s", path)
         return None
     try:
-        # "resources" reads every file by exact URI; the subclass trims the
-        # listing to SKILL.md (PLG-14, ruling 26). Not "template": it serves
-        # files as application/octet-stream and lists a template row.
-        return EntryOnlySkillProvider(path, supporting_files="resources")
+        # The subclass reads every file by exact URI and trims the listing to
+        # SKILL.md (PLG-14, ruling 26).
+        return EntryOnlySkillProvider(path)
     except Exception as exc:  # noqa: BLE001 - bad package data must not stop the boot
         log.warning("packaged skill at %s could not be loaded: %s", path, exc)
         return None

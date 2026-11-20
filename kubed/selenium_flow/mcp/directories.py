@@ -32,10 +32,8 @@ INDEX_MD = "_index.md"
 
 
 def reserved(path: str) -> bool:
-    """Whether a file at ``path`` would sit where its folder's index is served.
-
-    Such a file is never a child: the index answers its URI.
-    """
+    """Whether a file or folder at ``path`` would sit where its parent's index
+    is served. The index answers that URI, so it is never a child."""
     return path.rpartition("/")[2] in (INDEX_JSON, INDEX_MD)
 
 
@@ -66,7 +64,10 @@ def index_json(children: list[dict]) -> str:
 
 
 def index_md(children: list[dict]) -> str:
-    return "".join(f"{c['uri']}: {c.get('description', '')}\n" for c in children)
+    """One line per child: a description's own newlines (YAML ``|``) collapse."""
+    return "".join(
+        f"{c['uri']}: {' '.join(c.get('description', '').split())}\n" for c in children
+    )
 
 
 _INDEXES = {

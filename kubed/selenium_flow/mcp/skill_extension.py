@@ -91,8 +91,6 @@ def entry_for(provider: SkillProvider) -> dict | None:
         return None
     resources = []
     for file in info.files:
-        if directories.reserved(file.path):
-            continue  # the folder's index answers its URI
         data = _served_bytes(info.path / file.path)
         if data is None:
             log.warning(

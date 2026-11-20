@@ -11,6 +11,7 @@ import json
 
 import pytest
 from fastmcp import Client, FastMCP
+from fastmcp.utilities.skills import download_skill
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS, METHOD_NOT_FOUND
 
@@ -58,7 +59,7 @@ def make_skill(tmp_path, files: dict[str, str], folders: tuple[str, ...] = ()) -
     for path in folders:
         (folder / path).mkdir(parents=True)
     mcp = FastMCP("t")
-    skill_module.register(mcp, EntryOnlySkillProvider(folder, supporting_files="resources"))
+    skill_module.register(mcp, EntryOnlySkillProvider(folder))
     return mcp
 
 
@@ -161,6 +162,75 @@ async def test_a_file_with_an_index_name_never_breaks_its_folder(tmp_path, caplo
     assert f"skill://tmp-skill/sub/{name}" not in [r["uri"] for r in entry["resources"]]
 
 
+@pytest.mark.parametrize("name", ["_index.md", "_index.json"])
+async def test_a_file_with_an_index_name_is_not_in_the_manifest(tmp_path, name):
+    """download_skill verifies every file the manifest names, and this URI reads
+    as the index, so the manifest must not name it."""
+    mcp = make_skill(tmp_path, {f"sub/{name}": "a file", "sub/a.txt": "a"})
+    async with Client(mcp) as client:
+        manifest = await read_json(client, "skill://tmp-skill/_manifest")
+        await download_skill(client, "tmp-skill", tmp_path / "out")
+    paths = [f["path"] for f in manifest["files"]]
+    assert f"sub/{name}" not in paths
+    assert "sub/a.txt" in paths
+    assert (tmp_path / "out" / "tmp-skill" / "sub" / "a.txt").is_file()
+
+
+@pytest.mark.parametrize("name", ["_index.md", "_index.json"])
+async def test_a_folder_with_an_index_name_never_breaks_its_parent(tmp_path, caplog, name):
+    with caplog.at_level("WARNING"):
+        mcp = make_skill(
+            tmp_path, {f"sub/{name}/inner/x.txt": "x", f"sub/{name}/y.txt": "y", "sub/a.txt": "a"}
+        )
+    assert f"sub/{name}" in caplog.text
+    async with Client(mcp) as client:
+        listed = await read_directory(client, uri="skill://tmp-skill/sub")
+        index = (await client.read_resource(f"skill://tmp-skill/sub/{name}"))[0]
+        with pytest.raises(MCPError) as caught:
+            await read_directory(client, uri=f"skill://tmp-skill/sub/{name}")
+        inner = (await client.read_resource(f"skill://tmp-skill/sub/{name}/y.txt"))[0]
+    assert [r["uri"] for r in listed["resources"]] == ["skill://tmp-skill/sub/a.txt"]
+    assert index.mime_type in ("application/json", "text/markdown")
+    assert "skill://tmp-skill/sub/a.txt" in index.text
+    assert caught.value.error.code == INVALID_PARAMS
+    assert inner.text == "y"
+
+
+async def test_a_multiline_description_is_one_index_line(tmp_path):
+    folder = tmp_path / "tmp-skill"
+    folder.mkdir()
+    (folder / "SKILL.md").write_text(
+        "---\nname: tmp-skill\ndescription: |\n  Line one.\n  Line two.\n---\n\n# Tmp\n",
+        encoding="utf-8",
+    )
+    mcp = FastMCP("t")
+    skill_module.register(mcp, EntryOnlySkillProvider(folder))
+    async with Client(mcp) as client:
+        children = await read_json(client, "skill://tmp-skill/_index.json")
+        markdown = (await client.read_resource("skill://tmp-skill/_index.md"))[0].text
+    assert "\n" in children[0]["description"]
+    assert markdown == "skill://tmp-skill/SKILL.md: Line one. Line two.\n"
+
+
+async def test_the_provider_always_serves_files_as_resources(tmp_path):
+    """SkillProvider defaults to template mode, where a file child has no
+    resource; this provider never runs in it."""
+    folder = tmp_path / "tmp-skill"
+    (folder / "references").mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: tmp-skill\ndescription: A skill for tests.\n---\n\n# Tmp\n",
+        encoding="utf-8",
+    )
+    (folder / "references" / "A.md").write_text("# A\n", encoding="utf-8")
+    mcp = FastMCP("t")
+    skill_module.register(mcp, EntryOnlySkillProvider(folder))
+    async with Client(mcp) as client:
+        listed = await read_directory(client, uri="skill://tmp-skill/references")
+        read = (await client.read_resource("skill://tmp-skill/references/A.md"))[0]
+    assert [r["uri"] for r in listed["resources"]] == ["skill://tmp-skill/references/A.md"]
+    assert read.mime_type == "text/markdown"
+
+
 async def test_a_file_that_is_not_markdown_keeps_fastmcps_description(tmp_path):
     mcp = make_skill(tmp_path, {"scripts/run.sh": "# not a heading\necho hi\n"})
     async with Client(mcp) as client:
@@ -185,7 +255,7 @@ async def test_a_markdown_file_that_is_not_utf8_never_loses_the_skill(tmp_path):
     )
     (folder / "references" / "BAD.md").write_bytes(b"# Caf\xe9\n")
     mcp = FastMCP("t")
-    skill_module.register(mcp, EntryOnlySkillProvider(folder, supporting_files="resources"))
+    skill_module.register(mcp, EntryOnlySkillProvider(folder))
     async with Client(mcp) as client:
         assert EXTENSION_ID in client.session.server_capabilities.extensions
         references = await read_json(client, "skill://tmp-skill/references/_index.json")
@@ -335,7 +405,7 @@ async def test_a_nonconforming_skill_keeps_its_indexes_without_the_method(tmp_pa
     )
     (folder / "references" / "A.md").write_text("# A\n", encoding="utf-8")
     mcp = FastMCP("t")
-    skill_module.register(mcp, EntryOnlySkillProvider(folder, supporting_files="resources"))
+    skill_module.register(mcp, EntryOnlySkillProvider(folder))
     async with Client(mcp) as client:
         assert EXTENSION_ID not in (client.session.server_capabilities.extensions or {})
         index = await read_json(client, "skill://odd-skill/references/_index.json")
@@ -396,3 +466,13 @@ async def test_show_on_a_folder_is_a_plain_miss_naming_the_index(server):
     assert f"no resource at {REFERENCES!r}. " in said
     assert f"{REFERENCES}/_index.md" in said
     assert "Resource not found" not in said
+
+
+async def test_the_method_matches_the_uri_as_sent_while_a_read_normalises(server):
+    dotted = f"{ROOT}/x/../references"
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError) as caught:
+            await read_directory(client, uri=dotted)
+        index = await read_json(client, f"{dotted}/_index.json")
+    assert caught.value.error.code == INVALID_PARAMS
+    assert [r["uri"] for r in index] == reference_uris()

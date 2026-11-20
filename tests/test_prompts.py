@@ -37,6 +37,15 @@ def test_every_shipped_prompt_loads_strictly(path):
 
 
 @pytest.mark.parametrize("path", SHIPPED, ids=lambda p: p.stem)
+def test_every_command_has_a_hint_and_the_model_may_run_it(path):
+    """PLG-3: a local install offers each file as a Claude Code command, with an
+    `argument-hint` for the `/` menu, and nothing stops the model running it."""
+    header = yaml.safe_load(path.read_text(encoding="utf-8").split("---", 2)[1])
+    assert isinstance(header.get("argument-hint"), str) and header["argument-hint"].strip()
+    assert "disable-model-invocation" not in header
+
+
+@pytest.mark.parametrize("path", SHIPPED, ids=lambda p: p.stem)
 async def test_every_shipped_prompt_renders_with_its_defaults(path):
     """Every argument either has a default or is required, and a rendered prompt
     never contains an unfilled placeholder."""
