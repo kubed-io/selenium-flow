@@ -14,20 +14,25 @@ clients without resources, nothing at all when it is switched off.
 """
 
 import json
+import logging
 import pathlib
 import re
 
 import pytest
 import yaml
 from fastmcp import Client
-from fastmcp.utilities.skills import download_skill, get_skill_manifest, list_skills
+from fastmcp.skills import Skill, SkillsClientExtension
 from mcp.shared.exceptions import MCPError
+from mcp_types import METHOD_NOT_FOUND
 
 from kubed.selenium_flow.mcp import skill as skill_module
 from kubed.selenium_flow.mcp.skill import ENTRY, SKILL_NAME
+from kubed.selenium_flow.mcp.skill_extension import EXTENSION_ID
 from kubed.selenium_flow.server import SeleniumMCP
 
-# The URIs FastMCP's SkillProvider publishes, spelled out here as the
+from .fakes import request
+
+# The URIs FastMCP's skill providers publish, spelled out here as the
 # convention being checked rather than read back from the server's own code.
 RESOURCE_URI = f"skill://{SKILL_NAME}/{ENTRY}"
 MANIFEST = "_manifest"
@@ -75,12 +80,13 @@ def test_the_body_stays_within_the_recommended_budget():
 
 
 def test_the_directory_name_is_the_skill_name():
-    """SkillProvider takes the name from the folder, NOT the frontmatter.
-
-    Renaming the directory silently renames the skill and moves its URI, so the
-    two must agree or the published name contradicts the file's own metadata.
-    """
+    """FastMCP refuses a skill whose folder is named otherwise (PLG-8)."""
     assert SKILL_DIR.name == SKILL_NAME == frontmatter()["name"]
+
+
+def test_the_packaged_skill_is_a_valid_agent_skill():
+    """The check that serves it, so an edit that breaks it fails here (PLG-18)."""
+    assert Skill.from_directory(SKILL_DIR).name == SKILL_NAME
 
 
 # ---- the index and its references ------------------------------------------
@@ -162,31 +168,36 @@ async def test_an_unknown_skill_file_is_not_found(server):
             await client.read_resource(f"skill://{SKILL_NAME}/NOPE.md")
 
 
-async def test_a_fastmcp_client_downloads_the_whole_skill(server, tmp_path):
-    async with Client(server.mcp) as client:
-        manifest = await get_skill_manifest(client, SKILL_NAME)
-        await download_skill(client, SKILL_NAME, tmp_path)
-    for f in manifest.files:
-        assert (tmp_path / SKILL_NAME / f.path).is_file()
+@pytest.mark.parametrize("extensions", [[], [SkillsClientExtension()]], ids=["resources", "skills"])
+async def test_a_fastmcp_client_reads_the_whole_skill(server, extensions):
+    """Every file the manifest names, verified against its digest, with or
+    without the Skills extension."""
+    async with Client(server.mcp, extensions=extensions) as client:
+        manifest = json.loads((await client.read_resource(MANIFEST_URI))[0].text)
+        read = await client.read_skill(RESOURCE_URI)
+    assert read.name == SKILL_NAME
+    assert set(read.files) == {f["path"] for f in manifest["files"]}
 
 
 # ---- the FastMCP skill convention ------------------------------------------
 
 
 async def test_a_fastmcp_client_discovers_the_skill(server):
-    """The real thing: FastMCP's own helper, against this server."""
-    async with Client(server.mcp) as client:
-        found = await list_skills(client)
-    assert [s.name for s in found] == [SKILL_NAME]
-    assert found[0].description == frontmatter()["description"]
+    """The real thing: FastMCP's own client, against this server."""
+    async with Client(server.mcp, extensions=[SkillsClientExtension()]) as client:
+        found = await client.list_skills()
+        listed = await client.list_skill_resources()
+    assert [s.frontmatter.name for s in found] == [SKILL_NAME]
+    assert found[0].frontmatter.description == frontmatter()["description"]
+    assert [str(r.uri) for r in listed] == [RESOURCE_URI]
 
 
 async def test_a_fastmcp_client_can_read_the_manifest(server):
-    """What `download_skill` relies on to know which files to fetch."""
+    """What `read_skill` relies on without the extension."""
     async with Client(server.mcp) as client:
-        manifest = await get_skill_manifest(client, SKILL_NAME)
-    assert manifest.name == SKILL_NAME
-    assert ENTRY in [f.path for f in manifest.files]
+        manifest = json.loads((await client.read_resource(MANIFEST_URI))[0].text)
+    assert manifest["skill"] == SKILL_NAME
+    assert ENTRY in [f["path"] for f in manifest["files"]]
 
 
 # ---- reading ---------------------------------------------------------------
@@ -195,7 +206,97 @@ async def test_a_fastmcp_client_can_read_the_manifest(server):
 def test_load_returns_a_provider_for_the_packaged_skill():
     provider = skill_module.load()
     assert provider is not None
-    assert provider.skill_info.name == SKILL_NAME
+    assert provider.name == SKILL_NAME
+    assert provider.skill.name == SKILL_NAME
+
+
+def test_a_missing_skill_md_warns(tmp_path, monkeypatch, caplog):
+    folder = tmp_path / SKILL_NAME
+    folder.mkdir()
+    monkeypatch.setattr(skill_module, "skill_path", lambda: folder)
+    with caplog.at_level(logging.WARNING):
+        assert skill_module.load() is None
+    assert [r.levelno for r in caplog.records if str(folder) in r.getMessage()] == [
+        logging.WARNING
+    ]
+
+
+def write_skill(folder: pathlib.Path, front: str) -> None:
+    folder.mkdir()
+    (folder / ENTRY).write_text(f"---\n{front}\n---\n\n# Body\n", encoding="utf-8")
+
+
+def invalid_skill(tmp_path, case: str) -> pathlib.Path:
+    """A folder that breaks one Agent Skills rule."""
+    good = "name: odd-skill\ndescription: Does a thing."
+    fronts = {
+        "bad-name": ("Odd_Skill", "name: Odd_Skill\ndescription: Does a thing."),
+        "folder-mismatch": ("odd-skill", "name: some-other-name\ndescription: Does a thing."),
+        "no-description": ("odd-skill", "name: odd-skill"),
+        "empty-description": ("odd-skill", "name: odd-skill\ndescription: ''"),
+        "long-description": ("odd-skill", "name: odd-skill\ndescription: " + "x" * 1025),
+        "not-a-mapping": ("odd-skill", "- a list\n- not a mapping"),
+        "date": ("odd-skill", good + "\nwhen: 2026-10-05"),
+        "nan": ("odd-skill", good + "\nweight: .nan"),
+        "int-key": ("odd-skill", good + "\nmetadata:\n  1: one"),
+    }
+    if case in fronts:
+        name, front = fronts[case]
+        write_skill(tmp_path / name, front)
+        return tmp_path / name
+    folder = tmp_path / "odd-skill"
+    if case == "symlink":
+        write_skill(folder, good)
+        (tmp_path / "outside.md").write_text("# Outside\n", encoding="utf-8")
+        (folder / "linked.md").symlink_to(tmp_path / "outside.md")
+    elif case == "not-utf8":
+        folder.mkdir()
+        (folder / ENTRY).write_bytes(f"---\n{good}\n---\n\n# Caf\xe9\n".encode("latin-1"))
+    return folder
+
+
+INVALID = {
+    "bad-name": "lowercase letters",
+    "folder-mismatch": "must match its SKILL.md name",
+    "no-description": "description must contain",
+    "empty-description": "description must contain",
+    "long-description": "description must contain",
+    "not-a-mapping": "frontmatter must be a mapping",
+    "date": "finite JSON values",
+    "nan": "finite JSON values",
+    "int-key": "keys must be strings",
+    "symlink": "symlink",
+    "not-utf8": "utf-8",
+}
+
+
+@pytest.mark.parametrize("case", sorted(INVALID))
+async def test_an_invalid_skill_is_not_served_at_all(tmp_path, monkeypatch, caplog, case):
+    """Strict: no resource, no extension, no method, and an error saying why (PLG-18)."""
+    from kubed.selenium_flow.config import Settings
+
+    folder = invalid_skill(tmp_path, case)
+    monkeypatch.setattr(skill_module, "skill_path", lambda: folder)
+    with caplog.at_level(logging.WARNING):
+        assert skill_module.load() is None
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert str(folder) in errors[0]
+    assert INVALID[case] in errors[0]
+
+    built = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "t"})
+    )
+    assert built.skill is None
+    for mode in ("auto", "legacy"):
+        async with Client(built.mcp, mode=mode) as client:
+            uris = [str(r.uri) for r in await client.list_resources()]
+            extensions = client.session.server_capabilities.extensions or {}
+            with pytest.raises(MCPError) as caught:
+                await request(client, "skills/list")
+        assert not [u for u in uris if u.startswith("skill://")]
+        assert EXTENSION_ID not in extensions
+        assert caught.value.error.code == METHOD_NOT_FOUND
 
 
 async def test_the_served_text_keeps_its_frontmatter(server):

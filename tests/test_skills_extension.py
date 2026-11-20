@@ -5,27 +5,19 @@ names and checks it against the digest. So the strongest tests here do exactly
 that over the wire, rather than comparing the entry with the disk.
 """
 
+import base64
 import hashlib
 import json
-import logging
 
 import pytest
 from fastmcp import Client, FastMCP
-from fastmcp.server.providers.skills.skill_provider import SkillProvider
+from fastmcp.skills import SkillsClientExtension
 from mcp.shared.exceptions import MCPError
-from mcp_types import (
-    INVALID_PARAMS,
-    METHOD_NOT_FOUND,
-    PaginatedRequestParams,
-)
+from mcp_types import INVALID_PARAMS, METHOD_NOT_FOUND
 
 from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.mcp import skill_extension
-from kubed.selenium_flow.mcp.skill_extension import (
-    EXTENSION_ID,
-    GetSkillParams,
-    SkillsExtension,
-)
+from kubed.selenium_flow.mcp import skill as skill_module
+from kubed.selenium_flow.mcp.skill_extension import EXTENSION_ID
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .fakes import header, request
@@ -44,8 +36,24 @@ async def test_the_extension_is_declared_beside_resources(server, mode):
         assert caps.resources is not None
 
 
-async def test_the_listing_is_the_one_skill(server):
-    async with Client(server.mcp) as client:
+def served(tmp_path, files: dict[str, bytes], front: str = "") -> FastMCP:
+    """A server over a throwaway skill called ``tmp-skill``, loaded as the
+    packaged one is."""
+    folder = tmp_path / "tmp-skill"
+    folder.mkdir()
+    head = front or "name: tmp-skill\ndescription: A skill for tests."
+    (folder / "SKILL.md").write_text(f"---\n{head}\n---\n\n# Tmp\n", encoding="utf-8")
+    for path, body in files.items():
+        (folder / path).parent.mkdir(parents=True, exist_ok=True)
+        (folder / path).write_bytes(body)
+    mcp = FastMCP("t")
+    skill_module.register(mcp, skill_module.load(folder))
+    return mcp
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_the_listing_is_the_one_skill(server, mode):
+    async with Client(server.mcp, mode=mode) as client:
         listing = await request(client, "skills/list")
     assert listing["resultType"] == "complete"
     assert listing["ttlMs"] == 0
@@ -53,8 +61,9 @@ async def test_the_listing_is_the_one_skill(server):
     assert [entry["uri"] for entry in listing["skills"]] == [SKILL_URI]
 
 
-async def test_get_returns_the_listed_entry(server):
-    async with Client(server.mcp) as client:
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_get_returns_the_listed_entry(server, mode):
+    async with Client(server.mcp, mode=mode) as client:
         listed = (await request(client, "skills/list"))["skills"][0]
         got = await request(client, "skills/get", uri=SKILL_URI)
     assert got["skill"] == listed
@@ -94,20 +103,32 @@ async def test_the_frontmatter_is_the_served_header(server):
     assert entry["frontmatter"]["name"] == "selenium-flow"
 
 
+async def test_a_fastmcp_client_gets_the_entry(server):
+    async with Client(server.mcp, extensions=[SkillsClientExtension()]) as client:
+        listed = await client.list_skills()
+        got = await client.get_skill(SKILL_URI)
+    assert [entry.uri for entry in listed] == [SKILL_URI]
+    assert got == listed[0]
+
+
 @pytest.mark.parametrize(
-    ("method", "params", "message"),
-    [
-        ("skills/get", {"uri": "skill://nope/SKILL.md"}, "Skill not found"),
-        ("skills/get", {"uri": MANIFEST_URI}, "Skill not found"),
-        ("skills/list", {"cursor": "2"}, "Invalid skills cursor"),
-    ],
+    "uri", ["skill://nope/SKILL.md", MANIFEST_URI, "skill://selenium-flow/references/FLOWS.md"]
 )
-async def test_refusals_are_invalid_params(server, method, params, message):
+async def test_get_of_any_other_uri_is_unknown(server, uri):
     async with Client(server.mcp) as client:
         with pytest.raises(MCPError) as caught:
-            await request(client, method, **params)
+            await request(client, "skills/get", uri=uri)
     assert caught.value.error.code == INVALID_PARAMS
-    assert message in str(caught.value)
+    assert caught.value.error.message == f"Unknown skill URI: {uri}"
+
+
+async def test_a_list_cursor_is_ignored(server):
+    """No list page size is set, so the one entry is the one page (PLG-22)."""
+    async with Client(server.mcp) as client:
+        first = await request(client, "skills/list")
+        again = await request(client, "skills/list", cursor="2")
+    assert again["skills"] == first["skills"]
+    assert "nextCursor" not in again
 
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
@@ -124,63 +145,50 @@ async def test_switching_the_skill_off_removes_the_extension(mode):
     assert caught.value.error.code == METHOD_NOT_FOUND
 
 
-@pytest.mark.parametrize(
-    "front",
-    [
-        "name: some-other-name\ndescription: Does a thing.",
-        "name: odd-skill\ndescription: ''",
-        "name: odd-skill\ndescription: " + "x" * 1025,
-        "- a list\n- not a mapping",
-        "name: odd-skill\ndescription: Dated.\nwhen: 2026-10-05",
-        "name: odd-skill\ndescription: NaN.\nweight: .nan",
-        "name: odd-skill\ndescription: Keys.\nmetadata:\n  1: one",
-        "name: odd-skill\ndescription: Keys.\nmetadata:\n  1: one\n  '1': also one",
-    ],
-    ids=["name", "empty-description", "long-description", "not-a-mapping", "date", "nan",
-         "int-key", "colliding-keys"],
-)
-async def test_a_nonconforming_skill_is_served_but_not_offered(tmp_path, caplog, front):
-    folder = tmp_path / "odd-skill"
-    folder.mkdir()
-    (folder / "SKILL.md").write_text(f"---\n{front}\n---\n\n# Body\n", encoding="utf-8")
-    provider = SkillProvider(folder, supporting_files="resources")
-    mcp = FastMCP("t")
-    mcp.add_provider(provider)
-
-    with caplog.at_level(logging.WARNING):
-        assert skill_extension.register(mcp, provider) is False
-    assert "not offered through the Skills extension" in caplog.text
-
-    async with Client(mcp) as client:
-        assert EXTENSION_ID not in (client.session.server_capabilities.extensions or {})
-        assert (await client.read_resource("skill://odd-skill/SKILL.md"))[0].text
-
-
 async def test_a_caller_cannot_change_what_the_next_caller_is_served(server):
-    entry = skill_extension.entry_for(server.skill)
-    extension = SkillsExtension(entry, server.skill)
-    first = await extension.list_skills(None, PaginatedRequestParams())
-    first["skills"][0]["resources"].clear()
-    first["skills"][0]["frontmatter"]["name"] = "changed"
-    second = await extension.list_skills(None, PaginatedRequestParams())
+    async with Client(server.mcp) as client:
+        first = await request(client, "skills/list")
+        first["skills"][0]["resources"].clear()
+        first["skills"][0]["frontmatter"]["name"] = "changed"
+        second = await request(client, "skills/list")
+        got = await request(client, "skills/get", uri=SKILL_URI)
     assert second["skills"][0]["resources"]
     assert second["skills"][0]["frontmatter"]["name"] == "selenium-flow"
-
-    got = await extension.get_skill(None, GetSkillParams(uri=SKILL_URI))
-    got["skill"]["resources"].clear()
-    got["skill"]["frontmatter"]["name"] = "changed"
-    again = await extension.get_skill(None, GetSkillParams(uri=SKILL_URI))
-    assert again["skill"]["resources"]
-    assert again["skill"]["frontmatter"]["name"] == "selenium-flow"
+    assert got["skill"] == second["skills"][0]
 
 
 async def test_a_dash_run_inside_a_value_is_not_the_header_end(tmp_path):
-    folder = tmp_path / "dashed"
-    folder.mkdir()
-    (folder / "SKILL.md").write_text(
-        "---\nname: dashed\ndescription: before --- after\n---\n\n# Body\n",
-        encoding="utf-8",
-    )
-    entry = skill_extension.entry_for(SkillProvider(folder, supporting_files="resources"))
-    assert entry is not None
+    mcp = served(tmp_path, {}, front="name: tmp-skill\ndescription: before --- after")
+    async with Client(mcp) as client:
+        entry = (await request(client, "skills/list"))["skills"][0]
     assert entry["frontmatter"]["description"] == "before --- after"
+
+
+def read_bytes(content) -> bytes:
+    text = getattr(content, "text", None)
+    return text.encode() if text is not None else base64.b64decode(content.blob)
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_a_crlf_file_is_served_byte_for_byte(tmp_path, mode):
+    """The digest is of the bytes on disk, which are the bytes a read serves
+    (PLG-15, PLG-20); a titled file keeps the skill in the listing."""
+    body = b"# Crlf\r\nline one\r\nline two\r\n"
+    mcp = served(tmp_path, {"references/CRLF.md": body, "data.bin": b"\x00\xff\r\n"})
+    async with Client(mcp, mode=mode) as client:
+        entry = (await request(client, "skills/list"))["skills"][0]
+        manifest = json.loads(
+            (await client.read_resource("skill://tmp-skill/_manifest"))[0].text
+        )
+        reads = {
+            r["uri"]: read_bytes((await client.read_resource(r["uri"]))[0])
+            for r in entry["resources"]
+        }
+    assert reads["skill://tmp-skill/references/CRLF.md"] == body
+    assert set(reads) == {f"skill://tmp-skill/{f['path']}" for f in manifest["files"]}
+    hashes = {f"skill://tmp-skill/{f['path']}": (f["hash"], f["size"]) for f in manifest["files"]}
+    for resource in entry["resources"]:
+        data = reads[resource["uri"]]
+        digest = f"sha256:{hashlib.sha256(data).hexdigest()}"
+        assert (resource["digest"], resource["size"]) == (digest, len(data))
+        assert hashes[resource["uri"]] == (digest, len(data))

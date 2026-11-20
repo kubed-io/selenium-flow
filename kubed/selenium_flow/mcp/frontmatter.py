@@ -1,8 +1,7 @@
-"""The YAML header of a markdown file, shared by both extensions.
+"""The YAML header of a markdown file, as the agents extension reads it.
 
-``skill_extension`` and ``agents`` each read a header and each check that it
-survives JSON. They import it from here, not from one another, so either can be
-deleted alone.
+``agents`` reads a header and checks that it survives JSON. The skill's header
+is FastMCP's to parse (``fastmcp.skills``).
 """
 
 from __future__ import annotations

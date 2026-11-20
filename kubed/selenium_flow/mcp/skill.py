@@ -1,18 +1,16 @@
 """The embedded skill: how to use this server well, shipped inside it.
 
 ``plugin/skills/selenium-flow/`` is package data, so the guidance ships with the
-version of the server it describes. FastMCP's ``SkillProvider`` serves it at
+version of the server it describes. FastMCP's ``fastmcp.skills`` serves it at
 ``skill://<name>/SKILL.md``, the one row ``resources/list`` shows. The
-``_manifest`` and every supporting file are not listed but read by exact URI,
-which is what FastMCP's client helpers (``list_skills``, ``download_skill``)
-use. Each folder is an unlisted directory resource with ``_index.json`` and
-``_index.md`` beside it (``directories``).
+``_manifest`` and every other file are not listed but read by exact URI, which
+is what FastMCP's client (``read_skill``) uses. Each folder is an unlisted
+directory resource with ``_index.json`` and ``_index.md`` beside it
+(``directories``).
 
-SkillProvider takes the skill's name from its folder, not the frontmatter:
-renaming the folder renames the skill.
-
-The Skills extension's ``skills/list`` and ``skills/get`` are in
-``skill_extension``.
+The skill is served only when it is a valid Agent Skill, its folder named as
+its frontmatter names it. The Skills extension's ``skills/list`` and
+``skills/get`` are in ``skill_extension``.
 """
 
 from __future__ import annotations
@@ -23,13 +21,13 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastmcp.resources import Resource
-from fastmcp.server.providers.skills.skill_provider import (
-    SkillFileResource,
-    SkillProvider,
-)
+from fastmcp.skills import Skill
+from fastmcp.skills.provider import SkillCatalogProvider, SkillFileResource
 from fastmcp.utilities.versions import VersionSpec
+from pydantic import ValidationError
 
 from . import directories, skill_extension
+from .extensions import AdvertiseLegacyExtensions
 
 log = logging.getLogger(__name__)
 
@@ -58,15 +56,15 @@ def skill_path() -> Path:
     return plugin_folder(__file__, SKILLS_DIR, SKILL_NAME)
 
 
-def _heading(path: Path) -> str | None:
+def _heading(data: bytes) -> str | None:
     """A Markdown file's first ``# `` heading outside a code fence, if it has one.
 
-    A file that cannot be read as UTF-8 has none, so it keeps FastMCP's
-    description rather than taking the skill down with it.
+    A file that is not UTF-8 has none, so it is a plain file of the skill
+    rather than taking the skill down with it.
     """
     try:
-        text = path.read_bytes().decode("utf-8")
-    except (OSError, UnicodeDecodeError):
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
         return None
     fence = None
     for line in text.splitlines():
@@ -81,129 +79,170 @@ def _heading(path: Path) -> str | None:
     return None
 
 
-class EntryOnlySkillProvider(SkillProvider):
-    """A SkillProvider whose listing names the main file and nothing else.
+def _all_folders(paths) -> set[str]:
+    """Every folder the files at ``paths`` sit in, below the root."""
+    return {
+        "/".join(parts[:depth])
+        for path in paths
+        for parts in [path.split("/")[:-1]]
+        for depth in range(1, len(parts) + 1)
+    }
 
-    ``_get_resource`` still answers the manifest and every supporting file by
-    exact URI, and also each folder's two index files. The provider is the
-    ``directories.Folders`` of its skill: a folder is every directory on disk
-    under the skill, the skill's own included, so an empty one has no children.
+
+def _folders_of(paths) -> set[str]:
+    """The skill's folders, the root ``""`` included.
+
+    A folder with an index's name is none, and neither is any folder under it.
+    """
+    return {""} | {
+        rel
+        for rel in _all_folders(paths)
+        if not any(directories.reserved(part) for part in rel.split("/"))
+    }
+
+
+class EntryOnlySkillProvider(SkillCatalogProvider):
+    """One skill, whose listing names its main file and nothing else.
+
+    ``_get_resource`` still answers the manifest and every other file by exact
+    URI, and also each folder's two index files. The provider is the
+    ``directories.Folders`` of its skill: a folder is every one the skill's
+    files sit in, so it is the same for a skill built from code.
     """
 
-    def __init__(self, skill_path: str | Path, main_file_name: str = ENTRY):
-        # Always "resources": in SkillProvider's default "template" mode a file
-        # has no resource of its own, so a folder could not list it, and a
-        # file would be served as application/octet-stream (PLG-15).
-        super().__init__(skill_path, main_file_name, supporting_files="resources")
-        info = self.skill_info
-        root = info.path
-        # A file whose URI is its folder's index is not served at all. The
-        # list is set once by SkillProvider at load and read on every request,
-        # so trimming it here keeps it out of _manifest, the Skills entry and
-        # the reads by exact URI.
-        for file in info.files:
-            if directories.reserved(file.path):
-                log.warning(
-                    "skill %s: %s is not served, its folder's index answers that URI",
-                    info.name,
-                    file.path,
-                )
-        info.files = [f for f in info.files if not directories.reserved(f.path)]
-        found = {""}
-        for d in root.rglob("*"):
-            if not (d.is_dir() and d.resolve().is_relative_to(root)):
-                continue
-            rel = d.relative_to(root).as_posix()
-            if directories.reserved(rel):
-                log.warning(
-                    "skill %s: folder %s is not served, its parent's index "
-                    "answers that URI",
-                    info.name,
-                    rel,
-                )
-            if not any(directories.reserved(part) for part in rel.split("/")):
-                found.add(rel)
+    def __init__(self, skill: Skill):
+        super().__init__([skill])
+        self.skill = skill
+        self.name = skill.name
+        self._prefix = f"skill://{quote(skill.name, safe='')}/"
+        self._file = f"File from {skill.name} skill"
+        found = _folders_of(skill.files)
         # folder path -> (its files, its subfolders), paths from the skill root.
         self._folders: dict[str, tuple[list[str], list[str]]] = {
             rel: ([], []) for rel in found
         }
         for rel in found - {""}:
             self._folders[posixpath.dirname(rel)][1].append(rel)
-        for file in info.files:
-            parent = posixpath.dirname(file.path)
+        for path in skill.files:
+            parent = posixpath.dirname(path)
             if parent in self._folders:  # else under a folder that is not served
-                self._folders[parent][0].append(file.path)
+                self._folders[parent][0].append(path)
         self._by_uri = {self.folder_uri(rel): rel for rel in found}
-        # Package data cannot change under a running process.
         self._titles = {
-            file.path: title
-            for file in info.files
-            if file.path.endswith(".md") and file.path != info.main_file
-            if (title := _heading(root / file.path))
+            path: title
+            for path, data in skill.files.items()
+            if path.endswith(".md") and path != ENTRY
+            if (title := _heading(data))
         }
 
     def folder_uri(self, rel: str) -> str:
         """The URI of the folder at ``rel``, without a trailing slash."""
-        root = self.skill_info.uri_prefix.rstrip("/")
+        root = self._prefix.rstrip("/")
         return f"{root}/{quote(rel, safe='/')}" if rel else root
+
+    def _file_uri(self, path: str) -> str:
+        return f"{self._prefix}{quote(path, safe='/')}"
 
     async def children(self, uri: str) -> list[dict] | None:
         rel = self._by_uri.get(uri)
         if rel is None:
             return None
         files, subfolders = self._folders[rel]
-        name = self.skill_info.name
         rows = [
             directories.folder(
-                self.folder_uri(sub), f"{name}/{sub}", f"A folder of the {name} skill"
+                self.folder_uri(sub),
+                f"{self.name}/{sub}",
+                f"A folder of the {self.name} skill",
             )
             for sub in subfolders
         ]
         for path in files:
-            uri = f"{self.skill_info.uri_prefix}{quote(path, safe='/')}"
-            rows.append(directories.wire(await self._get_resource(uri)))
+            rows.append(
+                directories.wire(await self._get_resource(self._file_uri(path)))
+            )
         return sorted(rows, key=lambda row: row["uri"])
 
     async def _list_resources(self) -> list[Resource]:
-        main = quote(self.skill_info.main_file, safe="/")
-        entry = f"{self.skill_info.uri_prefix}{main}"
+        entry = self._file_uri(ENTRY)
         return [r for r in await super()._list_resources() if str(r.uri) == entry]
 
     async def _get_resource(
         self, uri: str, version: VersionSpec | None = None
     ) -> Resource | None:
-        if uri.startswith(self.skill_info.uri_prefix):
+        if uri.startswith(self._prefix):
             index = await directories.index_resource(self, uri)
             if index is not None:
                 return index
         resource = await super()._get_resource(uri, version)
-        if isinstance(resource, SkillFileResource):
-            title = self._titles.get(resource.file_path)
-            if title:
-                resource = resource.model_copy(update={"description": title})
+        if isinstance(resource, SkillFileResource) and resource.file_path != ENTRY:
+            # Still a SkillFileResource with the same `file`: FastMCP offers
+            # the entry only while every file resolves to the one it lists.
+            title = self._titles.get(resource.file_path) or self._file
+            resource = resource.model_copy(update={"description": title})
         return resource
 
 
-def load() -> EntryOnlySkillProvider | None:
-    """The packaged skill as a provider, or None if it is not installed.
+def _reason(exc: Exception) -> str:
+    if isinstance(exc, ValidationError):
+        return "; ".join(e["msg"].removeprefix("Value error, ") for e in exc.errors())
+    return str(exc) or type(exc).__name__
 
-    Missing package data is logged, not fatal: the tools work without it.
+
+def load(path: Path | None = None) -> EntryOnlySkillProvider | None:
+    """The skill at ``path`` (the packaged one by default) as a provider, or None.
+
+    No ``SKILL.md`` is a warning and an invalid skill an error, neither fatal:
+    the tools work without the skill.
     """
-    path = skill_path()
+    path = skill_path() if path is None else path
     if not (path / ENTRY).is_file():
         log.warning("no packaged skill at %s", path)
         return None
     try:
-        # The subclass reads every file by exact URI and trims the listing to
-        # SKILL.md (PLG-14, ruling 26).
-        return EntryOnlySkillProvider(path)
-    except Exception as exc:  # noqa: BLE001 - bad package data must not stop the boot
-        log.warning("packaged skill at %s could not be loaded: %s", path, exc)
+        read = Skill.from_directory(path)
+        # A file or folder whose URI is its folder's index is not served.
+        for name in read.files:
+            if directories.reserved(name):
+                log.warning(
+                    "skill %s: %s is not served, its folder's index answers that URI",
+                    read.name,
+                    name,
+                )
+        for rel in sorted(_all_folders(read.files)):
+            if directories.reserved(rel):
+                log.warning(
+                    "skill %s: folder %s is not served, its parent's index "
+                    "answers that URI",
+                    read.name,
+                    rel,
+                )
+        skill = Skill.from_files(
+            {
+                name: data
+                for name, data in read.files.items()
+                if not directories.reserved(name)
+            }
+        )
+    except (OSError, ValueError) as exc:
+        log.error(
+            "skill at %s is not a valid Agent Skill, so it is not served: %s",
+            path,
+            _reason(exc),
+        )
         return None
+    return EntryOnlySkillProvider(skill)
 
 
 def register(mcp, provider: EntryOnlySkillProvider) -> None:
-    """Serve the skill's resources, and offer it through the Skills extension."""
+    """Serve the skill's resources, and offer it through the Skills extension.
+
+    The extension replaces the one FastMCP's provider brings.
+    """
     mcp.add_provider(provider)
+    mcp.add_extension(skill_extension.SkillsExtension())
+    mcp.add_middleware(
+        AdvertiseLegacyExtensions(
+            {skill_extension.EXTENSION_ID: skill_extension.SETTINGS}
+        )
+    )
     mcp.add_middleware(directories.NameTheIndex(provider))
-    skill_extension.register(mcp, provider)

@@ -159,7 +159,7 @@ def skill_with(tmp_path, monkeypatch):
 
 
 async def test_a_supporting_file_that_is_text_draws(skill_with, named_caller):
-    """SkillProvider serves a non-markdown file as bytes under its own type."""
+    """FastMCP serves a skill file whose type is not text/* as bytes under its own type."""
     server = skill_with("example.yaml", b"steps:\n  - tool: navigate\n")
     assert await undrawn(server) == {}
 

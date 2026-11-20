@@ -1,160 +1,48 @@
-"""The MCP Skills extension (SEP-2640) for the embedded skill.
+"""The MCP Skills extension (SEP-2640), as FastMCP serves it plus what it lacks.
 
-``skills/list`` and ``skills/get`` are JSON-RPC methods beside
-``resources/list``. They return an entry naming every file of the skill with the
-digest and size of what ``resources/read`` hands back, so a client can verify
-each file it loads. The extension also binds ``resources/directory/read`` from
-``directories`` and declares it as ``directoryRead``, the setting a host checks
-before it reads a folder.
-
-FastMCP 4.2's ``SkillCatalogProvider`` serves the extension itself, and this
-module is apart from ``skill.py`` so it can be deleted once the server moves to
-it. The entry is built once, with the server, since package data cannot change
-under a running process.
+FastMCP's ``SkillsExtension`` answers ``skills/list`` and ``skills/get`` from
+its skill providers, but binds them for the modern protocol versions only. This
+subclass binds the same handlers for every version, declares ``directoryRead``,
+and binds ``resources/directory/read`` from ``directories`` over the folders of
+every skill provider that knows its folders. ``skill.register`` puts it in place
+of the one FastMCP's provider brings.
 """
 
 from __future__ import annotations
 
-import copy
-import hashlib
-import logging
-import mimetypes
 from collections.abc import Sequence
-from pathlib import Path
 
-from fastmcp.server.extensions import MethodBinding, ServerExtension
-from fastmcp.server.providers.skills.skill_provider import SkillProvider
-from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_PARAMS, PaginatedRequestParams, RequestParams
-from pydantic import Field
+from fastmcp.server.extensions import MethodBinding
+from fastmcp.skills import extension
+from fastmcp.skills.models import GetSkillParams, ListSkillsParams
 
-from . import directories, frontmatter
-from .extensions import AdvertiseLegacyExtensions, complete
+from . import directories
 
-log = logging.getLogger(__name__)
-
-EXTENSION_ID = "io.modelcontextprotocol/skills"
+EXTENSION_ID = extension.SkillsExtension.identifier
 SETTINGS = {"directoryRead": True}
-MAX_DESCRIPTION = 1024
 
 
-class GetSkillParams(RequestParams):
-    uri: str = Field(min_length=1)
-
-
-def _served_bytes(path: Path) -> bytes | None:
-    """What ``resources/read`` returns for this file, as bytes; None when a
-    ``text/*`` file is not UTF-8, which the read cannot serve either.
-
-    SkillProvider reads a ``text/*`` file with ``read_text``, which normalises
-    newlines, and anything else raw. A host verifies the bytes it receives, so
-    the digest follows the read, not the disk (which ``_manifest`` hashes).
-    Importing SkillProvider registers ``.md`` as ``text/markdown``.
-    """
-    mime_type, _ = mimetypes.guess_type(str(path))
-    if mime_type and mime_type.startswith("text/"):
-        try:
-            return path.read_text(encoding="utf-8").encode("utf-8")
-        except UnicodeDecodeError:
-            return None
-    return path.read_bytes()
-
-
-def _problem(metadata: object, name: str) -> str | None:
-    """Why this frontmatter cannot be offered as a conforming entry, if it cannot."""
-    if not isinstance(metadata, dict):
-        return "SKILL.md has no YAML frontmatter mapping"
-    if not frontmatter.survives_json(metadata):
-        return "its frontmatter is not representable as JSON"
-    if metadata.get("name") != name:
-        return f"its frontmatter name is not the folder name {name!r}"
-    description = metadata.get("description")
-    if not isinstance(description, str) or not (
-        1 <= len(description) <= MAX_DESCRIPTION
-    ):
-        return f"its description is not a string of 1-{MAX_DESCRIPTION} characters"
-    return None
-
-
-def entry_for(provider: SkillProvider) -> dict | None:
-    """The skill's SEP-2640 entry, or None (logged) if it does not conform."""
-    info = provider.skill_info
-    parsed = frontmatter.split((info.path / info.main_file).read_text(encoding="utf-8"))
-    metadata = parsed[0] if parsed else None
-    problem = _problem(metadata, info.name)
-    if problem:
-        log.warning(
-            "skill %s is not offered through the Skills extension: %s",
-            info.name,
-            problem,
-        )
-        return None
-    resources = []
-    for file in info.files:
-        data = _served_bytes(info.path / file.path)
-        if data is None:
-            log.warning(
-                "skill %s: %s is not UTF-8 text, so the entry leaves it out",
-                info.name,
-                file.path,
-            )
-            continue
-        resources.append(
-            {
-                "uri": f"skill://{info.name}/{file.path}",
-                "digest": f"sha256:{hashlib.sha256(data).hexdigest()}",
-                "size": len(data),
-            }
-        )
-    resources.sort(key=lambda resource: resource["uri"])
-    return {
-        "uri": f"skill://{info.name}/{info.main_file}",
-        "frontmatter": metadata,
-        "resources": resources,
-    }
-
-
-class SkillsExtension(ServerExtension):
-    """``skills/list``, ``skills/get`` and the folders of the one embedded skill."""
-
-    identifier = EXTENSION_ID
-
-    def __init__(self, entry: dict, folders: directories.Folders):
-        self._entry = entry
-        self._directories = directories.DirectoryRead(folders)
+class SkillsExtension(extension.SkillsExtension):
+    """FastMCP's extension, for every protocol version, with folders."""
 
     def settings(self) -> dict:
         return dict(SETTINGS)
 
     def methods(self) -> Sequence[MethodBinding]:
+        # No protocol_versions: a handshake-era client is answered too.
         return (
-            MethodBinding("skills/list", PaginatedRequestParams, self.list_skills),
-            MethodBinding("skills/get", GetSkillParams, self.get_skill),
-            self._directories.binding(),
+            MethodBinding("skills/list", ListSkillsParams, self._handle_list),
+            MethodBinding("skills/get", GetSkillParams, self._handle_get),
+            directories.DirectoryRead(self).binding(),
         )
 
-    async def list_skills(self, ctx, params: PaginatedRequestParams) -> dict:
-        if params.cursor is not None:
-            # One page, so no cursor was ever issued.
-            raise MCPError(code=INVALID_PARAMS, message="Invalid skills cursor")
-        return complete(skills=[copy.deepcopy(self._entry)])
+    def clone(self) -> SkillsExtension:
+        return type(self)()
 
-    async def get_skill(self, ctx, params: GetSkillParams) -> dict:
-        if params.uri != self._entry["uri"]:
-            raise MCPError(code=INVALID_PARAMS, message="Skill not found")
-        return complete(skill=copy.deepcopy(self._entry))
-
-
-def register(mcp, provider: SkillProvider) -> bool:
-    """Offer the skill through the extension.
-
-    False, with nothing added, when the skill does not conform; its resources
-    and its folders' index files are still served. ``provider`` is the
-    skill's ``directories.Folders`` too.
-    """
-    entry = entry_for(provider)
-    if entry is None:
-        return False
-    mcp.add_extension(SkillsExtension(entry, provider))
-    mcp.add_middleware(AdvertiseLegacyExtensions({EXTENSION_ID: SETTINGS}))
-    return True
+    async def children(self, uri: str) -> list[dict] | None:
+        """The ``directories.Folders`` of the server's skill providers."""
+        for source in self._candidate_sources():
+            children = getattr(source, "children", None)
+            if children is not None and (found := await children(uri)) is not None:
+                return found
+        return None

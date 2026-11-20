@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> None:
         "on" if server.auth_token else "off",
         settings.oidc.issuer or "off",
         server.workspaces.kind,
-        server.skill.skill_info.name if server.skill else "off",
+        server.skill.name if server.skill else "off",
         server.flows.kind if server.flows else "off",
         _secrets_summary(server.secrets),
         "on" if server.collector else "off",
