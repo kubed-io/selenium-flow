@@ -31,6 +31,14 @@ INDEX_JSON = "_index.json"
 INDEX_MD = "_index.md"
 
 
+def reserved(path: str) -> bool:
+    """Whether a file at ``path`` would sit where its folder's index is served.
+
+    Such a file is never a child: the index answers its URI.
+    """
+    return path.rpartition("/")[2] in (INDEX_JSON, INDEX_MD)
+
+
 class Folders(Protocol):
     async def children(self, uri: str) -> list[dict] | None:
         """The direct children of folder ``uri`` as wire ``Resource`` dicts,
@@ -92,8 +100,9 @@ class DirectoryReadParams(PaginatedRequestParams):
 class DirectoryRead:
     """``resources/directory/read`` over one ``Folders``: a page of direct children.
 
-    The cursor is the decimal offset of the next child. Only the offsets a
-    page hands out are accepted: anything else is ``-32602``.
+    The cursor is the decimal offset of the next child. Any offset inside the
+    folder, from 1 to one less than the number of children, is accepted;
+    anything else is ``-32602``.
     """
 
     page_size = 100
@@ -119,7 +128,13 @@ class DirectoryRead:
 def _offset(cursor: str | None, total: int) -> int:
     if cursor is None:
         return 0
-    if cursor.isascii() and cursor.isdecimal() and 0 < int(cursor) < total:
+    # Length first: int() refuses a string of more than 4300 digits.
+    if (
+        cursor.isascii()
+        and cursor.isdecimal()
+        and len(cursor) <= len(str(total))
+        and 0 < int(cursor) < total
+    ):
         return int(cursor)
     raise MCPError(code=INVALID_PARAMS, message="Invalid directory cursor")
 
@@ -132,6 +147,8 @@ class FolderNotFound(MCPError):
 
     def __init__(self, uri: str):
         self.hint = f"{uri} is a folder: read {uri}/{INDEX_MD} to list it."
+        # What a tool that reads resources says, as it says a plain miss.
+        self.miss = f"no resource at {uri!r}. {self.hint}"
         super().__init__(
             code=INVALID_PARAMS,
             message=f"Resource not found: {uri!r}. {self.hint}",

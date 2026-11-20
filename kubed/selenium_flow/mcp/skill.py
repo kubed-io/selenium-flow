@@ -59,9 +59,24 @@ def skill_path() -> Path:
 
 
 def _heading(path: Path) -> str | None:
-    """A Markdown file's first ``# `` heading, if it has one."""
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("# "):
+    """A Markdown file's first ``# `` heading outside a code fence, if it has one.
+
+    A file that cannot be read as UTF-8 has none, so it keeps FastMCP's
+    description rather than taking the skill down with it.
+    """
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    fence = None
+    for line in text.splitlines():
+        marker = line.lstrip()[:3]
+        if marker in ("```", "~~~"):
+            if fence is None:
+                fence = marker
+            elif marker == fence:
+                fence = None
+        elif fence is None and line.startswith("# "):
             return line[2:].strip() or None
     return None
 
@@ -91,6 +106,13 @@ class EntryOnlySkillProvider(SkillProvider):
         for rel in found - {""}:
             self._folders[posixpath.dirname(rel)][1].append(rel)
         for file in info.files:
+            if directories.reserved(file.path):
+                log.warning(
+                    "skill %s: %s is not served, its folder's index answers that URI",
+                    info.name,
+                    file.path,
+                )
+                continue
             self._folders[posixpath.dirname(file.path)][0].append(file.path)
         self._by_uri = {self.folder_uri(rel): rel for rel in found}
         # Package data cannot change under a running process.

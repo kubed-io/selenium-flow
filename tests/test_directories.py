@@ -138,8 +138,61 @@ async def test_the_manifest_is_never_a_child_and_still_reads(server):
 
 async def test_an_index_of_no_folder_is_not_found(server):
     async with Client(server.mcp) as client:
-        with pytest.raises(MCPError):
+        with pytest.raises(MCPError) as caught:
             await client.read_resource(f"{ROOT}/nope/_index.json")
+    assert caught.value.error.code == INVALID_PARAMS
+    assert caught.value.error.message.startswith("Resource not found")
+
+
+@pytest.mark.parametrize("name", ["_index.md", "_index.json"])
+async def test_a_file_with_an_index_name_never_breaks_its_folder(tmp_path, caplog, name):
+    """The index wins: the file is no child, reads as the index, and is named at load."""
+    with caplog.at_level("WARNING"):
+        mcp = make_skill(tmp_path, {f"sub/{name}": "a file", "sub/a.txt": "a"})
+    assert f"sub/{name}" in caplog.text
+    async with Client(mcp) as client:
+        listed = await read_directory(client, uri="skill://tmp-skill/sub")
+        index = await read_json(client, "skill://tmp-skill/sub/_index.json")
+        markdown = (await client.read_resource("skill://tmp-skill/sub/_index.md"))[0].text
+        entry = (await request(client, "skills/list"))["skills"][0]
+    assert [r["uri"] for r in listed["resources"]] == ["skill://tmp-skill/sub/a.txt"]
+    assert listed["resources"] == index
+    assert markdown == "skill://tmp-skill/sub/a.txt: File from tmp-skill skill\n"
+    assert f"skill://tmp-skill/sub/{name}" not in [r["uri"] for r in entry["resources"]]
+
+
+async def test_a_file_that_is_not_markdown_keeps_fastmcps_description(tmp_path):
+    mcp = make_skill(tmp_path, {"scripts/run.sh": "# not a heading\necho hi\n"})
+    async with Client(mcp) as client:
+        scripts = await read_json(client, "skill://tmp-skill/scripts/_index.json")
+    assert scripts[0]["description"] == "File from tmp-skill skill"
+
+
+async def test_a_heading_inside_a_code_fence_is_not_the_title(tmp_path):
+    body = "```bash\n# install it\n```\n\n~~~\n# nor this\n~~~\n\n# Real Title\n"
+    mcp = make_skill(tmp_path, {"references/A.md": body})
+    async with Client(mcp) as client:
+        references = await read_json(client, "skill://tmp-skill/references/_index.json")
+    assert references[0]["description"] == "Real Title"
+
+
+async def test_a_markdown_file_that_is_not_utf8_never_loses_the_skill(tmp_path):
+    folder = tmp_path / "tmp-skill"
+    (folder / "references").mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: tmp-skill\ndescription: A skill for tests.\n---\n\n# Tmp\n",
+        encoding="utf-8",
+    )
+    (folder / "references" / "BAD.md").write_bytes(b"# Caf\xe9\n")
+    mcp = FastMCP("t")
+    skill_module.register(mcp, EntryOnlySkillProvider(folder, supporting_files="resources"))
+    async with Client(mcp) as client:
+        assert EXTENSION_ID in client.session.server_capabilities.extensions
+        references = await read_json(client, "skill://tmp-skill/references/_index.json")
+        assert (await client.read_resource("skill://tmp-skill/SKILL.md"))[0].text
+        entry = (await request(client, "skills/list"))["skills"][0]
+    assert references[0]["description"] == "File from tmp-skill skill"
+    assert "skill://tmp-skill/references/BAD.md" not in [r["uri"] for r in entry["resources"]]
 
 
 async def test_an_empty_folder_has_an_empty_index(tmp_path):
@@ -221,11 +274,12 @@ async def test_a_file_child_is_its_resources_list_row(server):
         ({"uri": ROOT, "cursor": "abc"}, "Invalid directory cursor"),
         ({"uri": ROOT, "cursor": "0"}, "Invalid directory cursor"),
         ({"uri": ROOT, "cursor": "99"}, "Invalid directory cursor"),
+        ({"uri": ROOT, "cursor": "1" * 5000}, "Invalid directory cursor"),
         ({"uri": ""}, ""),
         ({}, ""),
     ],
     ids=["missing", "file", "trailing-slash", "root-slash", "other-scheme", "cursor-text",
-         "cursor-zero", "cursor-past-end", "empty-uri", "no-uri"],
+         "cursor-zero", "cursor-past-end", "cursor-5000-digits", "empty-uri", "no-uri"],
 )
 async def test_refusals_are_invalid_params(server, params, message):
     async with Client(server.mcp) as client:
@@ -320,6 +374,7 @@ async def test_read_resource_passes_the_hint_on(server):
             "read_resource", {"uri": REFERENCES}, raise_on_error=False
         )
     assert result.is_error
+    assert f"no resource at {REFERENCES!r}. " in result.content[0].text
     assert f"{REFERENCES}/_index.md" in result.content[0].text
 
 
@@ -329,3 +384,15 @@ async def test_an_empty_folder_still_names_its_index(tmp_path):
         with pytest.raises(MCPError) as caught:
             await client.read_resource("skill://tmp-skill/assets")
     assert "skill://tmp-skill/assets/_index.md" in caught.value.error.message
+
+
+async def test_show_on_a_folder_is_a_plain_miss_naming_the_index(server):
+    from fastmcp.exceptions import ToolError
+
+    async with Client(server.mcp) as client:
+        with pytest.raises(ToolError) as refused:
+            await client.call_tool("show", {"uri": REFERENCES})
+    said = str(refused.value)
+    assert f"no resource at {REFERENCES!r}. " in said
+    assert f"{REFERENCES}/_index.md" in said
+    assert "Resource not found" not in said

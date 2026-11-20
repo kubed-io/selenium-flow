@@ -42,8 +42,9 @@ class GetSkillParams(RequestParams):
     uri: str = Field(min_length=1)
 
 
-def _served_bytes(path: Path) -> bytes:
-    """What ``resources/read`` returns for this file, as bytes.
+def _served_bytes(path: Path) -> bytes | None:
+    """What ``resources/read`` returns for this file, as bytes; None when a
+    ``text/*`` file is not UTF-8, which the read cannot serve either.
 
     SkillProvider reads a ``text/*`` file with ``read_text``, which normalises
     newlines, and anything else raw. A host verifies the bytes it receives, so
@@ -52,7 +53,10 @@ def _served_bytes(path: Path) -> bytes:
     """
     mime_type, _ = mimetypes.guess_type(str(path))
     if mime_type and mime_type.startswith("text/"):
-        return path.read_text(encoding="utf-8").encode("utf-8")
+        try:
+            return path.read_text(encoding="utf-8").encode("utf-8")
+        except UnicodeDecodeError:
+            return None
     return path.read_bytes()
 
 
@@ -87,7 +91,16 @@ def entry_for(provider: SkillProvider) -> dict | None:
         return None
     resources = []
     for file in info.files:
+        if directories.reserved(file.path):
+            continue  # the folder's index answers its URI
         data = _served_bytes(info.path / file.path)
+        if data is None:
+            log.warning(
+                "skill %s: %s is not UTF-8 text, so the entry leaves it out",
+                info.name,
+                file.path,
+            )
+            continue
         resources.append(
             {
                 "uri": f"skill://{info.name}/{file.path}",

@@ -191,7 +191,7 @@ def register(mcp) -> frozenset[str]:
         try:
             result = await server.read_resource(uri)
         except directories.FolderNotFound as folder:
-            raise ValueError(folder.hint) from None
+            raise ValueError(folder.miss) from None
         except NotFoundError:
             templates = ", ".join(
                 row["uri_template"]
