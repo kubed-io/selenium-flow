@@ -516,3 +516,12 @@ def test_every_relative_import_in_the_package_resolves():
                     continue
                 broken.append(f"{path.relative_to(REPO)}:{node.lineno} {shown}")
     assert not broken, "relative imports that name nothing: " + "; ".join(broken)
+
+
+def test_kubed_mcp_is_installed_beside_the_server():
+    """`kubed.mcp` is the platform package, a namespace package next to
+    `kubed.selenium_flow`. A broken install fails here, not at the first import
+    that needs it."""
+    import kubed.mcp
+
+    assert isinstance(kubed.mcp.__version__, str) and kubed.mcp.__version__
