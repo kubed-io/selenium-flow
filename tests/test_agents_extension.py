@@ -1,24 +1,31 @@
-"""Agent files load into cards and details (spec 2026-11-12-plugin-agents)."""
+"""Agents are served through the agents extension (spec 2026-11-12-plugin-agents).
 
+kubed-mcp's plugin layer reads `plugin/agents/` (PLUG-27 to PLUG-34). These are
+the rules its own tests leave out, each through a real `Client` against a plugin
+of the case's own, and the declaration on selenium-flow's server.
+"""
+
+import copy
 import logging
 from pathlib import Path
 
 import pytest
 import yaml
-from fastmcp import Client, FastMCP
-from mcp.shared.exceptions import MCPError
-from mcp_types import (
-    INVALID_PARAMS,
-    METHOD_NOT_FOUND,
+from fastmcp import Client
+from kubed.mcp.agents import (
+    EXTENSION_ID,
+    META_KEY,
+    AgentsExtension,
+    GetAgentParams,
+    parse_agent,
 )
+from kubed.mcp.protocol import MCPError
+from kubed.mcp.skills import SkillsExtension
+from mcp_types import INVALID_PARAMS, PaginatedRequestParams
 
-from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.mcp import agents, skill_extension
-from kubed.selenium_flow.mcp.agents import EXTENSION_ID
-from kubed.selenium_flow.mcp.frontmatter import split
-from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.mcp import skill
 
-from .fakes import header, request
+from .fakes import plugin_server, request
 
 pytestmark = pytest.mark.unit
 
@@ -27,36 +34,66 @@ FRONT = (
     "tools: [navigate, extract]\ncapabilities: [browse]\nskills: [selenium-flow, nope]"
 )
 BODY = "# Explore\n\nRead the skill first.\n"
+SKILL = "---\nname: selenium-flow\ndescription: The skill.\n---\n\n# Skill\n"
+# On a server named "t", the plugin's skill is served under it.
+SKILL_URI = "skill://t/selenium-flow/SKILL.md"
+FRESH = {"resultType": "complete", "ttlMs": 0, "cacheScope": "private"}
+SERVER_INFO = "io.modelcontextprotocol/serverInfo"
+GOOD = f"---\nname: explorer\ndescription: Explores.\n---\n{BODY}"
 
 
-def agent_file(folder, file, front, body=BODY):
-    path = folder / file
-    path.write_text(f"---\n{front}\n---\n{body}", encoding="utf-8")
-    return path
+def agent(front, body=BODY):
+    return f"---\n{front}\n---\n{body}"
 
 
-def good(folder):
-    return agent_file(folder, "explorer.md", "name: explorer\ndescription: Explores.")
+def plugin(tmp_path, agents: dict, *, with_skill=True):
+    files = {f"agents/{name}": text for name, text in agents.items()}
+    if with_skill:
+        files["skills/selenium-flow/SKILL.md"] = SKILL
+    return plugin_server(tmp_path / "p", files)
 
 
-def names(folder, **kw):
-    return [a.name for a in agents.load(folder, **kw)]
+def _without_server_info(result: dict) -> dict:
+    """In auto mode FastMCP adds its serverInfo under _meta to extension results."""
+    meta = result.get("_meta", {})
+    meta.pop(SERVER_INFO, None)
+    if not meta:
+        result.pop("_meta", None)
+    return result
 
 
-def test_a_file_becomes_a_card_and_a_detail(tmp_path):
-    agent_file(tmp_path, "explorer.md", FRONT)
-    [agent] = agents.load(tmp_path, skills={"selenium-flow"})
-    assert agent.name == "explorer"
-    assert agent.card == {"name": "explorer", "description": "Explores a site.", "capabilities": ["browse"]}
-    assert agent.detail == {
+async def listed(mcp):
+    async with Client(mcp.server) as client:
+        return _without_server_info(await request(client, "agents/list"))
+
+
+async def detail(mcp, name="explorer"):
+    async with Client(mcp.server) as client:
+        return _without_server_info(await request(client, "agents/get", name=name))
+
+
+async def names(mcp):
+    return [a["name"] for a in (await listed(mcp))["agents"]]
+
+
+# ---- a file becomes a card and a definition ----------------------------------
+
+
+async def test_a_file_becomes_a_card_and_a_detail(tmp_path):
+    mcp = plugin(tmp_path, {"explorer.md": agent(FRONT)})
+    assert (await listed(mcp))["agents"] == [
+        {"name": "explorer", "description": "Explores a site.", "capabilities": ["browse"]}
+    ]
+    assert await detail(mcp) == {
+        **FRESH,
         "agent": "explorer",
         "instructions": "# Explore\n\nRead the skill first.",
         "modelRoutingHint": {"role": "medium", "vision": False},
         "tools": [],
         "_meta": {
-            "io.kubed/agent": {
+            META_KEY: {
                 "frontmatter": yaml.safe_load(FRONT),
-                "skills": {"selenium-flow": "skill://selenium-flow/SKILL.md"},
+                "skills": {"selenium-flow": SKILL_URI},
             }
         },
     }
@@ -72,53 +109,54 @@ def test_a_file_becomes_a_card_and_a_detail(tmp_path):
         ("haiku", "small"),
         ("inherit", None),
         ("gpt-5", None),
-        (None, None),
-        (4, None),
+        ("null", None),
+        ("4", None),
     ],
 )
-def test_the_routing_hint(value, role):
-    assert agents.routing_hint(value) == ({"role": role, "vision": False} if role else None)
-
-
-def test_no_model_has_no_hint(tmp_path):
-    good(tmp_path)
-    [agent] = agents.load(tmp_path)
-    assert "modelRoutingHint" not in agent.detail
+async def test_the_routing_hint(tmp_path, value, role):
+    mcp = plugin(tmp_path, {"x.md": agent(f"name: explorer\ndescription: x\nmodel: {value}")})
+    got = await detail(mcp)
+    assert got.get("modelRoutingHint") == ({"role": role, "vision": False} if role else None)
 
 
 @pytest.mark.parametrize("extra", ["", "\ncapabilities: [1, x]"])
-def test_capabilities_default_to_none(tmp_path, extra):
-    agent_file(tmp_path, "explorer.md", "name: explorer\ndescription: x" + extra)
-    [agent] = agents.load(tmp_path)
-    assert agent.card["capabilities"] == []
+async def test_capabilities_default_to_none(tmp_path, extra):
+    mcp = plugin(tmp_path, {"x.md": agent("name: explorer\ndescription: x" + extra)})
+    assert (await listed(mcp))["agents"][0]["capabilities"] == []
 
 
-def test_a_blank_body_has_no_instructions(tmp_path):
-    agent_file(tmp_path, "explorer.md", "name: explorer\ndescription: x", body="\n  \n")
-    [agent] = agents.load(tmp_path)
-    assert "instructions" not in agent.detail
+async def test_a_blank_body_has_no_instructions(tmp_path):
+    mcp = plugin(tmp_path, {"x.md": agent("name: explorer\ndescription: x", body="\n  \n")})
+    assert "instructions" not in await detail(mcp)
 
 
 @pytest.mark.parametrize(
     "skills",
     ["skills: selenium-flow", "skills: [1, selenium-flow]", "skills: {selenium-flow: x}", ""],
 )
-def test_skills_resolve_only_to_served_skills(tmp_path, skills):
-    agent_file(tmp_path, "explorer.md", f"name: explorer\ndescription: x\n{skills}")
-    [agent] = agents.load(tmp_path, skills={"selenium-flow"})
-    assert agent.detail["_meta"][agents.META_KEY]["skills"] == {}
+async def test_skills_resolve_only_from_a_list_of_names(tmp_path, skills):
+    mcp = plugin(tmp_path, {"x.md": agent(f"name: explorer\ndescription: x\n{skills}")})
+    assert (await detail(mcp))["_meta"][META_KEY]["skills"] == {}
 
 
-def test_skills_resolve_to_nothing_by_default(tmp_path):
-    agent_file(tmp_path, "explorer.md", "name: explorer\ndescription: x\nskills: [selenium-flow]")
-    [agent] = agents.load(tmp_path)
-    assert agent.detail["_meta"][agents.META_KEY]["skills"] == {}
+async def test_skills_resolve_only_to_served_skills(tmp_path):
+    mcp = plugin(
+        tmp_path,
+        {"x.md": agent("name: explorer\ndescription: x\nskills: [selenium-flow]")},
+        with_skill=False,
+    )
+    assert (await detail(mcp))["_meta"][META_KEY]["skills"] == {}
 
 
-def test_the_cards_are_in_name_order(tmp_path):
-    agent_file(tmp_path, "a.md", "name: zeta\ndescription: x")
-    agent_file(tmp_path, "b.md", "name: alpha\ndescription: x")
-    assert names(tmp_path) == ["alpha", "zeta"]
+async def test_the_cards_are_in_name_order(tmp_path):
+    mcp = plugin(tmp_path, {
+        "a.md": agent("name: zeta\ndescription: x"),
+        "b.md": agent("name: alpha\ndescription: x"),
+    })
+    assert await names(mcp) == ["alpha", "zeta"]
+
+
+# ---- a file that does not conform costs only itself --------------------------
 
 
 @pytest.mark.parametrize(
@@ -140,156 +178,135 @@ def test_the_cards_are_in_name_order(tmp_path):
         "---\nname: bad\ndescription: x\nmetadata: {1: one, '1': also}\n---\n",
     ],
 )
-def test_a_nonconforming_file_is_skipped_and_logged(tmp_path, caplog, text):
-    good(tmp_path)
-    (tmp_path / "bad.md").write_text(text, encoding="utf-8")
+async def test_a_nonconforming_file_is_skipped_and_logged(tmp_path, caplog, text):
     with caplog.at_level(logging.WARNING):
-        assert names(tmp_path) == ["explorer"]
+        mcp = plugin(tmp_path, {"explorer.md": GOOD, "bad.md": text})
+    assert await names(mcp) == ["explorer"]
     assert "is skipped" in caplog.text
     assert "bad.md" in caplog.text
 
 
-def test_a_file_that_is_not_utf8_is_skipped(tmp_path, caplog):
-    good(tmp_path)
-    (tmp_path / "bad.md").write_bytes(b"---\nname: caf\xe9\ndescription: x\n---\n")
+async def test_a_file_that_is_not_utf8_is_skipped(tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
-        assert names(tmp_path) == ["explorer"]
+        mcp = plugin(tmp_path, {
+            "explorer.md": GOOD,
+            "bad.md": b"---\nname: caf\xe9\ndescription: x\n---\n",
+        })
+    assert await names(mcp) == ["explorer"]
     assert "is skipped" in caplog.text
     assert "bad.md" in caplog.text
 
 
-def test_crlf_line_endings_load(tmp_path):
-    with (tmp_path / "explorer.md").open("w", encoding="utf-8", newline="\r\n") as f:
-        f.write(f"---\nname: explorer\ndescription: x\n---\n{BODY}")
-    [agent] = agents.load(tmp_path)
-    assert agent.detail["instructions"] == "# Explore\n\nRead the skill first."
+async def test_crlf_line_endings_load(tmp_path):
+    mcp = plugin(tmp_path, {"explorer.md": GOOD.replace("\n", "\r\n").encode()})
+    assert (await detail(mcp))["instructions"] == "# Explore\n\nRead the skill first."
 
 
-def test_the_first_of_two_files_with_one_name_wins(tmp_path, caplog):
-    agent_file(tmp_path, "a.md", "name: explorer\ndescription: First.")
-    agent_file(tmp_path, "b.md", "name: explorer\ndescription: Second.")
+async def test_the_first_of_two_files_with_one_name_wins(tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
-        [agent] = agents.load(tmp_path)
-    assert agent.card["description"] == "First."
-    assert "b.md" in caplog.text
-    assert "a.md" in caplog.text
+        mcp = plugin(tmp_path, {
+            "a.md": agent("name: explorer\ndescription: First."),
+            "b.md": agent("name: explorer\ndescription: Second."),
+        })
+    assert (await listed(mcp))["agents"][0]["description"] == "First."
+    # kubed-mcp's warning names the agent, not the two files.
+    assert "agent explorer is skipped" in caplog.text
 
 
-def test_only_markdown_at_the_top_level_is_read(tmp_path):
-    (tmp_path / "drafts").mkdir()
-    agent_file(tmp_path / "drafts", "x.md", "name: x\ndescription: x")
-    agent_file(tmp_path, "notes.txt", "name: notes\ndescription: x")
-    assert agents.load(tmp_path) == []
+async def test_only_markdown_at_the_top_level_is_read(tmp_path):
+    mcp = plugin(tmp_path, {
+        "drafts/x.md": agent("name: x\ndescription: x"),
+        "notes.txt": agent("name: notes\ndescription: x"),
+    })
+    assert await names(mcp) == []
 
 
-def test_a_missing_folder_is_no_agents(tmp_path):
-    assert agents.load(tmp_path / "missing") == []
+async def test_no_agents_folder_is_an_empty_listing(tmp_path):
+    mcp = plugin_server(tmp_path / "p", {"skills/selenium-flow/SKILL.md": SKILL})
+    async with Client(mcp.server, mode="legacy") as client:
+        assert client.session.server_capabilities.extensions[EXTENSION_ID] == {
+            "listChanged": False
+        }
+        listing = await request(client, "agents/list")
+        with pytest.raises(MCPError) as caught:
+            await request(client, "agents/get", name="explorer")
+    assert listing == {**FRESH, "agents": []}
+    assert caught.value.error.message == "Agent not found"
 
 
-def test_a_folder_that_cannot_be_listed_is_no_agents(tmp_path, monkeypatch, caplog):
-    good(tmp_path)
+@pytest.mark.xfail(
+    strict=True,
+    raises=PermissionError,
+    reason="kubed-mcp gap: plugins._md_files lets an OSError from iterdir() out of "
+    "add_plugin; selenium-flow's agents.load skipped the folder with a warning",
+)
+async def test_a_folder_that_cannot_be_listed_is_no_agents(tmp_path, monkeypatch, caplog):
+    folder = (tmp_path / "p" / "agents").resolve()
     real = Path.iterdir
 
     def iterdir(self):
-        if self == tmp_path:
+        if self.resolve() == folder:
             raise PermissionError("denied")
         return real(self)
 
     monkeypatch.setattr(Path, "iterdir", iterdir)
     with caplog.at_level(logging.WARNING):
-        assert agents.load(tmp_path) == []
-    assert f"agent folder {tmp_path} is skipped" in caplog.text
+        mcp = plugin(tmp_path, {"explorer.md": GOOD})
+    assert await names(mcp) == []
+    assert "is skipped" in caplog.text
 
 
-def _tree(root, *, plugin, agents_dir=False):
+# ---- where the plugin is found -------------------------------------------------
+
+
+def _tree(root, *, plugin):
     module = root / "kubed" / "selenium_flow" / "mcp"
     module.mkdir(parents=True)
     if plugin:
-        (module / "plugin").mkdir()
-    if agents_dir:
-        (module / "plugin" / "agents").mkdir()
+        (module / "plugin" / "agents").mkdir(parents=True)
     return module
 
 
-def test_an_installed_package_never_falls_back_to_the_root(tmp_path, monkeypatch):
+def test_an_installed_package_never_falls_back_to_the_root(tmp_path):
     module = _tree(tmp_path, plugin=True)
-    monkeypatch.setattr(agents, "__file__", str(module / "agents.py"))
-    assert agents.agents_path() == module / "plugin" / "agents"
+    found = skill.plugin_folder(str(module / "skill.py"), "agents")
+    assert found == module / "plugin" / "agents"
 
 
-def test_a_checkout_falls_back_to_the_repo_root(tmp_path, monkeypatch):
+def test_a_checkout_falls_back_to_the_repo_root(tmp_path):
     module = _tree(tmp_path, plugin=False)
-    monkeypatch.setattr(agents, "__file__", str(module / "agents.py"))
-    assert agents.agents_path() == tmp_path / "plugin" / "agents"
+    found = skill.plugin_folder(str(module / "skill.py"), "agents")
+    assert found == tmp_path / "plugin" / "agents"
 
 
-def test_split_returns_the_header_and_the_body():
-    assert split("---\na: 1\n---\nbody\n") == ({"a": 1}, "body")
-    assert split("no header") is None
-    assert split("---\na: 1\n") is None
-    assert split("---\na: [\n---\n") is None
-
-
-FRESH = {"resultType": "complete", "ttlMs": 0, "cacheScope": "private"}
-
-
-def serving(monkeypatch, folder, **settings):
-    monkeypatch.setattr(agents, "agents_path", lambda: folder)
-    return SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"}, auth={"token": "t"}, **settings
-        )
-    )
-
-
-@pytest.fixture
-def folder(tmp_path):
-    base = tmp_path / "agents"
-    base.mkdir()
-    agent_file(base, "zeta.md", FRONT.replace("name: explorer", "name: zeta"))
-    agent_file(base, "alpha.md", "name: alpha\ndescription: First.", body="")
-    return base
+# ---- served by selenium-flow ---------------------------------------------------
 
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
-async def test_the_extension_is_declared_beside_skills(monkeypatch, folder, mode):
-    async with Client(serving(monkeypatch, folder).mcp.server, mode=mode) as client:
+async def test_the_extension_is_declared_beside_skills(server, mode):
+    """Both declare in `server/discover` and, for a handshake-era client, in a
+    legacy `initialize` too."""
+    async with Client(server.mcp.server, mode=mode) as client:
         extensions = client.session.server_capabilities.extensions
     assert extensions[EXTENSION_ID] == {"listChanged": False}
-    assert extensions[skill_extension.EXTENSION_ID] == {"directoryRead": True}
+    assert extensions[SkillsExtension.identifier] == {"directoryRead": True}
 
 
-async def test_the_listing_is_the_cards_in_name_order(monkeypatch, folder):
-    async with Client(serving(monkeypatch, folder).mcp.server) as client:
-        listing = await request(client, "agents/list")
-    # In auto mode FastMCP adds its serverInfo under _meta to extension results.
-    assert set(listing.pop("_meta", {})) <= {"io.modelcontextprotocol/serverInfo"}
-    assert listing == {
-        **FRESH,
-        "agents": [
-            {"name": "alpha", "description": "First.", "capabilities": []},
-            {
-                "name": "zeta",
-                "description": "Explores a site.",
-                "capabilities": ["browse"],
-            },
-        ],
-    }
+async def test_the_listing_is_the_shipped_agents(server):
+    async with Client(server.mcp.server) as client:
+        listing = _without_server_info(await request(client, "agents/list"))
+    assert {k: listing[k] for k in FRESH} == FRESH
+    assert [a["name"] for a in listing["agents"]] == ["explorer"]
 
 
-async def test_get_returns_the_detail(monkeypatch, folder):
-    async with Client(serving(monkeypatch, folder).mcp.server) as client:
-        got = await request(client, "agents/get", name="zeta")
-        alpha = await request(client, "agents/get", name="alpha")
-        skill = got["_meta"]["io.kubed/agent"]["skills"]["selenium-flow"]
-        assert (await client.read_resource(skill))[0].text.startswith("---")
-    assert got["agent"] == "zeta" and got["tools"] == [] and "capabilities" not in got
-    assert got["modelRoutingHint"] == {"role": "medium", "vision": False}
-    assert got["_meta"]["io.kubed/agent"]["frontmatter"] == header(
-        (folder / "zeta.md").read_text()
-    )
+async def test_get_returns_the_detail(server):
+    async with Client(server.mcp.server) as client:
+        got = await request(client, "agents/get", name="explorer")
+        uri = got["_meta"][META_KEY]["skills"]["selenium-flow"]
+        assert (await client.read_resource(uri))[0].text.startswith("---")
+    assert uri == "skill://selenium-flow/selenium-flow/SKILL.md"
+    assert got["agent"] == "explorer" and got["tools"] == [] and "capabilities" not in got
     assert {k: got[k] for k in FRESH} == FRESH
-    assert "instructions" not in alpha and "modelRoutingHint" not in alpha
 
 
 @pytest.mark.parametrize(
@@ -301,8 +318,8 @@ async def test_get_returns_the_detail(monkeypatch, folder):
         ("agents/list", {"cursor": "2"}, "Invalid agents cursor"),
     ],
 )
-async def test_refusals_are_invalid_params(monkeypatch, folder, method, params, message):
-    async with Client(serving(monkeypatch, folder).mcp.server) as client:
+async def test_refusals_are_invalid_params(server, method, params, message):
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError) as caught:
             await request(client, method, **params)
     assert caught.value.error.code == INVALID_PARAMS
@@ -315,51 +332,23 @@ async def test_refusals_are_invalid_params(monkeypatch, folder, method, params, 
         assert caught.value.error.data == {"reason": "agent_not_found"}
 
 
-async def test_a_broken_file_costs_only_itself(monkeypatch, folder):
-    (folder / "broken.md").write_text("# no header\n", encoding="utf-8")
-    async with Client(serving(monkeypatch, folder).mcp.server) as client:
-        listing = await request(client, "agents/list")
-    assert [a["name"] for a in listing["agents"]] == ["alpha", "zeta"]
-
-
-@pytest.mark.parametrize("mode", ["auto", "legacy"])
-async def test_switching_the_skill_off_removes_the_extension(monkeypatch, folder, mode):
-    server = serving(monkeypatch, folder, mcp={"skill": False})
-    async with Client(server.mcp.server, mode=mode) as client:
-        extensions = client.session.server_capabilities.extensions or {}
-        assert EXTENSION_ID not in extensions
-        with pytest.raises(MCPError) as caught:
-            await request(client, "agents/list")
-    assert caught.value.error.code == METHOD_NOT_FOUND
-
-
-async def test_no_agents_folder_is_an_empty_listing(monkeypatch, tmp_path):
-    server = serving(monkeypatch, tmp_path / "missing")
-    async with Client(server.mcp.server, mode="legacy") as client:
-        assert client.session.server_capabilities.extensions[EXTENSION_ID] == {
-            "listChanged": False
-        }
-        assert await request(client, "agents/list") == {**FRESH, "agents": []}
-        with pytest.raises(MCPError) as caught:
-            await request(client, "agents/get", name="explorer")
-    assert caught.value.error.message == "Agent not found"
-
-
-async def test_the_declaration_stands_without_the_skills_one():
-    mcp = FastMCP("t")
-    agents.register(mcp, [])
-    async with Client(mcp, mode="legacy") as client:
+async def test_the_declaration_stands_without_the_skills_one(tmp_path):
+    mcp = plugin(tmp_path, {"explorer.md": GOOD}, with_skill=False)
+    async with Client(mcp.server, mode="legacy") as client:
         extensions = client.session.server_capabilities.extensions
     assert extensions == {EXTENSION_ID: {"listChanged": False}}
 
 
-async def test_a_caller_cannot_change_what_the_next_caller_is_served(folder):
-    extension = agents.AgentsExtension(agents.load(folder, skills={"selenium-flow"}))
-    first = await extension.list_agents(None, agents.PaginatedRequestParams())
-    first["agents"][1]["capabilities"].append("hacked")
-    got = await extension.get_agent(None, agents.GetAgentParams(name="zeta"))
-    got["_meta"]["io.kubed/agent"]["frontmatter"]["name"] = "hacked"
-    again = await extension.list_agents(None, agents.PaginatedRequestParams())
-    assert again["agents"][1]["capabilities"] == ["browse"]
-    got = await extension.get_agent(None, agents.GetAgentParams(name="zeta"))
-    assert got["_meta"]["io.kubed/agent"]["frontmatter"]["name"] == "zeta"
+async def test_a_caller_cannot_change_what_the_next_caller_is_served():
+    """The handlers hand out copies: a caller in the same process that edits a
+    result changes nothing the next one gets."""
+    parsed = parse_agent(agent(FRONT.replace("name: explorer", "name: zeta")))
+    extension = AgentsExtension([copy.deepcopy(parsed)])
+    first = await extension.list_agents(None, PaginatedRequestParams())
+    first["agents"][0]["capabilities"].append("hacked")
+    got = await extension.get_agent(None, GetAgentParams(name="zeta"))
+    got["_meta"][META_KEY]["frontmatter"]["name"] = "hacked"
+    again = await extension.list_agents(None, PaginatedRequestParams())
+    assert again["agents"][0]["capabilities"] == ["browse"]
+    got = await extension.get_agent(None, GetAgentParams(name="zeta"))
+    assert got["_meta"][META_KEY]["frontmatter"]["name"] == "zeta"

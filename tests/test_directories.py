@@ -10,22 +10,17 @@ the provider's own helpers.
 import json
 
 import pytest
-from fastmcp import Client, FastMCP
-from fastmcp.skills import Skill
+from fastmcp import Client
 from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_PARAMS, METHOD_NOT_FOUND
+from mcp_types import INVALID_PARAMS
 
-from kubed.selenium_flow.config import Settings
-from kubed.selenium_flow.mcp import directories
 from kubed.selenium_flow.mcp import skill as skill_module
-from kubed.selenium_flow.mcp.skill_extension import EXTENSION_ID
-from kubed.selenium_flow.server import SeleniumMCP
 
 from .fakes import request
 
 pytestmark = pytest.mark.unit
 
-ROOT = "skill://selenium-flow"
+ROOT = "skill://selenium-flow/selenium-flow"
 REFERENCES = f"{ROOT}/references"
 SKILL_DIR = skill_module.skill_path()
 DIRECTORY = "inode/directory"
@@ -42,29 +37,6 @@ async def read_json(client, uri: str):
     contents = await client.read_resource(uri)
     assert contents[0].mime_type == "application/json"
     return json.loads(contents[0].text)
-
-
-def make_skill(tmp_path, files: dict[str, str], folders: tuple[str, ...] = ()) -> FastMCP:
-    """A server over a throwaway skill called ``tmp-skill``."""
-    folder = tmp_path / "tmp-skill"
-    folder.mkdir()
-    (folder / "SKILL.md").write_text(
-        "---\nname: tmp-skill\ndescription: A skill for tests.\n---\n\n# Tmp\n",
-        encoding="utf-8",
-    )
-    for path, body in files.items():
-        (folder / path).parent.mkdir(parents=True, exist_ok=True)
-        (folder / path).write_text(body, encoding="utf-8")
-    for path in folders:
-        (folder / path).mkdir(parents=True)
-    return serve(folder)
-
-
-def serve(folder) -> FastMCP:
-    """A server over the skill in ``folder``, loaded as the packaged one is."""
-    mcp = FastMCP("t")
-    skill_module.register(mcp, skill_module.load(folder))
-    return mcp
 
 
 # ---- the index files ---------------------------------------------------------
@@ -94,7 +66,7 @@ async def test_a_folder_child_is_a_directory_resource(server):
         root = await read_json(client, f"{ROOT}/_index.json")
     folder = next(r for r in root if r["uri"] == REFERENCES)
     assert folder["mimeType"] == DIRECTORY
-    assert folder["name"] == "selenium-flow/references"
+    assert folder["name"] == "selenium-flow/selenium-flow/references"
     assert "selenium-flow" in folder["description"]
 
 
@@ -147,244 +119,6 @@ async def test_an_index_of_no_folder_is_not_found(server):
             await client.read_resource(f"{ROOT}/nope/_index.json")
     assert caught.value.error.code == INVALID_PARAMS
     assert caught.value.error.message.startswith("Resource not found")
-
-
-@pytest.mark.parametrize("name", ["_index.md", "_index.json"])
-async def test_a_file_with_an_index_name_never_breaks_its_folder(tmp_path, caplog, name):
-    """The index wins: the file is no child, reads as the index, and is named at load."""
-    with caplog.at_level("WARNING"):
-        mcp = make_skill(tmp_path, {f"sub/{name}": "a file", "sub/a.txt": "a"})
-    assert f"sub/{name}" in caplog.text
-    async with Client(mcp) as client:
-        listed = await read_directory(client, uri="skill://tmp-skill/sub")
-        index = await read_json(client, "skill://tmp-skill/sub/_index.json")
-        markdown = (await client.read_resource("skill://tmp-skill/sub/_index.md"))[0].text
-        entry = (await request(client, "skills/list"))["skills"][0]
-    assert [r["uri"] for r in listed["resources"]] == ["skill://tmp-skill/sub/a.txt"]
-    assert listed["resources"] == index
-    assert markdown == "skill://tmp-skill/sub/a.txt: File from tmp-skill skill\n"
-    assert f"skill://tmp-skill/sub/{name}" not in [r["uri"] for r in entry["resources"]]
-
-
-@pytest.mark.parametrize("name", ["_index.md", "_index.json"])
-async def test_a_file_with_an_index_name_is_not_in_the_manifest(tmp_path, name):
-    """read_skill verifies every file the manifest names, and this URI reads
-    as the index, so the manifest must not name it."""
-    mcp = make_skill(tmp_path, {f"sub/{name}": "a file", "sub/a.txt": "a"})
-    async with Client(mcp) as client:
-        manifest = await read_json(client, "skill://tmp-skill/_manifest")
-        read = await client.read_skill("skill://tmp-skill/SKILL.md")
-    paths = [f["path"] for f in manifest["files"]]
-    assert f"sub/{name}" not in paths
-    assert "sub/a.txt" in paths
-    assert set(read.files) == set(paths)
-
-
-async def test_a_provider_built_from_a_skill_leaves_out_index_named_files(caplog):
-    """A skill built in code, not read from a folder, is still offered."""
-    skill = Skill.from_files(
-        {
-            "SKILL.md": "---\nname: tmp-skill\ndescription: A skill for tests.\n---\n",
-            "references/A.md": "# A\n",
-            "references/_index.md": "a file",
-        }
-    )
-    mcp = FastMCP("t")
-    with caplog.at_level("WARNING"):
-        skill_module.register(mcp, skill_module.EntryOnlySkillProvider(skill))
-    assert "references/_index.md" in caplog.text
-    async with Client(mcp) as client:
-        skills = (await request(client, "skills/list"))["skills"]
-    assert [entry["uri"] for entry in skills] == ["skill://tmp-skill/SKILL.md"]
-    assert sorted(r["uri"] for r in skills[0]["resources"]) == [
-        "skill://tmp-skill/SKILL.md",
-        "skill://tmp-skill/references/A.md",
-    ]
-
-
-async def test_a_root_manifest_file_is_not_served(tmp_path, caplog):
-    """FastMCP answers that URI with the manifest; below the root it is a file."""
-    with caplog.at_level("WARNING"):
-        mcp = make_skill(tmp_path, {"_manifest": "a file", "references/_manifest": "b"})
-    assert "_manifest is not served" in caplog.text
-    async with Client(mcp) as client:
-        skills = (await request(client, "skills/list"))["skills"]
-        manifest = await read_json(client, "skill://tmp-skill/_manifest")
-        root = await read_directory(client, uri="skill://tmp-skill")
-        references = await read_directory(client, uri="skill://tmp-skill/references")
-    assert [entry["uri"] for entry in skills] == ["skill://tmp-skill/SKILL.md"]
-    named = [r["uri"] for r in skills[0]["resources"]]
-    assert "skill://tmp-skill/_manifest" not in named
-    assert "skill://tmp-skill/references/_manifest" in named
-    assert manifest["skill"] == "tmp-skill"
-    assert [f["path"] for f in manifest["files"]] == ["SKILL.md", "references/_manifest"]
-    assert [r["uri"] for r in root["resources"]] == [
-        "skill://tmp-skill/SKILL.md",
-        "skill://tmp-skill/references",
-    ]
-    assert [r["uri"] for r in references["resources"]] == [
-        "skill://tmp-skill/references/_manifest"
-    ]
-
-
-async def test_a_root_manifest_folder_is_no_folder(tmp_path, caplog):
-    """Its URI reads as the manifest; its files still read and stay in the skill.
-    Below the root, ``_manifest/`` is an ordinary folder."""
-    with caplog.at_level("WARNING"):
-        mcp = make_skill(
-            tmp_path, {"_manifest/x.md": "# X\n", "references/_manifest/y.md": "# Y\n"}
-        )
-    assert "folder _manifest is not served" in caplog.text
-    async with Client(mcp) as client:
-        root = await read_json(client, "skill://tmp-skill/_index.json")
-        manifest = await read_json(client, "skill://tmp-skill/_manifest")
-        inner = (await client.read_resource("skill://tmp-skill/_manifest/x.md"))[0]
-        with pytest.raises(MCPError) as caught:
-            await read_directory(client, uri="skill://tmp-skill/_manifest")
-        nested = await read_directory(client, uri="skill://tmp-skill/references/_manifest")
-        skills = (await request(client, "skills/list"))["skills"]
-    assert [r["uri"] for r in root] == [
-        "skill://tmp-skill/SKILL.md",
-        "skill://tmp-skill/references",
-    ]
-    assert manifest["skill"] == "tmp-skill"
-    assert "_manifest/x.md" in [f["path"] for f in manifest["files"]]
-    assert inner.text == "# X\n"
-    assert caught.value.error.code == INVALID_PARAMS
-    assert [r["uri"] for r in nested["resources"]] == [
-        "skill://tmp-skill/references/_manifest/y.md"
-    ]
-    assert "skill://tmp-skill/_manifest/x.md" in [r["uri"] for r in skills[0]["resources"]]
-
-
-@pytest.mark.parametrize("name", ["_index.md", "_index.json"])
-async def test_a_folder_with_an_index_name_never_breaks_its_parent(tmp_path, caplog, name):
-    with caplog.at_level("WARNING"):
-        mcp = make_skill(
-            tmp_path, {f"sub/{name}/inner/x.txt": "x", f"sub/{name}/y.txt": "y", "sub/a.txt": "a"}
-        )
-    assert f"sub/{name}" in caplog.text
-    async with Client(mcp) as client:
-        listed = await read_directory(client, uri="skill://tmp-skill/sub")
-        index = (await client.read_resource(f"skill://tmp-skill/sub/{name}"))[0]
-        with pytest.raises(MCPError) as caught:
-            await read_directory(client, uri=f"skill://tmp-skill/sub/{name}")
-        inner = (await client.read_resource(f"skill://tmp-skill/sub/{name}/y.txt"))[0]
-        manifest = await read_json(client, "skill://tmp-skill/_manifest")
-        entry = (await request(client, "skills/list"))["skills"][0]
-    assert [r["uri"] for r in listed["resources"]] == ["skill://tmp-skill/sub/a.txt"]
-    assert f"sub/{name}/y.txt" in [f["path"] for f in manifest["files"]]
-    assert f"skill://tmp-skill/sub/{name}/y.txt" in [r["uri"] for r in entry["resources"]]
-    assert index.mime_type in ("application/json", "text/markdown")
-    assert "skill://tmp-skill/sub/a.txt" in index.text
-    assert caught.value.error.code == INVALID_PARAMS
-    assert inner.text == "y"
-
-
-async def test_a_multiline_description_is_one_index_line(tmp_path):
-    folder = tmp_path / "tmp-skill"
-    folder.mkdir()
-    (folder / "SKILL.md").write_text(
-        "---\nname: tmp-skill\ndescription: |\n  Line one.\n  Line two.\n---\n\n# Tmp\n",
-        encoding="utf-8",
-    )
-    mcp = serve(folder)
-    async with Client(mcp) as client:
-        children = await read_json(client, "skill://tmp-skill/_index.json")
-        markdown = (await client.read_resource("skill://tmp-skill/_index.md"))[0].text
-    assert "\n" in children[0]["description"]
-    assert markdown == "skill://tmp-skill/SKILL.md: Line one. Line two.\n"
-
-
-async def test_a_file_child_reads_with_its_own_type(tmp_path):
-    mcp = make_skill(tmp_path, {"references/A.md": "# A\n"})
-    async with Client(mcp) as client:
-        listed = await read_directory(client, uri="skill://tmp-skill/references")
-        read = (await client.read_resource("skill://tmp-skill/references/A.md"))[0]
-    assert [r["uri"] for r in listed["resources"]] == ["skill://tmp-skill/references/A.md"]
-    assert read.mime_type == "text/markdown"
-
-
-async def test_a_file_that_is_not_markdown_is_a_file_from_the_skill(tmp_path):
-    mcp = make_skill(tmp_path, {"scripts/run.sh": "# not a heading\necho hi\n"})
-    async with Client(mcp) as client:
-        scripts = await read_json(client, "skill://tmp-skill/scripts/_index.json")
-        markdown = (await client.read_resource("skill://tmp-skill/scripts/_index.md"))[0]
-    assert scripts[0]["description"] == "File from tmp-skill skill"
-    assert markdown.text == "skill://tmp-skill/scripts/run.sh: File from tmp-skill skill\n"
-
-
-async def test_a_markdown_file_with_no_heading_is_a_file_from_the_skill(tmp_path):
-    mcp = make_skill(tmp_path, {"references/A.md": "no heading here\n"})
-    async with Client(mcp) as client:
-        references = await read_json(client, "skill://tmp-skill/references/_index.json")
-    assert references[0]["description"] == "File from tmp-skill skill"
-
-
-async def test_a_heading_inside_a_code_fence_is_not_the_title(tmp_path):
-    body = "```bash\n# install it\n```\n\n~~~\n# nor this\n~~~\n\n# Real Title\n"
-    mcp = make_skill(tmp_path, {"references/A.md": body})
-    async with Client(mcp) as client:
-        references = await read_json(client, "skill://tmp-skill/references/_index.json")
-    assert references[0]["description"] == "Real Title"
-
-
-async def test_a_markdown_file_that_is_not_utf8_never_loses_the_skill(tmp_path):
-    folder = tmp_path / "tmp-skill"
-    (folder / "references").mkdir(parents=True)
-    (folder / "SKILL.md").write_text(
-        "---\nname: tmp-skill\ndescription: A skill for tests.\n---\n\n# Tmp\n",
-        encoding="utf-8",
-    )
-    (folder / "references" / "BAD.md").write_bytes(b"# Caf\xe9\n")
-    mcp = serve(folder)
-    async with Client(mcp) as client:
-        assert EXTENSION_ID in client.session.server_capabilities.extensions
-        references = await read_json(client, "skill://tmp-skill/references/_index.json")
-        assert (await client.read_resource("skill://tmp-skill/SKILL.md"))[0].text
-        entry = (await request(client, "skills/list"))["skills"][0]
-        read = await client.read_skill("skill://tmp-skill/SKILL.md")
-    assert references[0]["description"] == "File from tmp-skill skill"
-    assert "skill://tmp-skill/references/BAD.md" in [r["uri"] for r in entry["resources"]]
-    assert read.files["references/BAD.md"] == b"# Caf\xe9\n"
-
-
-async def test_an_empty_directory_is_no_folder(tmp_path):
-    """Folders come from the skill's files, so a directory with none is none (PLG-64)."""
-    mcp = make_skill(tmp_path, {"a/b/c.txt": "c"}, folders=("assets", "a/empty"))
-    async with Client(mcp) as client:
-        root = await read_json(client, "skill://tmp-skill/_index.json")
-        a = await read_json(client, "skill://tmp-skill/a/_index.json")
-        misses = []
-        for uri in ("skill://tmp-skill/assets", "skill://tmp-skill/a/empty"):
-            with pytest.raises(MCPError) as index:
-                await client.read_resource(f"{uri}/_index.json")
-            with pytest.raises(MCPError) as method:
-                await read_directory(client, uri=uri)
-            with pytest.raises(MCPError) as read:
-                await client.read_resource(uri)
-            misses.append((index.value.error, method.value.error, read.value.error))
-    assert [r["uri"] for r in root] == ["skill://tmp-skill/SKILL.md", "skill://tmp-skill/a"]
-    assert [r["uri"] for r in a] == ["skill://tmp-skill/a/b"]
-    for index, method, read in misses:
-        assert index.message.startswith("Resource not found")
-        assert (method.code, method.message) == (INVALID_PARAMS, "Directory not found")
-        assert "_index" not in read.message
-
-
-async def test_a_nested_folder_is_listed_once_by_its_parent(tmp_path):
-    mcp = make_skill(tmp_path, {"a/b/c.txt": "c", "a/d.md": "# Dee\n"})
-    async with Client(mcp) as client:
-        root = await read_json(client, "skill://tmp-skill/_index.json")
-        a = await read_json(client, "skill://tmp-skill/a/_index.json")
-        b = await read_json(client, "skill://tmp-skill/a/b/_index.json")
-    assert [r["uri"] for r in root] == ["skill://tmp-skill/SKILL.md", "skill://tmp-skill/a"]
-    assert [(r["uri"], r["mimeType"]) for r in a] == [
-        ("skill://tmp-skill/a/b", DIRECTORY),
-        ("skill://tmp-skill/a/d.md", "text/markdown"),
-    ]
-    assert a[1]["description"] == "Dee"
-    assert [r["uri"] for r in b] == ["skill://tmp-skill/a/b/c.txt"]
 
 
 # ---- resources/directory/read --------------------------------------------------
@@ -453,36 +187,6 @@ async def test_refusals_are_invalid_params(server, params, message):
             await read_directory(client, **params)
     assert caught.value.error.code == INVALID_PARAMS
     assert message in str(caught.value)
-
-
-async def test_pages_join_to_the_whole_folder(tmp_path, monkeypatch):
-    monkeypatch.setattr(directories.DirectoryRead, "page_size", 2)
-    mcp = make_skill(tmp_path, {f"references/R{n}.md": f"# R{n}\n" for n in range(5)})
-    pages = []
-    async with Client(mcp) as client:
-        result = await read_directory(client, uri="skill://tmp-skill/references")
-        pages.append(result)
-        while "nextCursor" in result:
-            result = await read_directory(
-                client, uri="skill://tmp-skill/references", cursor=result["nextCursor"]
-            )
-            pages.append(result)
-        index = await read_json(client, "skill://tmp-skill/references/_index.json")
-    assert [len(page["resources"]) for page in pages] == [2, 2, 1]
-    assert [r for page in pages for r in page["resources"]] == index
-    assert len(index) == 5
-
-
-@pytest.mark.parametrize("mode", ["auto", "legacy"])
-async def test_switching_the_skill_off_removes_the_method(mode):
-    off = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "t"},
-                 mcp={"skill": False})
-    )
-    async with Client(off.mcp.server, mode=mode) as client:
-        with pytest.raises(MCPError) as caught:
-            await read_directory(client, uri=ROOT)
-    assert caught.value.error.code == METHOD_NOT_FOUND
 
 
 # ---- a folder serves no content -------------------------------------------------

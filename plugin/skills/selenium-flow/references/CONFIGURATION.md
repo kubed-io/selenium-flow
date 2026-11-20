@@ -47,7 +47,6 @@ key in it stops the server.
 | `RECORDING_WAIT` | `600` | seconds to wait for a recording after its browser ends |
 | `RECORDING_WATCH` / `RECORDING_POLL` | `auto` / `1000` | `events` or `poll` to watch that folder, and the poll interval in ms |
 | `SECRETS_DIRS` | unset | colon-separated directories of secrets; unset means none |
-| `MCP_SKILL` | `true` | `false` to serve the tools without this skill |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `WARNING`, `ERROR` or `CRITICAL` |
 
 A browser lives until the Grid's own idle timeout (`SE_NODE_SESSION_TIMEOUT`, on

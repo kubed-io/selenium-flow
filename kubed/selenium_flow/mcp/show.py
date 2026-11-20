@@ -15,11 +15,11 @@ from urllib.parse import unquote
 
 from kubed.mcp import NotFoundError, TextContent, ToolResult
 from kubed.mcp.request import get_context
+from kubed.mcp.skills import FolderNotFound
 
 from ..core.annotations import reads
 from ..http import files
 from ..names import retired_uri
-from . import directories
 from .failures import nameless
 
 TOOL = "show"
@@ -131,8 +131,8 @@ VIEWS: tuple[View, ...] = (
     # There is no single-secret resource; the app looks closer by itself.
     _exactly("secret://secrets", "secrets"),
     View(
-        "skill://selenium-flow/{path}",
-        re.compile(r"skill://selenium-flow/.+"),
+        "skill://selenium-flow/selenium-flow/{path}",
+        re.compile(r"skill://selenium-flow/selenium-flow/.+"),
         "document",
     ),
 )
@@ -211,7 +211,7 @@ async def _content(uri: str):
     whose type is not ``text/*`` as bytes, so text is what decodes."""
     try:
         result = await get_context().fastmcp.read_resource(uri)
-    except directories.FolderNotFound as folder:
+    except FolderNotFound as folder:
         raise ValueError(folder.miss) from None
     except NotFoundError:
         raise ValueError(f"no resource at {nameless(uri)!r}") from None

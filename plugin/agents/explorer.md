@@ -38,10 +38,10 @@ Answer its question and hand back a short report.
 
 ## Before anything
 
-Read `skill://selenium-flow/SKILL.md` before any browser call, and
-`skill://selenium-flow/references/FLOWS.md` before your first `save_flow`.
-Where they and this page differ, this page wins. A URI you cannot read goes
-under *Couldn't*; carry on with what the tool results tell you.
+Read `skill://selenium-flow/selenium-flow/SKILL.md` before any browser call,
+and `skill://selenium-flow/selenium-flow/references/FLOWS.md` before your first
+`save_flow`. Where they and this page differ, this page wins. A URI you cannot
+read goes under *Couldn't*; carry on with what the tool results tell you.
 
 ## Your session
 

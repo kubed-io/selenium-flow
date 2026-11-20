@@ -1,6 +1,6 @@
 """The explorer agent (spec 2026-11-13-explorer-agent-design).
 
-These tests are the only place a broken agent file is caught: ``agents.load``
+These tests are the only place a broken agent file is caught: ``add_plugin``
 skips a file that does not conform and logs it, so the server boots without it.
 """
 
@@ -9,8 +9,11 @@ import re
 
 import pytest
 from fastmcp import Client
+from kubed.mcp.agents import META_KEY, Agent, parse_agent
 
-from kubed.selenium_flow.mcp import agents, skill
+from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.mcp import skill
+from kubed.selenium_flow.server import create_app
 
 from .fakes import request
 
@@ -49,14 +52,19 @@ OUT = {
     "network_body",
 }
 MIRROR = {"list_resources", "read_resource"}
-SKILL_URI = "skill://selenium-flow/SKILL.md"
+SKILL_ROOT = "skill://selenium-flow/selenium-flow/"
+SKILL_URI = f"{SKILL_ROOT}SKILL.md"
 HEADINGS = ["Found", "Flows used", "Flows saved", "Couldn't", "Browser"]
 QUOTED_URI = re.compile(r"`([a-z]+://[^`]+)`")
 QUOTED_NAME = re.compile(r"`([a-z_]+)`")
 
 
-def shipped() -> agents.Agent:
-    return next(a for a in agents.load(skills={"selenium-flow"}) if a.name == "explorer")
+AGENTS = skill.plugin_path() / "agents"
+
+
+def shipped() -> Agent:
+    text = (AGENTS / "explorer.md").read_text(encoding="utf-8")
+    return parse_agent(text, {"selenium-flow": SKILL_URI})
 
 
 def body() -> str:
@@ -64,16 +72,16 @@ def body() -> str:
 
 
 def front() -> dict:
-    return shipped().detail["_meta"][agents.META_KEY]["frontmatter"]
+    return shipped().detail["_meta"][META_KEY]["frontmatter"]
 
 
 def test_it_loads_strictly(caplog):  # spec test 1
     caplog.set_level(logging.WARNING)
-    files = sorted(agents.agents_path().glob("*.md"))
-    loaded = agents.load(skills={"selenium-flow"})
+    files = sorted(AGENTS.glob("*.md"))
+    server = create_app(Settings(grid={"url": "http://grid.invalid:4444"}))
     assert "explorer.md" in [p.name for p in files]
-    assert len(loaded) == len(files)
-    assert "explorer" in [a.name for a in loaded]
+    assert len(server.plugin.agents) == len(files)
+    assert "explorer" in server.plugin.agents
     assert "is skipped" not in caplog.text
     assert front()["model"] == "sonnet"
     assert front()["maxTurns"] == 40
@@ -100,7 +108,7 @@ async def test_it_routes_as_medium(server):  # spec test 5
 
 
 def test_no_name_is_host_qualified():  # spec test 6, Review Focus 3
-    text = (agents.agents_path() / "explorer.md").read_text(encoding="utf-8")
+    text = (AGENTS / "explorer.md").read_text(encoding="utf-8")
     assert "mcp__" not in text
     assert all(re.fullmatch(r"[a-z_]+", t) for t in set(front()["tools"]) - HOST)
 
@@ -153,7 +161,7 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
     assert text.count("://") == len(QUOTED_URI.findall(text)), "a URI outside backticks"
     assert {
         SKILL_URI,
-        "skill://selenium-flow/references/FLOWS.md",
+        "skill://selenium-flow/selenium-flow/references/FLOWS.md",
         "session://<name>",
         "session://<name>/console",
         "session://<name>/network",
@@ -172,8 +180,8 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
             for t in await client.list_resource_templates()
         }
     for uri in named:
-        if uri.startswith("skill://selenium-flow/"):
-            assert (skill.skill_path() / uri.removeprefix("skill://selenium-flow/")).is_file(), uri
+        if uri.startswith(SKILL_ROOT):
+            assert (skill.skill_path() / uri.removeprefix(SKILL_ROOT)).is_file(), uri
         else:
             assert uri in served, uri
 

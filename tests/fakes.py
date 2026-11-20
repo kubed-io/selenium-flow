@@ -1154,6 +1154,24 @@ async def request(client, method, **params):
     )
 
 
+def plugin_server(root, files: dict, name: str = "t"):
+    """A `QuickMCP` named ``name`` serving a plugin of ``files`` written under
+    ``root``, as `add_plugin` serves selenium-flow's own: for the rules a
+    plugin is read by, on content the shipped plugin does not have."""
+    from kubed.mcp import QuickMCP
+
+    for path, body in files.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(body, bytes):
+            target.write_bytes(body)
+        else:
+            target.write_text(body, encoding="utf-8")
+    mcp = QuickMCP(name)
+    mcp.add_plugin(root)
+    return mcp
+
+
 def header(text: str) -> object:
     """The YAML front matter of a Markdown document."""
     lines = text.splitlines()

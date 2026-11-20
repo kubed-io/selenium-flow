@@ -126,7 +126,7 @@ Give the server a data directory and every screenshot and print is kept with the
 
 ## 📖 It teaches you how to use it
 
-The server ships an Agent Skill at `skill://selenium-flow/SKILL.md`: seven rules, a whole task end to end, and a table of when to reach for each tool. Eight references, from reading pages to troubleshooting, are each their own resource, so an agent loads only the one its task needs.
+The server ships an Agent Skill at `skill://selenium-flow/selenium-flow/SKILL.md`: seven rules, a whole task end to end, and a table of when to reach for each tool. Eight references, from reading pages to troubleshooting, are each their own resource, so an agent loads only the one its task needs.
 
 A client that speaks the agents extension also finds the explorer, a subagent that explores a site in your workspace, in a browser of its own beside yours, runs the flows that fit each page, saves new ones and reports back.
 

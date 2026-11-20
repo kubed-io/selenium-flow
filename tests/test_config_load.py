@@ -181,8 +181,19 @@ def test_a_wrong_typed_before_validated_setting_is_a_config_error_not_a_crash(tm
 
 
 def test_booleans_take_a_value_on_the_command_line():
-    assert load([], {"MCP_SKILL": "false"}).settings.mcp.skill is False
+    assert load([], {"MCP_APPS": "false"}).settings.mcp.apps is False
     assert load(["--mcp-apps", "false"], {}).settings.mcp.apps is False
+
+
+def test_there_is_no_skill_toggle(tmp_path):
+    """The plugin is always served (kubed-mcp ruling 28). `mcp.skill` is an
+    unknown key now: the file refuses it, the command line has no flag for it,
+    and the env drops it as it drops every name it does not know."""
+    with pytest.raises(ConfigError, match="skill"):
+        load([], {"CONFIG_FILE": _file(tmp_path, "mcp:\n  skill: false\n")})
+    with pytest.raises(SystemExit):
+        load(["--mcp-skill", "false"], {})
+    assert "skill" not in load([], {"MCP_SKILL": "false"}).settings.mcp.model_dump()
 
 
 def test_mcp_kb_env_vars_do_not_collide_with_the_mcp_section():

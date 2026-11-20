@@ -675,7 +675,7 @@ async def test_text_served_as_bytes_is_scrubbed_and_an_image_passes(monkeypatch)
         workspaces.scrubber.close()
 
 
-@pytest.mark.parametrize("uri", ["skill://selenium-flow/SKILL.md", "flow://schema",
+@pytest.mark.parametrize("uri", ["skill://selenium-flow/selenium-flow/SKILL.md", "flow://schema",
                                  "secret://secrets", "ui://selenium-flow/component"])
 async def test_what_the_server_wrote_is_not_scanned(monkeypatch, uri):  # ruling 16
     from fastmcp.resources import ResourceContent

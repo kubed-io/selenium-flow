@@ -106,7 +106,7 @@ async def test_the_listing_is_every_uri_to_read_and_nothing_to_draw(built_ui, re
         rows = (await c.call_tool(mirror.LIST_TOOL, {})).structured_content["result"]
     uris = {row.get("uri") or row.get("uri_template") for row in rows}
     assert RESOURCE_URI in uris
-    assert "skill://selenium-flow/SKILL.md" in uris
+    assert "skill://selenium-flow/selenium-flow/SKILL.md" in uris
     assert "flow://flows/{name}" in uris
     assert not any(u.startswith("ui://") for u in uris), "the app shell is not reading"
 
@@ -115,7 +115,7 @@ async def test_a_resource_reads_the_same_through_the_tool(reader):
     reader.flows.save(NAMED, "login", {"steps": [{"tool": "navigate", "args": {"url": "u"}}]})
     got = json.loads((await read(reader, "flow://flows/login")).content[0].text)
     assert got["name"] == "login" and got["steps"]
-    skill = (await read(reader, "skill://selenium-flow/SKILL.md")).content[0].text
+    skill = (await read(reader, "skill://selenium-flow/selenium-flow/SKILL.md")).content[0].text
     assert "name: selenium-flow" in skill
 
 
@@ -365,7 +365,6 @@ def test_every_key_the_context_carries_is_in_the_list_of_keys():
 
     m = manager()
     m.hints = lambda name, url: [{"name": "login"}]
-    m.skill_available = True
     m.open_browser(Caller(NAMED), url="https://a.test/")
     m.store.update(NAMED, lambda r: replace(
         r, settings={**r.settings, "capture": True}, site_data={"origins": {"https://a.test": {"cookies": [], "local": {}, "session": {}}}},

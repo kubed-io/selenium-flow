@@ -40,7 +40,7 @@ def refer_with(pointer: Callable[[str], str] | None) -> None:
     _pointer = pointer
 
 
-def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
+def hint_for(step: dict, flow: str) -> dict:
     """Where to look, decided by what failed rather than guessed."""
     error = str(step.get("error") or "")
     # Before the assertion case: running out of time before an `assert` did
@@ -60,23 +60,23 @@ def hint_for(step: dict, flow: str, skill_available: bool = True) -> dict:
         "arguments": {"flow": flow, "step": str(step.get("n") or "")},
     }
     # `read` is a resource URI, so the section goes beside it, never as an
-    # anchor on it. Only when the skill is served.
-    if skill_available and _pointer is not None:
+    # anchor on it.
+    if _pointer is not None:
         hint["read"] = _pointer(page)
         if section:
             hint["section"] = section
     return hint
 
 
-def with_hint(report: dict, skill_available: bool = True) -> dict:
+def with_hint(report: dict) -> dict:
     """Attach the hint to a failed report, wherever it was built."""
     steps = report.get("steps") or []
     if report.get("status") == "failed" and steps:
-        report["hint"] = hint_for(steps[-1], report.get("flow", ""), skill_available)
+        report["hint"] = hint_for(steps[-1], report.get("flow", ""))
     return report
 
 
-def refused(document: dict, name: str, why: str, skill_available: bool = True) -> dict:
+def refused(document: dict, name: str, why: str) -> dict:
     """A run that was stopped before step one, reported as a run.
 
     Its steps are counted by `Shape`, since the document may be malformed, and
@@ -90,7 +90,6 @@ def refused(document: dict, name: str, why: str, skill_available: bool = True) -
             "steps_total": Shape(document).step_count,
             "steps": [{"n": 1, "ok": False, "error": why}],
         },
-        skill_available,
     )
 
 

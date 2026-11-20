@@ -95,6 +95,7 @@ def websocket_route(mcp, path: str, endpoint, name: str) -> None:
     """Mount a WebSocket route beside the custom HTTP ones: FastMCP's
     ``custom_route`` makes only HTTP routes, and its app takes these alike.
     FastMCP's own list, so through ``mcp.server``."""
+    # FastMCP's private route list: it has no public way to add a WebSocket route.
     mcp.server._additional_http_routes.append(WebSocketRoute(path, endpoint, name=name))
 
 

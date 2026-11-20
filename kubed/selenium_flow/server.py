@@ -33,7 +33,6 @@ from .live.control import Controls
 from .live.pages import Pages
 from .live.tunnels import Tunnels
 from .mcp import (
-    agents,
     apps,
     clients,
     completions,
@@ -41,7 +40,6 @@ from .mcp import (
     failures,
     instructions,
     mirror,
-    prompts,
     resources,
     scrubbed,
     show,
@@ -121,10 +119,6 @@ class SeleniumMCP:
         base = (settings.public_base_url or "").strip().rstrip("/")
         if self.prefix and base.endswith(self.prefix):
             base = base[: -len(self.prefix)]
-        # Loaded first: the instructions and the workspace status name the
-        # skill only when it is served.
-        self.skill = skill.load() if settings.mcp.skill else None
-
         # Saved flows, or None when no data directory was named (the default).
         # Built before the workspaces: recordings are filed into it. A
         # recording.dir nothing collects from is passed as no inbox, so it
@@ -234,7 +228,6 @@ class SeleniumMCP:
         self.workspaces = Workspaces(
             self.actions,
             store=self.store,
-            skill_available=self.skill is not None,
             defaults=workspace_settings.from_settings(settings.session),
             recordings=self.collector,
             monitor=self.monitor,
@@ -292,10 +285,11 @@ class SeleniumMCP:
                 await bus.stop()
                 scrubber.close()
 
+        # The name is the skill's namespace too: skill://selenium-flow/<skill>.
         self.mcp = QuickMCP(
-            "Selenium",
+            "selenium-flow",
             config=settings,
-            instructions=instructions.first_instructions(self.skill is not None),
+            instructions=instructions.first_instructions(),
             auth=self.doors.mcp,
             lifespan=lifespan,
         )
@@ -307,17 +301,12 @@ class SeleniumMCP:
         self.mcp.add_extension(waiting.Tasks(first=controls.stop))
         tools.register(self.mcp, self.workspaces, self.secrets, live=settings.live)
 
-        # Templates a person picks over MCP; where the plugin is installed the
-        # model may run them too. A failed run's hint names one.
-        self.prompts = prompts.register(self.mcp)
+        # The skill, the prompts a person picks (a failed run's hint names
+        # one) and the agents, all from the plugin folder.
+        self.plugin = self.mcp.add_plugin(skill.plugin_path())
 
         # Everything to read is a resource.
         resources.register(self.mcp, self.workspaces)
-        if self.skill is not None:
-            skill.register(self.mcp, self.skill)
-            # An agent's first step is to read the skill, so agents are served
-            # only with it, and declared even when there are none.
-            agents.register(self.mcp, agents.load(skills={self.skill.name}))
         # A client that cannot read resources gets `mirror`'s two tools, which
         # read the same URIs.
         mirror.register(self.mcp)
@@ -391,15 +380,13 @@ class SeleniumMCP:
             prefix=self.prefix,
             secrets_catalogue=self.secrets,
             schemas=schemas,
-            # A failed run's hint points at a skill page only when one is served.
-            skill_available=self.skill is not None,
         )
         secrets.register(
             self.mcp, self.secrets, auth_token, prefix=self.prefix,
             configs=self.configs,
         )
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
-        self.mcp.add_middleware(instructions.InstructionsFor(self.skill is not None))
+        self.mcp.add_middleware(instructions.InstructionsFor())
         # Before anything names the workspace to act on it: a workspace whose
         # config is refused answers nothing else.
         self.mcp.add_middleware(clients.Refused(self.configs))

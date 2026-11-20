@@ -1838,7 +1838,7 @@
             "type": "array"
           },
           "hint": {
-            "description": "On a failed run: where to read about this kind of failure and which prompt repairs it. `read` is absent when the skill is not being served.",
+            "description": "On a failed run: where to read about this kind of failure and which prompt repairs it.",
             "properties": {
               "arguments": {
                 "type": "object"

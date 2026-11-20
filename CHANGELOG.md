@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **BREAKING:** The skill moves to `skill://selenium-flow/selenium-flow/SKILL.md`, and the server's name (`serverInfo.name`) is `selenium-flow`, not `Selenium` (#196).
+- **BREAKING:** `mcp.skill` (`MCP_SKILL`, `--mcp-skill`) is gone: the skill, the prompts and the explorer are always served, and a config file that still sets it is refused (#196).
 - The skill is served with FastMCP's supported `fastmcp.skills` API; `fastmcp` is `>=4.2,<5` (#193).
 - An invalid skill is no longer served at all, and the server logs an error saying why (#193).
 - Skill files are served byte for byte, so a `\r\n` file keeps its `\r\n` (#193).

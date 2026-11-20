@@ -95,7 +95,7 @@ end_browser()
 
 ## Which reference to read
 
-Open the one row that matches, at `skill://selenium-flow/` plus its path.
+Open the one row that matches, at `skill://selenium-flow/selenium-flow/` plus its path.
 
 | When | Read |
 |---|---|
@@ -180,7 +180,7 @@ and `ToolSearch`. A client that cannot read resources gets the tools
 | `flow://flows` | the flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |
 | `flow://schema` | what a flow and its steps may contain |
-| `skill://selenium-flow/SKILL.md` | this page; the references are beside it |
+| `skill://selenium-flow/selenium-flow/SKILL.md` | this page; the references are beside it |
 
 `build_flow` and `repair_flow` are prompts: a person picks them in their client.
 Where the selenium-flow plugin is installed they are also commands,

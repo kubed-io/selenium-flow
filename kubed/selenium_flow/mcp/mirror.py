@@ -20,11 +20,12 @@ import re
 
 from kubed.mcp import Image, Middleware, NotFoundError, TextContent, ToolResult
 from kubed.mcp.request import get_context
+from kubed.mcp.skills import FolderNotFound
 from pydantic import BaseModel
 
 from ..core.annotations import reads
 from ..names import retired_uri
-from . import apps, clients, directories
+from . import apps, clients
 from .failures import nameless
 
 LIST_TOOL = "list_resources"
@@ -167,9 +168,9 @@ def register(mcp) -> frozenset[str]:
     @mcp.tool(
         name=READ_TOOL,
         description=(
-            "Read the resource at uri: workspace://current, skill://selenium-flow/"
-            "SKILL.md, flow://flows/{name}, anything list_resources shows or a skill "
-            "page names. "
+            "Read the resource at uri: workspace://current, "
+            "skill://selenium-flow/selenium-flow/SKILL.md, flow://flows/{name}, "
+            "anything list_resources shows or a skill page names. "
             "Images come back as images; other binary files are described, not "
             "returned."
         ),
@@ -186,7 +187,7 @@ def register(mcp) -> frozenset[str]:
             )
         try:
             result = await server.read_resource(uri)
-        except directories.FolderNotFound as folder:
+        except FolderNotFound as folder:
             raise ValueError(folder.miss) from None
         except NotFoundError:
             templates = ", ".join(
