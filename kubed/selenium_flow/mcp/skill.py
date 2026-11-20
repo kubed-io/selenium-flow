@@ -101,16 +101,46 @@ def _folders_of(paths) -> set[str]:
     }
 
 
+def _without_indexes(skill: Skill) -> Skill:
+    """The skill minus any file whose URI is its folder's index, each named.
+
+    Such a file is not served: its URI reads as the index, so FastMCP would
+    find it unreadable as listed and drop the whole skill from ``skills/list``.
+    """
+    for rel in sorted(_all_folders(skill.files)):
+        if directories.reserved(rel):
+            log.warning(
+                "skill %s: folder %s is not served, its parent's index "
+                "answers that URI",
+                skill.name,
+                rel,
+            )
+    reserved = [name for name in skill.files if directories.reserved(name)]
+    for name in reserved:
+        log.warning(
+            "skill %s: %s is not served, its folder's index answers that URI",
+            skill.name,
+            name,
+        )
+    if not reserved:
+        return skill
+    return Skill.from_files(
+        {name: data for name, data in skill.files.items() if name not in reserved}
+    )
+
+
 class EntryOnlySkillProvider(SkillCatalogProvider):
     """One skill, whose listing names its main file and nothing else.
 
     ``_get_resource`` still answers the manifest and every other file by exact
     URI, and also each folder's two index files. The provider is the
     ``directories.Folders`` of its skill: a folder is every one the skill's
-    files sit in, so it is the same for a skill built from code.
+    files sit in, so it is the same for a skill built from code. A file with an
+    index's name is left out of the skill it serves.
     """
 
     def __init__(self, skill: Skill):
+        skill = _without_indexes(skill)
         super().__init__([skill])
         self.skill = skill
         self.name = skill.name
@@ -199,30 +229,7 @@ def load(path: Path | None = None) -> EntryOnlySkillProvider | None:
         log.warning("no packaged skill at %s", path)
         return None
     try:
-        read = Skill.from_directory(path)
-        # A file or folder whose URI is its folder's index is not served.
-        for name in read.files:
-            if directories.reserved(name):
-                log.warning(
-                    "skill %s: %s is not served, its folder's index answers that URI",
-                    read.name,
-                    name,
-                )
-        for rel in sorted(_all_folders(read.files)):
-            if directories.reserved(rel):
-                log.warning(
-                    "skill %s: folder %s is not served, its parent's index "
-                    "answers that URI",
-                    read.name,
-                    rel,
-                )
-        skill = Skill.from_files(
-            {
-                name: data
-                for name, data in read.files.items()
-                if not directories.reserved(name)
-            }
-        )
+        skill = Skill.from_directory(path)
     except (OSError, ValueError) as exc:
         log.error(
             "skill at %s is not a valid Agent Skill, so it is not served: %s",

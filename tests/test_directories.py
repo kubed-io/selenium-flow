@@ -11,6 +11,7 @@ import json
 
 import pytest
 from fastmcp import Client, FastMCP
+from fastmcp.skills import Skill
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS, METHOD_NOT_FOUND
 
@@ -177,6 +178,28 @@ async def test_a_file_with_an_index_name_is_not_in_the_manifest(tmp_path, name):
     assert f"sub/{name}" not in paths
     assert "sub/a.txt" in paths
     assert set(read.files) == set(paths)
+
+
+async def test_a_provider_built_from_a_skill_leaves_out_index_named_files(caplog):
+    """A skill built in code, not read from a folder, is still offered."""
+    skill = Skill.from_files(
+        {
+            "SKILL.md": "---\nname: tmp-skill\ndescription: A skill for tests.\n---\n",
+            "references/A.md": "# A\n",
+            "references/_index.md": "a file",
+        }
+    )
+    mcp = FastMCP("t")
+    with caplog.at_level("WARNING"):
+        skill_module.register(mcp, skill_module.EntryOnlySkillProvider(skill))
+    assert "references/_index.md" in caplog.text
+    async with Client(mcp) as client:
+        skills = (await request(client, "skills/list"))["skills"]
+    assert [entry["uri"] for entry in skills] == ["skill://tmp-skill/SKILL.md"]
+    assert sorted(r["uri"] for r in skills[0]["resources"]) == [
+        "skill://tmp-skill/SKILL.md",
+        "skill://tmp-skill/references/A.md",
+    ]
 
 
 @pytest.mark.parametrize("name", ["_index.md", "_index.json"])
