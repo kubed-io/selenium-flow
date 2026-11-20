@@ -267,9 +267,14 @@ def register(
             result = act(row, arguments)
             return shape(result) if shape else result
 
-        return lambda declaration: publish(
-            _forwarding(body)(declaration), name, description
-        )
+        def wrap(declaration):
+            # `act` takes the Actions the container hands the tool; one declared
+            # without it would register and then fail on every call.
+            if "actions" not in inspect.signature(declaration).parameters:
+                raise TypeError(f"{name}: an action takes actions: Inject[Actions]")
+            return publish(_forwarding(body)(declaration), name, description)
+
+        return wrap
 
     def own(name: str, *, description: str | None = None, task=None):
         """Publish a declaration whose body is its own; ``task`` for one that

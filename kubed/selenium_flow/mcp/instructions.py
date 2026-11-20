@@ -1,8 +1,8 @@
 """The server ``instructions``, chosen for each connection.
 
-What a client is told depends on whether the skill is served and whether its
-model reads resources, so the text is chosen on each handshake: ``initialize``
-and ``server/discover`` both carry it.
+What a client is told depends on whether its model reads resources, so the
+text is chosen on each handshake: ``initialize`` and ``server/discover`` both
+carry it.
 """
 
 from __future__ import annotations
