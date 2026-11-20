@@ -11,9 +11,17 @@ import json
 
 import pytest
 from fastmcp import Client, FastMCP
+from mcp.shared.exceptions import MCPError
+from mcp_types import INVALID_PARAMS, METHOD_NOT_FOUND
 
+from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.mcp import directories
 from kubed.selenium_flow.mcp import skill as skill_module
 from kubed.selenium_flow.mcp.skill import EntryOnlySkillProvider
+from kubed.selenium_flow.mcp.skill_extension import EXTENSION_ID
+from kubed.selenium_flow.server import SeleniumMCP
+
+from .fakes import request
 
 pytestmark = pytest.mark.unit
 
@@ -129,8 +137,6 @@ async def test_the_manifest_is_never_a_child_and_still_reads(server):
 
 
 async def test_an_index_of_no_folder_is_not_found(server):
-    from mcp.shared.exceptions import MCPError
-
     async with Client(server.mcp) as client:
         with pytest.raises(MCPError):
             await client.read_resource(f"{ROOT}/nope/_index.json")
@@ -160,3 +166,126 @@ async def test_a_nested_folder_is_listed_once_by_its_parent(tmp_path):
     ]
     assert a[1]["description"] == "Dee"
     assert [r["uri"] for r in b] == ["skill://tmp-skill/a/b/c.txt"]
+
+
+# ---- resources/directory/read --------------------------------------------------
+
+METHOD = "resources/directory/read"
+
+
+async def read_directory(client, **params) -> dict:
+    return await request(client, METHOD, **params)
+
+
+async def test_the_root_lists_its_direct_children(server):
+    async with Client(server.mcp) as client:
+        result = await read_directory(client, uri=ROOT)
+    assert [r["uri"] for r in result["resources"]] == [f"{ROOT}/SKILL.md", REFERENCES]
+    assert result["resources"][1]["mimeType"] == DIRECTORY
+    assert "nextCursor" not in result
+
+
+async def test_descending_lists_the_folder_alone(server):
+    async with Client(server.mcp) as client:
+        result = await read_directory(client, uri=REFERENCES)
+    assert [r["uri"] for r in result["resources"]] == reference_uris()
+
+
+@pytest.mark.parametrize("folder", [ROOT, REFERENCES])
+async def test_the_method_returns_what_the_index_holds(server, folder):
+    async with Client(server.mcp) as client:
+        result = await read_directory(client, uri=folder)
+        index = await read_json(client, f"{folder}/_index.json")
+    assert result["resources"] == index
+
+
+async def test_a_file_child_is_its_resources_list_row(server):
+    async with Client(server.mcp) as client:
+        listed = next(
+            r for r in (await client.session.list_resources()).resources
+            if str(r.uri) == f"{ROOT}/SKILL.md"
+        )
+        result = await read_directory(client, uri=ROOT)
+    row = listed.model_dump(mode="json", by_alias=True, exclude_none=True)
+    assert result["resources"][0] == row
+
+
+@pytest.mark.parametrize(
+    ("params", "message"),
+    [
+        ({"uri": f"{ROOT}/nope"}, "Directory not found"),
+        ({"uri": f"{ROOT}/SKILL.md"}, "Directory not found"),
+        ({"uri": f"{REFERENCES}/"}, "Directory not found"),
+        ({"uri": f"{ROOT}/"}, "Directory not found"),
+        ({"uri": "workspace://current"}, "Directory not found"),
+        ({"uri": ROOT, "cursor": "abc"}, "Invalid directory cursor"),
+        ({"uri": ROOT, "cursor": "0"}, "Invalid directory cursor"),
+        ({"uri": ROOT, "cursor": "99"}, "Invalid directory cursor"),
+        ({"uri": ""}, ""),
+        ({}, ""),
+    ],
+    ids=["missing", "file", "trailing-slash", "root-slash", "other-scheme", "cursor-text",
+         "cursor-zero", "cursor-past-end", "empty-uri", "no-uri"],
+)
+async def test_refusals_are_invalid_params(server, params, message):
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError) as caught:
+            await read_directory(client, **params)
+    assert caught.value.error.code == INVALID_PARAMS
+    assert message in str(caught.value)
+
+
+async def test_pages_join_to_the_whole_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(directories.DirectoryRead, "page_size", 2)
+    mcp = make_skill(tmp_path, {f"references/R{n}.md": f"# R{n}\n" for n in range(5)})
+    pages = []
+    async with Client(mcp) as client:
+        result = await read_directory(client, uri="skill://tmp-skill/references")
+        pages.append(result)
+        while "nextCursor" in result:
+            result = await read_directory(
+                client, uri="skill://tmp-skill/references", cursor=result["nextCursor"]
+            )
+            pages.append(result)
+        index = await read_json(client, "skill://tmp-skill/references/_index.json")
+    assert [len(page["resources"]) for page in pages] == [2, 2, 1]
+    assert [r for page in pages for r in page["resources"]] == index
+    assert len(index) == 5
+
+
+async def test_an_empty_folder_returns_no_resources(tmp_path):
+    mcp = make_skill(tmp_path, {}, folders=("assets",))
+    async with Client(mcp) as client:
+        result = await read_directory(client, uri="skill://tmp-skill/assets")
+    assert result["resources"] == []
+    assert "nextCursor" not in result
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_switching_the_skill_off_removes_the_method(mode):
+    off = SeleniumMCP(
+        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "t"},
+                 mcp={"skill": False})
+    )
+    async with Client(off.mcp, mode=mode) as client:
+        with pytest.raises(MCPError) as caught:
+            await read_directory(client, uri=ROOT)
+    assert caught.value.error.code == METHOD_NOT_FOUND
+
+
+async def test_a_nonconforming_skill_keeps_its_indexes_without_the_method(tmp_path):
+    folder = tmp_path / "odd-skill"
+    (folder / "references").mkdir(parents=True)
+    (folder / "SKILL.md").write_text(
+        "---\nname: another-name\ndescription: Odd.\n---\n\n# Odd\n", encoding="utf-8"
+    )
+    (folder / "references" / "A.md").write_text("# A\n", encoding="utf-8")
+    mcp = FastMCP("t")
+    skill_module.register(mcp, EntryOnlySkillProvider(folder, supporting_files="resources"))
+    async with Client(mcp) as client:
+        assert EXTENSION_ID not in (client.session.server_capabilities.extensions or {})
+        index = await read_json(client, "skill://odd-skill/references/_index.json")
+        with pytest.raises(MCPError) as caught:
+            await read_directory(client, uri="skill://odd-skill")
+    assert [r["uri"] for r in index] == ["skill://odd-skill/references/A.md"]
+    assert caught.value.error.code == METHOD_NOT_FOUND

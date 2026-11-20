@@ -18,7 +18,12 @@ from typing import Protocol
 
 import mcp_types
 from fastmcp.resources import Resource, TextResource
+from fastmcp.server.extensions import MethodBinding
+from mcp.shared.exceptions import MCPError
+from mcp_types import INVALID_PARAMS, PaginatedRequestParams
+from pydantic import Field
 
+METHOD = "resources/directory/read"
 INODE_DIRECTORY = "inode/directory"
 INDEX_JSON = "_index.json"
 INDEX_MD = "_index.md"
@@ -76,3 +81,42 @@ async def index_resource(folders: Folders, uri: str) -> Resource | None:
         mime_type=mime_type,
         text=render(children),
     )
+
+
+class DirectoryReadParams(PaginatedRequestParams):
+    uri: str = Field(min_length=1)
+
+
+class DirectoryRead:
+    """``resources/directory/read`` over one ``Folders``: a page of direct children.
+
+    The cursor is the decimal offset of the next child. Only the offsets a
+    page hands out are accepted: anything else is ``-32602``.
+    """
+
+    page_size = 100
+
+    def __init__(self, folders: Folders):
+        self._folders = folders
+
+    def binding(self) -> MethodBinding:
+        return MethodBinding(METHOD, DirectoryReadParams, self.read)
+
+    async def read(self, ctx, params: DirectoryReadParams) -> dict:
+        children = await self._folders.children(params.uri)
+        if children is None:
+            raise MCPError(code=INVALID_PARAMS, message="Directory not found")
+        start = _offset(params.cursor, len(children))
+        end = start + self.page_size
+        result: dict = {"resources": children[start:end]}
+        if end < len(children):
+            result["nextCursor"] = str(end)
+        return result
+
+
+def _offset(cursor: str | None, total: int) -> int:
+    if cursor is None:
+        return 0
+    if cursor.isascii() and cursor.isdecimal() and 0 < int(cursor) < total:
+        return int(cursor)
+    raise MCPError(code=INVALID_PARAMS, message="Invalid directory cursor")
