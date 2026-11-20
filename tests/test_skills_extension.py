@@ -40,7 +40,7 @@ MANIFEST_URI = "skill://selenium-flow/_manifest"
 async def test_the_extension_is_declared_beside_resources(server, mode):
     async with Client(server.mcp, mode=mode) as client:
         caps = client.session.server_capabilities
-        assert caps.extensions[EXTENSION_ID] == {}
+        assert caps.extensions[EXTENSION_ID] == {"directoryRead": True}
         assert caps.resources is not None
 
 
@@ -158,7 +158,7 @@ async def test_a_nonconforming_skill_is_served_but_not_offered(tmp_path, caplog,
 
 async def test_a_caller_cannot_change_what_the_next_caller_is_served(server):
     entry = skill_extension.entry_for(server.skill)
-    extension = SkillsExtension(entry)
+    extension = SkillsExtension(entry, server.skill)
     first = await extension.list_skills(None, PaginatedRequestParams())
     first["skills"][0]["resources"].clear()
     first["skills"][0]["frontmatter"]["name"] = "changed"

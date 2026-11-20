@@ -21,6 +21,7 @@ from mcp.types import TextContent
 from ..core.annotations import reads
 from ..http import files
 from ..names import retired_uri
+from . import directories
 from .failures import nameless
 
 TOOL = "show"
@@ -212,6 +213,8 @@ async def _content(uri: str):
     supporting file that is not markdown as bytes, so text is what decodes."""
     try:
         result = await get_context().fastmcp.read_resource(uri)
+    except directories.FolderNotFound as folder:
+        raise ValueError(folder.miss) from None
     except NotFoundError:
         raise ValueError(f"no resource at {nameless(uri)!r}") from None
     item = result.contents[0]

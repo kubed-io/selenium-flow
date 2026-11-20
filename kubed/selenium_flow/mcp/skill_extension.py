@@ -3,7 +3,9 @@
 ``skills/list`` and ``skills/get`` are JSON-RPC methods beside
 ``resources/list``. They return an entry naming every file of the skill with the
 digest and size of what ``resources/read`` hands back, so a client can verify
-each file it loads.
+each file it loads. The extension also binds ``resources/directory/read`` from
+``directories`` and declares it as ``directoryRead``, the setting a host checks
+before it reads a folder.
 
 FastMCP 4.2's ``SkillCatalogProvider`` serves the extension itself, and this
 module is apart from ``skill.py`` so it can be deleted once the server moves to
@@ -26,12 +28,13 @@ from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS, PaginatedRequestParams, RequestParams
 from pydantic import Field
 
-from . import frontmatter
+from . import directories, frontmatter
 from .extensions import AdvertiseLegacyExtensions, complete
 
 log = logging.getLogger(__name__)
 
 EXTENSION_ID = "io.modelcontextprotocol/skills"
+SETTINGS = {"directoryRead": True}
 MAX_DESCRIPTION = 1024
 
 
@@ -39,8 +42,9 @@ class GetSkillParams(RequestParams):
     uri: str = Field(min_length=1)
 
 
-def _served_bytes(path: Path) -> bytes:
-    """What ``resources/read`` returns for this file, as bytes.
+def _served_bytes(path: Path) -> bytes | None:
+    """What ``resources/read`` returns for this file, as bytes; None when a
+    ``text/*`` file is not UTF-8, which the read cannot serve either.
 
     SkillProvider reads a ``text/*`` file with ``read_text``, which normalises
     newlines, and anything else raw. A host verifies the bytes it receives, so
@@ -49,7 +53,10 @@ def _served_bytes(path: Path) -> bytes:
     """
     mime_type, _ = mimetypes.guess_type(str(path))
     if mime_type and mime_type.startswith("text/"):
-        return path.read_text(encoding="utf-8").encode("utf-8")
+        try:
+            return path.read_text(encoding="utf-8").encode("utf-8")
+        except UnicodeDecodeError:
+            return None
     return path.read_bytes()
 
 
@@ -85,6 +92,13 @@ def entry_for(provider: SkillProvider) -> dict | None:
     resources = []
     for file in info.files:
         data = _served_bytes(info.path / file.path)
+        if data is None:
+            log.warning(
+                "skill %s: %s is not UTF-8 text, so the entry leaves it out",
+                info.name,
+                file.path,
+            )
+            continue
         resources.append(
             {
                 "uri": f"skill://{info.name}/{file.path}",
@@ -101,17 +115,22 @@ def entry_for(provider: SkillProvider) -> dict | None:
 
 
 class SkillsExtension(ServerExtension):
-    """``skills/list`` and ``skills/get`` over the one embedded skill."""
+    """``skills/list``, ``skills/get`` and the folders of the one embedded skill."""
 
     identifier = EXTENSION_ID
 
-    def __init__(self, entry: dict):
+    def __init__(self, entry: dict, folders: directories.Folders):
         self._entry = entry
+        self._directories = directories.DirectoryRead(folders)
+
+    def settings(self) -> dict:
+        return dict(SETTINGS)
 
     def methods(self) -> Sequence[MethodBinding]:
         return (
             MethodBinding("skills/list", PaginatedRequestParams, self.list_skills),
             MethodBinding("skills/get", GetSkillParams, self.get_skill),
+            self._directories.binding(),
         )
 
     async def list_skills(self, ctx, params: PaginatedRequestParams) -> dict:
@@ -130,11 +149,12 @@ def register(mcp, provider: SkillProvider) -> bool:
     """Offer the skill through the extension.
 
     False, with nothing added, when the skill does not conform; its resources
-    are still served.
+    and its folders' index files are still served. ``provider`` is the
+    skill's ``directories.Folders`` too.
     """
     entry = entry_for(provider)
     if entry is None:
         return False
-    mcp.add_extension(SkillsExtension(entry))
-    mcp.add_middleware(AdvertiseLegacyExtensions({EXTENSION_ID: {}}))
+    mcp.add_extension(SkillsExtension(entry, provider))
+    mcp.add_middleware(AdvertiseLegacyExtensions({EXTENSION_ID: SETTINGS}))
     return True

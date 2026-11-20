@@ -305,9 +305,8 @@ class SeleniumMCP:
             self.mcp, self.actions, self.workspaces, self.secrets, live=settings.live
         )
 
-        # Templates a person picks, rather than instructions the model reads. A
-        # failed run's hint names one, so an agent that cannot invoke a prompt
-        # still points somebody at the right one.
+        # Templates a person picks over MCP; where the plugin is installed the
+        # model may run them too. A failed run's hint names one.
         self.prompts = prompts.register(self.mcp)
 
         # Everything to read is a resource.

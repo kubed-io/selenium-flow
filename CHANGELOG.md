@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Fixed: a skill text file that isn't valid UTF-8 no longer stops the server from starting.
+- The skill's folders read as directory resources (`resources/directory/read`), with `_index.json` and `_index.md` beside each for clients and proxies without it (#185).
 - `build_flow` and `repair_flow` are Claude Code commands when `plugin/` is installed as a plugin (#184).
 - The skill lists once in resources/list, as `skill://selenium-flow/SKILL.md`; its other files still read by the URIs it names (#183).
 - **Sub-sessions**: name a session on any call (`session="tester"`, or pin it with `?session=` or `Sf-Session`) for a second browser in the workspace, with its own sign-ins, beside the default. The admin UI shows each as a chip.

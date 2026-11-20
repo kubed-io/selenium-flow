@@ -1,4 +1,5 @@
 ---
+argument-hint: <task> <url> [name]
 description: Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.
 arguments:
 - name: task

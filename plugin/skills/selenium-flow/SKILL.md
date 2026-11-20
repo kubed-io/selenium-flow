@@ -182,6 +182,8 @@ and `ToolSearch`. A client that cannot read resources gets the tools
 | `flow://schema` | what a flow and its steps may contain |
 | `skill://selenium-flow/SKILL.md` | this page; the references are beside it |
 
-`build_flow` and `repair_flow` are prompts a person picks in their client; you
-cannot call them. A failed run's `hint` names the one that helps, so tell the
-person.
+`build_flow` and `repair_flow` are prompts: a person picks them in their client.
+Where the selenium-flow plugin is installed they are also commands,
+`/selenium-flow:build_flow` and `/selenium-flow:repair_flow`, which you may run
+yourself. A failed run's `hint` names the one that helps: run it if you can,
+otherwise tell the person.

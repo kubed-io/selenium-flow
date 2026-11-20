@@ -49,8 +49,8 @@ page it was on, with a `hint`:
 ```
 
 `read` is a resource to load as written, and `section` the heading in it for this
-kind of failure. `prompt` is for a person: you cannot pick `repair_flow`, but you
-can tell somebody to.
+kind of failure. `prompt` names the one that helps: run it if your client offers it as
+a command (`/selenium-flow:repair_flow`), otherwise tell somebody to pick it.
 
 A run stops at the first failing step unless that step says `onError: continue`.
 Check the page it stopped on with `extract` before you decide the selector is

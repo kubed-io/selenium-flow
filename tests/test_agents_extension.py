@@ -256,7 +256,7 @@ async def test_the_extension_is_declared_beside_skills(monkeypatch, folder, mode
     async with Client(serving(monkeypatch, folder).mcp, mode=mode) as client:
         extensions = client.session.server_capabilities.extensions
     assert extensions[EXTENSION_ID] == {"listChanged": False}
-    assert extensions[skill_extension.EXTENSION_ID] == {}
+    assert extensions[skill_extension.EXTENSION_ID] == {"directoryRead": True}
 
 
 async def test_the_listing_is_the_cards_in_name_order(monkeypatch, folder):

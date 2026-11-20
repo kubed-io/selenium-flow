@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 from ..core.annotations import reads
 from ..names import retired_uri
-from . import apps, clients
+from . import apps, clients, directories
 from .failures import nameless
 
 LIST_TOOL = "list_resources"
@@ -190,6 +190,8 @@ def register(mcp) -> frozenset[str]:
             )
         try:
             result = await server.read_resource(uri)
+        except directories.FolderNotFound as folder:
+            raise ValueError(folder.miss) from None
         except NotFoundError:
             templates = ", ".join(
                 row["uri_template"]

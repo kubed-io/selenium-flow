@@ -14,7 +14,8 @@ from ..redaction import Forms, Id, marker
 from .document import ASSERTION
 from .shape import Shape
 
-# The prompt a person picks to repair a failed flow; an agent cannot invoke one.
+# The prompt that repairs a failed flow: a person picks it, or the model runs it
+# where the plugin is installed.
 REPAIR_PROMPT = "repair_flow"
 
 # How a run that ran out of budget reports it; `hint_for` reads it back.
