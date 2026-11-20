@@ -13,8 +13,8 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Sequence
 
-from fastmcp.server.extensions import MethodBinding
 from fastmcp.skills import extension
+from kubed.mcp.protocol import MethodBinding
 
 from . import directories
 

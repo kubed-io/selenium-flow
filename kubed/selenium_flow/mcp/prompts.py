@@ -20,8 +20,7 @@ from pathlib import Path
 
 import yaml
 from fastmcp import FastMCP
-from fastmcp.exceptions import PromptError
-from fastmcp.prompts import Prompt, PromptArgument
+from kubed.mcp import Prompt, PromptArgument, PromptError
 from pydantic import Field
 
 from .skill import plugin_folder

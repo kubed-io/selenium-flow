@@ -44,7 +44,7 @@ from dataclasses import replace
 from typing import Annotated
 from urllib.parse import quote, unquote
 
-from fastmcp.resources import ResourceContent, ResourceResult
+from kubed.mcp import ResourceContent, ResourceResult
 from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse

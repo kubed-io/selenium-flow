@@ -13,10 +13,8 @@ import re
 from typing import NamedTuple
 from urllib.parse import unquote
 
-from fastmcp.exceptions import NotFoundError
-from fastmcp.server.dependencies import get_context
-from fastmcp.tools import ToolResult
-from mcp.types import TextContent
+from kubed.mcp import NotFoundError, TextContent, ToolResult
+from kubed.mcp.request import get_context
 
 from ..core.annotations import reads
 from ..http import files

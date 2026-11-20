@@ -7,7 +7,7 @@ and ``server/discover`` both carry it.
 
 from __future__ import annotations
 
-from fastmcp.server.middleware import Middleware
+from kubed.mcp import Middleware
 
 from ..workspace.workspaces import NAME_PARAM
 from . import clients

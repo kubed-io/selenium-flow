@@ -16,8 +16,8 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlsplit
 
-from fastmcp.apps import UI_EXTENSION_ID, AppConfig, ResourceCSP
-from fastmcp.server.dependencies import get_context
+from kubed.mcp.protocol import UI_EXTENSION_ID, AppConfig, ResourceCSP
+from kubed.mcp.request import get_context
 
 from ..http.admin import page as admin_page
 

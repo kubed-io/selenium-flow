@@ -16,13 +16,14 @@ from __future__ import annotations
 import json
 from typing import Protocol
 
-import mcp_types
-from fastmcp.exceptions import NotFoundError
-from fastmcp.resources import Resource, TextResource
-from fastmcp.server.extensions import MethodBinding
-from fastmcp.server.middleware import Middleware
-from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_PARAMS, PaginatedRequestParams
+from kubed.mcp import Middleware, NotFoundError, Resource, TextResource
+from kubed.mcp.protocol import (
+    INVALID_PARAMS,
+    MCPError,
+    MethodBinding,
+    PaginatedRequestParams,
+)
+from kubed.mcp.protocol import types as mcp_types
 from pydantic import Field
 
 METHOD = "resources/directory/read"

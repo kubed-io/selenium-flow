@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Mapping
 
-from fastmcp.server.middleware import Middleware
+from kubed.mcp import Middleware
 
 
 def complete(**fields: object) -> dict:

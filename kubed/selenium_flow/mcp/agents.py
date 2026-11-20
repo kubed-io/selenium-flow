@@ -18,9 +18,14 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastmcp.server.extensions import MethodBinding, ServerExtension
-from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_PARAMS, PaginatedRequestParams, RequestParams
+from kubed.mcp.protocol import (
+    INVALID_PARAMS,
+    MCPError,
+    MethodBinding,
+    PaginatedRequestParams,
+    RequestParams,
+    ServerExtension,
+)
 from pydantic import Field
 
 from . import frontmatter

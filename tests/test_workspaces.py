@@ -1741,7 +1741,7 @@ def test_off_the_request_object_only_the_carried_name_names_a_caller(monkeypatch
     headers are a background task's snapshot, and the name its submission
     carried (`clients.CARRIED`) is the only one read - never an Sf-Workspace
     or X-Workspace the snapshot kept, and never the stdio constant."""
-    import fastmcp.server.dependencies as dependencies
+    import kubed.mcp.request as dependencies
 
     def no_request():
         raise RuntimeError("no active HTTP request")

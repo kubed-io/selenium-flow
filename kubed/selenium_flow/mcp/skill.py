@@ -20,10 +20,10 @@ import posixpath
 from pathlib import Path
 from urllib.parse import quote
 
-from fastmcp.resources import Resource
-from fastmcp.skills import Skill
 from fastmcp.skills.provider import SkillCatalogProvider, SkillFileResource
-from fastmcp.utilities.versions import VersionSpec
+from kubed.mcp import Resource
+from kubed.mcp.protocol import VersionSpec
+from kubed.mcp.skills import Skill
 from pydantic import ValidationError
 
 from . import directories, skill_extension

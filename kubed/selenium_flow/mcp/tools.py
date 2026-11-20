@@ -23,10 +23,9 @@ from collections.abc import Callable
 from typing import Annotated, Literal
 
 import anyio
-from fastmcp import Context, FastMCP
-from fastmcp.apps import AppConfig
-from fastmcp.tools import ToolResult
-from fastmcp.utilities.types import Image
+from fastmcp import FastMCP
+from kubed.mcp import Context, Image, ToolResult
+from kubed.mcp.protocol import AppConfig
 from pydantic import (
     BaseModel,
     BeforeValidator,

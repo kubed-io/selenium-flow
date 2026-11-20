@@ -21,8 +21,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from fastmcp.server.auth.auth import AccessToken, AuthProvider, MultiAuth, TokenVerifier
-from fastmcp.server.auth.providers.jwt import JWTVerifier
+from kubed.mcp.auth import (
+    AccessToken,
+    AuthProvider,
+    JWTVerifier,
+    MultiAuth,
+    TokenVerifier,
+)
 from starlette.requests import Request
 
 from .. import config

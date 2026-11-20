@@ -18,12 +18,8 @@ import json
 import mimetypes
 import re
 
-from fastmcp.exceptions import NotFoundError
-from fastmcp.server.dependencies import get_context
-from fastmcp.server.middleware import Middleware
-from fastmcp.tools import ToolResult
-from fastmcp.utilities.types import Image
-from mcp.types import TextContent
+from kubed.mcp import Image, Middleware, NotFoundError, TextContent, ToolResult
+from kubed.mcp.request import get_context
 from pydantic import BaseModel
 
 from ..core.annotations import reads

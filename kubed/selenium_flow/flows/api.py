@@ -115,7 +115,7 @@ def _require(store):
 
 def _context():
     """The MCP request being answered, or None outside one."""
-    from fastmcp.server.dependencies import get_context
+    from kubed.mcp.request import get_context
 
     try:
         return get_context()

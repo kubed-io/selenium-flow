@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 
-from mcp.types import PromptReference, ResourceTemplateReference
+from kubed.mcp.protocol import PromptReference, ResourceTemplateReference
 
 from ..faults import Traceback
 

@@ -331,7 +331,7 @@ def test_a_subject_that_cannot_name_a_session_is_refused():
 def test_a_tasks_worker_reaches_the_pinned_session(monkeypatch):
     """Off the request object only the carried pin is read, as only the carried
     workspace is: never an Sf-Session the snapshot kept."""
-    import fastmcp.server.dependencies as dependencies
+    import kubed.mcp.request as dependencies
 
     def no_request():
         raise RuntimeError("no active HTTP request")
