@@ -17,8 +17,10 @@ import json
 from typing import Protocol
 
 import mcp_types
+from fastmcp.exceptions import NotFoundError
 from fastmcp.resources import Resource, TextResource
 from fastmcp.server.extensions import MethodBinding
+from fastmcp.server.middleware import Middleware
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS, PaginatedRequestParams
 from pydantic import Field
@@ -120,3 +122,39 @@ def _offset(cursor: str | None, total: int) -> int:
     if cursor.isascii() and cursor.isdecimal() and 0 < int(cursor) < total:
         return int(cursor)
     raise MCPError(code=INVALID_PARAMS, message="Invalid directory cursor")
+
+
+class FolderNotFound(MCPError):
+    """A read of a folder URI: not found, as a missing URI is, naming the index.
+
+    ``hint`` is the sentence alone, for ``read_resource`` to pass on.
+    """
+
+    def __init__(self, uri: str):
+        self.hint = f"{uri} is a folder: read {uri}/{INDEX_MD} to list it."
+        super().__init__(
+            code=INVALID_PARAMS,
+            message=f"Resource not found: {uri!r}. {self.hint}",
+            data={"uri": uri},
+        )
+
+
+class NameTheIndex(Middleware):
+    """Turn the not-found of a folder read into one that names its ``_index.md``.
+
+    The provider answers None for a folder URI, as for any missing one, and
+    FastMCP reports a bare ``Resource not found``. The code and ``data`` stay
+    what FastMCP sends; only the message gains the hint.
+    """
+
+    def __init__(self, folders: Folders):
+        self._folders = folders
+
+    async def on_read_resource(self, context, call_next):
+        try:
+            return await call_next(context)
+        except NotFoundError:
+            uri = str(context.message.uri)
+            if await self._folders.children(uri) is None:
+                raise
+            raise FolderNotFound(uri) from None

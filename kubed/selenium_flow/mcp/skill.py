@@ -162,7 +162,8 @@ def load() -> EntryOnlySkillProvider | None:
         return None
 
 
-def register(mcp, provider: SkillProvider) -> None:
+def register(mcp, provider: EntryOnlySkillProvider) -> None:
     """Serve the skill's resources, and offer it through the Skills extension."""
     mcp.add_provider(provider)
+    mcp.add_middleware(directories.NameTheIndex(provider))
     skill_extension.register(mcp, provider)

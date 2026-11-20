@@ -289,3 +289,43 @@ async def test_a_nonconforming_skill_keeps_its_indexes_without_the_method(tmp_pa
             await read_directory(client, uri="skill://odd-skill")
     assert [r["uri"] for r in index] == ["skill://odd-skill/references/A.md"]
     assert caught.value.error.code == METHOD_NOT_FOUND
+
+
+# ---- a folder serves no content -------------------------------------------------
+
+
+@pytest.mark.parametrize("folder", [ROOT, REFERENCES])
+async def test_reading_a_folder_names_its_index(server, folder):
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError) as caught:
+            await client.read_resource(folder)
+    error = caught.value.error
+    assert error.code == INVALID_PARAMS
+    assert error.message.startswith(f"Resource not found: {folder!r}. ")
+    assert f"{folder}/_index.md" in error.message
+    assert error.data == {"uri": folder}
+
+
+async def test_a_trailing_slash_is_a_plain_miss(server):
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError) as caught:
+            await client.read_resource(f"{REFERENCES}/")
+    assert caught.value.error.code == INVALID_PARAMS
+    assert "_index" not in caught.value.error.message
+
+
+async def test_read_resource_passes_the_hint_on(server):
+    async with Client(server.mcp) as client:
+        result = await client.call_tool(
+            "read_resource", {"uri": REFERENCES}, raise_on_error=False
+        )
+    assert result.is_error
+    assert f"{REFERENCES}/_index.md" in result.content[0].text
+
+
+async def test_an_empty_folder_still_names_its_index(tmp_path):
+    mcp = make_skill(tmp_path, {}, folders=("assets",))
+    async with Client(mcp) as client:
+        with pytest.raises(MCPError) as caught:
+            await client.read_resource("skill://tmp-skill/assets")
+    assert "skill://tmp-skill/assets/_index.md" in caught.value.error.message
