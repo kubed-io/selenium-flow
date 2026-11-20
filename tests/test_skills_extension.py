@@ -6,6 +6,7 @@ that over the wire, rather than comparing the entry with the disk.
 """
 
 import hashlib
+import json
 import logging
 
 import pytest
@@ -72,17 +73,16 @@ async def test_every_file_verifies_against_its_digest(server, mode):
 
 
 async def test_the_entry_names_every_file_the_server_serves(server):
-    """A reference added later is in the entry without anyone touching it."""
+    """A reference added later is in the entry without anyone touching it.
+
+    The listing shows SKILL.md alone, so the manifest is the served set."""
     async with Client(server.mcp) as client:
         entry = (await request(client, "skills/list"))["skills"][0]
-        served = {
-            str(r.uri)
-            for r in await client.list_resources()
-            if str(r.uri).startswith("skill://selenium-flow/")
-        }
+        manifest = json.loads((await client.read_resource(MANIFEST_URI))[0].text)
+    served = {f"skill://selenium-flow/{f['path']}" for f in manifest["files"]}
     named = [resource["uri"] for resource in entry["resources"]]
     assert len(named) == len(set(named))
-    assert set(named) == served - {MANIFEST_URI}
+    assert set(named) == served
     assert SKILL_URI in named
 
 

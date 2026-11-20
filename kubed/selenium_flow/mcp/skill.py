@@ -2,9 +2,10 @@
 
 ``plugin/skills/selenium-flow/`` is package data, so the guidance ships with the
 version of the server it describes. FastMCP's ``SkillProvider`` serves it at
-``skill://<name>/SKILL.md``, ``skill://<name>/_manifest`` and one URI per
-supporting file, the URIs FastMCP's client helpers (``list_skills``,
-``download_skill``) expect.
+``skill://<name>/SKILL.md``, the one row ``resources/list`` shows. The
+``_manifest`` and every supporting file are not listed but read by exact URI,
+which is what FastMCP's client helpers (``list_skills``, ``download_skill``)
+use.
 
 SkillProvider takes the skill's name from its folder, not the frontmatter:
 renaming the folder renames the skill.
@@ -17,7 +18,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from urllib.parse import quote
 
+from fastmcp.resources import Resource
 from fastmcp.server.providers.skills.skill_provider import SkillProvider
 
 from . import skill_extension
@@ -49,7 +52,19 @@ def skill_path() -> Path:
     return plugin_folder(__file__, SKILLS_DIR, SKILL_NAME)
 
 
-def load() -> SkillProvider | None:
+class EntryOnlySkillProvider(SkillProvider):
+    """A SkillProvider whose listing names the main file and nothing else.
+
+    Reads are untouched: ``_get_resource`` still answers the manifest and every
+    supporting file by exact URI.
+    """
+
+    async def _list_resources(self) -> list[Resource]:
+        entry = f"{self.skill_info.uri_prefix}{quote(self._main_file_name, safe='/')}"
+        return [r for r in await super()._list_resources() if str(r.uri) == entry]
+
+
+def load() -> EntryOnlySkillProvider | None:
     """The packaged skill as a provider, or None if it is not installed.
 
     Missing package data is logged, not fatal: the tools work without it.
@@ -59,9 +74,10 @@ def load() -> SkillProvider | None:
         log.warning("no packaged skill at %s", path)
         return None
     try:
-        # "resources", so each supporting file is listed and linkable on its
-        # own instead of found through the manifest.
-        return SkillProvider(path, supporting_files="resources")
+        # "resources" reads every file by exact URI; the subclass trims the
+        # listing to SKILL.md (PLG-14, ruling 26). Not "template": it serves
+        # files as application/octet-stream and lists a template row.
+        return EntryOnlySkillProvider(path, supporting_files="resources")
     except Exception as exc:  # noqa: BLE001 - bad package data must not stop the boot
         log.warning("packaged skill at %s could not be loaded: %s", path, exc)
         return None

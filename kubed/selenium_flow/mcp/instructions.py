@@ -62,7 +62,7 @@ READING_POINTER = """
 Everything this server has to read is a URI — workspace://current, \
 session://downloads, flow://flows, secret://secrets and the like, wherever a \
 hint or an error names one. Read one with read_resource(uri); list_resources \
-shows them all.
+shows where to start.
 """
 
 

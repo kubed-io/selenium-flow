@@ -13,13 +13,15 @@ The serving rules are this repo's: resources by default, a mirroring tool for
 clients without resources, nothing at all when it is switched off.
 """
 
+import json
 import pathlib
 import re
 
 import pytest
 import yaml
 from fastmcp import Client
-from fastmcp.utilities.skills import get_skill_manifest, list_skills
+from fastmcp.utilities.skills import download_skill, get_skill_manifest, list_skills
+from mcp.shared.exceptions import MCPError
 
 from kubed.selenium_flow.mcp import skill as skill_module
 from kubed.selenium_flow.mcp.skill import ENTRY, SKILL_NAME
@@ -128,12 +130,41 @@ def test_flows_says_to_reuse_a_tag_in_use():
     assert "only when none fits" in section
 
 
-async def test_each_reference_is_its_own_resource(server):
-    """Listed individually rather than hidden behind the manifest, so a client
-    can link straight to the one it needs."""
-    uris = {str(r.uri) for r in await server.mcp.list_resources()}
-    for path in sorted(set(references())):
-        assert f"skill://{SKILL_NAME}/{path}" in uris
+async def test_the_listing_names_the_skill_once(server):
+    """One row, so a client scanning resources/list sees one skill, not its files."""
+    rows = [r for r in await server.mcp.list_resources() if str(r.uri).startswith("skill://")]
+    assert {str(r.uri) for r in rows} == {RESOURCE_URI}
+    assert rows[0].description == frontmatter()["description"]
+
+
+async def test_no_skill_template_is_listed(server):
+    templates = await server.mcp.list_resource_templates()
+    assert not [t for t in templates if t.uri_template.startswith("skill://")]
+
+
+@pytest.mark.parametrize("path", [MANIFEST, *sorted(set(references()))])
+async def test_every_file_still_reads_by_its_uri(server, path):
+    async with Client(server.mcp) as client:
+        contents = await client.read_resource(f"skill://{SKILL_NAME}/{path}")
+    assert contents[0].text
+    if path.endswith(".md"):
+        assert contents[0].mimeType == "text/markdown"
+    if path == MANIFEST:
+        assert json.loads(contents[0].text)["skill"] == SKILL_NAME
+
+
+async def test_an_unknown_skill_file_is_not_found(server):
+    async with Client(server.mcp) as client:
+        with pytest.raises(MCPError):
+            await client.read_resource(f"skill://{SKILL_NAME}/NOPE.md")
+
+
+async def test_a_fastmcp_client_downloads_the_whole_skill(server, tmp_path):
+    async with Client(server.mcp) as client:
+        manifest = await get_skill_manifest(client, SKILL_NAME)
+        await download_skill(client, SKILL_NAME, tmp_path)
+    for f in manifest.files:
+        assert (tmp_path / SKILL_NAME / f.path).is_file()
 
 
 # ---- the FastMCP skill convention ------------------------------------------
@@ -153,11 +184,6 @@ async def test_a_fastmcp_client_can_read_the_manifest(server):
         manifest = await get_skill_manifest(client, SKILL_NAME)
     assert manifest.name == SKILL_NAME
     assert ENTRY in [f.path for f in manifest.files]
-
-
-async def test_the_skill_resources_are_listed(server):
-    uris = {str(r.uri) for r in await server.mcp.list_resources()}
-    assert {RESOURCE_URI, MANIFEST_URI} <= uris
 
 
 # ---- reading ---------------------------------------------------------------

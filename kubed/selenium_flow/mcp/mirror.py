@@ -195,8 +195,8 @@ def register(mcp) -> frozenset[str]:
                 if "uri_template" in row
             )
             raise ValueError(
-                f"no resource at {nameless(uri)!r}. list_resources shows every URI; "
-                f"the templates are {templates}"
+                f"no resource at {nameless(uri)!r}. "
+                f"list_resources shows where to start; the templates are {templates}"
             ) from None
         contents = []
         for item in result.contents:
