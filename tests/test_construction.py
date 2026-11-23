@@ -8,6 +8,7 @@ from kubed.mcp import Inject, QuickMCP
 from kubed.selenium_flow import main as main_module
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
+from kubed.selenium_flow.mcp.tools import _require_injected_actions
 from kubed.selenium_flow.server import create_app, http_middleware
 
 from .conftest import NAMED, calling_as
@@ -119,3 +120,32 @@ async def test_an_acting_tool_called_directly_uses_the_actions_it_is_given(actin
     tool = await acting.mcp.server.get_tool("navigate")
     tool.fn(url="https://example.test/direct", actions=navigating)
     assert navigating.sent == [("b1", "https://example.test/direct")]
+
+
+def test_an_action_without_actions_stops_registration():
+    def navigate(url: str):
+        """Navigate."""
+
+    with pytest.raises(TypeError, match="navigate: an action takes actions"):
+        _require_injected_actions("navigate", navigate)
+
+
+def test_an_action_with_bare_actions_stops_registration():
+    # A bare `Actions` is a parameter FastMCP would put in the tool's schema.
+    def navigate(url: str, *, actions: Actions):
+        """Navigate."""
+
+    with pytest.raises(TypeError, match="navigate: an action takes actions"):
+        _require_injected_actions("navigate", navigate)
+
+
+def test_an_action_with_injected_actions_registers_written_either_way():
+    def typed(url: str, *, actions: Inject[Actions]):
+        """Navigate."""
+
+    # What a module with `from __future__ import annotations` declares.
+    def written(url: str, *, actions: "Inject[Actions]"):
+        """Navigate."""
+
+    _require_injected_actions("navigate", typed)
+    _require_injected_actions("navigate", written)

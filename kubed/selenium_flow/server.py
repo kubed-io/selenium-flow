@@ -49,6 +49,7 @@ from .mcp import (
 )
 from .monitor.events import LocalBus
 from .monitor.monitor import Monitor
+from .names import SERVER_NAME
 from .recordings import collector as recording_collector
 from .recordings import mounts
 from .workspace import config as workspace_config
@@ -285,9 +286,9 @@ class SeleniumMCP:
                 await bus.stop()
                 scrubber.close()
 
-        # The name is the skill's namespace too: skill://selenium-flow/<skill>.
+        # The name is the skill's namespace too: skill://<SERVER_NAME>/<skill>.
         self.mcp = QuickMCP(
-            "selenium-flow",
+            SERVER_NAME,
             config=settings,
             instructions=instructions.first_instructions(),
             auth=self.doors.mcp,

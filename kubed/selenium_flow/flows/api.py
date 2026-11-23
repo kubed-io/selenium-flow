@@ -397,8 +397,7 @@ def register(
             "problem is listed at once. sites and paths say where the flow "
             "applies, so a result that lands there names it in flows_here; a "
             "flow with neither is never named. flow://schema has the full shape; "
-            "skill://selenium-flow/selenium-flow/references/FLOWS.md explains "
-            "writing one."
+            f"{guidance.pointer('FLOWS.md')} explains writing one."
         ),
         annotations=hints("Save a flow", idempotent=True),
     )

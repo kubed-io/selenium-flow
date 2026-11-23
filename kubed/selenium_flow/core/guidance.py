@@ -3,9 +3,11 @@ failed flow run, a refused session and the workspace status point at."""
 
 from __future__ import annotations
 
+from ..names import SERVER_NAME
+
 SKILL = "selenium-flow"
 # The server's name is the namespace every skill it serves sits under.
-ROOT = f"skill://selenium-flow/{SKILL}"
+ROOT = f"skill://{SERVER_NAME}/{SKILL}"
 REFERENCES = f"{ROOT}/references"
 ENTRY = f"{ROOT}/SKILL.md"
 

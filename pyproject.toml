@@ -30,7 +30,7 @@ dependencies = [
   # The platform this server shares with mcp-kb (kubed.mcp, a namespace package
   # beside kubed.selenium_flow). Every FastMCP name comes through its facade, and
   # it owns the FastMCP pin (>=4.2,<5).
-  "kubed-mcp[tasks]>=0.1,<0.2",
+  "kubed-mcp[tasks]>=0.1.1,<0.2",
   "selenium>=4.48.0,<5",
   "requests>=2.32.0",
   "pyyaml>=6.0",

@@ -37,11 +37,10 @@ def configure_logging(level: str) -> None:
 
     FastMCP configures its own logger at import: Rich handlers on stderr and no
     propagation. In a pod there is no TTY, so Rich wraps at 80 columns, and Loki
-    stores each physical line as its own entry, so its handlers go and it
-    propagates. It logs every tool's arguments at DEBUG (scripts, typed text,
-    upload content), so DEBUG never opens it, while WARNING still quiets it.
-    Filters on its child loggers stay, as they belong to the logger and not to
-    a handler.
+    stores each physical line as its own entry; ``QuickMCP.run()`` drops those
+    handlers and has it propagate, on either transport. It logs every tool's
+    arguments at DEBUG (scripts, typed text, upload content), so DEBUG never
+    opens it, while WARNING still quiets it.
     """
     logging.basicConfig(level=level)
     # The root's level, not ``level``: basicConfig does nothing when the root
@@ -49,11 +48,7 @@ def configure_logging(level: str) -> None:
     floor = max(logging.INFO, logging.getLogger().getEffectiveLevel())
     for name in WIRE_LOGGERS:
         logging.getLogger(name).setLevel(floor)
-    fastmcp = logging.getLogger("fastmcp")
-    for handler in list(fastmcp.handlers):
-        fastmcp.removeHandler(handler)
-    fastmcp.propagate = True
-    fastmcp.setLevel(floor)
+    logging.getLogger("fastmcp").setLevel(floor)
 
 
 def _loopback(host: str) -> bool:

@@ -19,7 +19,7 @@ from kubed.mcp.skills import FolderNotFound
 
 from ..core.annotations import reads
 from ..http import files
-from ..names import retired_uri
+from ..names import SERVER_NAME, retired_uri
 from .failures import nameless
 
 TOOL = "show"
@@ -130,9 +130,10 @@ VIEWS: tuple[View, ...] = (
     View("session://{name}", re.compile(r"session://[^/?]+"), "context"),
     # There is no single-secret resource; the app looks closer by itself.
     _exactly("secret://secrets", "secrets"),
+    # Every skill under the server's namespace, not only the one it started with.
     View(
-        "skill://selenium-flow/selenium-flow/{path}",
-        re.compile(r"skill://selenium-flow/selenium-flow/.+"),
+        f"skill://{SERVER_NAME}/{{skill}}/{{path}}",
+        re.compile(rf"skill://{re.escape(SERVER_NAME)}/.+"),
         "document",
     ),
 )

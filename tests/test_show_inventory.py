@@ -171,6 +171,26 @@ async def test_the_guard_catches_a_supporting_file_show_cannot_draw(
     assert list(await undrawn(server)) == [SKILL + "references/logo.png"]
 
 
+async def test_a_second_skill_under_the_namespace_draws(
+    tmp_path, monkeypatch, named_caller
+):
+    copy = tmp_path / "plugin"
+    shutil.copytree(skill.plugin_path(), copy)
+    second = copy / "skills" / "reading-pages"
+    second.mkdir()
+    (second / "SKILL.md").write_text(
+        "---\nname: reading-pages\ndescription: Read a page.\n---\n\n# Reading\n"
+    )
+    monkeypatch.setattr(skill, "plugin_path", lambda: copy)
+    server = every_section(tmp_path)
+    uri = "skill://selenium-flow/reading-pages/SKILL.md"
+    assert uri in await served(server)
+    async with Client(server.mcp.server) as c:
+        result = await c.call_tool("show", {"uri": uri}, raise_on_error=False)
+    assert not result.is_error, result.content[0].text
+    assert result.structured_content["component"] == "document"
+
+
 async def test_the_shell_itself_is_served_and_exempt(everything):
     assert "ui://selenium-flow/component" in await served(everything)
 

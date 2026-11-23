@@ -24,6 +24,7 @@ from kubed.mcp.skills import FolderNotFound
 from pydantic import BaseModel
 
 from ..core.annotations import reads
+from ..core.guidance import ENTRY
 from ..names import retired_uri
 from . import apps, clients
 from .failures import nameless
@@ -168,8 +169,8 @@ def register(mcp) -> frozenset[str]:
     @mcp.tool(
         name=READ_TOOL,
         description=(
-            "Read the resource at uri: workspace://current, "
-            "skill://selenium-flow/selenium-flow/SKILL.md, flow://flows/{name}, "
+            f"Read the resource at uri: workspace://current, {ENTRY}, "
+            "flow://flows/{name}, "
             "anything list_resources shows or a skill page names. "
             "Images come back as images; other binary files are described, not "
             "returned."

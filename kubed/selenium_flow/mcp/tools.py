@@ -20,10 +20,10 @@ import functools
 import inspect
 import json
 from collections.abc import Callable
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args, get_origin, get_type_hints
 
 import anyio
-from kubed.mcp import Context, Image, Inject, QuickMCP, ToolResult
+from kubed.mcp import Context, Image, Inject, QuickMCP, ToolResult, lookup
 from kubed.mcp.protocol import AppConfig
 from pydantic import (
     BaseModel,
@@ -192,6 +192,28 @@ def _forwarding(body: Callable[[dict], object]):
     return wrap
 
 
+def _require_injected_actions(name: str, declaration) -> None:
+    """Refuse an action declared without ``actions: Inject[Actions]``.
+
+    ``act`` takes the Actions the container hands the tool: one declared without
+    the parameter would register and then fail on every call, and a bare
+    ``actions: Actions`` would put the parameter in the tool's schema.
+    """
+    hint = None
+    if "actions" in inspect.signature(declaration).parameters:
+        hint = get_type_hints(declaration, include_extras=True)["actions"]
+    injected = (
+        get_origin(hint) is Annotated
+        and get_args(hint)[0] is Actions
+        and any(
+            getattr(meta, "factory", None) is lookup(Actions)
+            for meta in hint.__metadata__
+        )
+    )
+    if not injected:
+        raise TypeError(f"{name}: an action takes actions: Inject[Actions]")
+
+
 def register(
     mcp: QuickMCP,
     workspaces: Workspaces,
@@ -268,10 +290,7 @@ def register(
             return shape(result) if shape else result
 
         def wrap(declaration):
-            # `act` takes the Actions the container hands the tool; one declared
-            # without it would register and then fail on every call.
-            if "actions" not in inspect.signature(declaration).parameters:
-                raise TypeError(f"{name}: an action takes actions: Inject[Actions]")
+            _require_injected_actions(name, declaration)
             return publish(_forwarding(body)(declaration), name, description)
 
         return wrap

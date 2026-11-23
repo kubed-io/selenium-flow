@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from kubed.mcp import Middleware
 
+from ..core.guidance import ENTRY
 from ..workspace.workspaces import NAME_PARAM
 from . import clients
 
@@ -49,10 +50,10 @@ execute_script for anything the other tools do not cover, scrolling included.
 
 """
 
-SKILL_POINTER = """
+SKILL_POINTER = f"""
 How to drive this well — when to screenshot rather than extract, what a timeout \
 on a good XPath usually means, how to write a flow — is at \
-skill://selenium-flow/selenium-flow/SKILL.md. Read it{how} before your first \
+{ENTRY}. Read it{{how}} before your first \
 call; it ships with this server, so it describes this version of it.
 """
 

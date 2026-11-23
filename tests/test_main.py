@@ -92,7 +92,8 @@ def test_fastmcp_logs_through_the_root_handler_at_info_or_the_root_level(
     tmp_path, listened, fastmcp_logger, levels
 ):
     """FastMCP's own Rich handlers would wrap every line at 80 columns, and
-    LOG_LEVEL=WARNING still quiets it."""
+    LOG_LEVEL=WARNING still quiets it. The handlers go in ``QuickMCP.run()``,
+    which ``main`` reaches here."""
     logging.getLogger().setLevel(logging.WARNING)
     main_module.main(config(tmp_path, "log_level: WARNING\n"))
     assert fastmcp_logger.handlers == []

@@ -1,11 +1,11 @@
 import { expect, test } from 'vitest'
 import { showable, target } from './links'
 
-const SKILL = 'skill://selenium-flow/SKILL.md'
+const SKILL = 'skill://selenium-flow/selenium-flow/SKILL.md'
 
 test('a concrete URI on a server scheme is showable; a placeholder is not', () => {
   expect(showable('workspace://files')).toBe('workspace://files')
-  expect(showable('skill://selenium-flow/references/FLOWS.md')).toBe('skill://selenium-flow/references/FLOWS.md')
+  expect(showable('skill://selenium-flow/selenium-flow/references/FLOWS.md')).toBe('skill://selenium-flow/selenium-flow/references/FLOWS.md')
   expect(showable('flow://flows/{name}')).toBeNull()
   expect(showable('flow://flows/<name>')).toBeNull()
   expect(showable('workspace://')).toBeNull()
@@ -14,10 +14,10 @@ test('a concrete URI on a server scheme is showable; a placeholder is not', () =
 })
 
 test('a relative link resolves against the document and drills', () => {
-  expect(target('references/FLOWS.md', SKILL)).toEqual({ kind: 'show', uri: 'skill://selenium-flow/references/FLOWS.md' })
-  expect(target('../SKILL.md', 'skill://selenium-flow/references/FLOWS.md')).toEqual({ kind: 'show', uri: SKILL })
-  expect(target('FLOWS.md#parameters', 'skill://selenium-flow/references/WORKSPACES.md'))
-    .toEqual({ kind: 'show', uri: 'skill://selenium-flow/references/FLOWS.md' })
+  expect(target('references/FLOWS.md', SKILL)).toEqual({ kind: 'show', uri: 'skill://selenium-flow/selenium-flow/references/FLOWS.md' })
+  expect(target('../SKILL.md', 'skill://selenium-flow/selenium-flow/references/FLOWS.md')).toEqual({ kind: 'show', uri: SKILL })
+  expect(target('FLOWS.md#parameters', 'skill://selenium-flow/selenium-flow/references/WORKSPACES.md'))
+    .toEqual({ kind: 'show', uri: 'skill://selenium-flow/selenium-flow/references/FLOWS.md' })
 })
 
 test('the web opens; anything else is text', () => {

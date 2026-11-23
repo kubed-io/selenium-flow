@@ -63,6 +63,9 @@ def secrets_server(tmp_path, named_caller):
         ("skill://selenium-flow/selenium-flow/SKILL.md", "document"),
         ("skill://selenium-flow/selenium-flow/_manifest", "document"),
         ("skill://selenium-flow/selenium-flow/references/FLOWS.md", "document"),
+        # Any skill under the server's namespace, not only the first one.
+        ("skill://selenium-flow/reading-pages/SKILL.md", "document"),
+        ("skill://selenium-flow/reading-pages/references/OUTLINE.md", "document"),
         ("workspace://console", "console"),
         ("workspace://console?level=error&pages=2", "console"),
         ("workspace://network", "network"),
@@ -109,7 +112,8 @@ def test_every_row_matches_its_own_display_form():
 @pytest.mark.parametrize(
     "uri",
     ["flow://flows/", "workspace://current/x/y", "secret://secrets/demo",
-     "skill://other/SKILL.md", "workspace://files/screenshots/a/b",
+     "skill://other/SKILL.md", "skill://other/selenium-flow/SKILL.md",
+     "workspace://files/screenshots/a/b",
      "workspace://site-data/a/b"],
 )
 def test_anything_else_is_refused_naming_what_can_be_shown(uri):
