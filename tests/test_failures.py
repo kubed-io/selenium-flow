@@ -122,7 +122,7 @@ async def test_a_step_and_a_call_are_refused_in_the_same_words(server):
     """A step's arguments ARE a tool call's arguments, so one mistake gets one
     sentence whichever door it came through."""
     call = await refused(server, "interact", {"action": "click", "css": "button.go"})
-    tool = await server.mcp.server.get_tool("save_flow")
+    tool = await server.mcp.get_tool("save_flow")
     with pytest.raises(ValueError) as saved:
         await tool.fn(
             name="x",

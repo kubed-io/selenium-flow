@@ -133,7 +133,7 @@ VIEWS: tuple[View, ...] = (
     # Every skill under the server's namespace, not only the one it started with.
     View(
         f"skill://{SERVER_NAME}/{{skill}}/{{path}}",
-        re.compile(rf"skill://{re.escape(SERVER_NAME)}/.+"),
+        re.compile(rf"skill://{re.escape(SERVER_NAME)}/[^/]+/.+"),
         "document",
     ),
 )

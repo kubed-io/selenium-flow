@@ -40,7 +40,7 @@ def client(server):
 
 
 async def call(server, tool_name, /, **kwargs):
-    tool = await server.mcp.server.get_tool(tool_name)
+    tool = await server.mcp.get_tool(tool_name)
     result = tool.fn(**kwargs)
     if hasattr(result, "__await__"):
         result = await result

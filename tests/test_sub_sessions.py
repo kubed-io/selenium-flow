@@ -678,7 +678,7 @@ def test_an_acting_call_on_a_session_with_no_browser_opens_nothing():  # WS-78
 
 async def test_every_acting_tool_takes_a_session_and_no_flow_step_does(server):
     tools = {
-        row.name: (await server.mcp.server.get_tool(row.name)).parameters
+        row.name: (await server.mcp.get_tool(row.name)).parameters
         for row in CAPABILITIES
     }
     lacking = [

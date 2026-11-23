@@ -362,7 +362,7 @@ async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
     """
     names = {t.name for t in await data_server.mcp.server.list_tools()}
     assert "delete_file" not in names
-    assert await data_server.mcp.server.get_tool("delete_file") is None
+    assert await data_server.mcp.get_tool("delete_file") is None
     assert "delete" not in files.FILE_ENDPOINTS
 
 
@@ -474,7 +474,7 @@ async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
     """Nothing was stored, so there is no name to carry and no reason to wrap
     the result in anything. Storing is now the default, so this is the caller
     that asked not to."""
-    tool = await live.mcp.server.get_tool("screenshot")
+    tool = await live.mcp.get_tool("screenshot")
     with patch.object(
         live.actions,
         "screenshot",
@@ -495,7 +495,7 @@ async def test_the_tool_saves_by_default_too(live, named_caller):
         asked.update(kwargs)
         return {"image": "", "url": "https://x/", "file": entry}
 
-    tool = await live.mcp.server.get_tool("screenshot")
+    tool = await live.mcp.get_tool("screenshot")
     with patch.object(live.actions, "screenshot", fake):
         result = tool.fn(actions=live.actions)
     assert asked["save"] is True
@@ -506,7 +506,7 @@ async def test_the_tool_saves_by_default_too(live, named_caller):
 async def test_an_mcp_caller_is_told_why_the_file_is_missing(live, named_caller):
     """The HTTP surface returns file_error; a tool caller used to get the image
     and no explanation, and would wait for a name that is never coming."""
-    tool = await live.mcp.server.get_tool("screenshot")
+    tool = await live.mcp.get_tool("screenshot")
     with patch.object(
         live.actions,
         "screenshot",

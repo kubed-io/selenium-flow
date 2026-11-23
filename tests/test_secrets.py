@@ -358,7 +358,7 @@ async def _read(server, uri):
 async def test_the_catalogue_is_a_resource(secret_server):
     uris = {str(r.uri) for r in await secret_server.mcp.server.list_resources()}
     assert secrets.LIST_URI in uris
-    assert await secret_server.mcp.server.get_tool("list_secrets") is None
+    assert await secret_server.mcp.get_tool("list_secrets") is None
 
 
 async def test_listing_secrets_never_returns_a_value(secret_server):
@@ -386,7 +386,7 @@ async def test_nothing_readable_on_this_server_returns_a_secret_value(
 
     # A saved flow that BINDS the secret is the case that matters most: the
     # document names it, and must never carry it.
-    save = await secret_server.mcp.server.get_tool("save_flow")
+    save = await secret_server.mcp.get_tool("save_flow")
     await save.fn(
         name="login",
         steps=[
@@ -1024,7 +1024,7 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
     touched = []
     monkeypatch.setattr(server.workspaces, "_touch", recording(touched))
 
-    write = await server.mcp.server.get_tool("write")
+    write = await server.mcp.get_tool("write")
     result = write.fn(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
@@ -1075,7 +1075,7 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
     touched = []
     monkeypatch.setattr(server.workspaces, "_touch", recording(touched))
 
-    write = await server.mcp.server.get_tool("write")
+    write = await server.mcp.get_tool("write")
     write.fn(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
@@ -1129,7 +1129,7 @@ async def test_a_direct_bound_write_scrubs_every_spelling_it_comes_back_in(
         }
 
     server, touched = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.server.get_tool("write")
+    tool = await server.mcp.get_tool("write")
     result = tool.fn(
         selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
         actions=server.actions,
@@ -1148,7 +1148,7 @@ async def test_a_direct_bound_writes_failure_never_quotes_the_value(
         raise ValueError(f"could not type {text!r} into #p")
 
     server, _ = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.server.get_tool("write")
+    tool = await server.mcp.get_tool("write")
     with pytest.raises(ValueError) as caught:
         tool.fn(
             selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
@@ -1197,7 +1197,7 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         lambda name, url, browser=None, **kw: ({"cause": "lost", "report": report}, None),
     )
 
-    write = await server.mcp.server.get_tool("write")
+    write = await server.mcp.get_tool("write")
     result = write.fn(
         selector={"css": "#password"},
         secret={"name": "nextcloud", "key": "password"},
@@ -1608,7 +1608,7 @@ async def test_a_direct_bound_writes_dead_browser_keeps_its_type_and_status(
         raise InvalidSessionIdException(f"window gone while typing {text!r}")
 
     server, _ = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.server.get_tool("write")
+    tool = await server.mcp.get_tool("write")
     with pytest.raises(InvalidSessionIdException) as caught:
         tool.fn(
             selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
@@ -1629,7 +1629,7 @@ async def test_a_failed_bound_write_keeps_its_status(tmp_path, monkeypatch):
         raise faults.NoSession(f"no session while typing {text!r}")
 
     server, touched = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.server.get_tool("write")
+    tool = await server.mcp.get_tool("write")
     with pytest.raises(faults.NoSession) as caught:
         tool.fn(
             selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
@@ -1684,7 +1684,7 @@ async def test_a_bound_write_marks_the_value_in_its_result(tmp_path, monkeypatch
         }
 
     server, touched = _direct(tmp_path, monkeypatch, write)
-    tool = await server.mcp.server.get_tool("write")
+    tool = await server.mcp.get_tool("write")
     result = tool.fn(
         selector={"css": "#p"}, secret={"name": "nextcloud", "key": "password"},
         actions=server.actions,

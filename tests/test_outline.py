@@ -53,7 +53,7 @@ def test_outline_is_on_both_surfaces():
 
 
 async def test_the_tool_publishes_its_arguments(server):
-    schema = (await server.mcp.server.get_tool("outline")).parameters
+    schema = (await server.mcp.get_tool("outline")).parameters
     assert {"selector", "text", "limit", "interactive"} <= set(schema["properties"])
     assert schema.get("required", []) == []
 
@@ -61,7 +61,7 @@ async def test_the_tool_publishes_its_arguments(server):
 async def test_it_reads_the_page_and_says_so(server):
     """`readOnlyHint` decides whether a client asks the user first. This one
     runs a script, but it is *our* script and it only looks."""
-    tool = await server.mcp.server.get_tool("outline")
+    tool = await server.mcp.get_tool("outline")
     assert tool.annotations.read_only_hint is True
 
 
@@ -128,7 +128,7 @@ async def test_a_flow_cannot_outline_anything(server):
     flow already knows its selectors."""
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):
-        tools[name] = (await server.mcp.server.get_tool(name)).parameters or {}
+        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
 
     document = {
         "description": "Look around",
@@ -144,7 +144,7 @@ async def test_the_step_schema_does_not_offer_it(server):
     runner refuses is how a flow gets written that cannot run."""
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):
-        tools[name] = (await server.mcp.server.get_tool(name)).parameters or {}
+        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
     assert "outline" not in step_schemas(tools)
 
 

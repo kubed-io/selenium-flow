@@ -8,6 +8,7 @@ from kubed.mcp import Inject, QuickMCP
 from kubed.selenium_flow import main as main_module
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
+from kubed.selenium_flow.mcp import tools as tools_module
 from kubed.selenium_flow.mcp.tools import _require_injected_actions
 from kubed.selenium_flow.server import create_app, http_middleware
 
@@ -93,7 +94,7 @@ class Navigating:
 
 
 async def test_an_acting_tool_hides_its_injected_actions_from_the_schema(acting):
-    tool = await acting.mcp.server.get_tool("navigate")
+    tool = await acting.mcp.get_tool("navigate")
     assert "actions" not in tool.parameters["properties"]
 
 
@@ -117,7 +118,7 @@ async def test_the_actions_singleton_is_the_server_s_own(acting):
 
 async def test_an_acting_tool_called_directly_uses_the_actions_it_is_given(acting):
     navigating = Navigating()
-    tool = await acting.mcp.server.get_tool("navigate")
+    tool = await acting.mcp.get_tool("navigate")
     tool.fn(url="https://example.test/direct", actions=navigating)
     assert navigating.sent == [("b1", "https://example.test/direct")]
 
@@ -137,6 +138,21 @@ def test_an_action_with_bare_actions_stops_registration():
 
     with pytest.raises(TypeError, match="navigate: an action takes actions"):
         _require_injected_actions("navigate", navigate)
+
+
+def test_building_the_server_refuses_an_action_whose_actions_is_not_injected(
+    monkeypatch,
+):
+    # Every action's `actions: "Inject[Actions]"` is read in the tools module,
+    # so an `Inject` there that gives a bare `Actions` breaks each declaration:
+    # what an action declared with a plain `actions: Actions` would be.
+    class Bare:
+        def __class_getitem__(cls, item):
+            return item
+
+    monkeypatch.setattr(tools_module, "Inject", Bare)
+    with pytest.raises(TypeError, match="an action takes actions: Inject"):
+        create_app(Settings(grid=GRID))
 
 
 def test_an_action_with_injected_actions_registers_written_either_way():

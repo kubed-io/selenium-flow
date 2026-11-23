@@ -33,7 +33,7 @@ async def test_files_off_is_said_before_an_unnamed_caller_is_told_to_name_itself
     monkeypatch, tmp_path
 ):
     server = server_for(monkeypatch, tmp_path, files_on=False)
-    keep = await server.mcp.server.get_tool(files.KEEP_TOOL)
+    keep = await server.mcp.get_tool(files.KEEP_TOOL)
     with pytest.raises(ValueError, match="DATA_DIR"):
         keep.fn(uri="workspace://files/a.txt")
     with pytest.raises(Exception, match="DATA_DIR"):  # a resource wraps it
@@ -59,6 +59,6 @@ async def test_keep_file_answers_in_its_order_for_an_unnamed_caller(
     monkeypatch, tmp_path, refusal, uri
 ):
     server = server_for(monkeypatch, tmp_path, files_on=True)
-    keep = await server.mcp.server.get_tool(files.KEEP_TOOL)
+    keep = await server.mcp.get_tool(files.KEEP_TOOL)
     with pytest.raises(ValueError, match=refusal):
         keep.fn(uri=uri)

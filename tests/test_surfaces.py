@@ -152,7 +152,7 @@ async def test_tools_declare_real_parameter_schemas(server):
     which silently dropped every argument. Typed schemas are the reason this
     server exists, so assert the parameters are actually published.
     """
-    click = await server.mcp.server.get_tool("interact")
+    click = await server.mcp.get_tool("interact")
     props = click.parameters["properties"]
     assert {"selector", "url", "wait_timeout"} <= set(props)
     assert "session_id" not in props, "the Grid's id is never a parameter"
@@ -166,7 +166,7 @@ async def test_tools_declare_real_parameter_schemas(server):
 
 
 async def test_open_session_takes_headless_as_an_optional_boolean(server):
-    opened = await server.mcp.server.get_tool("open_session")
+    opened = await server.mcp.get_tool("open_session")
     assert opened.parameters["properties"]["headless"]["anyOf"] == [
         {"type": "boolean"}, {"type": "null"},
     ]
@@ -226,7 +226,7 @@ async def test_only_reading_the_page_is_marked_read_only(server, monkeypatch, re
     assert read_only == {
         "extract", "outline", "network_body", "await_control"
     }, "only these read the page"
-    tool = await server.mcp.server.get_tool("await_control")
+    tool = await server.mcp.get_tool("await_control")
     assert tool.annotations.destructive_hint is False
 
 
@@ -250,7 +250,7 @@ async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypa
     """
     from .conftest import NAMED, calling_as
 
-    resize = (await server.mcp.server.get_tool("resize")).fn
+    resize = (await server.mcp.get_tool("resize")).fn
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     monkeypatch.setattr(
@@ -323,7 +323,7 @@ async def test_network_body_is_callable_by_the_app_and_listed_to_the_model(serve
 
 async def test_network_body_publishes_its_ids_limits(server):
     """Type hints are the schema: an id is 1 to 64 characters."""
-    tool = await server.mcp.server.get_tool("network_body")
+    tool = await server.mcp.get_tool("network_body")
     assert tool.parameters["properties"]["id"] | {"type": "string"} == {
         "type": "string", "minLength": 1, "maxLength": 64}
 
@@ -336,7 +336,7 @@ async def test_open_session_takes_version_and_raw_capabilities(server, monkeypat
 
     from .conftest import NAMED, calling_as
 
-    tool = await server.mcp.server.get_tool("open_session")
+    tool = await server.mcp.get_tool("open_session")
     props = tool.parameters["properties"]
     assert {"version", "capabilities"} <= set(props)
     assert "string" in json.dumps(props["version"])

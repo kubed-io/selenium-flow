@@ -121,7 +121,7 @@ async def test_a_caller_that_stops_waiting_stops_the_run(slow_server):
     thread: the flow drove the browser to the end for nobody."""
     slow_server.pause = 0.3
     slow_server.flows.save(NAMED, "three", {"steps": STEPS})
-    tool = await slow_server.mcp.server.get_tool(flowapi.RUN_TOOL)
+    tool = await slow_server.mcp.get_tool(flowapi.RUN_TOOL)
 
     with anyio.move_on_after(0.1):
         await tool.fn(name="three")
@@ -196,7 +196,7 @@ async def test_a_budget_that_is_not_seconds_is_refused_at_save(
         )
     )
     calling_as(monkeypatch, NAMED)
-    tool = await server.mcp.server.get_tool(flowapi.SAVE_TOOL)
+    tool = await server.mcp.get_tool(flowapi.SAVE_TOOL)
     with pytest.raises(ValueError, match="timeout must be a whole number of seconds"):
         await tool.fn(name="bad", steps=STEPS[:1], timeout=given)
 
@@ -210,7 +210,7 @@ def test_a_hand_edited_bad_budget_is_refused_before_step_one():
 
 
 async def test_a_saved_budget_survives_the_round_trip(slow_server, monkeypatch):
-    tool = await slow_server.mcp.server.get_tool(flowapi.SAVE_TOOL)
+    tool = await slow_server.mcp.get_tool(flowapi.SAVE_TOOL)
     calling_as(monkeypatch, NAMED)
     await tool.fn(name="patient", steps=STEPS[:1], timeout=900)
     assert slow_server.flows.get(NAMED, "patient")["timeout"] == 900
@@ -237,7 +237,7 @@ async def test_a_budget_given_as_text_is_stored_as_the_number_it_means(
     """Coerced on the way in, so it must be kept as what it was coerced to — a
     read would otherwise hand back a string where the schema promises an
     integer (Copilot, #37)."""
-    tool = await slow_server.mcp.server.get_tool(flowapi.SAVE_TOOL)
+    tool = await slow_server.mcp.get_tool(flowapi.SAVE_TOOL)
     calling_as(monkeypatch, NAMED)
     saved = await tool.fn(name="patient", steps=STEPS[:1], timeout="900")
     assert saved["timeout"] == 900

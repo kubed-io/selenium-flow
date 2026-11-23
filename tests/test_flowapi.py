@@ -48,7 +48,7 @@ def store(flow_server):
 async def call(server, tool_name, /, **kwargs):
     """Call a tool by name. Positional-only, because `name` is also a *tool's*
     argument and the obvious signature collides with it."""
-    tool = await server.mcp.server.get_tool(tool_name)
+    tool = await server.mcp.get_tool(tool_name)
     result = tool.fn(**kwargs)
     if hasattr(result, "__await__"):
         result = await result
@@ -129,7 +129,7 @@ async def test_the_save_tool_takes_exactly_the_document_keys(flow_server):
     not a key one surface silently cannot say."""
     from kubed.selenium_flow.flows import document as flowdoc
 
-    tool = await flow_server.mcp.server.get_tool(flowapi.SAVE_TOOL)
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
     assert set(tool.parameters["properties"]) == {"name", *flowdoc.DOCUMENT_KEYS}
     schema = await flowapi._document_schema(flowapi.Schemas(flow_server.mcp))
     assert set(schema["properties"]) == {"name", *flowdoc.DOCUMENT_KEYS}
@@ -138,7 +138,7 @@ async def test_the_save_tool_takes_exactly_the_document_keys(flow_server):
 async def test_the_save_tool_says_what_parameters_looks_like(flow_server):
     """#118: `parameters` was published as "any object", so a model learned its
     shape from refusals. Its schema says it, and so does flow://schema."""
-    tool = await flow_server.mcp.server.get_tool(flowapi.SAVE_TOOL)
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
     parameters = tool.parameters["properties"]["parameters"]
     assert "properties" in parameters["description"]
     assert parameters["examples"][0]["properties"]
@@ -308,7 +308,7 @@ async def test_the_write_tool_prompts_do_not_lie_to_a_stdio_caller(flow_server):
     send, in order to obtain a library it already has — and stdio is named by
     its transport, so the advice was wrong as well as impossible."""
     for name in (flowapi.SAVE_TOOL, flowapi.DELETE_TOOL):
-        description = (await flow_server.mcp.server.get_tool(name)).description
+        description = (await flow_server.mcp.get_tool(name)).description
         assert "?workspace=" not in description, f"{name} tells stdio to name itself"
 
 
@@ -785,14 +785,14 @@ async def test_a_saved_flow_lists_its_keys_in_document_order(flow_server, store)
 async def test_save_flow_describes_both_places_for_the_model(flow_server):
     from kubed.selenium_flow.flows import places
 
-    tool = await flow_server.mcp.server.get_tool(flowapi.SAVE_TOOL)
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
     properties = tool.parameters["properties"]
     assert properties["sites"]["description"] == places.SITES_DESCRIPTION
     assert properties["paths"]["description"] == places.PATHS_DESCRIPTION
 
 
 async def test_save_flow_says_a_placeless_flow_is_never_named(flow_server):  # ruling 5
-    tool = await flow_server.mcp.server.get_tool(flowapi.SAVE_TOOL)
+    tool = await flow_server.mcp.get_tool(flowapi.SAVE_TOOL)
     assert "a flow with neither is never named" in tool.description
 
 

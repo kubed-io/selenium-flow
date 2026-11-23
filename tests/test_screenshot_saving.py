@@ -481,14 +481,14 @@ def test_the_image_block_keeps_every_optional_field_screenshot_publishes():
 async def test_the_tools_tell_the_agent_to_hand_over_the_link(server):
     """A hint the model reads while deciding, not after."""
     for name in ("screenshot", "print"):
-        description = (await server.mcp.server.get_tool(name)).description or ""
+        description = (await server.mcp.get_tool(name)).description or ""
         assert "the file's url" in description, f"{name} does not mention the link"
 
 
 async def test_the_prompt_does_not_promise_a_file_that_may_not_exist(server):
     """`save=false` and a failed save both mean there is no file, and a model
     told otherwise will hand a person a name that does not exist."""
-    description = (await server.mcp.server.get_tool("screenshot")).description or ""
+    description = (await server.mcp.get_tool("screenshot")).description or ""
     assert "By default" in description
     assert "file_error" in description
 
@@ -497,7 +497,7 @@ async def test_the_prompt_does_not_promise_a_signature_auth_off_cannot_give(serv
     """With AUTH_TOKEN unset there is nothing to sign with, and links.py
     emits the plain path deliberately."""
     for name in ("screenshot", "print"):
-        description = (await server.mcp.server.get_tool(name)).description or ""
+        description = (await server.mcp.get_tool(name)).description or ""
         assert "signed" not in description or "when this server has a token" in description
 
 

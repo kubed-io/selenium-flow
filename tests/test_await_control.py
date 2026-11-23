@@ -728,7 +728,7 @@ async def test_the_long_poll_answers_at_the_cap(server, monkeypatch):
 async def test_it_is_not_a_flow_step(server):
     tools = {}
     for name in sorted(set(ENDPOINTS.values())):
-        tools[name] = (await server.mcp.server.get_tool(name)).parameters or {}
+        tools[name] = (await server.mcp.get_tool(name)).parameters or {}
     document = {"description": "Wait", "steps": [{"tool": "await_control"}]}
     with pytest.raises(InvalidFlow, match="await_control is not a step") as refused:
         validate(document, step_schemas(tools))

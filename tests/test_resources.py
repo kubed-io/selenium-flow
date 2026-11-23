@@ -95,7 +95,7 @@ async def test_the_old_per_resource_tools_are_gone(reader, monkeypatch):
         "flow_schema", "list_secrets",
     ):
         assert gone not in names
-        assert await reader.mcp.server.get_tool(gone) is None, gone
+        assert await reader.mcp.get_tool(gone) is None, gone
 
 
 # ---- what the tools read -----------------------------------------------------
@@ -290,7 +290,7 @@ async def test_a_flow_that_is_not_there_says_where_the_flows_are(reader):
 async def test_the_listing_publishes_both_row_shapes(reader):
     """A tool-only client learns from the output schema which rows have a uri
     and which a uri_template (Copilot, #39)."""
-    tool = await reader.mcp.server.get_tool(mirror.LIST_TOOL)
+    tool = await reader.mcp.get_tool(mirror.LIST_TOOL)
     schema = json.dumps(tool.output_schema)
     assert "uri_template" in schema and "mime_type" in schema
 

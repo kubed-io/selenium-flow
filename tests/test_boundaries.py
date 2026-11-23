@@ -388,6 +388,55 @@ def test_only_the_bidi_client_holds_a_socket():
     assert websockets_importers() == {WEBSOCKETS_HOME}
 
 
+# ---- the MCP libraries come through the facade (PROT-41) -------------------------
+
+# kubed-mcp owns the FastMCP pin, so every FastMCP and MCP SDK name reaches the
+# package through `kubed.mcp`. Blocking at import (above) cannot see this: the
+# facade imports them itself, so the source is read instead.
+FACADED = ("fastmcp", "mcp", "mcp_types", "fastmcp_tasks")
+
+
+def facaded_imports(source: str) -> list[str]:
+    """Each FastMCP or MCP SDK module ``source`` imports directly, lazy ones too."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and not node.level:
+            names = [node.module or ""]
+        else:
+            continue
+        found += [n for n in names if n.split(".")[0] in FACADED]
+    return found
+
+
+def test_the_package_imports_the_mcp_libraries_only_through_the_facade():
+    found = {
+        path.relative_to(PACKAGE).as_posix(): imports
+        for path in sorted(PACKAGE.rglob("*.py"))
+        if (imports := facaded_imports(path.read_text()))
+    }
+    assert not found, f"import these through kubed.mcp: {found}"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from fastmcp import FastMCP",
+        "import mcp.types",
+        "def lazy():\n    from mcp_types import Tool",
+        "import fastmcp_tasks as t",
+    ],
+)
+def test_the_facade_check_has_teeth(source):
+    assert facaded_imports(source)
+
+
+def test_the_facade_check_leaves_kubed_mcp_and_relative_imports_alone():
+    source = "from kubed.mcp import QuickMCP\nfrom .mcp import tools\nimport kubed.mcp"
+    assert facaded_imports(source) == []
+
+
 def test_only_the_spare_tab_adds_an_intercept():
     """An intercept outlives the connection that added it and hangs every request
     it matches with nobody to answer (plan ruling 2): one module may add one.

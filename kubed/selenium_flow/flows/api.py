@@ -308,7 +308,7 @@ class Schemas:
             tools = {}
             for name in sorted(set(ENDPOINTS.values())):
                 # FastMCP's own: QuickMCP does not pass it through.
-                tool = await self.mcp.server.get_tool(name)
+                tool = await self.mcp.get_tool(name)
                 tools[name] = tool.parameters or {}
             self._cache = flowdoc.step_schemas(tools)
         return self._cache

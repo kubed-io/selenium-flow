@@ -125,9 +125,8 @@ async def build_spec(
     browser_root = f"{prefix}/browser"
     # get_tool, never list_tools: a listing is shaped for whoever is asking.
     # Not guarded: an action in the route table with no tool is a broken build.
-    # FastMCP's own, through `mcp.server`: QuickMCP does not pass it through.
     tools = {
-        action: await mcp.server.get_tool(action)
+        action: await mcp.get_tool(action)
         for action in set(endpoints.values())
     }
 
@@ -218,7 +217,7 @@ async def build_spec(
             continue
         action = row.name
         summary = RESOURCE_SUMMARIES[action]
-        tool = await mcp.server.get_tool(action)
+        tool = await mcp.get_tool(action)
         request_name = f"{_camel(action)}Request"
         response_name = f"{_camel(action)}Response"
         request, nested = _hoisted(copy.deepcopy(tool.parameters))

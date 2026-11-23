@@ -23,7 +23,7 @@ from collections.abc import Callable
 from typing import Annotated, Literal, get_args, get_origin, get_type_hints
 
 import anyio
-from kubed.mcp import Context, Image, Inject, QuickMCP, ToolResult, lookup
+from kubed.mcp import Context, Depends, Image, Inject, QuickMCP, ToolResult
 from kubed.mcp.protocol import AppConfig
 from pydantic import (
     BaseModel,
@@ -192,12 +192,18 @@ def _forwarding(body: Callable[[dict], object]):
     return wrap
 
 
+# What the facade's ``Depends`` makes, so a parameter's metadata can be told to be
+# a dependency without naming the class behind it.
+_DEPENDENCY = type(Depends(lambda: None))
+
+
 def _require_injected_actions(name: str, declaration) -> None:
     """Refuse an action declared without ``actions: Inject[Actions]``.
 
     ``act`` takes the Actions the container hands the tool: one declared without
     the parameter would register and then fail on every call, and a bare
-    ``actions: Actions`` would put the parameter in the tool's schema.
+    ``actions: Actions`` would put the parameter in the tool's schema. Which
+    instance it gets is the container's (``singleton``), tested through a call.
     """
     hint = None
     if "actions" in inspect.signature(declaration).parameters:
@@ -205,10 +211,7 @@ def _require_injected_actions(name: str, declaration) -> None:
     injected = (
         get_origin(hint) is Annotated
         and get_args(hint)[0] is Actions
-        and any(
-            getattr(meta, "factory", None) is lookup(Actions)
-            for meta in hint.__metadata__
-        )
+        and any(isinstance(meta, _DEPENDENCY) for meta in hint.__metadata__)
     )
     if not injected:
         raise TypeError(f"{name}: an action takes actions: Inject[Actions]")
