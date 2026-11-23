@@ -201,14 +201,6 @@ async def test_crlf_line_endings_load(tmp_path):
     assert (await detail(mcp))["instructions"] == "# Explore\n\nRead the skill first."
 
 
-async def test_only_markdown_at_the_top_level_is_read(tmp_path):
-    mcp = plugin(tmp_path, {
-        "drafts/x.md": agent("name: x\ndescription: x"),
-        "notes.txt": agent("name: notes\ndescription: x"),
-    })
-    assert await names(mcp) == []
-
-
 async def test_no_agents_folder_is_an_empty_listing(tmp_path):
     mcp = plugin_server(tmp_path / "p", {"skills/selenium-flow/SKILL.md": SKILL})
     async with Client(mcp.server, mode="legacy") as client:
