@@ -57,12 +57,6 @@ request carried both: drop one. Retrying unchanged does not help.
 
 Call `open_session` once, then carry on.
 
-## Signed in before, signed out now
-
-A new browser starts empty unless you saved site data. Sign in, confirm it, then
-`save_site_data()`. Saved and still signed out means the site ended its own
-session (SITE_DATA.md).
-
 ## A result says `reopened`
 
 The Grid replaced the browser. It is back on the same page with the same settings

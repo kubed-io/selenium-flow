@@ -86,17 +86,6 @@ resize the window first and leave it that size. Prefer one element to a full
 page.
 
 The screenshot is kept in the workspace's files, and the result's `file` has its
-link. A person cannot see your tool results, so give them the `url`, or
-`![](url)`; it opens without a token. A server with no public address returns a
-relative link: put the address you reached the server on in front of it. A
+link; FILES.md says which link to give a person. A
 second `screenshot.png` is kept as `screenshot (1).png`, so use the name the
 result gives. Over HTTP, a `bytes` value near zero means a blank capture.
-
-## Prints
-
-```
-print(format="pdf", background=true, filename="invoice")
-→ file: {name: "invoice.pdf", url: "https://…/kept/…?exp=…&sig=…"}
-```
-
-`print` keeps the file in Files and returns its link, with no image for you.
