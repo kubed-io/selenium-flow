@@ -89,7 +89,7 @@ def test_a_reference_file_name_is_unique_across_the_skills():
 def test_guidance_names_the_skill_that_ships_each_page():
     from kubed.selenium_flow.core import guidance
 
-    assert set(guidance.SKILLS) == set(SKILLS)
+    assert set(guidance.PAGES.values()) <= set(SKILLS)
     for page, name in guidance.PAGES.items():
         assert (SKILLS_DIR / name / "references" / page).is_file(), page
 
@@ -211,18 +211,32 @@ def test_the_admin_skill_states_its_rules():
     text = re.sub(
         r"\s+", " ", (SKILLS_DIR / "using-the-admin-ui/references/AGENT_AS_ADMIN.md").read_text()
     )
-    for rule in ("Ask the person first", "save_site_data", "execute_script", "take control", "confirm"):
-        assert rule in text, rule
+    rules = text.split("## The rules", 1)[1].split("## ", 1)[0]
+    for rule in (
+        "1. Ask the person first, and show them the change",
+        "2. Never `save_site_data` on the admin page.",
+        "3. Never `execute_script` there,",
+        "4. Never take control in Live.",
+        "5. Take a destructive action (End, End all, Delete, Clear, Forget, Move) only when the person has named its target, and click its confirm yourself.",
+        "6. Stay out of other workspaces' Site data and Network detail.",
+    ):
+        assert rule in rules, rule
 
 
 # ---- every address a reader is given reads ---------------------------------
 
 
 def addresses() -> list[tuple[str, str]]:
-    """Every `skill://selenium-flow/…` address in the server, the plugin, the
-    docs an agent reads and the golden files, with where it was found."""
+    """Every `skill://selenium-flow/…` address the server computes (the entry
+    point and every page a pointer can name), and every one named literally in
+    the plugin, the docs an agent reads and the golden files, with where it was
+    found."""
+    from kubed.selenium_flow.core import guidance
+
+    computed = {("guidance.ENTRY", guidance.ENTRY)} | {
+        (f"guidance.pointer({page!r})", guidance.pointer(page)) for page in guidance.PAGES
+    }
     files = [
-        *(REPO / "kubed").rglob("*.py"),
         *(REPO / "plugin").rglob("*.md"),
         REPO / "README.md",
         REPO / "AGENTS.md",
@@ -235,7 +249,7 @@ def addresses() -> list[tuple[str, str]]:
             # A template (`<skill>`, `{skill}`) or a bare prefix names no file.
             if address.endswith((".md", MANIFEST)) and "<" not in address and "{" not in address:
                 found.add((path.relative_to(REPO).as_posix(), address))
-    return sorted(found)
+    return sorted(found | computed)
 
 
 def test_there_are_addresses_to_check():

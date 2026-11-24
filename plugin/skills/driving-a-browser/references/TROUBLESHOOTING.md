@@ -57,6 +57,14 @@ request carried both: drop one. Retrying unchanged does not help.
 
 Call `open_session` once, then carry on.
 
+## "this workspace's config is invalid"
+
+Every call that names the workspace is refused, `workspace://current` included,
+until an admin fixes its `workspace.yaml`. Do not retry. Tell the person the
+reason and the link the refusal gives, and offer the corrected YAML:
+`skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md`,
+*Managing a workspace*.
+
 ## A result says `reopened`
 
 The Grid replaced the browser. It is back on the same page with the same settings

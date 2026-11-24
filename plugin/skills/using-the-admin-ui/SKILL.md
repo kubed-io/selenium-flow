@@ -6,7 +6,8 @@ description: Use when a person asks about selenium-flow's admin page or wants ad
 # Using the admin page
 
 The admin page is selenium-flow's web page for people: a person signs in there
-to watch and tidy what agents do. An agent never needs it for its own task.
+to watch and tidy what agents do. An agent needs it for its own task only when
+its workspace's config is refused.
 
 | When | Read |
 |---|---|
@@ -22,4 +23,6 @@ are not optional.
 Crossing over: a secret or a server setting changes on the server, never on the
 page, `skill://selenium-flow/deploying-the-server/SKILL.md`. Your own refused
 call while a person holds the browser is
-`skill://selenium-flow/driving-a-browser/references/CONTROL.md`.
+`skill://selenium-flow/driving-a-browser/references/CONTROL.md`. The tools and
+the rules for driving the browser are
+`skill://selenium-flow/driving-a-browser/SKILL.md`.

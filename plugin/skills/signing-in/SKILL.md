@@ -20,4 +20,6 @@ Crossing over: a sign-in worth repeating is a flow,
 for you by taking over the browser,
 `skill://selenium-flow/driving-a-browser/references/CONTROL.md`. Adding a secret
 or changing where it may be typed is the operator's,
-`skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md`.
+`skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md`. The
+tools and the rules for driving the browser are
+`skill://selenium-flow/driving-a-browser/SKILL.md`.

@@ -199,7 +199,6 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
     from mcp.types import Implementation
 
     from kubed.selenium_flow.config import Settings
-    from kubed.selenium_flow.core import guidance
     from kubed.selenium_flow.server import SeleniumMCP
 
     server = SeleniumMCP(
@@ -227,8 +226,13 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
             for resource in await c.list_resources():
                 texts[f"resource {resource.uri}"] = resource.description or ""
             # The listing names each SKILL.md alone; its manifest names the rest.
-            for name in guidance.SKILLS:
-                root = guidance.root(name)
+            skills = [
+                str(r.uri).removesuffix("/SKILL.md")
+                for r in await c.list_resources()
+                if str(r.uri).startswith("skill://")
+            ]
+            assert len(skills) == 5, skills
+            for root in skills:
                 manifest = json.loads((await c.read_resource(f"{root}/_manifest"))[0].text)
                 for f in manifest["files"]:
                     uri = f"{root}/{f['path']}"

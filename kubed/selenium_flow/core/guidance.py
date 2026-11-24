@@ -5,19 +5,10 @@ from __future__ import annotations
 
 from ..names import SERVER_NAME
 
-# The skills the plugin ships. The server's name is the namespace every one of
-# them sits under: skill://<SERVER_NAME>/<skill>/SKILL.md.
-SKILLS = (
-    "driving-a-browser",
-    "building-flows",
-    "signing-in",
-    "using-the-admin-ui",
-    "deploying-the-server",
-)
-
 
 def root(skill: str) -> str:
-    """The URI a skill's files sit under."""
+    """The URI a skill's files sit under: the server's name is the namespace
+    every skill it serves sits under, skill://<SERVER_NAME>/<skill>."""
     return f"skill://{SERVER_NAME}/{skill}"
 
 

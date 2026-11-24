@@ -2,8 +2,10 @@
 
 The Live tab shows a session's browser screen as it is now. A person watches an
 agent work there, and takes the browser over to sign in, solve a captcha or fix
-something by hand. Only a person in this tab can hold a browser: no tool, route
-or flow takes control, so an agent can never take it, only wait for it.
+something by hand. Only a person in this tab holds a browser: no tool, route or
+flow takes control. An agent driving this page in its own browser could click
+**Control**, and AGENT_AS_ADMIN.md forbids it; an agent waits for control with
+`await_control`.
 
 ## Opening it
 

@@ -50,9 +50,10 @@ Open the one row that matches.
 | Naming or sharing a workspace, a second browser or a subagent's session, a `reopened` result, browser version, headless | `skill://selenium-flow/driving-a-browser/references/WORKSPACES.md` |
 | A call refused because a person holds the browser, a `control` field on a result | `skill://selenium-flow/driving-a-browser/references/CONTROL.md` |
 | Reading a page, choosing a selector, `outline` entries, screenshots | `skill://selenium-flow/driving-a-browser/references/READING_PAGES.md` |
-| Hover menus, dragging, typing, keys, iframes, tabs, dialogs, scrolling | `skill://selenium-flow/driving-a-browser/references/INTERACTION.md` |
+| A whole task end to end; hover menus, dragging, typing, keys, iframes, tabs, dialogs, scrolling | `skill://selenium-flow/driving-a-browser/references/INTERACTION.md` |
 | A download, keeping a file, a link to give a person, a print, a recording, an upload | `skill://selenium-flow/driving-a-browser/references/FILES.md` |
 | A timeout, an error, a click or hover that did nothing, a `page` hint, a blank screenshot, an `open_session` that fails | `skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md` |
+| Every call refused: `this workspace's config is invalid` | `skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md`, *Managing a workspace* |
 | Every resource URI and what it holds, and how to read one | `skill://selenium-flow/driving-a-browser/references/RESOURCES.md` |
 | `flows_here` on a result, steps worth saving, a failed flow run | `skill://selenium-flow/building-flows/SKILL.md` |
 | A password or token to type, a refused secret, staying signed in, signed out after a save | `skill://selenium-flow/signing-in/SKILL.md` |
