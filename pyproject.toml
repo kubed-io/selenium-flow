@@ -24,8 +24,8 @@ classifiers = [
   "Topic :: Internet :: WWW/HTTP :: Browsers",
   "Typing :: Typed",
 ]
-authors = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
-maintainers = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
+authors = [{ name = "kubed-io" }]
+maintainers = [{ name = "kubed-io" }]
 dependencies = [
   # The platform this server shares with mcp-kb (kubed.mcp, a namespace package
   # beside kubed.selenium_flow). Every FastMCP name comes through its facade, and
