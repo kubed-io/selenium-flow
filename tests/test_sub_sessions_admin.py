@@ -85,7 +85,7 @@ def server():
 
 @pytest.fixture
 def client(server):
-    return TestClient(server.mcp.http_app(), headers=AUTH)
+    return TestClient(server.mcp.server.http_app(), headers=AUTH)
 
 
 def rows(client):

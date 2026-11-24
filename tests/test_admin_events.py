@@ -183,7 +183,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
     monkeypatch.setattr(server.actions.grid, "status", status)
     server.workspaces.store.set("one", Workspace(session_id=""))
 
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
     stop = asyncio.Event()
     sinks = [[], [], []]
     tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
@@ -228,7 +228,7 @@ async def test_nothing_polls_once_the_last_page_has_gone(
     server, counted, under_way, monkeypatch
 ):
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
     stop = asyncio.Event()
     sinks = [[], []]
     tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
@@ -259,7 +259,7 @@ async def test_a_page_joining_mid_tick_is_sent_each_state_once(
     monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
     gate, entered = gated
     server.workspaces.store.set("one", Workspace(session_id=""))
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
     stop = asyncio.Event()
     first, second, third = [], [], []
     tasks = [asyncio.create_task(_listen(app, first, stop))]
@@ -300,7 +300,7 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
     monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
     monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
     server.workspaces.store.set("one", Workspace(session_id="abc"))
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
     stop = asyncio.Event()
     sink = []
     task = asyncio.create_task(_listen(app, sink, stop))
@@ -347,7 +347,7 @@ async def test_a_failed_tick_sends_nothing_and_the_stream_carries_on(
         return real(key)
 
     monkeypatch.setattr(admin, "owner_label", owner_label)
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
     stop = asyncio.Event()
     sink = []
     task = asyncio.create_task(_listen(app, sink, stop))
@@ -368,7 +368,7 @@ async def test_a_page_that_drops_mid_send_leaves_at_once(
     import gc
 
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
     gone = asyncio.Event()
     never = asyncio.Event()
 
@@ -417,7 +417,7 @@ async def test_a_forget_with_a_page_open_is_in_the_next_listing(
         "one",
         Workspace(session_id="").visited("https://app.example.com/").with_site_data(jar),
     )
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
     stop = asyncio.Event()
     sink = []
     task = asyncio.create_task(_listen(app, sink, stop))

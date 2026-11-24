@@ -434,8 +434,7 @@ FLOW_SCHEMAS = {
                 "type": "object",
                 "description": (
                     "On a failed run: where to read about this kind of failure "
-                    "and which prompt repairs it. `read` is absent when the "
-                    "skill is not being served."
+                    "and which prompt repairs it."
                 ),
                 "properties": {
                     "read": {

@@ -31,12 +31,12 @@ def reader(data_server, monkeypatch):
 
 
 async def listed(server, name="a spec-complete client"):
-    async with Client(server.mcp, client_info=Implementation(name=name, version="1")) as c:
+    async with Client(server.mcp.server, client_info=Implementation(name=name, version="1")) as c:
         return {tool.name for tool in await c.list_tools()}
 
 
 async def read(server, uri):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         return await c.call_tool(mirror.READ_TOOL, {"uri": uri})
 
 
@@ -102,11 +102,11 @@ async def test_the_old_per_resource_tools_are_gone(reader, monkeypatch):
 
 
 async def test_the_listing_is_every_uri_to_read_and_nothing_to_draw(built_ui, reader):
-    async with Client(reader.mcp) as c:
+    async with Client(reader.mcp.server) as c:
         rows = (await c.call_tool(mirror.LIST_TOOL, {})).structured_content["result"]
     uris = {row.get("uri") or row.get("uri_template") for row in rows}
     assert RESOURCE_URI in uris
-    assert "skill://selenium-flow/SKILL.md" in uris
+    assert "skill://selenium-flow/selenium-flow/SKILL.md" in uris
     assert "flow://flows/{name}" in uris
     assert not any(u.startswith("ui://") for u in uris), "the app shell is not reading"
 
@@ -115,7 +115,7 @@ async def test_a_resource_reads_the_same_through_the_tool(reader):
     reader.flows.save(NAMED, "login", {"steps": [{"tool": "navigate", "args": {"url": "u"}}]})
     got = json.loads((await read(reader, "flow://flows/login")).content[0].text)
     assert got["name"] == "login" and got["steps"]
-    skill = (await read(reader, "skill://selenium-flow/SKILL.md")).content[0].text
+    skill = (await read(reader, "skill://selenium-flow/selenium-flow/SKILL.md")).content[0].text
     assert "name: selenium-flow" in skill
 
 
@@ -160,14 +160,14 @@ async def test_any_other_binary_is_described_not_dumped(reader):
 
 async def test_both_tools_only_read(reader, monkeypatch):
     monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "off"}))
-    async with Client(reader.mcp) as c:
+    async with Client(reader.mcp.server) as c:
         tools = {t.name: t for t in await c.list_tools()}
     for name in mirror.MIRROR_TOOLS:
         assert tools[name].annotations.read_only_hint is True, name
 
 
 async def test_the_status_resource_is_always_offered(server):
-    uris = {str(r.uri) for r in await server.mcp.list_resources()}
+    uris = {str(r.uri) for r in await server.mcp.server.list_resources()}
     assert RESOURCE_URI in uris
 
 
@@ -187,7 +187,7 @@ def unnamed(monkeypatch):
 async def test_no_tool_advertises_a_session_id(server, monkeypatch):
     """A model cannot pass what it cannot see, which is the point."""
     named(monkeypatch)
-    tools = {t.name: t for t in await server.mcp.list_tools()}
+    tools = {t.name: t for t in await server.mcp.server.list_tools()}
     for name in ("navigate", "extract", "interact", "end_browser"):
         assert "session_id" not in tools[name].parameters["properties"], name
 
@@ -195,9 +195,9 @@ async def test_no_tool_advertises_a_session_id(server, monkeypatch):
 async def test_open_session_is_the_same_named_or_not(server, monkeypatch):
     """It has no session_id to shape, whoever calls it."""
     named(monkeypatch)
-    a = {t.name: t for t in await server.mcp.list_tools()}["open_session"].parameters
+    a = {t.name: t for t in await server.mcp.server.list_tools()}["open_session"].parameters
     unnamed(monkeypatch)
-    b = {t.name: t for t in await server.mcp.list_tools()}["open_session"].parameters
+    b = {t.name: t for t in await server.mcp.server.list_tools()}["open_session"].parameters
     assert a == b
     assert "session_id" not in a["properties"]
 
@@ -216,7 +216,7 @@ async def test_a_person_picking_a_flow_is_offered_the_names_they_can_read(reader
     for name in ("login", "logout", "checkout"):
         reader.flows.save(NAMED, name, {"steps": [{"tool": "navigate", "args": {"url": "u"}}]})
     reader.flows.save("someone-else", "log-secret", {"steps": [{"tool": "navigate", "args": {"url": "u"}}]})
-    async with Client(reader.mcp) as c:
+    async with Client(reader.mcp.server) as c:
         template = await c.complete(
             ResourceTemplateReference(type="ref/resource", uri="flow://flows/{name}"),
             {"name": "name", "value": "log"},
@@ -230,7 +230,7 @@ async def test_a_person_picking_a_flow_is_offered_the_names_they_can_read(reader
 
 
 async def test_resources_are_named_for_a_person_to_read(reader):
-    names = {str(r.uri): r.name for r in await reader.mcp.list_resources()}
+    names = {str(r.uri): r.name for r in await reader.mcp.server.list_resources()}
     assert names["flow://flows"] == "Saved Flows"
     assert names[RESOURCE_URI] == "Current Workspace"
     assert not any(n.endswith("_resource") for n in names.values())
@@ -242,7 +242,7 @@ async def test_a_person_picking_a_file_is_offered_their_own_files(reader):
     reader.flows.write_file(NAMED, "report.pdf", b"%PDF")
     reader.flows.write_file(NAMED, "shot.png", b"png")
     reader.flows.write_file("someone-else", "report-secret.pdf", b"%PDF")
-    async with Client(reader.mcp) as c:
+    async with Client(reader.mcp.server) as c:
         offered = await c.complete(
             ResourceTemplateReference(type="ref/resource", uri="workspace://files/{name}"),
             {"name": "name", "value": "rep"},
@@ -255,7 +255,7 @@ DOWNLOAD = ResourceTemplateReference(type="ref/resource", uri="session://downloa
 
 async def test_download_names_complete_to_nothing_with_no_session(reader):  # Review Focus 5
     reader.workspaces.browser = lambda name: ""
-    async with Client(reader.mcp) as c:
+    async with Client(reader.mcp.server) as c:
         offered = await c.complete(DOWNLOAD, {"name": "name", "value": ""})
     assert offered.values == []
 
@@ -263,7 +263,7 @@ async def test_download_names_complete_to_nothing_with_no_session(reader):  # Re
 async def test_download_names_complete_from_the_open_browser(reader):
     reader.workspaces.browser = lambda name: "abc"
     reader.actions.grid.files = lambda session: [{"name": "export.csv", "size": 1}]
-    async with Client(reader.mcp) as c:
+    async with Client(reader.mcp.server) as c:
         offered = await c.complete(DOWNLOAD, {"name": "name", "value": "exp"})
     assert offered.values == ["export.csv"]
 
@@ -306,7 +306,7 @@ async def test_the_mirror_refuses_an_old_uri_naming_the_new_one(reader):
 
 
 async def read_part(server, part):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         result = await c.read_resource(f"{RESOURCE_URI}/{part}")
     return json.loads(result[0].text)
 
@@ -326,7 +326,7 @@ async def test_a_key_the_context_leaves_out_answers_null(reader):
 
 
 async def read_whole(server):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         return json.loads((await c.read_resource(RESOURCE_URI))[0].text)
 
 
@@ -346,7 +346,7 @@ async def test_a_part_the_context_cannot_carry_is_refused_with_the_keys(reader):
 
 
 async def test_the_part_template_is_listed_beside_the_whole(reader):
-    async with Client(reader.mcp) as c:
+    async with Client(reader.mcp.server) as c:
         templates = {t.uriTemplate for t in await c.list_resource_templates()}
     assert f"{RESOURCE_URI}/{{part}}" in templates
 
@@ -365,7 +365,6 @@ def test_every_key_the_context_carries_is_in_the_list_of_keys():
 
     m = manager()
     m.hints = lambda name, url: [{"name": "login"}]
-    m.skill_available = True
     m.open_browser(Caller(NAMED), url="https://a.test/")
     m.store.update(NAMED, lambda r: replace(
         r, settings={**r.settings, "capture": True}, site_data={"origins": {"https://a.test": {"cookies": [], "local": {}, "session": {}}}},

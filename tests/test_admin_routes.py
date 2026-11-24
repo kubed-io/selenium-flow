@@ -21,7 +21,7 @@ def test_the_route_table_is_unchanged():
     )
     table = sorted(
         [method, route.path, route.name]
-        for route in server.mcp.http_app().routes
+        for route in server.mcp.server.http_app().routes
         if route.name in ALSO or str(route.name).startswith("admin_")
         for method in sorted((getattr(route, "methods", None) or {"WS"}) - {"HEAD"})
     )

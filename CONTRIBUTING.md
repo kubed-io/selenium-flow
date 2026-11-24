@@ -201,7 +201,9 @@ ships only if `[tool.setuptools.package-data]` matches it; the patterns spell ou
 `.claude-plugin/*`, because setuptools' glob skips dot-folders, and
 `test_every_plugin_file_is_matched_by_package_data` checks every file. The skill's directory name
 is its name, and `SKILL.md` is an index: every `references/` file it names exists and every file
-is linked from it ([plugin.md](docs/superpowers/specs/plugin.md)).
+is linked from it ([plugin.md](docs/superpowers/specs/plugin.md)). The server serves the folder with
+kubed-mcp's `mcp.add_plugin`: each skill at `skill://selenium-flow/<name>/SKILL.md`, each command
+as a prompt, each agent on `agents/list`.
 
 ### Python style
 

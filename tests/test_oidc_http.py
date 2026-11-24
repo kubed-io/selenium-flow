@@ -1,6 +1,6 @@
 """The MCP door over real HTTP: a JWT beside the token, and who it says you are.
 
-Through `server.mcp.http_app()` with FastMCP's own client, so the bearer
+Through `server.mcp.server.http_app()` with FastMCP's own client, so the bearer
 middleware, the verifiers and `get_access_token()` all run as deployed. The
 issuer's JWKS is fetched over loopback (tests/jwks.py).
 """
@@ -43,12 +43,12 @@ def admin_server(issuer):
 
 
 def get(server, path, bearer):
-    with TestClient(server.mcp.http_app()) as client:
+    with TestClient(server.mcp.server.http_app()) as client:
         return client.get(path, headers={"Authorization": f"Bearer {bearer}"})
 
 
 def status_of(server, bearer):
-    with TestClient(server.mcp.http_app()) as client:
+    with TestClient(server.mcp.server.http_app()) as client:
         return client.post(
             "/mcp", json=INIT, headers=ACCEPT | {"Authorization": f"Bearer {bearer}"}
         ).status_code
@@ -79,7 +79,7 @@ def test_a_bad_jwt_is_a_401(oidc_server, issuer, overrides):
 @pytest.mark.parametrize(("method", "path"), TREES)
 def test_a_jwt_does_not_open_a_rest_route(oidc_server, issuer, method, path):
     """The round's boundary: the REST routes stay token-only."""
-    with TestClient(oidc_server.mcp.http_app()) as client:
+    with TestClient(oidc_server.mcp.server.http_app()) as client:
         answer = getattr(client, method)(
             path, json={}, headers={"Authorization": f"Bearer {issuer.mint()}"}
         )
@@ -88,7 +88,7 @@ def test_a_jwt_does_not_open_a_rest_route(oidc_server, issuer, method, path):
 
 def test_unknown_kids_on_any_path_fetch_the_jwks_once(oidc_server, issuer):
     """The bearer middleware runs app-wide, so an open route reaches the verifier too."""
-    with TestClient(oidc_server.mcp.http_app()) as client:
+    with TestClient(oidc_server.mcp.server.http_app()) as client:
         for _ in range(5):
             bearer = issuer.mint(kid=secrets.token_hex(8))
             client.get("/info", headers={"Authorization": f"Bearer {bearer}"})
@@ -97,7 +97,7 @@ def test_unknown_kids_on_any_path_fetch_the_jwks_once(oidc_server, issuer):
 
 
 async def current(server, bearer):
-    app = server.mcp.http_app()
+    app = server.mcp.server.http_app()
 
     def factory(headers=None, timeout=None, auth=None, **kwargs):
         return httpx2.AsyncClient(
@@ -159,7 +159,7 @@ def test_the_token_still_opens_the_admin_api(admin_server):
 @pytest.mark.parametrize(("method", "path"), TREES)
 def test_an_admin_ui_jwt_does_not_open_a_rest_route(admin_server, issuer, method, path):
     """The REST routes stay token-only, whoever the JWT is."""
-    with TestClient(admin_server.mcp.http_app()) as client:
+    with TestClient(admin_server.mcp.server.http_app()) as client:
         answer = getattr(client, method)(
             path, json={}, headers={"Authorization": f"Bearer {issuer.mint_admin()}"}
         )
@@ -167,7 +167,7 @@ def test_an_admin_ui_jwt_does_not_open_a_rest_route(admin_server, issuer, method
 
 
 def test_one_jwks_fetch_serves_both_doors(admin_server, issuer):
-    with TestClient(admin_server.mcp.http_app()) as client:
+    with TestClient(admin_server.mcp.server.http_app()) as client:
         admin = {"Authorization": f"Bearer {issuer.mint_admin()}"}
         assert client.get("/admin/settings", headers=admin).status_code == 200
         mcp = ACCEPT | {"Authorization": f"Bearer {issuer.mint()}"}

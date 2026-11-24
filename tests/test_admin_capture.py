@@ -64,7 +64,7 @@ def plain(server):
 
 @pytest.fixture
 def admin_app(server):
-    return server.mcp.http_app()
+    return server.mcp.server.http_app()
 
 
 @pytest.fixture
@@ -186,7 +186,7 @@ async def test_a_known_body_after_end_browser_names_why_over_mcp(fed, monkeypatc
     from .conftest import calling_as
 
     calling_as(monkeypatch, "ws")
-    async with Client(fed.mcp) as client:
+    async with Client(fed.mcp.server) as client:
         with pytest.raises(ToolError) as caught:
             await client.call_tool("network_body", {"id": "1.1"})
     assert BODY_CLOSED in str(caught.value) and "call open_session" not in str(caught.value)

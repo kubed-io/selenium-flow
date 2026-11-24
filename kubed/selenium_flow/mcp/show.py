@@ -13,15 +13,13 @@ import re
 from typing import NamedTuple
 from urllib.parse import unquote
 
-from fastmcp.exceptions import NotFoundError
-from fastmcp.server.dependencies import get_context
-from fastmcp.tools import ToolResult
-from mcp.types import TextContent
+from kubed.mcp import NotFoundError, TextContent, ToolResult
+from kubed.mcp.request import get_context
+from kubed.mcp.skills import FolderNotFound
 
 from ..core.annotations import reads
 from ..http import files
-from ..names import retired_uri
-from . import directories
+from ..names import SERVER_NAME, retired_uri
 from .failures import nameless
 
 TOOL = "show"
@@ -132,9 +130,10 @@ VIEWS: tuple[View, ...] = (
     View("session://{name}", re.compile(r"session://[^/?]+"), "context"),
     # There is no single-secret resource; the app looks closer by itself.
     _exactly("secret://secrets", "secrets"),
+    # Every skill under the server's namespace, not only the one it started with.
     View(
-        "skill://selenium-flow/{path}",
-        re.compile(r"skill://selenium-flow/.+"),
+        f"skill://{SERVER_NAME}/{{skill}}/{{path}}",
+        re.compile(rf"skill://{re.escape(SERVER_NAME)}/[^/]+/.+"),
         "document",
     ),
 )
@@ -213,7 +212,7 @@ async def _content(uri: str):
     whose type is not ``text/*`` as bytes, so text is what decodes."""
     try:
         result = await get_context().fastmcp.read_resource(uri)
-    except directories.FolderNotFound as folder:
+    except FolderNotFound as folder:
         raise ValueError(folder.miss) from None
     except NotFoundError:
         raise ValueError(f"no resource at {nameless(uri)!r}") from None

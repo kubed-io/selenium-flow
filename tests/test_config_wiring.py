@@ -27,14 +27,13 @@ def test_the_environment_is_read_in_two_modules_only():
 
 def test_a_server_built_from_settings_uses_them(tmp_path):
     s = Settings(grid=GRID, auth={"token": "t"}, route_prefix="/flow",
-                 data={"dir": str(tmp_path)}, mcp={"skill": False},
+                 data={"dir": str(tmp_path)},
                  session={"browser": "firefox", "keep_alive": 600}, workspace={"ttl": 42})
     server = SeleniumMCP(s)
     assert server.settings is s
     assert server.auth_token == "t"
     assert server.prefix == "/flow"
     assert server.flows is not None
-    assert server.skill is None
     assert server.workspaces.defaults == {"browser": "firefox"}
     assert server.monitor.keep_alive == 600
     assert server.monitor.ping == server.grid.ping
@@ -50,7 +49,7 @@ def test_the_config_capabilities_and_version_reach_every_open():
     """`session.capabilities` is its own source, beside the cascade (spec
     2026-10-26-session-capabilities): the actions hold it for every build.
     `session.version` is the cascade's floor, like `session.browser`."""
-    s = Settings(grid=GRID, mcp={"skill": False},
+    s = Settings(grid=GRID,
                  session={"version": "152", "capabilities": {"kubed:pool": "default"}})
     server = SeleniumMCP(s)
     assert server.actions.config_capabilities == {"kubed:pool": "default"}

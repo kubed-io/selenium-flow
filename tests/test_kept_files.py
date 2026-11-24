@@ -56,7 +56,7 @@ def store(tmp_path):
 def client(data_server):
     """Every request names its workspace, the way this surface says to."""
     return TestClient(
-        data_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
+        data_server.mcp.server.http_app(), headers={"Sf-Workspace": WORKSPACE}
     )
 
 
@@ -315,8 +315,8 @@ async def test_every_file_action_is_reachable_from_both_surfaces(
     assert set(MCP_FOR) == set(files.FILE_ENDPOINTS), (
         "an endpoint has nothing named for it over MCP, or the other way round"
     )
-    names = {t.name for t in await data_server.mcp.list_tools()}
-    uris = {str(r.uri) for r in await data_server.mcp.list_resources()}
+    names = {t.name for t in await data_server.mcp.server.list_tools()}
+    uris = {str(r.uri) for r in await data_server.mcp.server.list_resources()}
     for path, (kind, target) in MCP_FOR.items():
         method, template = files.FILE_ROUTES[path]
         route = (
@@ -341,7 +341,7 @@ async def test_the_keep_tool_declares_honest_annotations(data_server):
     honest hint is destructive — the ruling from the final review: a missing
     or wrong annotation is worse than the confirmation prompt it costs a
     client that honours it."""
-    tools = {t.name: t for t in await data_server.mcp.list_tools()}
+    tools = {t.name: t for t in await data_server.mcp.server.list_tools()}
     keep = tools[files.KEEP_TOOL].annotations
     assert keep.title and keep.read_only_hint is False
     assert keep.destructive_hint is True, "a download keep replaces a same-named file"
@@ -360,7 +360,7 @@ async def test_deleting_a_kept_file_is_not_offered_to_an_agent(
     an operator action on the admin surface — which is also why there is no
     endpoint: one without a tool is the half-a-capability this project forbids.
     """
-    names = {t.name for t in await data_server.mcp.list_tools()}
+    names = {t.name for t in await data_server.mcp.server.list_tools()}
     assert "delete_file" not in names
     assert await data_server.mcp.get_tool("delete_file") is None
     assert "delete" not in files.FILE_ENDPOINTS
@@ -480,7 +480,7 @@ async def test_an_unsaved_screenshot_is_still_just_an_image(live, named_caller):
         "screenshot",
         return_value={"image": "", "url": "https://x/"},
     ):
-        result = tool.fn(save=False)
+        result = tool.fn(save=False, actions=live.actions)
     assert not hasattr(result, "structured_content")
 
 
@@ -497,7 +497,7 @@ async def test_the_tool_saves_by_default_too(live, named_caller):
 
     tool = await live.mcp.get_tool("screenshot")
     with patch.object(live.actions, "screenshot", fake):
-        result = tool.fn()
+        result = tool.fn(actions=live.actions)
     assert asked["save"] is True
     assert result.structured_content == {"file": entry}
     assert result.content and result.content[0].type == "image"
@@ -512,7 +512,7 @@ async def test_an_mcp_caller_is_told_why_the_file_is_missing(live, named_caller)
         "screenshot",
         return_value={"image": "", "url": "https://x/", "file_error": "blocked"},
     ):
-        result = tool.fn()
+        result = tool.fn(actions=live.actions)
     assert result.structured_content == {"file_error": "blocked"}
     assert result.content and result.content[0].type == "image"
 

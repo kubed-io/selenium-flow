@@ -352,7 +352,7 @@ def server(data_server, monkeypatch):
 
 
 async def read(server, uri):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         return json.loads((await c.read_resource(uri))[0].text)
 
 
@@ -416,14 +416,14 @@ async def test_a_named_sessions_downloads_name_it(server):
 
 
 async def test_a_named_sessions_download_reads_from_its_browser(server):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         [content] = await c.read_resource("session://tester/downloads/g-tester.pdf")
     assert base64.b64decode(content.blob) == b"PDF of g-tester"
 
 
 async def test_keep_file_takes_the_session_from_the_uri(server):
     uri = "session://tester/downloads/report.pdf"
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         kept = (await c.call_tool("keep_file", {"uri": uri})).structured_content
         assert kept["from"] == uri
         assert server.flows.read_file(NAMED, "report.pdf") == b"PDF of g-tester"
@@ -454,7 +454,7 @@ def test_upload_file_reads_the_download_the_uri_names(server):
 
 
 async def test_an_address_naming_no_file_never_names_the_session(server):
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         with pytest.raises(ToolError) as refused:
             await c.call_tool("keep_file", {"uri": "session://tester/downloads/"})
     assert "session://{name}/downloads/ names no file" in str(refused.value)
@@ -462,7 +462,7 @@ async def test_an_address_naming_no_file_never_names_the_session(server):
 
 
 def test_a_rest_keep_says_whose_download_it_kept(server):
-    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     path = f"/files/downloads/report.pdf/kept?workspace={NAMED}"
     theirs = client.put(path, json={"session": "tester"})
     assert theirs.status_code == 200, theirs.text
@@ -483,7 +483,7 @@ async def test_a_hand_back_names_the_session_it_restored(server, monkeypatch):
         lambda sid, **kw: {"url": "https://b.example.test/", "title": "B"},
         raising=False,
     )
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         back = await c.call_tool("await_control", {"session": "tester"})
     assert back.structured_content["site_data"]["uri"] == "session://tester/site-data"
 
@@ -501,20 +501,20 @@ async def test_reading_your_downloads_claims_nothing(server, monkeypatch):
 async def test_mcp_tools_point_at_the_session_they_named(server, monkeypatch):
     actions = server.actions
     monkeypatch.setattr(actions, "network_body", lambda sid, id: body(sid), raising=False)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         named = await c.call_tool("network_body", {"id": "1.1", "session": "tester"})
         assert named.structured_content["uri"] == "session://tester/network/1.1"
         own = await c.call_tool("network_body", {"id": "1.1"})
         assert own.structured_content["uri"] == "workspace://network/1.1"
     calling_as_pinned = lambda: http({"workspace": NAMED, "session": "tester"})  # noqa: E731
     monkeypatch.setattr(clients_module, "request_values", calling_as_pinned)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         pin = await c.call_tool("network_body", {"id": "1.1", "session": "tester"})
         assert pin.structured_content["uri"] == "workspace://network/1.1"
 
 
 def test_the_admin_says_where_a_sub_sessions_request_is(server):
-    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     listed = client.get(f"/admin/workspaces/{NAMED}/network?session=tester").json()
     rid = listed["requests"][0]["id"]
     one = client.get(f"/admin/workspaces/{NAMED}/network/{rid}?session=tester")
@@ -529,7 +529,7 @@ async def test_the_mirror_says_where_a_named_sessions_download_is_linked(server)
     from kubed.selenium_flow.mcp import mirror
 
     server.workspaces.actions.grid.read_file = lambda sid, name: b"%PDF" + b"x" * 100
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         result = await c.call_tool(
             mirror.READ_TOOL, {"uri": "session://tester/downloads/g-tester.pdf"}
         )
@@ -545,7 +545,7 @@ async def test_show_draws_what_a_named_session_points_at(server, built_ui):
         "session://tester/site-data/b.example.test": "site",
         "session://tester/downloads/g-tester.pdf": "file",
     }
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         for uri, component in drawn.items():
             shown = await c.call_tool("show", {"uri": uri})
             assert shown.structured_content["component"] == component, uri
@@ -631,7 +631,7 @@ TYPED = {"selector": {"css": "#p"}, "secret": {"name": "demo", "key": "password"
 
 
 async def test_mcp_run_flow_and_write_point_at_the_session_they_named(wired):
-    async with Client(wired.mcp) as c:
+    async with Client(wired.mcp.server) as c:
         for tool, args in (("run_flow", {"name": "trip"}), ("write", TYPED)):
             named = await c.call_tool(tool, {**args, "session": "tester"})
             assert named.structured_content["page"]["see"] == SEE, tool
@@ -640,7 +640,7 @@ async def test_mcp_run_flow_and_write_point_at_the_session_they_named(wired):
 
 
 def test_rest_runs_writes_and_actions_point_at_the_session_they_named(wired):
-    client = TestClient(wired.mcp.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
+    client = TestClient(wired.mcp.server.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
     for path, body in (
         ("/flows/trip/runs", {}),
         ("/browser/write", TYPED),
@@ -672,7 +672,7 @@ async def test_upload_file_types_another_sessions_download(server, monkeypatch):
 
     server.actions.grid.reconnect = reconnect
     uri = "session://tester/downloads/r.pdf"
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         for session, into in (("zed", "g-zed"), (None, "g-default")):
             args = {"selector": {"css": "input"}, "file": uri}
             if session:
@@ -712,7 +712,7 @@ async def test_no_log_line_names_a_sub_session(server, caplog, monkeypatch):
     store.update(NAMED, lambda r: replace(r, subs=[*r.subs, SUBJECT]))
     server.capture.attached(key, "g-subject", "chrome", "top-1", again=False)
     caplog.set_level(logging.DEBUG)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         # A tool call in a session that is not there.
         with pytest.raises(ToolError) as by_tool:
             await c.call_tool("extract", {"session": GONE, "selector": {"css": "h1"}})
@@ -747,7 +747,7 @@ async def test_no_log_line_names_a_sub_session(server, caplog, monkeypatch):
     # A connection pinned to the sub-session, and a call naming another.
     calling_as_pinned = http({"workspace": NAMED, "session": SUBJECT})
     monkeypatch.setattr(clients_module, "request_values", lambda: calling_as_pinned)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         with pytest.raises(ToolError, match="pinned to a session"):
             await c.call_tool("extract", {"session": "other", "selector": {"css": "h1"}})
     assert named_anywhere(caplog) == []
@@ -843,13 +843,13 @@ async def test_a_failed_runs_note_never_names_a_downloads_like_session(
     ]})
     caplog.set_level(logging.DEBUG)
     note = f"read session://{{name}}/console?level=error, {NAMELESS}."
-    async with Client(wired.mcp) as c:
+    async with Client(wired.mcp.server) as c:
         for name in (DL, "Downloads"):
             run = await c.call_tool("run_flow", {"name": "broken", "session": name})
             [step] = run.structured_content["steps"]
             assert step["error"].endswith(note), step["error"]
             assert name not in step["error"]
-    client = TestClient(wired.mcp.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
+    client = TestClient(wired.mcp.server.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
     for name in (DL, "Downloads"):
         refused = client.post("/browser/navigate", json={"url": FAIL, "session": name})
         assert refused.status_code >= 400, refused.text
@@ -872,7 +872,7 @@ async def test_a_refused_address_names_no_session_on_any_surface(
         f"session://{DL}/console",
         "session://Downloads/downloads",
     ]
-    client = TestClient(wired.mcp.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
+    client = TestClient(wired.mcp.server.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
     for uri in addresses:
         refused = client.post("/browser/upload", json={**upload, "file": uri})
         assert refused.status_code == 400, refused.text
@@ -883,7 +883,7 @@ async def test_a_refused_address_names_no_session_on_any_surface(
     ]})
     ran = client.post("/flows/listing/runs", json={})
     assert ran.json()["status"] == "failed", ran.text
-    async with Client(wired.mcp) as c:
+    async with Client(wired.mcp.server) as c:
         for uri in addresses:
             with pytest.raises(ToolError) as said:
                 await c.call_tool("keep_file", {"uri": uri})
@@ -893,7 +893,7 @@ async def test_a_refused_address_names_no_session_on_any_surface(
 
 async def test_an_error_texts_placeholders_reach_the_caller_as_written(server):
     """M2: the mask keeps `<…>` and `{…}`, so a caller reads the shapes."""
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         with pytest.raises(ToolError) as shapes:
             await c.call_tool("keep_file", {"uri": "workspace://nowhere/x"})
         assert "session://<session>/downloads/<name>" in str(shapes.value)
@@ -939,7 +939,7 @@ async def test_a_named_sessions_download_is_scrubbed_with_its_own_secrets(
     `tester`'s to hide: its download, its listing and keep_file of it are
     scrubbed with `tester`'s forms, not the default's."""
     wired.workspaces.actions.grid = TextGrid()
-    async with Client(wired.mcp) as c:
+    async with Client(wired.mcp.server) as c:
         await c.call_tool("write", {**TYPED, "session": "tester"})
         # A rotation: the value tester typed is no longer a secret's.
         (tmp_path / "secrets" / "demo" / "password").write_text("hunter3")
@@ -953,7 +953,7 @@ async def test_a_named_sessions_download_is_scrubbed_with_its_own_secrets(
         # The default never typed it: its own reads are as they were.
         [mine] = await c.read_resource(f"session://downloads/{OLD}.txt")
         assert OLD in base64.b64decode(mine.blob).decode()
-    client = TestClient(wired.mcp.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
+    client = TestClient(wired.mcp.server.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
     kept = client.put(f"/files/downloads/{OLD}.txt/kept", json={"session": "tester"})
     assert kept.status_code == 200, kept.text
     assert OLD not in kept.text, "REST keep"

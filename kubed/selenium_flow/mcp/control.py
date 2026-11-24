@@ -15,10 +15,7 @@ unsaid hand-back waits for the next result; and `await_control`, whose
 from __future__ import annotations
 
 import anyio
-from fastmcp.exceptions import ToolError
-from fastmcp.server.middleware import Middleware
-from fastmcp.tools.base import ToolResult
-from mcp.types import TextContent
+from kubed.mcp import Middleware, TextContent, ToolError, ToolResult
 
 from ..faults import Controlled
 from ..live.control import Controls

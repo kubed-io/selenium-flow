@@ -36,7 +36,7 @@ def server(tmp_path, monkeypatch):
 
 
 async def refused(server, tool, arguments) -> str:
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(ToolError) as caught:
             await client.call_tool(tool, arguments)
     return str(caught.value)
@@ -135,7 +135,7 @@ async def test_a_step_and_a_call_are_refused_in_the_same_words(server):
 async def test_no_published_schema_carries_a_note_for_developers(server):
     """A model's docstring IS its schema description, in every tool that takes
     it. `Selector`'s cited the saga to every agent that listed the tools."""
-    for tool in await server.mcp.list_tools():
+    for tool in await server.mcp.server.list_tools():
         text = json.dumps(tool.parameters, ensure_ascii=False)
         assert "§" not in text, tool.name
         assert "Copilot" not in text, tool.name
@@ -222,7 +222,7 @@ async def test_a_failed_read_says_it_in_errors_words_to_either_reader(
 
     calling_as(monkeypatch, "reader")
     server.mcp.resource("test://boom")(boom)
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(Exception) as direct:
             await client.read_resource("test://boom")
         with pytest.raises(ToolError) as through_tool:
@@ -241,7 +241,7 @@ async def test_a_read_the_caller_got_wrong_is_one_warning_line(
     calling_as(monkeypatch, "reader")
     from mcp.shared.exceptions import MCPError
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError):
             await client.read_resource("flow://flows/nope")
     reads = [(level, text) for level, text, _ in mcp_log if "Error reading resource" in text]
@@ -270,7 +270,7 @@ async def test_a_credential_in_the_requested_uri_is_scrubbed_from_the_refusal(
 
     calling_as(monkeypatch, "reader")
     server.mcp.resource("test://{name}")(broken)
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError) as found:
             await client.read_resource("test://user:hunter2@host")
         with pytest.raises(MCPError) as missing:
@@ -300,7 +300,7 @@ async def test_a_resource_that_is_not_there_is_resource_not_found(server, monkey
     calling_as(monkeypatch, "reader")
     server.mcp.resource("gone://{name}")(gone)
     server.mcp.resource("wrong://{name}")(wrong)
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError, match="no thing here") as missing:
             await client.read_resource("gone://thing")
         with pytest.raises(MCPError, match="is not a name") as refused:

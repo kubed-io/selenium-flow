@@ -92,7 +92,8 @@ def test_fastmcp_logs_through_the_root_handler_at_info_or_the_root_level(
     tmp_path, listened, fastmcp_logger, levels
 ):
     """FastMCP's own Rich handlers would wrap every line at 80 columns, and
-    LOG_LEVEL=WARNING still quiets it."""
+    LOG_LEVEL=WARNING still quiets it. The handlers go in ``QuickMCP.run()``,
+    which ``main`` reaches here."""
     logging.getLogger().setLevel(logging.WARNING)
     main_module.main(config(tmp_path, "log_level: WARNING\n"))
     assert fastmcp_logger.handlers == []
@@ -319,6 +320,18 @@ def test_a_config_error_while_building_the_server_stops_the_boot(tmp_path, liste
     with pytest.raises(SystemExit) as exc:
         main_module.main(["--data-dir", str(tmp_path)])
     assert "move" in str(exc.value) and "workspaces/" in str(exc.value)
+
+
+def test_a_missing_plugin_folder_stops_the_boot_naming_it(tmp_path, listened, monkeypatch):
+    from kubed.selenium_flow.mcp import skill
+
+    missing = tmp_path / "no-plugin"
+    monkeypatch.setattr(skill, "plugin_path", lambda: missing)
+    with pytest.raises(SystemExit) as exc:
+        main_module.main(config(tmp_path))
+    assert str(exc.value).startswith("selenium-flow: ")
+    assert str(missing) in str(exc.value)
+    assert listened == []
 
 
 def test_an_unreadable_data_dir_exits_naming_it_not_a_traceback(tmp_path, listened, levels, monkeypatch):

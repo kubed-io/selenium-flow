@@ -96,7 +96,7 @@ def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypa
         Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
     )
     off.workspaces.store.set(KEY, Workspace(session_id=""))
-    body = TestClient(off.mcp.http_app()).get(url(), headers=AUTH)
+    body = TestClient(off.mcp.server.http_app()).get(url(), headers=AUTH)
     assert body.status_code == 200
     assert body.json() == {
         "key": KEY,

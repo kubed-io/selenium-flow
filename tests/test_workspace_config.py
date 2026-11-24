@@ -320,7 +320,7 @@ def test_the_server_keeps_a_workspace_its_config_names(data_server, tmp_path):
 def test_the_admin_list_shows_a_kept_workspace_with_no_record(data_server):
     data_server.workspaces.configs.save("kept-only", "flows: {}\n")
     data_server.store.set(NAME, Workspace())
-    client = TestClient(data_server.mcp.http_app(), headers=AUTH)
+    client = TestClient(data_server.mcp.server.http_app(), headers=AUTH)
     rows = {r["key"]: r for r in client.get("/admin/workspaces").json()["workspaces"]}
     assert set(rows) == {"kept-only", NAME}
     assert rows["kept-only"]["kept"] is True

@@ -32,14 +32,14 @@ def _server():
 
 
 def test_without_a_build_the_page_is_the_placeholder():
-    res = TestClient(_server().mcp.http_app()).get("/")
+    res = TestClient(_server().mcp.server.http_app()).get("/")
     assert res.status_code == 200
     assert res.text == admin.PLACEHOLDER
     assert "<title>Selenium Flow</title>" in res.text and "<h1>Selenium Flow</h1>" in res.text
 
 
 def test_live_js_is_served_with_an_etag_and_answers_304(built_ui):
-    client = TestClient(_server().mcp.http_app())
+    client = TestClient(_server().mcp.server.http_app())
     res = client.get("/live.js")
     assert res.status_code == 200 and res.text == "/* live js */"
     assert res.headers["content-type"].startswith("text/javascript")
@@ -52,7 +52,7 @@ def test_live_js_is_served_with_an_etag_and_answers_304(built_ui):
 
 
 def test_live_js_needs_no_credential_and_a_rebuild_changes_its_etag(built_ui):
-    client = TestClient(_server().mcp.http_app())
+    client = TestClient(_server().mcp.server.http_app())
     first = client.get("/live.js").headers["etag"]
     (built_ui / "live.js").write_text("/* live js, rebuilt */")
     second = client.get("/live.js")
@@ -60,7 +60,7 @@ def test_live_js_needs_no_credential_and_a_rebuild_changes_its_etag(built_ui):
 
 
 def test_without_a_build_live_js_is_404():
-    res = TestClient(_server().mcp.http_app()).get("/live.js")
+    res = TestClient(_server().mcp.server.http_app()).get("/live.js")
     assert res.status_code == 404
     assert res.json() == {"error": "the live view is not built"}
 
@@ -68,7 +68,7 @@ def test_without_a_build_live_js_is_404():
 def test_without_a_build_no_app_is_offered_and_the_files_resource_stays():
     import asyncio
 
-    uris = {str(r.uri) for r in asyncio.run(_server().mcp.list_resources())}
+    uris = {str(r.uri) for r in asyncio.run(_server().mcp.server.list_resources())}
     assert apps.RESOURCE_URI not in uris
     assert "workspace://files" in uris
 
@@ -80,7 +80,7 @@ def test_without_a_build_startup_says_how_to_build(caplog):
 
 
 def test_with_a_build_the_page_inlines_its_bundle_and_fills_the_server_values(built_ui):
-    res = TestClient(_server().mcp.http_app()).get("/")
+    res = TestClient(_server().mcp.server.http_app()).get("/")
     assert "/* admin css */" in res.text and "/* admin js */" in res.text
     assert 'data-console="/"' in res.text and 'data-mount=""' in res.text
     assert "__" not in res.text.replace("__init__", "")
@@ -155,7 +155,7 @@ def test_ui_built_needs_all_three_files(ui_dir):
 
 
 async def test_with_a_build_the_app_shell_is_a_ui_resource(built_ui):
-    uris = {str(r.uri) for r in await _server().mcp.list_resources()}
+    uris = {str(r.uri) for r in await _server().mcp.server.list_resources()}
     assert apps.RESOURCE_URI in uris
 
 
@@ -196,7 +196,7 @@ def test_the_page_is_built_once_and_rebuilt_when_the_ui_is(built_ui, monkeypatch
 
 
 def test_the_page_says_to_revalidate_and_answers_304_to_its_etag(built_ui):
-    client = TestClient(_server().mcp.http_app())
+    client = TestClient(_server().mcp.server.http_app())
     res = client.get("/")
     etag = res.headers["etag"]
     assert res.headers["cache-control"] == "no-cache"
@@ -211,7 +211,7 @@ def test_the_page_says_to_revalidate_and_answers_304_to_its_etag(built_ui):
 
 
 def _framed(server):
-    return TestClient(server.mcp.http_app()).get("/").headers
+    return TestClient(server.mcp.server.http_app()).get("/").headers
 
 
 def test_the_built_page_forbids_framing_and_sniffing(built_ui):
@@ -235,7 +235,7 @@ def test_listed_frame_ancestors_are_the_only_framers_and_a_304_says_so(built_ui)
             security={"frame_ancestors": ["https://cloud.example", "https://g.example"]},
         )
     )
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     res = client.get("/")
     assert (
         res.headers["content-security-policy"]
@@ -247,10 +247,10 @@ def test_listed_frame_ancestors_are_the_only_framers_and_a_304_says_so(built_ui)
 
 
 def test_the_page_offers_oidc_only_with_an_admin_ui_client(built_ui, issuer):
-    off = TestClient(_server().mcp.http_app()).get("/")
+    off = TestClient(_server().mcp.server.http_app()).get("/")
     assert 'data-oidc=""' in off.text
     server = SeleniumMCP(issuer.settings(TOKEN, admin_roles=("admin",)))
-    on = TestClient(server.mcp.http_app()).get("/")
+    on = TestClient(server.mcp.server.http_app()).get("/")
     raw = re.search(r'data-oidc="([^"]*)"', on.text)[1]
     assert json.loads(html.unescape(raw)) == {
         "issuer": issuer.issuer,

@@ -187,7 +187,7 @@ async def server_spec_yaml(server):
 
 def test_the_endpoint_serves_it_without_a_token(open_server):
     """The contract is readable before you hold a credential."""
-    client = TestClient(open_server.mcp.http_app())
+    client = TestClient(open_server.mcp.server.http_app())
     response = client.get("/openapi.yaml")
     assert response.status_code == 200
     assert "yaml" in response.headers["content-type"]
@@ -195,7 +195,7 @@ def test_the_endpoint_serves_it_without_a_token(open_server):
 
 
 def test_json_is_served_too(open_server):
-    client = TestClient(open_server.mcp.http_app())
+    client = TestClient(open_server.mcp.server.http_app())
     response = client.get("/openapi.json")
     assert response.status_code == 200
     assert response.json()["info"]["title"] == "Selenium Flow"

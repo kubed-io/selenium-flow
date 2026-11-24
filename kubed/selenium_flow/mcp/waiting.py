@@ -28,8 +28,7 @@ from datetime import timedelta
 from typing import TypeVar
 
 import anyio
-from fastmcp.utilities.tasks import TaskConfig
-from fastmcp_tasks import TasksExtension
+from kubed.mcp.protocol import TaskConfig, TasksExtension
 
 from ..faults import Traceback
 from . import progress

@@ -57,7 +57,7 @@ async def published(server, monkeypatch, resources):
         clients_module, "request_values", lambda: ({"resources": [resources]}, {})
     )
     info = Implementation(name="a spec-complete client", version="1")
-    async with Client(server.mcp, client_info=info) as client:
+    async with Client(server.mcp.server, client_info=info) as client:
         tools = await client.list_tools()
     return {
         tool.name: {
@@ -247,7 +247,7 @@ def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
         reopened={"browser": "live-1", "report": {"restored": 1, "skipped": 0}},
     ).visited("https://app.example.com/y", now=NOW - 20)
     store.set("reopened", reopened)
-    body = TestClient(server.mcp.http_app(), headers=AUTH).get("/admin/workspaces")
+    body = TestClient(server.mcp.server.http_app(), headers=AUTH).get("/admin/workspaces")
     assert body.status_code == 200
     compare("admin-workspaces.json", normalised(body.json()))
 
@@ -314,7 +314,7 @@ def test_every_error_envelope_is_what_it_was(monkeypatch):
     server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))
     server.actions.grid = FakeGrid()
     server.actions.grid.alive.add("b-1")
-    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     got = {}
     for name, exc in raised().items():
         current[0] = exc
@@ -413,10 +413,10 @@ def plain(value):
 @pytest.mark.parametrize("tool,route,args", PARITY, ids=[p[0] for p in PARITY])
 async def test_the_tool_and_the_endpoint_answer_alike(twin, tool, route, args):
     server, double = twin
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         called = await client.call_tool(tool, args)
     tool_calls, double.calls = list(double.calls), []
-    http = TestClient(server.mcp.http_app(), headers=AUTH).post(
+    http = TestClient(server.mcp.server.http_app(), headers=AUTH).post(
         f"/browser/{route}?workspace={NAMED}", json=args
     )
     assert http.status_code == 200, http.text

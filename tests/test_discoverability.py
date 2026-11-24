@@ -197,7 +197,7 @@ async def test_a_choice_is_accepted_in_any_case_over_mcp(
     )
     server.workspaces.remember(NAMED, "abc", "", {"browser": "chrome"})
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await client.call_tool(tool, given)
     assert result.data["action"] == expected
 
@@ -206,7 +206,7 @@ async def test_a_choice_outside_the_set_is_still_refused_over_mcp(server):
     from fastmcp import Client
     from fastmcp.exceptions import ToolError
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(ToolError):
             await client.call_tool("interact", {"action": "mouseover", "selector": {"css": "a"}})
 
@@ -233,7 +233,7 @@ async def test_a_blank_browser_still_means_the_default(server, monkeypatch, give
 
         calling_as(monkeypatch, NAMED)
         monkeypatch.setattr(server.actions, "open_session", fake_open)
-        async with Client(server.mcp) as client:
+        async with Client(server.mcp.server) as client:
             await client.call_tool("open_session", arguments)
         return seen
 

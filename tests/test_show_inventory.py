@@ -26,7 +26,7 @@ pytestmark = pytest.mark.unit
 # The app shell is the drawing, not a thing to draw (spec
 # 2026-10-09-show-everything, ruling 8).
 EXEMPT = ("ui://",)
-SKILL = "skill://selenium-flow/"
+SKILL = "skill://selenium-flow/selenium-flow/"
 
 # Research's table in the spec, with the skill's files folded into one.
 FORMS = {
@@ -91,7 +91,7 @@ def every_section(tmp_path) -> SeleniumMCP:
 
 async def served(server) -> list[str]:
     """Every listed resource's URI and every template, as a client sees them."""
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         resources = [str(r.uri) for r in await c.list_resources()]
         # MCP SDK v2 renamed the field; the older one warns on the new SDK.
         templates = [
@@ -126,7 +126,7 @@ async def undrawn(server) -> dict[str, str]:
     """Every listed resource `show` refuses, with why: a row in VIEWS proves the
     URI routes, and only drawing it proves the view can take what it serves."""
     refused = {}
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         uris = [str(r.uri) for r in await c.list_resources()]
         # The listing names SKILL.md alone; the manifest has the rest.
         manifest = json.loads((await c.read_resource(SKILL + "_manifest"))[0].text)
@@ -148,12 +148,12 @@ async def test_every_resource_the_server_lists_draws(everything, named_caller):
 
 @pytest.fixture
 def skill_with(tmp_path, monkeypatch):
-    """A server serving a copy of the skill with one more supporting file."""
+    """A server serving a copy of the plugin, its skill with one more supporting file."""
     def serve(name: str, content: bytes) -> SeleniumMCP:
-        copy = tmp_path / "skill" / skill.SKILL_NAME
-        shutil.copytree(skill.skill_path(), copy)
-        (copy / "references" / name).write_bytes(content)
-        monkeypatch.setattr(skill, "skill_path", lambda: copy)
+        copy = tmp_path / "plugin"
+        shutil.copytree(skill.plugin_path(), copy)
+        (copy / "skills" / skill.SKILL_NAME / "references" / name).write_bytes(content)
+        monkeypatch.setattr(skill, "plugin_path", lambda: copy)
         return every_section(tmp_path)
     return serve
 
@@ -169,6 +169,26 @@ async def test_the_guard_catches_a_supporting_file_show_cannot_draw(
 ):
     server = skill_with("logo.png", b"\x89PNG\r\n\x1a\n")
     assert list(await undrawn(server)) == [SKILL + "references/logo.png"]
+
+
+async def test_a_second_skill_under_the_namespace_draws(
+    tmp_path, monkeypatch, named_caller
+):
+    copy = tmp_path / "plugin"
+    shutil.copytree(skill.plugin_path(), copy)
+    second = copy / "skills" / "reading-pages"
+    second.mkdir()
+    (second / "SKILL.md").write_text(
+        "---\nname: reading-pages\ndescription: Read a page.\n---\n\n# Reading\n"
+    )
+    monkeypatch.setattr(skill, "plugin_path", lambda: copy)
+    server = every_section(tmp_path)
+    uri = "skill://selenium-flow/reading-pages/SKILL.md"
+    assert uri in await served(server)
+    async with Client(server.mcp.server) as c:
+        result = await c.call_tool("show", {"uri": uri}, raise_on_error=False)
+    assert not result.is_error, result.content[0].text
+    assert result.structured_content["component"] == "document"
 
 
 async def test_the_shell_itself_is_served_and_exempt(everything):

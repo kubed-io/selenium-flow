@@ -311,7 +311,7 @@ def test_print_over_http_keeps_the_file_for_the_workspace_that_asked(
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
     monkeypatch.setattr(keeping_server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     client = TestClient(
-        keeping_server.mcp.http_app(),
+        keeping_server.mcp.server.http_app(),
         headers={"Authorization": "Bearer tok", "Sf-Workspace": "desk"},
     )
     response = client.post(
@@ -341,7 +341,7 @@ def test_a_kept_page_opens_without_its_scripts(keeping_server):
 
     inert = "default-src 'none'; style-src 'unsafe-inline'"
     media = "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'"
-    client = TestClient(keeping_server.mcp.http_app())
+    client = TestClient(keeping_server.mcp.server.http_app())
     for name, csp in (
         ("page.html", "sandbox"),
         ("shot.svg", "sandbox"),
@@ -390,12 +390,12 @@ async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
     kept = server.actions.keep("shot.png", b"png", "screenshots")
     assert day - 5 <= lasts(kept["url"]) < day + links.EXPIRY_STEP
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         listed = await client.read_resource("workspace://files/screenshots")
     entry = json.loads(listed[0].text)["files"][0]
     assert day - 5 <= lasts(entry["url"]) < day + links.EXPIRY_STEP
 
-    body = TestClient(server.mcp.http_app()).get(
+    body = TestClient(server.mcp.server.http_app()).get(
         "/admin/workspaces/stdio/files", headers={"Authorization": "Bearer tok"}
     ).json()
     assert [f["name"] for f in body["screenshots"]] == ["shot.png"]
@@ -415,7 +415,7 @@ async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
     driver = _Driver()
     monkeypatch.setattr(keeping_server.actions, "_at", lambda *a, **k: driver)
     monkeypatch.setattr(keeping_server.workspaces, "resolved", lambda name: ("abc", "chrome"))
-    async with Client(keeping_server.mcp) as client:
+    async with Client(keeping_server.mcp.server) as client:
         result = await client.call_tool("print", {"format": "html"})
     assert result.structured_content["file"]["name"] == "page.html"
     assert result.structured_content["file"]["uri"] == "workspace://files/page.html"
@@ -433,7 +433,7 @@ async def test_a_screenshot_carries_the_site_data_hint(keeping_server, monkeypat
     monkeypatch.setattr(keeping_server.workspaces, "act", lambda name, call, **kw: {
         "image": png, "site_data": hint, **kept})
     calling_as(monkeypatch, "s")
-    async with Client(keeping_server.mcp) as client:
+    async with Client(keeping_server.mcp.server) as client:
         result = await client.call_tool("screenshot", {})
     assert result.content[0].type == "image"
     assert result.structured_content == {"site_data": hint, **kept}
@@ -452,7 +452,7 @@ async def test_a_screenshot_that_lands_on_a_new_page_names_the_flows_there(
     monkeypatch.setattr(keeping_server.workspaces, "act", lambda name, call, **kw: {
         "image": png, "flows_here": here})
     calling_as(monkeypatch, "s")
-    async with Client(keeping_server.mcp) as client:
+    async with Client(keeping_server.mcp.server) as client:
         result = await client.call_tool("screenshot", {})
     assert result.content[0].type == "image"
     assert result.structured_content == {"flows_here": here}
@@ -585,7 +585,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
     monkeypatch.setattr(server.grid, "quit", lambda *_: None)
 
     async def go():
-        async with Client(server.mcp) as client:
+        async with Client(server.mcp.server) as client:
             await client.call_tool("open_session", {})
             await client.call_tool("open_session", {"insecure": True})
             opened = await client.call_tool("open_session", {})

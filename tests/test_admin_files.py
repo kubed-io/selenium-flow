@@ -38,7 +38,7 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 def client(data_server):
     """Every request names its workspace, the way this surface says to."""
     return TestClient(
-        data_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE}
+        data_server.mcp.server.http_app(), headers={"Sf-Workspace": WORKSPACE}
     )
 
 

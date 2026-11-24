@@ -311,17 +311,17 @@ test('the mode the host grants is the one used', async () => {
 test('a document can go fullscreen when the host offers it', async () => {
   host.ctx = { availableDisplayModes: ['inline', 'fullscreen'] }
   render(App)
-  await shown({ component: 'document', uri: 'skill://selenium-flow/SKILL.md', data: '# T\n\ntext\n' })
+  await shown({ component: 'document', uri: 'skill://selenium-flow/selenium-flow/SKILL.md', data: '# T\n\ntext\n' })
   expect(await screen.findByRole('button', { name: 'Fullscreen' })).toBeInTheDocument()
 })
 
 test('Back under a document names its file', async () => {
   host.callServerTool.mockResolvedValue({ content: [], structuredContent: {
-    component: 'document', uri: 'skill://selenium-flow/references/FLOWS.md', data: '# Flows\n\nSave once.\n',
+    component: 'document', uri: 'skill://selenium-flow/selenium-flow/references/FLOWS.md', data: '# Flows\n\nSave once.\n',
   } })
   render(App)
-  await shown({ component: 'document', uri: 'skill://selenium-flow/SKILL.md', data: '# Skill\n\nSee `skill://selenium-flow/references/FLOWS.md`.\n' })
-  await fireEvent.click(await screen.findByRole('button', { name: 'skill://selenium-flow/references/FLOWS.md' }))
+  await shown({ component: 'document', uri: 'skill://selenium-flow/selenium-flow/SKILL.md', data: '# Skill\n\nSee `skill://selenium-flow/selenium-flow/references/FLOWS.md`.\n' })
+  await fireEvent.click(await screen.findByRole('button', { name: 'skill://selenium-flow/selenium-flow/references/FLOWS.md' }))
   expect(await screen.findByRole('button', { name: 'Back' })).toHaveTextContent('← SKILL.md')
 })
 

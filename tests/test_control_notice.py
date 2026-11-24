@@ -47,7 +47,7 @@ def name_as(monkeypatch, workspace):
 
 def keep(server, uri=URI):
     async def go():
-        async with Client(server.mcp) as c:
+        async with Client(server.mcp.server) as c:
             return await c.call_tool("keep_file", {"uri": uri})
     return asyncio.run(go())
 
@@ -94,7 +94,7 @@ def test_a_controlled_workspace_s_result_carries_the_notice(server):
     held(server.tunnels, "w1", "drk", "control")
 
     async def go():
-        async with Client(server.mcp) as c:
+        async with Client(server.mcp.server) as c:
             result = await c.call_tool("keep_file", {"uri": URI})
             return result, server.controls.notice("w1")
 
@@ -109,7 +109,7 @@ def test_a_failed_call_carries_it_after_its_own_sentence(server):
     held(server.tunnels, "w1", "drk", "control")
 
     async def go():
-        async with Client(server.mcp) as c:
+        async with Client(server.mcp.server) as c:
             with pytest.raises(ToolError) as caught:
                 await c.call_tool("keep_file", {"uri": "workspace://files/recordings/nope.mp4"})
             return str(caught.value), server.controls.notice("w1")
@@ -157,7 +157,7 @@ def test_a_fresh_server_hears_nothing(server, tmp_path):
 
 
 def test_the_http_surface_is_unchanged(server):
-    web = TestClient(server.mcp.http_app())
+    web = TestClient(server.mcp.server.http_app())
     before = web.post("/browser", json={}, headers={"Sf-Workspace": "w1"})
     held(server.tunnels, "w1", "drk", "control")
     after = web.post("/browser", json={}, headers={"Sf-Workspace": "w1"})
@@ -189,7 +189,7 @@ async def test_an_in_flight_call_carries_control_in_structured_content(server, m
     # (CPython's refcounting) and the grant marks a new, empty queue that never
     # makes it wait.
     turn = locks.hold("g1")
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         with turn.lock:
             result = await c.call_tool("keep_file", {"uri": URI})
     control = result.structured_content["control"]
@@ -202,7 +202,7 @@ async def test_an_in_flight_call_carries_control_in_structured_content(server, m
 
 async def test_a_read_while_held_carries_state_held(server):
     await asyncio.to_thread(held, server.tunnels, "w1", "drk", "control")
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         result = await c.call_tool("keep_file", {"uri": URI})
         assert server.controls.notice("w1")["state"] == "held"  # said every time
     control = result.structured_content["control"]
@@ -214,7 +214,7 @@ async def test_a_read_while_held_carries_state_held(server):
 
 async def test_the_unsaid_hand_back_is_said_once(server):
     await asyncio.to_thread(handed_back, server)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         first = await c.call_tool("keep_file", {"uri": URI})
         server.flows.write_file("w1", "rec-20261008-1403.mp4", b"\x00" * 64, RECORDINGS_DIR)
         second = await c.call_tool("keep_file", {"uri": URI})
@@ -234,7 +234,7 @@ async def test_a_refusal_carries_no_second_notice(server, monkeypatch):
         raise server.controls.refusal("g1", "navigate")
 
     monkeypatch.setattr(server.workspaces, "act", refused)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         with pytest.raises(ToolError) as caught:
             await c.call_tool("navigate", {"url": "https://example.test"})
     said = str(caught.value)
@@ -246,7 +246,7 @@ async def test_a_refusal_carries_no_second_notice(server, monkeypatch):
 async def test_a_screenshot_image_gains_structured_content_with_only_control(server, monkeypatch):
     await asyncio.to_thread(held, server.tunnels, "w1", "drk", "control")
     monkeypatch.setattr(server.workspaces, "act", lambda name, call, **kw: {"image": PNG})
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         result = await c.call_tool("screenshot", {})
         notice = server.controls.notice("w1")
     assert result.content[0].type == "image"
@@ -269,7 +269,7 @@ async def test_a_create_task_result_passes_untouched(server):
     hand-back is not spent on it: the stub cannot say it."""
     outer, inner = [], []
     # The server registers the tasks extension itself (`mcp.waiting.Tasks`).
-    server.mcp.middleware.insert(0, Seen(outer))  # outside `Notices`
+    server.mcp.server.middleware.insert(0, Seen(outer))  # outside `Notices`
     server.mcp.add_middleware(Seen(inner))  # inside it
 
     @server.mcp.tool(task=TaskConfig(mode="optional", poll_interval=timedelta(seconds=1)))
@@ -277,7 +277,7 @@ async def test_a_create_task_result_passes_untouched(server):
         return {"done": True}
 
     await asyncio.to_thread(handed_back, server)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         task = await call_tool_task(c, "tasked")
         result = await task.result()
         pending = server.controls.notice("w1")

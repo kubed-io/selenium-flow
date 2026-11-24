@@ -37,7 +37,7 @@ async def test_files_off_is_said_before_an_unnamed_caller_is_told_to_name_itself
     with pytest.raises(ValueError, match="DATA_DIR"):
         keep.fn(uri="workspace://files/a.txt")
     with pytest.raises(Exception, match="DATA_DIR"):  # a resource wraps it
-        await server.mcp.read_resource("workspace://files/a.txt")
+        await server.mcp.server.read_resource("workspace://files/a.txt")
 
 
 @pytest.mark.parametrize(

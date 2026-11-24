@@ -114,14 +114,14 @@ def test_the_mint_is_behind_the_admin_door(client):
     ],
 )
 def test_the_mint_refuses_with_404_and_a_reason(hub, name, enabled, reason):
-    client = TestClient(build(enabled=enabled).mcp.http_app())
+    client = TestClient(build(enabled=enabled).mcp.server.http_app())
     answered = client.get(f"/admin/workspaces/{name}/live", headers=AUTH)
     assert answered.status_code == 404
     assert answered.json() == {"error": reason}
 
 
 def test_the_socket_is_routed_and_mounted_with_the_prefix(hub):
-    routes = build(prefix="/flow").mcp.http_app().routes
+    routes = build(prefix="/flow").mcp.server.http_app().routes
     found = [r for r in routes if r.name == "admin_live_socket"]
     assert len(found) == 1 and isinstance(found[0], WebSocketRoute)
     assert found[0].path == "/flow/admin/workspaces/{key}/live/socket"
@@ -205,7 +205,7 @@ def test_the_socket_refuses_4004_once_the_browser_has_gone(client, server):
     ],
 )
 def test_a_4004_refusal_is_a_refused_audit_line(hub, caplog, name, enabled, reason):
-    client = TestClient(build(enabled=enabled).mcp.http_app())
+    client = TestClient(build(enabled=enabled).mcp.server.http_app())
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.live"):
         gone = closed_with(
             client, f"/admin/workspaces/{name}/live/socket", headers=AUTH
@@ -222,7 +222,7 @@ def test_an_unreadable_password_file_is_a_warning_naming_the_path(
 ):
     missing = tmp_path / "missing"
     server = build(password_file=str(missing))
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     url = mint(client)
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.live"):
         gone = closed_with(client, url)
@@ -247,7 +247,7 @@ def test_the_payload_says_whether_live_is_on(client):
 
 
 def test_the_payload_says_when_live_is_off(hub):
-    client = TestClient(build(enabled=False).mcp.http_app())
+    client = TestClient(build(enabled=False).mcp.server.http_app())
     assert client.get("/admin/workspaces", headers=AUTH).json()["live_enabled"] is False
 
 
@@ -270,7 +270,7 @@ def test_without_a_token_the_url_is_unsigned_and_the_viewer_is_open(
 ):
     password = tmp_path / "vnc"
     password.write_text("secret\n")
-    client = TestClient(build(token=None, password_file=str(password)).mcp.http_app())
+    client = TestClient(build(token=None, password_file=str(password)).mcp.server.http_app())
     url = client.get("/admin/workspaces/w1/live").json()["url"]
     assert url == SOCKET
     with (
@@ -338,7 +338,7 @@ def test_a_failure_after_accept_closes_1011_and_logs_its_type(
     hub, failing, caplog, monkeypatch
 ):
     server = build()
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     url = mint(client)
     if failing == "store":
         def boom(_key):

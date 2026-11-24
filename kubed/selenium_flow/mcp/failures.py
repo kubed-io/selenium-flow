@@ -17,16 +17,15 @@ from __future__ import annotations
 
 import logging
 
-from fastmcp.exceptions import (
+from kubed.mcp import (
     FastMCPError,
+    Middleware,
     NotFoundError,
     ResourceError,
     ToolError,
     ValidationError,
 )
-from fastmcp.server.middleware import Middleware
-from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_PARAMS
+from kubed.mcp.protocol import INVALID_PARAMS, MCPError
 from pydantic import ValidationError as PydanticValidationError
 
 from .. import errors, faults

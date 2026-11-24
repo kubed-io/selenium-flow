@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 
+from kubed.mcp.plugins import PluginError
+
 from . import config
-from .server import SeleniumMCP
+from .server import create_app
 from .urls import without_userinfo
 from .workspace.store import StoreUnavailable
 
@@ -35,11 +37,10 @@ def configure_logging(level: str) -> None:
 
     FastMCP configures its own logger at import: Rich handlers on stderr and no
     propagation. In a pod there is no TTY, so Rich wraps at 80 columns, and Loki
-    stores each physical line as its own entry, so its handlers go and it
-    propagates. It logs every tool's arguments at DEBUG (scripts, typed text,
-    upload content), so DEBUG never opens it, while WARNING still quiets it.
-    Filters on its child loggers stay, as they belong to the logger and not to
-    a handler.
+    stores each physical line as its own entry; ``QuickMCP.run()`` drops those
+    handlers and has it propagate, on either transport. It logs every tool's
+    arguments at DEBUG (scripts, typed text, upload content), so DEBUG never
+    opens it, while WARNING still quiets it.
     """
     logging.basicConfig(level=level)
     # The root's level, not ``level``: basicConfig does nothing when the root
@@ -47,11 +48,7 @@ def configure_logging(level: str) -> None:
     floor = max(logging.INFO, logging.getLogger().getEffectiveLevel())
     for name in WIRE_LOGGERS:
         logging.getLogger(name).setLevel(floor)
-    fastmcp = logging.getLogger("fastmcp")
-    for handler in list(fastmcp.handlers):
-        fastmcp.removeHandler(handler)
-    fastmcp.propagate = True
-    fastmcp.setLevel(floor)
+    logging.getLogger("fastmcp").setLevel(floor)
 
 
 def _loopback(host: str) -> bool:
@@ -64,9 +61,10 @@ def main(argv: list[str] | None = None) -> None:
         loaded = config.load(argv)
         settings = loaded.settings
         configure_logging(settings.log_level)
-        server = SeleniumMCP(settings, sources=loaded.sources)
-    except (config.ConfigError, StoreUnavailable) as exc:
-        # Restarted until fixed beats started on something misread.
+        server = create_app(settings, sources=loaded.sources)
+    except (config.ConfigError, StoreUnavailable, PluginError) as exc:
+        # Restarted until fixed beats started on something misread. A PluginError is
+        # a plugin/ folder kubed-mcp refuses: missing package data, a broken manifest.
         raise SystemExit(f"selenium-flow: {exc}") from None
     log.info(
         "config=%s grid=%s auth=%s oidc=%s workspaces=%s skill=%s flows=%s secrets=%s "
@@ -76,9 +74,7 @@ def main(argv: list[str] | None = None) -> None:
         "on" if server.auth_token else "off",
         settings.oidc.issuer or "off",
         server.workspaces.kind,
-        server.skill.name
-        if server.skill
-        else ("not loaded" if settings.mcp.skill else "off"),
+        ", ".join(server.plugin.skills) or "none",
         server.flows.kind if server.flows else "off",
         _secrets_summary(server.secrets),
         "on" if server.collector else "off",
@@ -99,7 +95,7 @@ def main(argv: list[str] | None = None) -> None:
             settings.host,
             settings.port,
         )
-    server.run(transport=settings.transport, host=settings.host, port=settings.port)
+    server.run()
 
 
 if __name__ == "__main__":

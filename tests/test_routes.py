@@ -44,7 +44,7 @@ WORKSPACE = "desktop"
 @pytest.fixture
 def client(server, monkeypatch):
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
-    return TestClient(server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
+    return TestClient(server.mcp.server.http_app(), headers={"Sf-Workspace": WORKSPACE})
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def open_client(open_server, monkeypatch):
     the sentinel for "the input was accepted".
     """
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
-    return TestClient(open_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
+    return TestClient(open_server.mcp.server.http_app(), headers={"Sf-Workspace": WORKSPACE})
 
 
 @pytest.mark.parametrize(
@@ -99,7 +99,7 @@ def test_no_ops_endpoint_hands_out_the_grids_credentials(monkeypatch):
         raise requests.exceptions.InvalidURL(f"Failed to parse: {grid}/status")
 
     monkeypatch.setattr(server.actions.grid, "status", quotes_the_url)
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     for probe in ("/ready", "/info"):
         body = client.get(probe).text
         assert "hunter2" not in body and "user:" not in body, probe
@@ -125,7 +125,7 @@ def test_readiness_asks_the_grid_off_the_event_loop(server, monkeypatch):
 
     monkeypatch.setattr(server.actions.grid, "status", status)
     monkeypatch.setattr(server.actions.grid, "session_count", lambda: 0)
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     assert client.get("/ready").status_code == 200
     assert on_loop == [False], "the Grid was dialled on the event loop"
 
@@ -151,7 +151,7 @@ def test_a_browser_action_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(server.workspaces, "act", act)
-    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
+    client = TestClient(server.mcp.server.http_app(), headers={"Sf-Workspace": WORKSPACE})
     response = client.post(
         "/browser/navigate",
         json={"url": "https://example.com"},
@@ -172,7 +172,7 @@ def test_a_flow_run_runs_off_the_event_loop(server, monkeypatch):
         return {"success": True}
 
     monkeypatch.setattr(flow_api, "run_for", run_for)
-    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
+    client = TestClient(server.mcp.server.http_app(), headers={"Sf-Workspace": WORKSPACE})
     response = client.post(
         "/flows/login/runs", json={}, headers={"Authorization": f"Bearer {TOKEN}"}
     )
@@ -188,7 +188,7 @@ def test_the_probes_answer_when_the_grid_url_is_malformed():
 
     # No closing bracket: `urlsplit().port` raises on this.
     server = SeleniumMCP(Settings(grid={"url": "http://user:hunter2@[fd00::1:4444"}))
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     info = client.get("/info")
     assert info.status_code == 200 and "hunter2" not in info.text
     ready = client.get("/ready")
@@ -220,7 +220,7 @@ def test_post_browser_takes_version_and_capabilities(open_server, monkeypatch):
         return {"workspace": caller.name}
 
     monkeypatch.setattr(open_server.workspaces, "open_browser", opened)
-    client = TestClient(open_server.mcp.http_app(), headers={"Sf-Workspace": WORKSPACE})
+    client = TestClient(open_server.mcp.server.http_app(), headers={"Sf-Workspace": WORKSPACE})
     response = client.post(
         "/browser", json={"version": "152", "capabilities": {"kubed:pool": "a"}}
     )
@@ -455,7 +455,7 @@ def route_table():
     """The app's routes, built once. Nothing here sends a request or changes
     state, so every test in the module may share it."""
     server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
-    return server.mcp.http_app().routes
+    return server.mcp.server.http_app().routes
 
 
 def test_every_endpoint_is_mounted(route_table):
@@ -482,7 +482,7 @@ def test_the_browser_is_one_resource_addressed_by_naming_yourself(open_client):
 def test_a_request_that_names_no_workspace_is_refused(open_server):
     """The one contract, on this surface too: there is no browser to act on
     until a caller says who it is."""
-    bare = TestClient(open_server.mcp.http_app())
+    bare = TestClient(open_server.mcp.server.http_app())
     response = bare.post("/browser/navigate", json={"url": "https://example.test"})
     assert response.status_code == 400
     assert "name your workspace" in response.json()["error"]
@@ -580,7 +580,7 @@ def test_every_tree_moves_with_the_prefix(prefixed):
     while `/mcp`, `/admin` and `/files` stayed fixed. Nobody wants the browser
     endpoints called something else; everybody eventually wants the server
     mounted under a path."""
-    app = prefixed.mcp.http_app(path=prefixed.mcp_path)  # what `run` serves
+    app = prefixed.mcp.server.http_app(path=prefixed.mcp_path)  # what `run` serves
     paths = {r.path for r in app.routes if hasattr(r, "path")}
     for tree in (
         "/flow/browser", "/flow/flows", "/flow/files", "/flow/admin/workspaces",
@@ -596,7 +596,7 @@ def test_every_tree_moves_with_the_prefix(prefixed):
 def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects(prefixed):
     """The UI is what a person gets for visiting the server; `/admin/*` is the
     API that page calls. The root used to 404."""
-    client = TestClient(prefixed.mcp.http_app())
+    client = TestClient(prefixed.mcp.server.http_app())
     assert client.get("/flow/").status_code == 200
     moved = client.get("/flow/admin", follow_redirects=False)
     assert moved.status_code == 301
@@ -607,7 +607,7 @@ def test_the_ui_is_at_the_mount_root_and_the_old_path_redirects(prefixed):
 def test_the_ops_endpoints_answer_at_the_root_whatever_the_prefix(prefixed):
     """The one path whose reader did not choose the mount. A readiness probe
     that 404s after a config change is the failure this avoids."""
-    client = TestClient(prefixed.mcp.http_app())
+    client = TestClient(prefixed.mcp.server.http_app())
     for probe in ("/health", "/started", "/ready", "/info"):
         assert client.get(probe).status_code in (200, GRID_DOWN), probe
         assert client.get(f"/flow{probe}").status_code in (200, GRID_DOWN), probe
@@ -620,7 +620,7 @@ async def test_the_published_spec_describes_the_paths_actually_served(prefixed):
     from kubed.selenium_flow.spec import build_spec
 
     spec = await build_spec(prefixed.mcp, ENDPOINTS, "/flow", authenticated=True)
-    served = {r.path for r in prefixed.mcp.http_app().routes if hasattr(r, "path")}
+    served = {r.path for r in prefixed.mcp.server.http_app().routes if hasattr(r, "path")}
     assert set(spec["paths"]) <= served, set(spec["paths"]) - served
 
 
@@ -757,14 +757,14 @@ def test_sf_workspace_names_the_workspace_over_http(open_server, monkeypatch):
     `?workspace=`, the caller's `Sf-Workspace`, its `X-Workspace` or the token's user.
     A Claude.ai connector sends `X-Workspace`, its alias."""
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
-    bare = TestClient(open_server.mcp.http_app())
+    bare = TestClient(open_server.mcp.server.http_app())
     body = bare.get("/browser", headers={"Sf-Workspace": "claude-web"}).json()
     assert body["workspace"] == "claude-web"
 
 
 def test_sf_workspace_and_a_query_name_is_a_400(open_server, monkeypatch):
     monkeypatch.setattr(open_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
-    bare = TestClient(open_server.mcp.http_app())
+    bare = TestClient(open_server.mcp.server.http_app())
     response = bare.get("/browser?workspace=b", headers={"Sf-Workspace": "a"})
     assert response.status_code == 400
     assert "Sf-Workspace" in response.json()["error"]
@@ -793,7 +793,7 @@ def test_readiness_remembers_the_grids_answer_for_two_seconds(server, monkeypatc
 
     monkeypatch.setattr(server.actions.grid, "status", status)
     monkeypatch.setattr(server.actions.grid, "session_count", lambda: 3)
-    client = TestClient(server.mcp.http_app())
+    client = TestClient(server.mcp.server.http_app())
     assert client.get("/ready").status_code == 200
     grid_up[0] = False
     now[0] += 1.9
@@ -836,7 +836,7 @@ def test_a_slash_redirect_is_relative_as_the_server_is_run(path, location):
     server.mcp.run = lambda **kwargs: served.update(kwargs)
     server.run()
 
-    client = TestClient(server.mcp.http_app(middleware=served["middleware"]))
+    client = TestClient(server.mcp.server.http_app(middleware=served["middleware"]))
     moved = client.get(path, follow_redirects=False)
     assert moved.status_code == 307
     assert moved.headers["location"] == location

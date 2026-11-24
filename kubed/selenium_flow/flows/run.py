@@ -40,7 +40,6 @@ def run(
     verbose: bool = False,
     timeout: int | None = None,
     catalogue=None,
-    skill_available: bool = True,
     library: str = "",
     stop=None,
     **hooks,
@@ -71,7 +70,6 @@ def run(
         verbose=verbose,
         timeout=timeout,
         catalogue=catalogue,
-        skill_available=skill_available,
         library=library,
         stop=stop,
     )

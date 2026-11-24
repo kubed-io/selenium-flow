@@ -243,14 +243,14 @@ def routes_log():
 
 async def open_over_mcp(server, monkeypatch) -> str:
     calling_as(monkeypatch, "dns")
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         with pytest.raises(ToolError) as caught:
             await client.call_tool("open_session", {"url": URL})
     return str(caught.value)
 
 
 def open_over_http(server):
-    client = TestClient(server.mcp.http_app(), headers={"Sf-Workspace": "dns"})
+    client = TestClient(server.mcp.server.http_app(), headers={"Sf-Workspace": "dns"})
     return client.post("/browser", json={"url": URL})
 
 

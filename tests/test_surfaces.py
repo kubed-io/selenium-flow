@@ -120,11 +120,11 @@ def test_what_answers_under_control():
 
 
 async def test_tool_names_match_the_action_names(server):
-    assert browser_tools(await server.mcp.list_tools()) == EXPECTED | RESOURCE_ACTIONS
+    assert browser_tools(await server.mcp.server.list_tools()) == EXPECTED | RESOURCE_ACTIONS
 
 
 async def test_every_action_is_reachable_from_both_surfaces(server):
-    tools = browser_tools(await server.mcp.list_tools())
+    tools = browser_tools(await server.mcp.server.list_tools())
     routed = set(ENDPOINTS.values()) | RESOURCE_ACTIONS
     assert tools == routed, (
         "an action is exposed on one surface only: "
@@ -137,7 +137,7 @@ async def test_the_browser_resource_is_on_both_surfaces(server):
     are bound as methods on /browser, and this is where that is held."""
     routes = {
         (r.path, method)
-        for r in server.mcp.http_app().routes
+        for r in server.mcp.server.http_app().routes
         if getattr(r, "path", None) == "/browser"
         for method in getattr(r, "methods", ())
     }
@@ -190,7 +190,7 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
     monkeypatch.setattr(
         clients_module, "request_values", lambda: ({"resources": [resources]}, {})
     )
-    tools = await server.mcp.list_tools()
+    tools = await server.mcp.server.list_tools()
     assert tools, "no tools listed, so this proves nothing"
     for tool in tools:
         hints = tool.annotations
@@ -220,7 +220,7 @@ async def test_only_reading_the_page_is_marked_read_only(server, monkeypatch, re
     )
     read_only = {
         t.name
-        for t in await server.mcp.list_tools()
+        for t in await server.mcp.server.list_tools()
         if t.annotations.read_only_hint
     } - FLOW_TOOLS - mirror.MIRROR_TOOLS
     assert read_only == {
@@ -235,7 +235,7 @@ async def test_a_tool_that_can_act_on_the_page_admits_it(server):
     keypress, an answered confirm, arbitrary JavaScript. Any of them can place
     an order or delete a record, and this server cannot tell which, so none may
     claim to be non-destructive."""
-    tools = {t.name: t for t in await server.mcp.list_tools()}
+    tools = {t.name: t for t in await server.mcp.server.list_tools()}
     for name in ("interact", "press_key", "dialog", "execute_script"):
         assert tools[name].annotations.destructive_hint is True, name
 
@@ -260,7 +260,7 @@ async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypa
     )
     server.workspaces.remember(NAMED, "abc", "", {"browser": "firefox"})
 
-    resize(width=1024, height=768)
+    resize(width=1024, height=768, actions=server.actions)
     assert server.workspaces.store.get(NAMED).window == "1024x768"
 
 
@@ -316,7 +316,7 @@ def test_only_a_key_that_can_submit_waits_for_a_navigation(
 
 
 async def test_network_body_is_callable_by_the_app_and_listed_to_the_model(server):
-    tool = {t.name: t for t in await server.mcp.list_tools()}["network_body"]
+    tool = {t.name: t for t in await server.mcp.server.list_tools()}["network_body"]
     assert tool.meta["ui"] == {"visibility": ["model", "app"]}
     assert tool.annotations.read_only_hint is True and tool.annotations.destructive_hint is False
 
@@ -351,7 +351,7 @@ async def test_open_session_takes_version_and_raw_capabilities(server, monkeypat
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "open_browser", opened)
     raw = {"goog:chromeOptions": {"args": ["--a"], "prefs": {"x": 1}}, "k:v": [None]}
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         await client.call_tool("open_session", {"version": "152", "capabilities": raw})
     assert seen["version"] == "152" and seen["capabilities"] == raw
 

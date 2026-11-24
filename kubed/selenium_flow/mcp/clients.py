@@ -18,12 +18,11 @@ from dataclasses import replace
 from urllib.parse import urlsplit
 
 import anyio
-from fastmcp.exceptions import ToolError
-from fastmcp.server import dependencies
-from fastmcp.server.dependencies import get_access_token, get_context
-from fastmcp.server.middleware import Middleware
-from mcp.shared.exceptions import MCPError
-from mcp_types import INVALID_PARAMS
+from kubed.mcp import Middleware, ToolError
+from kubed.mcp import request as mcp_request
+from kubed.mcp.auth import get_access_token
+from kubed.mcp.protocol import INVALID_PARAMS, MCPError
+from kubed.mcp.request import Values, get_context
 
 from .. import faults
 from ..principal import Principal
@@ -56,33 +55,23 @@ CARRIED = "sf-carried-workspace"
 CARRIED_SESSION = "sf-carried-session"
 
 
-def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None:
+def request_values() -> tuple[Values, Values] | None:
     """(query params, headers) for the current request, or None off HTTP.
 
-    Read through FastMCP's dependency helpers, which find the request in a
-    context variable the ASGI stack sets and keep working where
-    ``Context.session_id`` gives up. Every value is a list: a repeated name is
-    two names.
+    quick-mcp's reader, with a background task's snapshot passed through
+    `snapshot` first.
     """
-    try:
-        request = dependencies.get_http_request()
-    except Exception:  # noqa: BLE001 - outside an HTTP request this raises
-        request = None
-    if request is not None:
-        return values_of(request)
-    # A background task's worker has the snapshot of every header its
-    # submission carried (`include_all`, so an HTTP submission always has its
-    # `host`). None at all means stdio.
-    try:
-        headers = dependencies.get_http_headers(include_all=True)
-    except Exception:  # noqa: BLE001 - no request is no request
-        return None
-    if not headers:
-        return None
-    # A task submitted over HTTP is named and pinned by what `Carry` wrote and
-    # nothing else: never by a workspace or session header the snapshot kept,
-    # never the stdio constant.
-    values = {k.lower(): [v] for k, v in headers.items()}
+    return mcp_request.request_values(snapshot=snapshot)
+
+
+def snapshot(values: Values) -> Values:
+    """A task worker's snapshotted headers, as its workspace and pin are read.
+
+    A task submitted over HTTP is named and pinned by what `Carry` wrote and
+    nothing else: never by a workspace or session header the snapshot kept,
+    never the stdio constant.
+    """
+    values = dict(values)
     carried = values.pop(CARRIED, None)
     pin = values.pop(CARRIED_SESSION, None)
     values.pop(WORKSPACE_HEADER, None)
@@ -92,7 +81,7 @@ def request_values() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None
         values[WORKSPACE_HEADER] = carried
     if pin:
         values[SESSION_HEADER] = pin
-    return {}, values
+    return values
 
 
 def principal() -> Principal | None:
@@ -190,7 +179,7 @@ class Carry(Middleware):
 
     async def on_call_tool(self, context, call_next):
         try:
-            request = dependencies.get_http_request()
+            request = mcp_request.get_http_request()
         except Exception:  # noqa: BLE001 - off HTTP there is no request
             request = None
         if request is not None:

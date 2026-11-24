@@ -138,7 +138,7 @@ async def test_over_mcp_the_caller_and_the_log_read_the_sentence_only(
     monkeypatch.setattr(server.actions.grid, "reconnect", lambda session_id: driver)
     monkeypatch.setattr(server.actions.grid, "is_alive", lambda session_id: True)
     calling_as(monkeypatch, "lost")
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         await client.call_tool("open_session", {})
         with pytest.raises(ToolError) as caught:
             await client.call_tool("execute_script", {"script": "return 1"})

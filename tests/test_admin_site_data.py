@@ -59,7 +59,7 @@ def server():
 
 @pytest.fixture
 def client(server):
-    return TestClient(server.mcp.http_app(), headers=AUTH)
+    return TestClient(server.mcp.server.http_app(), headers=AUTH)
 
 
 def url(suffix=""):
@@ -123,7 +123,7 @@ def test_clear_deletes_the_snapshot_and_keeps_the_history(client, server):
 
 
 def test_the_routes_need_the_token(server):
-    bare = TestClient(server.mcp.http_app())
+    bare = TestClient(server.mcp.server.http_app())
     assert bare.get(url()).status_code == 401
     assert bare.delete(url("/app.example.com")).status_code == 401
     assert bare.delete(url()).status_code == 401
@@ -155,7 +155,7 @@ def test_a_parent_only_row_can_be_forgotten_and_a_covered_host_cannot(server):
         "cookies": [{"name": "shared", "value": "s", "domain": ".example.org", "path": "/"}],
         "origins": {}, "session": {}, "saved_at": 10.0,
     }))
-    client = TestClient(server.mcp.http_app(), headers=AUTH)
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     body = client.get(url()).json()
     assert [s["site"] for s in body["sites"]] == ["example.org"]
     assert body["details"]["example.org"]["own_cookies"] == ["shared"]
@@ -186,7 +186,7 @@ def test_the_payload_comes_from_one_grouping_of_the_jar(server, monkeypatch):
         return real(self, host)
 
     monkeypatch.setattr(site_data._Jar, "covering", counting)
-    body = TestClient(server.mcp.http_app(), headers=AUTH).get(url()).json()
+    body = TestClient(server.mcp.server.http_app(), headers=AUTH).get(url()).json()
     assert len(body["details"]) >= 300
     assert calls["n"] <= len(body["details"]) + 5
 

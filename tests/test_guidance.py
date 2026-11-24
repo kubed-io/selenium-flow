@@ -31,12 +31,12 @@ def test_every_page_guidance_can_name_is_one_the_skill_ships():
 
 
 def test_a_pointer_is_a_resource_uri_and_nothing_else():
-    """Everything after `skill://selenium-flow/` is a file path, so an anchor
+    """Everything after `skill://selenium-flow/selenium-flow/` is a file path, so an anchor
     glued on the end names a file that does not exist. The section travels
     beside the URI, never inside it."""
     from kubed.selenium_flow.core.guidance import pointer
 
-    assert pointer("FLOWS.md") == "skill://selenium-flow/references/FLOWS.md"
+    assert pointer("FLOWS.md") == "skill://selenium-flow/selenium-flow/references/FLOWS.md"
     assert "#" not in pointer("FLOWS.md")
 
 
@@ -61,32 +61,17 @@ def test_the_instructions_name_the_skill():
     """
     from kubed.selenium_flow.mcp.instructions import instructions
 
-    assert "skill://selenium-flow/SKILL.md" in instructions(True)
+    assert "skill://selenium-flow/selenium-flow/SKILL.md" in instructions()
 
 
-def test_the_instructions_do_not_name_a_skill_that_is_not_served():
-    """`--mcp-skill false` is a supported mode, and it registers no skill:// resource.
-
-    Telling that client to read the manual points it at a URI nothing answers,
-    which is the same failure as naming a reference the skill does not ship —
-    it teaches an agent the manual is broken (Copilot, #36).
-    """
-    from kubed.selenium_flow.mcp.instructions import instructions
-
-    assert "skill://" not in instructions(False)
-
-
-def test_the_session_status_omits_guidance_when_no_skill_is_served():
-    """Same rule, the other emitter."""
+def test_the_session_status_names_the_workspaces_reference():
+    """The other emitter: the workspace status points at WORKSPACES.md."""
     from kubed.selenium_flow.core.actions import Actions
     from kubed.selenium_flow.core.browser import Grid
     from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
-    actions = Actions(Grid("http://grid.invalid:4444"))
-    served = Workspaces(actions, skill_available=True)
-    silent = Workspaces(actions, skill_available=False)
-    assert "WORKSPACES.md" in served.describe(Caller("someone"))["guidance"]
-    assert "guidance" not in silent.describe(Caller("someone"))
+    status = Workspaces(Actions(Grid("http://grid.invalid:4444"))).describe(Caller("someone"))
+    assert status["guidance"] == "skill://selenium-flow/selenium-flow/references/WORKSPACES.md"
 
 
 def test_the_emitted_shapes_are_exactly_what_they_were():
@@ -96,7 +81,7 @@ def test_the_emitted_shapes_are_exactly_what_they_were():
     from kubed.selenium_flow.flows.report import hint_for
 
     hint = hint_for({"tool": "assert", "error": "", "n": 1}, "demo")
-    assert hint["read"] == "skill://selenium-flow/references/FLOWS.md"
+    assert hint["read"] == "skill://selenium-flow/selenium-flow/references/FLOWS.md"
     assert hint["section"] == "say-what-must-be-true"
     assert hint["prompt"] == "repair_flow"
 
@@ -176,13 +161,13 @@ async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode)
 
     async def told(name):
         info = Implementation(name=name, version="1")
-        async with Client(server.mcp, client_info=info, mode=mode) as client:
+        async with Client(server.mcp.server, client_info=info, mode=mode) as client:
             return client.instructions or ""
 
     vscode = await told("Visual Studio Code")
-    assert "read_resource" in vscode and "skill://selenium-flow/SKILL.md" in vscode
+    assert "read_resource" in vscode and "skill://selenium-flow/selenium-flow/SKILL.md" in vscode
     reader = await told("Claude Code")
-    assert "read_resource" not in reader and "skill://selenium-flow/SKILL.md" in reader
+    assert "read_resource" not in reader and "skill://selenium-flow/selenium-flow/SKILL.md" in reader
 
 
 # What earlier chapters removed. Each was once the name an agent was told to
@@ -228,7 +213,7 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
     texts = {}
     for client in ("Claude Code", "Visual Studio Code"):
         info = Implementation(name=client, version="1")
-        async with Client(server.mcp, client_info=info) as c:
+        async with Client(server.mcp.server, client_info=info) as c:
             texts[f"instructions for {client}"] = c.instructions or ""
             for tool in await c.list_tools():
                 texts[f"tool {tool.name}"] = tool.description or ""
@@ -244,10 +229,10 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
                 texts[f"resource {resource.uri}"] = resource.description or ""
             # The listing names SKILL.md alone; the manifest names the rest.
             manifest = json.loads(
-                (await c.read_resource("skill://selenium-flow/_manifest"))[0].text
+                (await c.read_resource("skill://selenium-flow/selenium-flow/_manifest"))[0].text
             )
             for f in manifest["files"]:
-                uri = f"skill://selenium-flow/{f['path']}"
+                uri = f"skill://selenium-flow/selenium-flow/{f['path']}"
                 body = await c.read_resource(uri)
                 texts[f"file {uri}"] = getattr(body[0], "text", "")
     assert any(

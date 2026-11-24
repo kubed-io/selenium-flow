@@ -76,12 +76,12 @@ def browsers(double):
 
 async def test_run_flow_runs_every_step_in_its_session(flows):
     app, double = flows
-    async with Client(app.mcp) as client:
+    async with Client(app.mcp.server) as client:
         await client.call_tool("run_flow", {"name": "trip", "session": "tester"})
         assert browsers(double) == ["b-2", "b-2"]
         await client.call_tool("run_flow", {"name": "trip"})
     assert browsers(double) == ["b-2", "b-2", "b-1", "b-1"]
-    http = TestClient(app.mcp.http_app(), headers=AUTH)
+    http = TestClient(app.mcp.server.http_app(), headers=AUTH)
     answered = http.post(
         f"/flows/trip/runs?workspace={NAMED}", json={"session": "tester"}
     )
@@ -114,7 +114,7 @@ async def test_a_flow_failing_in_a_sub_session_logs_no_name(flows, monkeypatch, 
 
     monkeypatch.setattr(Actions, "navigate", refuse)
     caplog.set_level(logging.DEBUG)
-    async with Client(app.mcp) as client:
+    async with Client(app.mcp.server) as client:
         failed = await client.call_tool(
             "run_flow", {"name": "trip", "session": subject}, raise_on_error=False
         )
@@ -136,7 +136,7 @@ async def test_a_flow_failing_in_a_sub_session_logs_no_name(flows, monkeypatch, 
 async def test_the_run_is_scrubbed_and_checked_as_its_session(flows):
     """The run's origins and history are the session's, not the default's."""
     app, _double = flows
-    async with Client(app.mcp) as client:
+    async with Client(app.mcp.server) as client:
         await client.call_tool("run_flow", {"name": "trip", "session": "tester"})
     store = app.workspaces.store
     workspaces = app.workspaces
@@ -150,7 +150,7 @@ async def test_save_flow_refuses_a_step_naming_a_session(flows):
     steps = [
         {"tool": "navigate", "args": {"url": "https://example.test/", "session": "x"}}
     ]
-    async with Client(app.mcp) as client:
+    async with Client(app.mcp.server) as client:
         with pytest.raises(ToolError) as refused:
             await client.call_tool("save_flow", {"name": "bad", "steps": steps})
     assert "session" in str(refused.value)
@@ -294,7 +294,7 @@ def test_the_live_view_and_its_control_are_one_sessions(hub, monkeypatch):  # no
     from .test_live_tunnel import vnc_node
 
     app = live_build()
-    client = TestClient(app.mcp.http_app())
+    client = TestClient(app.mcp.server.http_app())
     minted = client.get("/admin/workspaces/w1/live?session=tester", headers=ADMIN)
     assert minted.status_code == 200, minted.text
     url = minted.json()["url"]
@@ -396,7 +396,7 @@ def test_a_paste_goes_to_the_controlled_session_only(hub, monkeypatch):  # noqa:
 
     monkeypatch.setattr(grid, "is_alive", lambda session_id: True)
     monkeypatch.setattr(grid, "reconnect", reconnect)
-    client = TestClient(app.mcp.http_app())
+    client = TestClient(app.mcp.server.http_app())
     held(app.tunnels, "w1/tester", "admin", "control", "g-tester")
     paste = "/admin/workspaces/w1/live/paste"
     typed = client.post(f"{paste}?session=tester", json={"text": "hi"}, headers=ADMIN)

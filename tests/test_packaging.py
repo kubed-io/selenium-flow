@@ -350,8 +350,6 @@ def test_pip_does_not_ship_inside_the_copied_venv():
 DATA_DIRS = {
     "kubed/selenium_flow/core/js.py": "js",
     "kubed/selenium_flow/mcp/skill.py": "plugin",
-    "kubed/selenium_flow/mcp/prompts.py": "plugin",
-    "kubed/selenium_flow/mcp/agents.py": "plugin",
 }
 
 

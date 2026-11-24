@@ -79,7 +79,7 @@ async def _run_watched(server, name):
     async def watching(value, total, message):
         seen.append((value, total, message))
 
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await client.call_tool(
             flowapi.RUN_TOOL, {"name": name}, progress_handler=watching
         )
@@ -221,7 +221,7 @@ def test_a_budget_saved_over_http_is_kept_too(slow_server):
     forget - and the two surfaces may differ in shape, never in capability."""
     from starlette.testclient import TestClient
 
-    client = TestClient(slow_server.mcp.http_app())
+    client = TestClient(slow_server.mcp.server.http_app())
     response = client.put(
         "/flows/patient",
         json={"steps": STEPS[:1], "timeout": 900},
@@ -271,7 +271,7 @@ async def test_every_field_a_save_or_read_returns_is_published(
     from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.spec import build_spec
 
-    client = TestClient(slow_server.mcp.http_app())
+    client = TestClient(slow_server.mcp.server.http_app())
     headers = {"Authorization": f"Bearer {TOKEN}", "Sf-Workspace": NAMED}
     document = {
         "description": "everything a flow may say",
@@ -348,7 +348,7 @@ def test_a_null_budget_over_http_means_unset_and_is_not_stored(slow_server):
     `null`. Both mean the default, and neither leaves a null in the file."""
     from starlette.testclient import TestClient
 
-    client = TestClient(slow_server.mcp.http_app())
+    client = TestClient(slow_server.mcp.server.http_app())
     response = client.put(
         "/flows/patient",
         json={"steps": STEPS[:1], "timeout": None},

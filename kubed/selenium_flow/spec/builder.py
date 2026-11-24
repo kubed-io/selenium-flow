@@ -17,7 +17,7 @@ import copy
 import re
 from importlib.metadata import PackageNotFoundError, version
 
-from fastmcp import FastMCP
+from kubed.mcp import QuickMCP
 
 from ..core.capabilities import CAPABILITIES, capability
 from .schemas import (
@@ -106,7 +106,7 @@ def _version() -> str:
 
 
 async def build_spec(
-    mcp: FastMCP,
+    mcp: QuickMCP,
     endpoints: dict[str, str],
     prefix: str,
     authenticated: bool,
@@ -125,7 +125,10 @@ async def build_spec(
     browser_root = f"{prefix}/browser"
     # get_tool, never list_tools: a listing is shaped for whoever is asking.
     # Not guarded: an action in the route table with no tool is a broken build.
-    tools = {action: await mcp.get_tool(action) for action in set(endpoints.values())}
+    tools = {
+        action: await mcp.get_tool(action)
+        for action in set(endpoints.values())
+    }
 
     schemas: dict[str, dict] = {"Error": ERROR, "Health": HEALTH}
     paths: dict[str, dict] = {}

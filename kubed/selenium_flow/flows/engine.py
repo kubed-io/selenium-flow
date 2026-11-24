@@ -243,7 +243,7 @@ class Run:
             self.redacted_url = taints(page.get("url"), forms)
             self.last = {**self.last, **landed}
 
-    def report(self, skill_available: bool) -> dict:
+    def report(self) -> dict:
         report = {
             "flow": self.name,
             "status": self.status,
@@ -256,7 +256,7 @@ class Run:
         for key in ("url", "title"):
             if self.last.get(key):
                 report[key] = self.last[key]
-        with_hint(report, skill_available)
+        with_hint(report)
         if self.redacted_url:
             # The reported page is not an address to go back to.
             report["url_redacted"] = True
@@ -310,7 +310,7 @@ def page_state(actions, session_id: str) -> dict:
         return {}
 
 
-def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
+def _preflight(document: dict, name: str) -> dict | None:
     """A report refusing ``document`` before step one, or None to go ahead."""
     shape = Shape(document)
     malformed = shape.problems()
@@ -319,7 +319,6 @@ def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
             document,
             name,
             "this flow cannot be run as written: " + "; ".join(malformed) + ".",
-            skill_available,
         )
 
     marked = sorted(
@@ -337,7 +336,6 @@ def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
             "hides anything — a parameter is text and may appear in the "
             "report. A value nobody may see is a secret: give write an "
             "args.secret instead.",
-            skill_available,
         )
 
     stale = [
@@ -367,7 +365,6 @@ def _preflight(document: dict, name: str, skill_available: bool) -> dict | None:
                     for number in stale
                 ],
             },
-            skill_available,
         )
     return None
 
@@ -400,7 +397,6 @@ def execute(
     verbose: bool = False,
     timeout: int | None = None,
     catalogue=None,
-    skill_available: bool = True,
     library: str = "",
     stop: threading.Event | None = None,
 ) -> dict:
@@ -434,7 +430,7 @@ def execute(
             try:
                 timeout = declared_timeout(document)
             except ValueError as exc:
-                return refused(document, name, str(exc), skill_available)
+                return refused(document, name, str(exc))
         budget = default_timeout if timeout is None else max(int(timeout), 0)
         run = Run(
             name=name,
@@ -444,7 +440,7 @@ def execute(
             stop=stop,
         )
 
-        refusal = _preflight(document, name, skill_available)
+        refusal = _preflight(document, name)
         if refusal is not None:
             return refusal
 
@@ -462,7 +458,7 @@ def execute(
         for number, step in enumerate(shape.steps, start=1):
             if not _take(run, call, number, step):
                 break
-        return run.report(skill_available)
+        return run.report()
 
 
 def _take(run: Run, call: _Call, number: int, step: dict) -> bool:

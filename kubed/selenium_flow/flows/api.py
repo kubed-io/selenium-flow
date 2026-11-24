@@ -115,7 +115,7 @@ def _require(store):
 
 def _context():
     """The MCP request being answered, or None outside one."""
-    from fastmcp.server.dependencies import get_context
+    from kubed.mcp.request import get_context
 
     try:
         return get_context()
@@ -307,6 +307,7 @@ class Schemas:
         if self._cache is None:
             tools = {}
             for name in sorted(set(ENDPOINTS.values())):
+                # FastMCP's own: QuickMCP does not pass it through.
                 tool = await self.mcp.get_tool(name)
                 tools[name] = tool.parameters or {}
             self._cache = flowdoc.step_schemas(tools)
@@ -335,7 +336,7 @@ def run_one(
 
 def register(
     mcp, store, workspaces, actions, token: str | None, prefix: str = "",
-    secrets_catalogue=None, schemas=None, skill_available: bool = True,
+    secrets_catalogue=None, schemas=None,
 ) -> None:
     """Register the flow resources, tools and endpoints."""
     # The server hands in the admin editor's, so both validate against one.
@@ -396,7 +397,7 @@ def register(
             "problem is listed at once. sites and paths say where the flow "
             "applies, so a result that lands there names it in flows_here; a "
             "flow with neither is never named. flow://schema has the full shape; "
-            "skill://selenium-flow/references/FLOWS.md explains writing one."
+            f"{guidance.pointer('FLOWS.md')} explains writing one."
         ),
         annotations=hints("Save a flow", idempotent=True),
     )
@@ -489,7 +490,6 @@ def register(
                 params=params,
                 verbose=verbose,
                 secrets_catalogue=secrets_catalogue,
-                skill_available=skill_available,
                 before_step=watch.step,
                 stop=watch.stop,
             )
@@ -517,7 +517,6 @@ def register(
 
     _routes(
         mcp, store, workspaces, actions, schemas, token, prefix, secrets_catalogue,
-        skill_available,
     )
 
 
@@ -623,7 +622,7 @@ def _build_document_schema(steps: dict) -> dict:
 def run_for(
     store, actions, workspaces, workspace: str, name: str,
     params=None, verbose: bool = False,
-    secrets_catalogue=None, skill_available: bool = True,
+    secrets_catalogue=None,
     before_step=None, stop=None, key: str | None = None, own: str | None = None,
 ) -> dict:
     """Run a saved flow in a session's browser, and update its record.
@@ -747,7 +746,6 @@ def run_for(
                 in_scope=in_scope,
                 stop=stop,
                 secrets_catalogue=secrets_catalogue,
-                skill_available=skill_available,
             )
         page = calls_module.total(
             step_hints, workspace, workspace if own is None else own
@@ -780,7 +778,7 @@ def run_for(
 
 def _routes(
     mcp, store, workspaces, actions, schemas: Schemas, token, prefix,
-    secrets_catalogue=None, skill_available: bool = True,
+    secrets_catalogue=None,
 ) -> None:
     """The flow library as REST, under ``prefix``.
 
@@ -889,7 +887,6 @@ def _routes(
                 # True.
                 verbose=as_bool(body.get("verbose"), False),
                 secrets_catalogue=secrets_catalogue,
-                skill_available=skill_available,
             )
 
         return await answer(request, "run", scrub=False, call=call)

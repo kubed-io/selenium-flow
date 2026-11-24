@@ -11,6 +11,10 @@ from __future__ import annotations
 
 import re
 
+# The server's MCP name, which is also the namespace every skill it serves sits
+# under: skill://<SERVER_NAME>/<skill>/SKILL.md.
+SERVER_NAME = "selenium-flow"
+
 # The workspace an unnamed caller shares (stdio has STDIO_WORKSPACE). A caller
 # keyed on an MCP transport id would get a new key on every reconnect, and a
 # directory per key would fill the disk with folders nobody could reach again.

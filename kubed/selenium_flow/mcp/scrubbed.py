@@ -37,9 +37,7 @@ from dataclasses import replace
 from urllib.parse import unquote
 
 import anyio
-from fastmcp.exceptions import ResourceError
-from fastmcp.resources import ResourceContent, ResourceResult
-from fastmcp.server.middleware import Middleware
+from kubed.mcp import Middleware, ResourceContent, ResourceError, ResourceResult
 
 from .. import faults
 from ..workspace import sessions

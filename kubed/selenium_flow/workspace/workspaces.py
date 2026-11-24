@@ -492,7 +492,6 @@ class Workspaces:
         self,
         actions: Actions,
         store: WorkspaceStore | None = None,
-        skill_available: bool = True,
         defaults: dict | None = None,
         recordings=None,
         monitor=None,
@@ -506,9 +505,6 @@ class Workspaces:
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
-        # Whether this server serves the skill the status points at: a skill://
-        # URI nobody can read teaches an agent the manual is broken.
-        self.skill_available = skill_available
         # The operator's floor for a new session (`workspace/settings.py`).
         self.defaults = dict(defaults or {})
         # Who files a recorded browser's video (`recordings.Collector`), or None
@@ -636,9 +632,8 @@ class Workspaces:
             "store": self.kind,
             "settings": {},
             "tags": {},
+            "guidance": guidance.pointer("WORKSPACES.md"),
         }
-        if self.skill_available:
-            status["guidance"] = guidance.pointer("WORKSPACES.md")
         if self.configs.enabled:
             status["config"] = self.configs.rows(self.configs.load(workspace))
             if url := self.configs.url(workspace):

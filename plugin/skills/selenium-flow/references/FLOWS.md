@@ -40,7 +40,7 @@ page it was on, with a `hint`:
 {
   "status": "failed",
   "hint": {
-    "read": "skill://selenium-flow/references/FLOWS.md",
+    "read": "skill://selenium-flow/selenium-flow/references/FLOWS.md",
     "section": "when-a-flow-fails",
     "prompt": "repair_flow",
     "arguments": {"flow": "sign-in", "step": "4"}

@@ -95,8 +95,9 @@ def test_the_wire_loggers_never_log_at_debug(monkeypatch):
                         lambda argv: SimpleNamespace(settings=settings, sources={}))
 
     class Server:
-        auth_token = skill = flows = secrets = collector = None
+        auth_token = flows = secrets = collector = None
         workspaces = SimpleNamespace(kind="memory")
+        plugin = SimpleNamespace(skills=())
 
         def __init__(self, *a, **kw):
             pass
@@ -104,7 +105,7 @@ def test_the_wire_loggers_never_log_at_debug(monkeypatch):
         def run(self, **kw):
             pass
 
-    monkeypatch.setattr(entry, "SeleniumMCP", Server)
+    monkeypatch.setattr(entry, "create_app", Server)
     root = logging.getLogger()
     monkeypatch.setattr(logging, "basicConfig", lambda level: root.setLevel(level))
     names = ("selenium.webdriver.remote.websocket_connection",

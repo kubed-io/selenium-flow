@@ -331,7 +331,7 @@ async def _listed_tools(server, monkeypatch) -> set[str]:
     names = set()
     for flags in ({}, {"resources": "off"}):
         _named(monkeypatch, **flags)
-        async with Client(server.mcp) as c:
+        async with Client(server.mcp.server) as c:
             names |= {t.name for t in await c.list_tools()}
     _named(monkeypatch)
     return names
@@ -341,7 +341,7 @@ def _served_routes(server) -> set[tuple[str, str]]:
     """Every (method, path) the HTTP surface serves; HEAD is GET's."""
     return {
         (method, route.path)
-        for route in server.mcp.http_app().routes
+        for route in server.mcp.server.http_app().routes
         if hasattr(route, "methods") and route.methods
         for method in route.methods
         if method != "HEAD"
@@ -407,7 +407,7 @@ async def every_answer(server, leaky, monkeypatch) -> Answers:
     _named(monkeypatch)
     _recorded_progress(monkeypatch, answers)
     ids: dict = {}
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         await answers.call(c, "open_session", ARGS["open_session"], "mcp open_session ok")
         seed(server)
         network = json.loads((await c.read_resource("workspace://network"))[0].text)
@@ -449,7 +449,7 @@ async def every_answer(server, leaky, monkeypatch) -> Answers:
 
     # The same, through the mirror tools a client that cannot read resources gets.
     _named(monkeypatch, resources="off")
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         listed = await answers.call(c, mirror.LIST_TOOL, {}, "mcp list_resources")
         rows = json.loads(_text_of(listed).split("\n")[-1])["result"]
         mirrored = [
@@ -464,7 +464,7 @@ async def every_answer(server, leaky, monkeypatch) -> Answers:
 
     # Deleting, ending and opening over MCP, last there: ending ends the
     # browser the rest were called on.
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         await answers.call(c, "delete_flow", {"name": FLOW}, "mcp delete_flow ok")
         await answers.call(c, "end_browser", {}, "mcp end_browser ok")
         leaky.raises = True
@@ -476,7 +476,7 @@ async def every_answer(server, leaky, monkeypatch) -> Answers:
     # Every route, over HTTP. With the server's lifespan running, as it does
     # deployed: `await_control` waits on it.
     q = f"?workspace={NAMED}"
-    with TestClient(server.mcp.http_app(), headers=AUTH) as client:
+    with TestClient(server.mcp.server.http_app(), headers=AUTH) as client:
         http_ = functools.partial(answers.http, client)
         http_("POST", "/browser", f"/browser{q}", "http open_session ok",
               json=ARGS["open_session"])
@@ -675,7 +675,7 @@ async def test_text_served_as_bytes_is_scrubbed_and_an_image_passes(monkeypatch)
         workspaces.scrubber.close()
 
 
-@pytest.mark.parametrize("uri", ["skill://selenium-flow/SKILL.md", "flow://schema",
+@pytest.mark.parametrize("uri", ["skill://selenium-flow/selenium-flow/SKILL.md", "flow://schema",
                                  "secret://secrets", "ui://selenium-flow/component"])
 async def test_what_the_server_wrote_is_not_scanned(monkeypatch, uri):  # ruling 16
     from fastmcp.resources import ResourceContent
@@ -733,7 +733,7 @@ async def test_a_read_whose_scrub_fails_reaches_the_client_as_the_sentence(serve
         raise faults.ScrubFailed()
 
     monkeypatch.setattr(server.workspaces.scrubber, "resource", broken)
-    async with Client(server.mcp) as c:
+    async with Client(server.mcp.server) as c:
         with pytest.raises(Exception) as raised:
             await c.read_resource("workspace://files/notes.txt")
         assert faults.SCRUB_FAILED in str(raised.value)

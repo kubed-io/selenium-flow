@@ -60,9 +60,12 @@ def secrets_server(tmp_path, named_caller):
         ("flow://flows/login", "flow"),
         ("flow://schema", "document"),
         ("secret://secrets", "secrets"),
-        ("skill://selenium-flow/SKILL.md", "document"),
-        ("skill://selenium-flow/_manifest", "document"),
-        ("skill://selenium-flow/references/FLOWS.md", "document"),
+        ("skill://selenium-flow/selenium-flow/SKILL.md", "document"),
+        ("skill://selenium-flow/selenium-flow/_manifest", "document"),
+        ("skill://selenium-flow/selenium-flow/references/FLOWS.md", "document"),
+        # Any skill under the server's namespace, not only the first one.
+        ("skill://selenium-flow/reading-pages/SKILL.md", "document"),
+        ("skill://selenium-flow/reading-pages/references/OUTLINE.md", "document"),
         ("workspace://console", "console"),
         ("workspace://console?level=error&pages=2", "console"),
         ("workspace://network", "network"),
@@ -75,7 +78,7 @@ def test_every_showable_uri_has_one_view(uri, component):
 
 
 async def test_capture_off_still_draws(flow_server):
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         result = await c.call_tool("show", {"uri": "workspace://console"})
     assert result.structured_content["data"] == {
         "capture": False, "how": "open_session(capture=true)"
@@ -91,7 +94,7 @@ async def test_capture_off_still_draws(flow_server):
         ("workspace://files/report.pdf", True),
         ("workspace://files/screenshots", False),
         ("workspace://site-data/app.example.com", False),
-        ("skill://selenium-flow/SKILL.md", False),
+        ("skill://selenium-flow/selenium-flow/SKILL.md", False),
     ],
 )
 def test_only_a_single_file_is_drawn_from_its_entry(uri, entry):
@@ -109,7 +112,8 @@ def test_every_row_matches_its_own_display_form():
 @pytest.mark.parametrize(
     "uri",
     ["flow://flows/", "workspace://current/x/y", "secret://secrets/demo",
-     "skill://other/SKILL.md", "workspace://files/screenshots/a/b",
+     "skill://other/SKILL.md", "skill://other/selenium-flow/SKILL.md",
+     "workspace://files/screenshots/a/b",
      "workspace://site-data/a/b"],
 )
 def test_anything_else_is_refused_naming_what_can_be_shown(uri):
@@ -134,7 +138,7 @@ async def test_show_returns_the_resources_own_json(flow_server, uri, component, 
     # A session is open: without one, session://downloads is refused.
     monkeypatch.setattr(flow_server.workspaces, "browser", lambda name: "abc")
     monkeypatch.setattr(flow_server.actions.grid, "files", lambda session_id: [])
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": uri})).structured_content
         read = json.loads((await c.read_resource(uri))[0].text)
     assert shown == {"component": component, "uri": uri, "data": read}
@@ -142,7 +146,7 @@ async def test_show_returns_the_resources_own_json(flow_server, uri, component, 
 
 async def test_a_kept_file_shows_as_the_resource_lists_it(flow_server, named_caller):
     flow_server.flows.write_file(named_caller, "report.pdf", b"%PDF-1.4")
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": "workspace://files"})).structured_content
         read = json.loads((await c.read_resource("workspace://files"))[0].text)
 
@@ -157,7 +161,7 @@ async def test_a_kept_file_shows_as_the_resource_lists_it(flow_server, named_cal
 async def test_a_result_claude_would_drop_is_refused(flow_server, monkeypatch):
     """Claude never hands an app a result over ~150k characters, so the view
     would wait forever; a flow may be 1 MiB of YAML."""
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         assert (await c.call_tool("show", {"uri": "flow://flows/login"})).structured_content
         monkeypatch.setattr(show, "MAX_SHOWN", 50)
         with pytest.raises(ToolError) as refused:
@@ -180,7 +184,7 @@ async def test_a_result_claude_would_drop_is_refused(flow_server, monkeypatch):
 async def test_the_payload_goes_once_and_the_model_gets_one_line(flow_server, uri, summary):
     """A plain dict would also go out as a JSON text block, doubling it. The
     model reads resources to think; the text is a line saying what was shown."""
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         result = await c.call_tool("show", {"uri": uri})
         read = json.loads((await c.read_resource(uri))[0].text)
     assert [block.text for block in result.content] == [summary]
@@ -190,7 +194,7 @@ async def test_the_payload_goes_once_and_the_model_gets_one_line(flow_server, ur
 
 async def test_the_limit_counts_the_whole_result_as_sent(flow_server, monkeypatch):
     """Structured payload and summary line together: what Claude would drop."""
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         result = await c.call_tool("show", {"uri": "flow://flows/login"})
         sent = len(json.dumps({
             "content": [{"type": "text", "text": result.content[0].text}],
@@ -230,7 +234,7 @@ async def test_the_limit_counts_the_whole_result_as_sent(flow_server, monkeypatc
     ],
 )
 async def test_show_refuses_what_it_cannot_show_naming_why(flow_server, uri, said):
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         with pytest.raises(ToolError) as refused:
             await c.call_tool("show", uri)
     assert said in str(refused.value)
@@ -242,7 +246,7 @@ async def test_showing_the_files_never_opens_a_browser(flow_server, monkeypatch)
     no session, the downloads say so instead."""
     monkeypatch.setattr(flow_server.workspaces, "resolve", never)
     monkeypatch.setattr(flow_server.workspaces, "resolved", never)
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         files = (await c.call_tool("show", {"uri": "workspace://files"})).structured_content
         folder = await c.call_tool(
             "show", {"uri": "session://downloads"}, raise_on_error=False
@@ -253,10 +257,10 @@ async def test_showing_the_files_never_opens_a_browser(flow_server, monkeypatch)
 
 
 async def test_show_is_listed_only_for_a_client_that_renders_apps(built_ui, server):
-    names = {t.name for t in await server.mcp.list_tools()}
+    names = {t.name for t in await server.mcp.server.list_tools()}
     assert "show" not in names
     with patch.object(apps, "supported", return_value=True):
-        tools = {t.name: t for t in await server.mcp.list_tools()}
+        tools = {t.name: t for t in await server.mcp.server.list_tools()}
     assert "show" in tools
     assert "session_files" not in tools
 
@@ -264,7 +268,7 @@ async def test_show_is_listed_only_for_a_client_that_renders_apps(built_ui, serv
 async def test_the_app_may_call_show_itself(built_ui, server):
     """Asserted on what a client receives in the tool's `_meta`."""
     with patch.object(apps, "supported", return_value=True):
-        async with Client(server.mcp) as c:
+        async with Client(server.mcp.server) as c:
             tool = next(t for t in await c.list_tools() if t.name == "show")
     ui = (tool.meta or {}).get("ui") or {}
     assert ui.get("visibility") == ["model", "app"]
@@ -279,14 +283,14 @@ async def test_the_app_may_frame_its_own_files(built_ui):
         public_base_url="https://flow.example.com/base",
     ))
     with patch.object(apps, "supported", return_value=True):
-        async with Client(server.mcp) as c:
+        async with Client(server.mcp.server) as c:
             tool = next(t for t in await c.list_tools() if t.name == "show")
     csp = ((tool.meta or {}).get("ui") or {}).get("csp") or {}
     assert csp.get("frameDomains") == ["https://flow.example.com"]
 
 
 async def test_the_session_status_shows_through_the_client(flow_server):
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": "workspace://current"})).structured_content
         read = json.loads((await c.read_resource("workspace://current"))[0].text)
     assert shown["component"] == "context"
@@ -309,7 +313,7 @@ def reading(server, content, mime_type=None):
     async def read(uri):
         return result
 
-    return patch.object(server.mcp, "read_resource", read)
+    return patch.object(server.mcp.server, "read_resource", read)
 
 
 @pytest.mark.parametrize(
@@ -326,15 +330,15 @@ async def test_other_text_is_drawn_as_one_preformatted_block(
 ):
     """Text that is neither markdown nor JSON is a document of one code block,
     fenced past any run of backticks in it, so none of it is read as markdown."""
-    uri = "skill://selenium-flow/references/example.yaml"
-    async with Client(flow_server.mcp) as c:
+    uri = "skill://selenium-flow/selenium-flow/references/example.yaml"
+    async with Client(flow_server.mcp.server) as c:
         with reading(flow_server, content, mime_type):
             shown = (await c.call_tool("show", {"uri": uri})).structured_content
     assert shown == {"component": "document", "uri": uri, "data": drawn}
 
 
 async def test_content_that_is_not_text_is_refused_cleanly(flow_server):
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         with (
             reading(flow_server, b"\x89PNG\r\n", "image/png"),
             pytest.raises(ToolError) as refused,
@@ -344,7 +348,7 @@ async def test_content_that_is_not_text_is_refused_cleanly(flow_server):
 
 
 async def test_the_secrets_show_as_the_resource_lists_them(secrets_server):
-    async with Client(secrets_server.mcp) as c:
+    async with Client(secrets_server.mcp.server) as c:
         result = await c.call_tool("show", {"uri": "secret://secrets"})
         read = json.loads((await c.read_resource("secret://secrets"))[0].text)
     assert result.structured_content == {
@@ -355,7 +359,7 @@ async def test_the_secrets_show_as_the_resource_lists_them(secrets_server):
 
 
 async def test_showing_the_secrets_never_sends_a_value(secrets_server):
-    async with Client(secrets_server.mcp) as c:
+    async with Client(secrets_server.mcp.server) as c:
         result = await c.call_tool("show", {"uri": "secret://secrets"})
     sent = json.dumps(result.structured_content) + "".join(
         block.text for block in result.content
@@ -389,7 +393,7 @@ async def test_one_file_is_drawn_from_its_listing_entry(
     listing = uri.rpartition("/")[0]
     monkeypatch.setattr(flow_server.flows, "read_file", never)
     monkeypatch.setattr(flow_server.workspaces, "resolved", never)
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": uri})).structured_content
         listed = json.loads((await c.read_resource(listing))[0].text)
     entry = next(f for f in listed["files"] if f["name"] == name)
@@ -412,7 +416,7 @@ async def test_a_download_is_drawn_from_the_grids_listing(flow_server, monkeypat
         lambda session_id: [{"name": "report.csv", "size": 3, "creationTime": 1}],
     )
     monkeypatch.setattr(flow_server.actions.grid, "read_file", never)
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool(
             "show", {"uri": "session://downloads/report.csv"}
         )).structured_content
@@ -422,7 +426,7 @@ async def test_a_download_is_drawn_from_the_grids_listing(flow_server, monkeypat
 
 
 async def test_a_moved_download_uri_is_refused_naming_where_it_went(flow_server):
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         result = await c.call_tool(
             "show", {"uri": "workspace://files/downloads/report.csv"}, raise_on_error=False
         )
@@ -431,8 +435,8 @@ async def test_a_moved_download_uri_is_refused_naming_where_it_went(flow_server)
 
 
 async def test_a_skill_page_is_drawn_from_its_text(flow_server):
-    uri = "skill://selenium-flow/references/TROUBLESHOOTING.md"
-    async with Client(flow_server.mcp) as c:
+    uri = "skill://selenium-flow/selenium-flow/references/TROUBLESHOOTING.md"
+    async with Client(flow_server.mcp.server) as c:
         result = await c.call_tool("show", {"uri": uri})
         read = (await c.read_resource(uri))[0].text
     assert result.structured_content == {"component": "document", "uri": uri, "data": read}
@@ -442,9 +446,9 @@ async def test_a_skill_page_is_drawn_from_its_text(flow_server):
     ]
 
 
-@pytest.mark.parametrize("uri", ["flow://schema", "skill://selenium-flow/_manifest"])
+@pytest.mark.parametrize("uri", ["flow://schema", "skill://selenium-flow/selenium-flow/_manifest"])
 async def test_a_json_document_is_drawn_from_its_json(flow_server, uri):
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": uri})).structured_content
         read = json.loads((await c.read_resource(uri))[0].text)
     assert shown == {"component": "document", "uri": uri, "data": read}
@@ -461,7 +465,7 @@ async def test_the_site_data_pair_draws_with_httponly_masked(flow_server, named_
         "session": {"origin": f"https://{site}", "items": {}},
         "saved_at": 1000.0,
     }).visited(f"https://{site}/x"))
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         listing = (await c.call_tool("show", {"uri": "workspace://site-data"})).structured_content
         one = (await c.call_tool(
             "show", {"uri": f"workspace://site-data/{site}"}
@@ -476,7 +480,7 @@ async def test_the_site_data_pair_draws_with_httponly_masked(flow_server, named_
 
 async def test_the_description_names_the_schemes(built_ui, server):
     with patch.object(apps, "supported", return_value=True):
-        tool = next(t for t in await server.mcp.list_tools() if t.name == "show")
+        tool = next(t for t in await server.mcp.server.list_tools() if t.name == "show")
     for scheme in ("workspace://", "flow://", "secret://", "skill://"):
         assert scheme in tool.description
     assert "read the resource instead" in tool.description
@@ -520,7 +524,7 @@ def chatty(server, name, entries=1000, text="x" * 300, requests=0, url_tail=""):
 @pytest.mark.parametrize("text", ["x" * 300, "y" * 4000])
 async def test_a_chatty_console_is_drawn_from_its_newest_entries(flow_server, named_caller, text):
     chatty(flow_server, named_caller, text=text)
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": "workspace://console"})).structured_content
     data = shown["data"]
     assert data["count"] == 1000 and 0 < len(data["entries"]) <= show.SHOWN_ROWS
@@ -530,7 +534,7 @@ async def test_a_chatty_console_is_drawn_from_its_newest_entries(flow_server, na
 
 async def test_a_chatty_network_is_drawn_from_its_newest_requests(flow_server, named_caller):
     chatty(flow_server, named_caller, entries=0, requests=600, url_tail="q=" + "z" * 3000)
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": "workspace://network"})).structured_content
     data = shown["data"]
     assert data["count"] == 600 and 0 < len(data["requests"]) <= show.SHOWN_ROWS
@@ -539,6 +543,6 @@ async def test_a_chatty_network_is_drawn_from_its_newest_requests(flow_server, n
 
 async def test_its_errors_drill_down_is_drawn_too(flow_server, named_caller):
     chatty(flow_server, named_caller)
-    async with Client(flow_server.mcp) as c:
+    async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": "workspace://console?level=error"})).structured_content
     assert shown["data"]["count"] == 500

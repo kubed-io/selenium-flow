@@ -370,7 +370,7 @@ def test_a_queue_timeout_is_no_node_took_with_what_was_asked(said):
         "no Grid node took this browser before the Grid gave up waiting: it "
         "asked for chrome 152, kubed:pool=headless. The Grid may have no node "
         "with these capabilities, or none free; see "
-        "skill://selenium-flow/references/TROUBLESHOOTING.md"
+        "skill://selenium-flow/selenium-flow/references/TROUBLESHOOTING.md"
     )
 
 
@@ -402,7 +402,7 @@ def test_a_refusal_with_raw_keys_or_a_version_is_blamed():
     assert str(raw) == (
         "the Grid node refused this browser: session not created: x. The usual "
         "cause is what this open asked for: capabilities x:y; see "
-        "skill://selenium-flow/references/TROUBLESHOOTING.md"
+        "skill://selenium-flow/selenium-flow/references/TROUBLESHOOTING.md"
     )
     version = not_created("no", build("chrome", version="152", raw={"a:b": 1, "c:d": 2}))
     assert version.blamed

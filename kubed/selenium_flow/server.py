@@ -1,4 +1,4 @@
-"""The MCP server: builds the FastMCP instance from the settings and runs it.
+"""The MCP server: `create_app` builds it from the settings, as a `QuickMCP`.
 
 Only wiring. The behaviour is in ``core/actions.py``, the two surfaces in
 ``mcp/tools.py`` and ``routes.py``, so a new capability needs no change here.
@@ -11,7 +11,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastmcp import FastMCP
+from kubed.mcp import QuickMCP
 from starlette.middleware import Middleware
 
 from . import capture as capture_module
@@ -33,7 +33,6 @@ from .live.control import Controls
 from .live.pages import Pages
 from .live.tunnels import Tunnels
 from .mcp import (
-    agents,
     apps,
     clients,
     completions,
@@ -41,7 +40,6 @@ from .mcp import (
     failures,
     instructions,
     mirror,
-    prompts,
     resources,
     scrubbed,
     show,
@@ -51,6 +49,7 @@ from .mcp import (
 )
 from .monitor.events import LocalBus
 from .monitor.monitor import Monitor
+from .names import SERVER_NAME
 from .recordings import collector as recording_collector
 from .recordings import mounts
 from .workspace import config as workspace_config
@@ -121,10 +120,6 @@ class SeleniumMCP:
         base = (settings.public_base_url or "").strip().rstrip("/")
         if self.prefix and base.endswith(self.prefix):
             base = base[: -len(self.prefix)]
-        # Loaded first: the instructions and the workspace status name the
-        # skill only when it is served.
-        self.skill = skill.load() if settings.mcp.skill else None
-
         # Saved flows, or None when no data directory was named (the default).
         # Built before the workspaces: recordings are filed into it. A
         # recording.dir nothing collects from is passed as no inbox, so it
@@ -234,7 +229,6 @@ class SeleniumMCP:
         self.workspaces = Workspaces(
             self.actions,
             store=self.store,
-            skill_available=self.skill is not None,
             defaults=workspace_settings.from_settings(settings.session),
             recordings=self.collector,
             monitor=self.monitor,
@@ -292,30 +286,28 @@ class SeleniumMCP:
                 await bus.stop()
                 scrubber.close()
 
-        self.mcp = FastMCP(
-            "Selenium",
-            instructions=instructions.first_instructions(self.skill is not None),
+        # The name is the skill's namespace too: skill://<SERVER_NAME>/<skill>.
+        self.mcp = QuickMCP(
+            SERVER_NAME,
+            config=settings,
+            instructions=instructions.first_instructions(),
             auth=self.doors.mcp,
             lifespan=lifespan,
         )
+        # Built above, because the routes and the workspaces hold it too; the
+        # tools are handed it as `Inject[Actions]`.
+        self.mcp.singleton(Actions, instance=self.actions)
         # Docket's worker waits for its tasks when it stops, so the controls
         # let every waiter go first.
         self.mcp.add_extension(waiting.Tasks(first=controls.stop))
-        tools.register(
-            self.mcp, self.actions, self.workspaces, self.secrets, live=settings.live
-        )
+        tools.register(self.mcp, self.workspaces, self.secrets, live=settings.live)
 
-        # Templates a person picks over MCP; where the plugin is installed the
-        # model may run them too. A failed run's hint names one.
-        self.prompts = prompts.register(self.mcp)
+        # The skill, the prompts a person picks (a failed run's hint names
+        # one) and the agents, all from the plugin folder.
+        self.plugin = self.mcp.add_plugin(skill.plugin_path())
 
         # Everything to read is a resource.
         resources.register(self.mcp, self.workspaces)
-        if self.skill is not None:
-            skill.register(self.mcp, self.skill)
-            # An agent's first step is to read the skill, so agents are served
-            # only with it, and declared even when there are none.
-            agents.register(self.mcp, agents.load(skills={self.skill.name}))
         # A client that cannot read resources gets `mirror`'s two tools, which
         # read the same URIs.
         mirror.register(self.mcp)
@@ -389,15 +381,13 @@ class SeleniumMCP:
             prefix=self.prefix,
             secrets_catalogue=self.secrets,
             schemas=schemas,
-            # A failed run's hint points at a skill page only when one is served.
-            skill_available=self.skill is not None,
         )
         secrets.register(
             self.mcp, self.secrets, auth_token, prefix=self.prefix,
             configs=self.configs,
         )
         self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
-        self.mcp.add_middleware(instructions.InstructionsFor(self.skill is not None))
+        self.mcp.add_middleware(instructions.InstructionsFor())
         # Before anything names the workspace to act on it: a workspace whose
         # config is refused answers nothing else.
         self.mcp.add_middleware(clients.Refused(self.configs))
@@ -453,27 +443,29 @@ class SeleniumMCP:
             name="admin",
         )
 
-    def run(
-        self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000
-    ) -> None:
-        """Serve on ``transport``, blocking until the process is stopped."""
-        # No banner: printing it makes FastMCP ask pypi.org for a newer
-        # release on every start.
-        if transport == "stdio":
-            self.mcp.run(transport="stdio", show_banner=False)
-        else:
+    def run(self) -> None:
+        """Serve as the settings say, blocking until the process is stopped.
+
+        `QuickMCP.run` reads the transport, host and port off the settings, and
+        uses the path and the middleware only over HTTP.
+        """
+        if self.settings.transport != "stdio":
             # The access log names each request by its route template, never
             # by its path.
-            access_log.quiet(self.mcp.http_app(path=self.mcp_path))
-            self.mcp.run(
-                transport="http",
-                host=host,
-                port=port,
-                # Only the four probes also answer at the root.
-                path=self.mcp_path,
-                show_banner=False,
-                middleware=http_middleware(),
-            )
+            access_log.quiet(self.mcp.server.http_app(path=self.mcp_path))
+        # Only the four probes also answer at the root.
+        self.mcp.run(path=self.mcp_path, middleware=http_middleware())
+
+
+def create_app(
+    settings: Settings | None = None,
+    *,
+    sources: dict[str, str] | None = None,
+    store: WorkspaceStore | None = None,
+    pointers=None,
+) -> SeleniumMCP:
+    """The server for ``settings``: its `mcp` is the `QuickMCP` that serves it."""
+    return SeleniumMCP(settings, sources=sources, store=store, pointers=pointers)
 
 
 def http_middleware() -> list[Middleware]:

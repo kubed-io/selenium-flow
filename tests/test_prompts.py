@@ -8,14 +8,19 @@ the reference that explains the failure, and somebody can act on either.
 import pytest
 import yaml
 from fastmcp import Client
-from fastmcp.exceptions import PromptError
+from fastmcp.exceptions import ToolError
+from kubed.mcp.prompts import PLACEHOLDER, load_prompt, split_frontmatter
+from kubed.mcp.protocol import MCPError
 
 from kubed.selenium_flow.flows.report import hint_for
-from kubed.selenium_flow.mcp import prompts as prompts_module
+from kubed.selenium_flow.mcp import skill
+
+from .fakes import plugin_server
 
 pytestmark = pytest.mark.unit
 
-SHIPPED = sorted(prompts_module.prompts_path().glob("*.md"))
+COMMANDS = skill.plugin_path() / "commands"
+SHIPPED = sorted(COMMANDS.glob("*.md"))
 
 
 # ---- the files that ship ----------------------------------------------------
@@ -29,9 +34,9 @@ def test_there_are_prompts_to_serve():
 
 @pytest.mark.parametrize("path", SHIPPED, ids=lambda p: p.stem)
 def test_every_shipped_prompt_loads_strictly(path):
-    """`load_prompts` logs and skips a broken file so one cannot take the server
+    """`add_plugin` logs and skips a broken file so one cannot take the server
     down. That makes this the only place a typo is ever caught."""
-    prompt = prompts_module.load_prompt(path)
+    prompt = load_prompt(path)
     assert prompt.name == path.stem
     assert prompt.description, "the picker shows this; an empty one is invisible"
 
@@ -45,115 +50,97 @@ def test_every_command_has_a_hint_and_the_model_may_run_it(path):
     assert "disable-model-invocation" not in header
 
 
-@pytest.mark.parametrize("path", SHIPPED, ids=lambda p: p.stem)
-async def test_every_shipped_prompt_renders_with_its_defaults(path):
+async def test_every_shipped_prompt_renders_with_its_defaults(server):
     """Every argument either has a default or is required, and a rendered prompt
-    never contains an unfilled placeholder."""
-    prompt = prompts_module.load_prompt(path)
-    given = {a.name: f"<{a.name}>" for a in prompt.arguments or [] if a.required}
-    rendered = await prompt.render(given)
-    assert "{{" not in rendered
-    for argument in prompt.arguments or []:
-        assert argument.description, f"{argument.name} has nothing to show a person"
+    never contains an unfilled placeholder: through the server, as served."""
+    async with Client(server.mcp.server) as client:
+        listed = await client.list_prompts()
+        assert {p.name for p in listed} == {path.stem for path in SHIPPED}
+        for prompt in listed:
+            for argument in prompt.arguments or []:
+                assert argument.description, f"{argument.name} has nothing to show a person"
+            given = {a.name: f"<{a.name}>" for a in prompt.arguments or [] if a.required}
+            result = await client.get_prompt(prompt.name, given)
+            assert "{{" not in result.messages[0].content.text
 
 
-# ---- the loader's rules -----------------------------------------------------
-
-
-def _write(tmp_path, body: str, name: str = "example.md"):
-    path = tmp_path / name
-    path.write_text(body, encoding="utf-8")
-    return path
-
-
-@pytest.mark.parametrize(
-    ("text", "refusal"),
-    [
-        # Rendered blank it reads perfectly well and asks for the wrong thing.
-        pytest.param(
-            "---\ndescription: x\narguments:\n- name: flow\n---\nRepair {{ flow }} at {{ stp }}.\n",
-            "stp",
-            id="a-placeholder-with-no-argument-is-refused",
-        ),
-        pytest.param(
-            "---\ndescription: x\narguments:\n- name: flow\n  required: true\n  default: y\n---\n{{ flow }}\n",
-            "cannot have a default",
-            id="a-required-argument-cannot-have-a-default",
-        ),
-    ],
-)
-def test_a_prompt_whose_arguments_do_not_fit_is_refused(tmp_path, text, refusal):
-    path = _write(tmp_path, text)
-    with pytest.raises(ValueError, match=refusal):
-        prompts_module.load_prompt(path)
-
-
-def test_a_malformed_arguments_block_is_refused_rather_than_fatal(tmp_path):
-    """`arguments: 1` used to raise TypeError out of the loop, which
-    `load_prompts` does not catch — so one bad file took every prompt with it
-    (Copilot, #30)."""
-    path = _write(tmp_path, "---\ndescription: x\narguments: 1\n---\nBody.\n", "bad.md")
-    with pytest.raises(ValueError, match="must be a list"):
-        prompts_module.load_prompt(path)
-    _write(tmp_path, "---\ndescription: fine\n---\nBody.\n", "fine.md")
-    assert [p.name for p in prompts_module.load_prompts(tmp_path)] == ["fine"]
-
-
-def test_a_file_without_frontmatter_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="frontmatter"):
-        prompts_module.load_prompt(_write(tmp_path, "Just a body.\n"))
-
-
-def test_a_broken_file_is_skipped_rather_than_fatal(tmp_path, caplog):
-    _write(tmp_path, "no frontmatter here\n", "broken.md")
-    _write(tmp_path, "---\ndescription: fine\n---\nBody.\n", "fine.md")
-    loaded = prompts_module.load_prompts(tmp_path)
-    assert [p.name for p in loaded] == ["fine"]
-
-
-async def test_rendering_fills_defaults_and_demands_the_required(tmp_path):
-    path = _write(
-        tmp_path,
-        "---\ndescription: x\narguments:\n- name: flow\n  required: true\n"
-        "- name: step\n  default: the run will say\n---\nFix {{ flow }} at {{ step }}.\n",
-    )
-    prompt = prompts_module.load_prompt(path)
-    assert await prompt.render({"flow": "login"}) == "Fix login at the run will say.\n"
-    # A picker sends "" for a field somebody left alone, which is not an answer.
-    assert await prompt.render({"flow": "login", "step": ""}) == (
-        "Fix login at the run will say.\n"
-    )
-    with pytest.raises(PromptError, match="flow"):
-        await prompt.render({})
-
-
-def test_the_format_matches_the_one_skills_mcp_serves():
-    """The loader is copied rather than imported, so the thing that must not
-    drift is the file format: frontmatter, `arguments`, `{{ placeholders }}`."""
+def test_the_format_matches_the_one_kubed_mcp_serves():
+    """The thing that must not drift is the file format: frontmatter,
+    `arguments`, `{{ placeholders }}`."""
     for path in SHIPPED:
-        meta, body = prompts_module._split(path.read_text(encoding="utf-8"))
+        meta, body = split_frontmatter(path.read_text(encoding="utf-8"))
         assert isinstance(yaml.safe_load(yaml.safe_dump(meta)), dict)
         assert "description" in meta
-        assert prompts_module.PLACEHOLDER.search(body), "a template with no slots"
+        assert PLACEHOLDER.search(body), "a template with no slots"
 
 
 def test_the_prompts_are_where_claude_code_reads_commands():
-    path = prompts_module.prompts_path()
-    assert path.name == "commands"
-    assert {p.stem for p in path.glob("*.md")} == {"build_flow", "repair_flow"}
+    assert {p.stem for p in COMMANDS.glob("*.md")} == {"build_flow", "repair_flow"}
+
+
+# ---- the loader's rules, through add_plugin ---------------------------------
+# kubed-mcp reads the commands. These are the rules its own tests leave out
+# (PLUG-23, PLUG-25, PLUG-26), on a plugin of the case's own.
+
+
+async def _served(tmp_path, files: dict) -> list[str]:
+    mcp = plugin_server(tmp_path / "p", {"commands/fine.md": "---\ndescription: fine\n---\nBody.\n", **files})
+    async with Client(mcp.server) as client:
+        return sorted(p.name for p in await client.list_prompts())
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param(
+            "---\ndescription: x\narguments:\n- name: flow\n  required: true\n  default: y\n---\n{{ flow }}\n",
+            id="a-required-argument-cannot-have-a-default",
+        ),
+        # `arguments: 1` once raised out of the loop and took every prompt with it
+        # (Copilot, #30).
+        pytest.param("---\ndescription: x\narguments: 1\n---\nBody.\n", id="arguments-must-be-a-list"),
+        pytest.param("Just a body.\n", id="no-frontmatter"),
+        pytest.param("---x\ndescription: a\n---\nBody\n", id="a-first-line-not-exactly-three-dashes"),
+    ],
+)
+async def test_a_broken_command_is_skipped_rather_than_fatal(tmp_path, caplog, text):
+    assert await _served(tmp_path, {"commands/broken.md": text}) == ["fine"]
+    assert "broken.md is skipped" in caplog.text
+
+
+async def test_rendering_fills_defaults_and_demands_the_required(tmp_path):
+    mcp = plugin_server(tmp_path / "p", {
+        "commands/fix.md": "---\ndescription: x\narguments:\n- name: flow\n  required: true\n"
+        "- name: step\n  default: the run will say\n---\nFix {{ flow }} at {{ step }}.\n",
+    })
+    async with Client(mcp.server) as client:
+        text = (await client.get_prompt("fix", {"flow": "login"})).messages[0].content.text
+        assert text == "Fix login at the run will say.\n"
+        # A picker sends "" for a field somebody left alone, which is not an answer.
+        blank = await client.get_prompt("fix", {"flow": "login", "step": ""})
+        assert blank.messages[0].content.text == "Fix login at the run will say.\n"
+        with pytest.raises((MCPError, ToolError), match="flow"):
+            await client.get_prompt("fix", {"flow": ""})
+
+
+async def test_a_crlf_prompt_has_no_carriage_return_before_its_body(tmp_path):
+    mcp = plugin_server(tmp_path / "p", {"commands/crlf.md": b"---\r\ndescription: a\r\n---\r\nBody\r\n"})
+    async with Client(mcp.server) as client:
+        text = (await client.get_prompt("crlf", {})).messages[0].content.text
+    assert text.startswith("Body")
 
 
 # ---- served ------------------------------------------------------------------
 
 
 async def test_the_server_publishes_them(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         listed = {prompt.name for prompt in await client.list_prompts()}
     assert {"repair_flow", "build_flow"} <= listed
 
 
 async def test_a_client_can_render_one(server):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         result = await client.get_prompt("repair_flow", {"flow": "sign-in"})
     rendered = result.messages[0].content.text
     assert "sign-in" in rendered
@@ -188,22 +175,13 @@ def test_where_it_sends_you_depends_on_what_failed(step, page, section):
 
 
 def test_the_uri_is_a_resource_uri_and_nothing_else():
-    """Everything after `skill://selenium-flow/` is the file path, so an anchor
+    """Everything after `skill://selenium-flow/selenium-flow/` is the file path, so an anchor
     glued on the end names a file that does not exist. The section rides
     beside it (Copilot, #30)."""
     hint = hint_for({"tool": "assert", "error": "x"}, "login")
     assert "#" not in hint["read"]
-    assert hint["read"] == "skill://selenium-flow/references/FLOWS.md"
+    assert hint["read"] == "skill://selenium-flow/selenium-flow/references/FLOWS.md"
     assert hint["section"] == "say-what-must-be-true"
-
-
-def test_with_no_skill_served_there_is_nothing_to_read():
-    """`--mcp-skill false` registers no skill resources, and a URI that cannot be
-    loaded is worse than no URI (Copilot, #30)."""
-    hint = hint_for({"tool": "assert", "error": "x"}, "login", skill_available=False)
-    assert "read" not in hint
-    assert "section" not in hint
-    assert hint["prompt"] == "repair_flow", "the prompt is still worth naming"
 
 
 def test_every_reference_it_can_name_exists():
@@ -307,19 +285,3 @@ def test_a_run_that_worked_carries_no_hint():
 
     document = {"steps": [{"tool": "navigate", "args": {"url": "https://example.test/"}}]}
     assert "hint" not in run(_Fine(), document, "b")
-
-
-def test_a_crlf_prompt_has_no_carriage_return_before_its_body():
-    from kubed.selenium_flow.mcp.prompts import _split
-
-    _, body = _split("---\r\ndescription: a\r\n---\r\nBody\r\n")
-    assert body.startswith("Body")
-
-
-def test_a_first_line_that_is_not_exactly_three_dashes_opens_no_header():
-    from kubed.selenium_flow.mcp import frontmatter
-    from kubed.selenium_flow.mcp.prompts import _split
-
-    text = "---x\ndescription: a\n---\nBody\n"
-    assert frontmatter.split(text) is None
-    assert _split(text) is None

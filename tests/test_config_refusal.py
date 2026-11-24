@@ -46,7 +46,7 @@ def put_file(tmp_path, text, name=NAMED):
 
 
 async def current(server, uri="workspace://current"):
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         return json.loads((await client.read_resource(uri))[0].text)
 
 
@@ -107,7 +107,7 @@ async def test_without_a_data_dir_there_is_no_config(server, monkeypatch):
 def test_the_rest_route_carries_it_too(tmp_path):
     server = built(tmp_path)
     put_file(tmp_path, "flows:\n  global: [shop]\n")
-    body = TestClient(server.mcp.http_app(), headers=AUTH).get(
+    body = TestClient(server.mcp.server.http_app(), headers=AUTH).get(
         "/browser", params={"workspace": NAMED}
     ).json()
     assert body["config"]["flows.global"]["source"] == "workspace"
@@ -125,7 +125,7 @@ def broken(tmp_path, monkeypatch):
 
 
 async def test_every_tool_is_refused_before_it_runs(broken):
-    async with Client(broken.mcp) as client:
+    async with Client(broken.mcp.server) as client:
         tools = await client.list_tools()
         assert tools, "listing is not a call: a client still sees the tools"
         for tool in tools:
@@ -142,7 +142,7 @@ async def test_every_tool_is_refused_before_it_runs(broken):
 
 
 async def test_every_resource_is_refused_the_context_included(broken):
-    async with Client(broken.mcp) as client:
+    async with Client(broken.mcp.server) as client:
         uris = [str(r.uri) for r in await client.list_resources()]
         uris += ["workspace://current", "flow://flows/login", "workspace://files/a.txt"]
         for uri in uris:
@@ -155,16 +155,16 @@ async def test_every_resource_is_refused_the_context_included(broken):
 
 async def test_the_skill_is_read_while_refused(broken):
     """Static, shipped in the image, and how the agent learns what to do now."""
-    async with Client(broken.mcp) as client:
+    async with Client(broken.mcp.server) as client:
         uris = [str(r.uri) for r in await client.list_resources()]
         skills = [uri for uri in uris if uri.startswith("skill://")]
-        assert "skill://selenium-flow/SKILL.md" in skills
+        assert "skill://selenium-flow/selenium-flow/SKILL.md" in skills
         for uri in skills:
             assert (await client.read_resource(uri))[0], uri
 
 
 async def test_a_prompt_is_refused_too(broken):
-    async with Client(broken.mcp) as client:
+    async with Client(broken.mcp.server) as client:
         prompts = await client.list_prompts()
         for prompt in prompts:
             with pytest.raises(MCPError, match=REFUSED):
@@ -180,7 +180,7 @@ async def test_a_caller_that_names_no_workspace_reads_the_shared_library(
     broken, monkeypatch
 ):
     calling_as(monkeypatch, None)
-    async with Client(broken.mcp) as client:
+    async with Client(broken.mcp.server) as client:
         listed = json.loads((await client.read_resource("flow://flows"))[0].text)
     assert "flows" in listed
 
@@ -213,7 +213,7 @@ def _token_door_routes(server):
         "/health", "/started", "/ready", "/info", "/openapi.yaml", "/openapi.json",
         "/", "/live.js", "/admin",
     }
-    for route in server.mcp._additional_http_routes:
+    for route in server.mcp.server._additional_http_routes:
         path = route.path
         if path in open_paths or path.startswith(skipped) or path == "/mcp":
             continue
@@ -226,7 +226,7 @@ def _token_door_routes(server):
 
 
 def test_every_token_door_route_refuses_the_workspace(broken):
-    client = TestClient(broken.mcp.http_app(), headers=AUTH)
+    client = TestClient(broken.mcp.server.http_app(), headers=AUTH)
     routes = list(_token_door_routes(broken))
     assert ("GET", "/browser") in routes and ("GET", "/secrets") in routes
     for method, path in routes:
@@ -237,11 +237,11 @@ def test_every_token_door_route_refuses_the_workspace(broken):
 
 
 def test_the_token_door_still_answers_first(broken):
-    client = TestClient(broken.mcp.http_app())
+    client = TestClient(broken.mcp.server.http_app())
     assert client.get("/browser", params={"workspace": NAMED}).status_code == 401
 
 
 def test_a_token_door_request_for_another_workspace_is_not_refused(broken):
-    client = TestClient(broken.mcp.http_app(), headers=AUTH)
+    client = TestClient(broken.mcp.server.http_app(), headers=AUTH)
     assert client.get("/browser", params={"workspace": OTHER}).status_code == 200
     assert client.get("/flows").status_code == 200

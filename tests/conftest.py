@@ -98,7 +98,7 @@ def data_server(tmp_path):
 @pytest.fixture
 def client(server):
     """An HTTP client of ``server`` that sends no credentials of its own."""
-    return TestClient(server.mcp.http_app())
+    return TestClient(server.mcp.server.http_app())
 
 
 # ---- doubles ---------------------------------------------------------------

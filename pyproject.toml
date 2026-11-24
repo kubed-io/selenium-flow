@@ -27,9 +27,10 @@ classifiers = [
 authors = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
 maintainers = [{ name = "Kelly", email = "admin@kellyferrone.com" }]
 dependencies = [
-  # 4.2 is the first with the supported fastmcp.skills API (Skill,
-  # SkillCatalogProvider, SkillsExtension) the skill is served with.
-  "fastmcp[tasks]>=4.2,<5",
+  # The platform this server shares with mcp-kb (kubed.mcp, a namespace package
+  # beside kubed.selenium_flow). Every FastMCP name comes through its facade, and
+  # it owns the FastMCP pin (>=4.2,<5).
+  "kubed-mcp[tasks]>=0.1.2,<0.2",
   "selenium>=4.48.0,<5",
   "requests>=2.32.0",
   "pyyaml>=6.0",
@@ -58,7 +59,6 @@ dependencies = [
   # disk, polling on a network filesystem where events cannot see the other
   # side's writes. abi3 wheels from cp310 cover every Python CI runs.
   "watchfiles>=1.3",
-  "mcp>=2.0,<3",
   "sse-starlette>=3.3",
   # The one BiDi client's socket (bidi/connection.py, the only importer): an
   # asyncio client with pings. It already arrives with fastmcp,
@@ -68,10 +68,6 @@ dependencies = [
   # JWT verifier; declared because the module imports it. 43 is where
   # hazmat.decrepit arrived.
   "cryptography>=43",
-  # The platform this server shares with mcp-kb (kubed.mcp, a namespace package
-  # beside kubed.selenium_flow). It holds only its version today, so nothing
-  # imports it yet; declared so the install carries it and a broken one fails CI.
-  "kubed-mcp>=0.0.1,<0.1",
 ]
 
 [project.optional-dependencies]

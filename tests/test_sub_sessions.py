@@ -331,7 +331,7 @@ def test_a_subject_that_cannot_name_a_session_is_refused():
 def test_a_tasks_worker_reaches_the_pinned_session(monkeypatch):
     """Off the request object only the carried pin is read, as only the carried
     workspace is: never an Sf-Session the snapshot kept."""
-    import fastmcp.server.dependencies as dependencies
+    import kubed.mcp.request as dependencies
 
     def no_request():
         raise RuntimeError("no active HTTP request")
@@ -694,7 +694,7 @@ async def test_every_acting_tool_takes_a_session_and_no_flow_step_does(server):
 
 async def test_a_call_that_never_names_a_session_is_unchanged(twin):  # noqa: F811
     server, double = twin
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         called = await client.call_tool("navigate", {"url": "https://example.test/a"})
     assert json.dumps(called.structured_content) == (
         '{"url": "https://example.test/navigate", "title": "Navigate"}'
@@ -709,9 +709,9 @@ async def test_a_tool_and_a_route_naming_a_session_act_in_it(twin):  # noqa: F81
     store.set(f"{NAMED}/tester", Workspace(session_id="b-2", label="tester"))
     double.grid.alive.add("b-2")
     args = {"url": "https://example.test/a", "session": "tester"}
-    async with Client(server.mcp) as client:
+    async with Client(server.mcp.server) as client:
         await client.call_tool("navigate", args)
-    http = TestClient(server.mcp.http_app(), headers=AUTH)
+    http = TestClient(server.mcp.server.http_app(), headers=AUTH)
     answered = http.post(f"/browser/navigate?workspace={NAMED}", json=args)
     assert answered.status_code == 200, answered.text
     assert double.calls == [

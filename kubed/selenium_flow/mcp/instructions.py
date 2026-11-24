@@ -1,14 +1,15 @@
 """The server ``instructions``, chosen for each connection.
 
-What a client is told depends on whether the skill is served and whether its
-model reads resources, so the text is chosen on each handshake: ``initialize``
-and ``server/discover`` both carry it.
+What a client is told depends on whether its model reads resources, so the
+text is chosen on each handshake: ``initialize`` and ``server/discover`` both
+carry it.
 """
 
 from __future__ import annotations
 
-from fastmcp.server.middleware import Middleware
+from kubed.mcp import Middleware
 
+from ..core.guidance import ENTRY
 from ..workspace.workspaces import NAME_PARAM
 from . import clients
 
@@ -49,12 +50,11 @@ execute_script for anything the other tools do not cover, scrolling included.
 
 """
 
-# Appended only when the skill is served.
-SKILL_POINTER = """
+SKILL_POINTER = f"""
 How to drive this well — when to screenshot rather than extract, what a timeout \
 on a good XPath usually means, how to write a flow — is at \
-skill://selenium-flow/SKILL.md. Read it{how} before your first call; it ships \
-with this server, so it describes this version of it.
+{ENTRY}. Read it{{how}} before your first \
+call; it ships with this server, so it describes this version of it.
 """
 
 # For a client whose model cannot read resources: it is told how to read a URI.
@@ -66,24 +66,22 @@ shows where to start.
 """
 
 
-def instructions(skill_available: bool = True, reads_resources: bool = True) -> str:
-    """What a client reads at connect, for the server it got and what it can read."""
+def instructions(reads_resources: bool = True) -> str:
+    """What a client reads at connect, for what it can read."""
     text = INSTRUCTIONS
     if not reads_resources:
         text += READING_POINTER
-    if skill_available:
-        how = "" if reads_resources else " with read_resource"
-        text += SKILL_POINTER.format(how=how)
-    return text
+    how = "" if reads_resources else " with read_resource"
+    return text + SKILL_POINTER.format(how=how)
 
 
-def first_instructions(skill_available: bool = True) -> str:
+def first_instructions() -> str:
     """What the server object starts with, before any handshake has named a client.
 
     The same text `InstructionsFor` gives a client it cannot identify.
     """
     unknown = clients.reads_resources(clients.Caller.stdio(client=""))
-    return instructions(skill_available, unknown)
+    return instructions(unknown)
 
 
 class InstructionsFor(Middleware):
@@ -92,12 +90,9 @@ class InstructionsFor(Middleware):
     A client that cannot read resources is told to use read_resource.
     """
 
-    def __init__(self, skill_available: bool):
-        self.skill_available = skill_available
-
     def _text(self, context) -> str:
         caller = clients.caller(clients.named_in(context.message))
-        return instructions(self.skill_available, clients.reads_resources(caller))
+        return instructions(clients.reads_resources(caller))
 
     async def on_initialize(self, context, call_next):
         result = await call_next(context)

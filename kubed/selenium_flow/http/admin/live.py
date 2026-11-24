@@ -23,7 +23,6 @@ from urllib.parse import quote
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from ... import errors
@@ -89,12 +88,6 @@ def socket_url(workspace: str, name: str, query: str = "") -> str:
     if query:
         parts.append(query)
     return socket_path(workspace) + ("?" + "&".join(parts) if parts else "")
-
-
-def websocket_route(mcp, path: str, endpoint, name: str) -> None:
-    """Mount a WebSocket route beside the custom HTTP ones: FastMCP's
-    ``custom_route`` makes only HTTP routes, and its app takes these alike."""
-    mcp._additional_http_routes.append(WebSocketRoute(path, endpoint, name=name))
 
 
 class _Viewer:
@@ -354,6 +347,6 @@ def mount(
         finally:
             tunnels.discard(grid_id, tunnel)
 
-    websocket_route(
-        mcp, f"{prefix}{SOCKET_PATH}", admin_live_socket, "admin_live_socket"
+    mcp.websocket_route(
+        f"{prefix}{SOCKET_PATH}", admin_live_socket, name="admin_live_socket"
     )
