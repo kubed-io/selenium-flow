@@ -414,7 +414,14 @@ def plugin_files() -> set[str]:
 def test_every_plugin_file_is_matched_by_package_data():  # Ruling 4
     files = plugin_files()
     assert MANIFEST in files
-    assert "skills/selenium-flow/SKILL.md" in files
+    for skill in (
+        "driving-a-browser",
+        "building-flows",
+        "signing-in",
+        "using-the-admin-ui",
+        "deploying-the-server",
+    ):
+        assert f"skills/{skill}/SKILL.md" in files
     assert "commands/build_flow.md" in files
     assert not any(f.startswith("prompts/") for f in files)
     missing = files - collected(plugin_patterns())
