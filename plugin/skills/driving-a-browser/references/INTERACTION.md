@@ -1,5 +1,18 @@
 # Acting on a page
 
+## A whole task
+
+```
+open_session(width=1400, height=900)
+write(url="https://example.com/login", selector={"css": "input[name=email]"}, text="a@example.com")
+write(selector={"css": "input[name=password]"}, secret={"name": "example", "key": "password"})
+interact(action="click", selector={"xpath": "//button[@type='submit']"})
+assert(script="return !!document.querySelector('#avatar')", message="Not signed in.")
+extract(selector={"css": "main h1"})
+save_site_data()    # the next browser comes back signed in
+end_browser()
+```
+
 ## Clicks, hovers and the pointer
 
 ```
@@ -71,7 +84,8 @@ write(selector={"css": "#q"}, text="")    # empty the field
 
 `write` returns `value` read back before any submit. A password field, and a
 field typed from a secret, are never read back: `value` is null there. A real
-password goes in a `secret`, never `text` (SECRETS.md).
+password goes in a `secret`, never `text`
+(`skill://selenium-flow/signing-in/references/SECRETS.md`).
 
 ## Keys
 
@@ -84,17 +98,6 @@ press_key(selector={"css": "textarea"}, key="Control+a")
 In a combination each modifier is held for the keys after it and released at
 the end. `Control++` is Control and the plus key. The browser runs on Linux, so
 a site's shortcuts use `Control`, not Command.
-
-## Uploading a file
-
-```
-upload_file(selector={"xpath": "//input[@type='file']"}, text='{"rows": 3}', filename="data.json")
-```
-
-Send content you wrote as `text`, unencoded. A file on the server's own disk
-cannot be uploaded; a file the workspace has goes by its `workspace://files`,
-`session://downloads` or `session://<name>/downloads` URI as `file`. The result has the `filename` and `bytes`
-attached.
 
 ## Iframes
 

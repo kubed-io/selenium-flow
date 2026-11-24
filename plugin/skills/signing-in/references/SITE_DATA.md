@@ -59,6 +59,12 @@ saved on. `open_session` names the sites, never a value:
 (`session://<name>/site-data/{site}` in a named session) shows what was saved,
 httpOnly cookies included, with their values read as `•••`.
 
+## Signed in before, signed out now
+
+A new browser starts empty unless you saved site data. Sign in, confirm it, then
+`save_site_data()`. Saved and still signed out means the site ended its own
+session (*What comes back*, above).
+
 ## Starting as a new user
 
 ```

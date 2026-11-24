@@ -75,6 +75,11 @@ A secret is typed only when the browser is on one of its `allowed_urls`, compare
 as an exact origin: scheme, host and port. `https://nextcloud.example.com.evil.test`
 does not match, and neither does `http://`. A refusal names the page it was on
 and the origins it accepts, so check where the browser is first.
+Only an operator sets or changes a secret's `allowed_urls`, on the server: no
+tool and no admin page can
+(`skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md`,
+*Secrets on the server*). When the page is right and the origin is not allowed,
+tell the person the origin it needs.
 
 Inside a frame, both the page's and the frame's origin must be allowed. A `write`
 into an element that hosts another document (`iframe`, `frame`, `object`,

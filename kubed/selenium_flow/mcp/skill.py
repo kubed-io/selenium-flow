@@ -1,8 +1,8 @@
-"""Where the plugin this server serves sits: its skill, its prompts and its agents.
+"""Where the plugin this server serves sits: its skills, its prompts and its agents.
 
 ``plugin/`` is package data, so the guidance ships with the version of the server
 it describes. ``mcp.add_plugin(plugin_path())`` serves all of it (kubed-mcp's
-plugin layer): the skill at ``skill://selenium-flow/selenium-flow/SKILL.md``, the
+plugin layer): each skill at ``skill://selenium-flow/<skill>/SKILL.md``, the
 commands as prompts, the agents through the agents extension.
 """
 
@@ -12,7 +12,6 @@ from pathlib import Path
 
 PLUGIN_DIR = "plugin"
 SKILLS_DIR = "skills"
-SKILL_NAME = "selenium-flow"
 
 
 def plugin_folder(module: str, *parts: str) -> Path:
@@ -34,6 +33,7 @@ def plugin_path() -> Path:
     return plugin_folder(__file__)
 
 
-def skill_path() -> Path:
-    """The skill directory, installed or in a source checkout."""
-    return plugin_folder(__file__, SKILLS_DIR, SKILL_NAME)
+def skills_path() -> Path:
+    """The folder of skills, installed or in a source checkout: one named
+    folder per skill."""
+    return plugin_folder(__file__, SKILLS_DIR)

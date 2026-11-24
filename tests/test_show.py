@@ -60,9 +60,9 @@ def secrets_server(tmp_path, named_caller):
         ("flow://flows/login", "flow"),
         ("flow://schema", "document"),
         ("secret://secrets", "secrets"),
-        ("skill://selenium-flow/selenium-flow/SKILL.md", "document"),
-        ("skill://selenium-flow/selenium-flow/_manifest", "document"),
-        ("skill://selenium-flow/selenium-flow/references/FLOWS.md", "document"),
+        ("skill://selenium-flow/driving-a-browser/SKILL.md", "document"),
+        ("skill://selenium-flow/driving-a-browser/_manifest", "document"),
+        ("skill://selenium-flow/building-flows/references/FLOWS.md", "document"),
         # Any skill under the server's namespace, not only the first one.
         ("skill://selenium-flow/reading-pages/SKILL.md", "document"),
         ("skill://selenium-flow/reading-pages/references/OUTLINE.md", "document"),
@@ -94,7 +94,7 @@ async def test_capture_off_still_draws(flow_server):
         ("workspace://files/report.pdf", True),
         ("workspace://files/screenshots", False),
         ("workspace://site-data/app.example.com", False),
-        ("skill://selenium-flow/selenium-flow/SKILL.md", False),
+        ("skill://selenium-flow/driving-a-browser/SKILL.md", False),
     ],
 )
 def test_only_a_single_file_is_drawn_from_its_entry(uri, entry):
@@ -330,7 +330,7 @@ async def test_other_text_is_drawn_as_one_preformatted_block(
 ):
     """Text that is neither markdown nor JSON is a document of one code block,
     fenced past any run of backticks in it, so none of it is read as markdown."""
-    uri = "skill://selenium-flow/selenium-flow/references/example.yaml"
+    uri = "skill://selenium-flow/driving-a-browser/references/example.yaml"
     async with Client(flow_server.mcp.server) as c:
         with reading(flow_server, content, mime_type):
             shown = (await c.call_tool("show", {"uri": uri})).structured_content
@@ -435,7 +435,7 @@ async def test_a_moved_download_uri_is_refused_naming_where_it_went(flow_server)
 
 
 async def test_a_skill_page_is_drawn_from_its_text(flow_server):
-    uri = "skill://selenium-flow/selenium-flow/references/TROUBLESHOOTING.md"
+    uri = "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md"
     async with Client(flow_server.mcp.server) as c:
         result = await c.call_tool("show", {"uri": uri})
         read = (await c.read_resource(uri))[0].text
@@ -446,7 +446,7 @@ async def test_a_skill_page_is_drawn_from_its_text(flow_server):
     ]
 
 
-@pytest.mark.parametrize("uri", ["flow://schema", "skill://selenium-flow/selenium-flow/_manifest"])
+@pytest.mark.parametrize("uri", ["flow://schema", "skill://selenium-flow/driving-a-browser/_manifest"])
 async def test_a_json_document_is_drawn_from_its_json(flow_server, uri):
     async with Client(flow_server.mcp.server) as c:
         shown = (await c.call_tool("show", {"uri": uri})).structured_content

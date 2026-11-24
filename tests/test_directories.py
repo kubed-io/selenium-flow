@@ -20,9 +20,11 @@ from .fakes import request
 
 pytestmark = pytest.mark.unit
 
-ROOT = "skill://selenium-flow/selenium-flow"
+# The entry point's folders; every skill is laid out the same way.
+SKILL = "driving-a-browser"
+ROOT = f"skill://selenium-flow/{SKILL}"
 REFERENCES = f"{ROOT}/references"
-SKILL_DIR = skill_module.skill_path()
+SKILL_DIR = skill_module.skills_path() / SKILL
 DIRECTORY = "inode/directory"
 
 
@@ -66,8 +68,8 @@ async def test_a_folder_child_is_a_directory_resource(server):
         root = await read_json(client, f"{ROOT}/_index.json")
     folder = next(r for r in root if r["uri"] == REFERENCES)
     assert folder["mimeType"] == DIRECTORY
-    assert folder["name"] == "selenium-flow/selenium-flow/references"
-    assert "selenium-flow" in folder["description"]
+    assert folder["name"] == f"selenium-flow/{SKILL}/references"
+    assert SKILL in folder["description"]
 
 
 async def test_no_folder_uri_ends_in_a_slash(server):
@@ -81,9 +83,9 @@ async def test_no_folder_uri_ends_in_a_slash(server):
 async def test_a_markdown_child_is_described_by_its_heading(server):
     async with Client(server.mcp.server) as client:
         references = await read_json(client, f"{REFERENCES}/_index.json")
-    flows = next(r for r in references if r["uri"].endswith("/FLOWS.md"))
-    assert flows["description"] == "Flows"
-    assert flows["mimeType"] == "text/markdown"
+    interaction = next(r for r in references if r["uri"].endswith("/INTERACTION.md"))
+    assert interaction["description"] == "Acting on a page"
+    assert interaction["mimeType"] == "text/markdown"
 
 
 async def test_skill_md_is_described_as_the_listing_describes_it(server):
@@ -110,7 +112,7 @@ async def test_the_manifest_is_never_a_child_and_still_reads(server):
         root = await read_json(client, f"{ROOT}/_index.json")
         manifest = await read_json(client, f"{ROOT}/_manifest")
     assert not [r for r in root if "_manifest" in r["uri"] or "_index" in r["uri"]]
-    assert "references/FLOWS.md" in [f["path"] for f in manifest["files"]]
+    assert "references/INTERACTION.md" in [f["path"] for f in manifest["files"]]
 
 
 async def test_an_index_of_no_folder_is_not_found(server):

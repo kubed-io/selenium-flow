@@ -25,18 +25,17 @@ def test_every_page_guidance_can_name_is_one_the_skill_ships():
     from kubed.selenium_flow.core import guidance
     from kubed.selenium_flow.mcp import skill
 
-    references = skill.skill_path() / "references"
-    for page in guidance.PAGES:
-        assert (references / page).is_file(), f"{page} is named but not shipped"
+    for page, name in guidance.PAGES.items():
+        assert (skill.skills_path() / name / "references" / page).is_file(), f"{page} is named but not shipped"
 
 
 def test_a_pointer_is_a_resource_uri_and_nothing_else():
-    """Everything after `skill://selenium-flow/selenium-flow/` is a file path, so an anchor
+    """Everything after `skill://selenium-flow/<skill>/` is a file path, so an anchor
     glued on the end names a file that does not exist. The section travels
     beside the URI, never inside it."""
     from kubed.selenium_flow.core.guidance import pointer
 
-    assert pointer("FLOWS.md") == "skill://selenium-flow/selenium-flow/references/FLOWS.md"
+    assert pointer("FLOWS.md") == "skill://selenium-flow/building-flows/references/FLOWS.md"
     assert "#" not in pointer("FLOWS.md")
 
 
@@ -61,7 +60,7 @@ def test_the_instructions_name_the_skill():
     """
     from kubed.selenium_flow.mcp.instructions import instructions
 
-    assert "skill://selenium-flow/selenium-flow/SKILL.md" in instructions()
+    assert "skill://selenium-flow/driving-a-browser/SKILL.md" in instructions()
 
 
 def test_the_session_status_names_the_workspaces_reference():
@@ -71,7 +70,7 @@ def test_the_session_status_names_the_workspaces_reference():
     from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
     status = Workspaces(Actions(Grid("http://grid.invalid:4444"))).describe(Caller("someone"))
-    assert status["guidance"] == "skill://selenium-flow/selenium-flow/references/WORKSPACES.md"
+    assert status["guidance"] == "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md"
 
 
 def test_the_emitted_shapes_are_exactly_what_they_were():
@@ -81,7 +80,7 @@ def test_the_emitted_shapes_are_exactly_what_they_were():
     from kubed.selenium_flow.flows.report import hint_for
 
     hint = hint_for({"tool": "assert", "error": "", "n": 1}, "demo")
-    assert hint["read"] == "skill://selenium-flow/selenium-flow/references/FLOWS.md"
+    assert hint["read"] == "skill://selenium-flow/building-flows/references/FLOWS.md"
     assert hint["section"] == "say-what-must-be-true"
     assert hint["prompt"] == "repair_flow"
 
@@ -100,15 +99,14 @@ def test_every_section_a_hint_names_is_a_heading_on_its_page():
         {"tool": "navigate", "error": "the run passed its 120s budget before this step", "n": 2},
         {"tool": "navigate", "error": "boom", "n": 1},
     ]
-    references = skill.skill_path() / "references"
     for step in failures:
         hint = hint_for(step, "demo")
         if "section" not in hint:
             continue
-        page = hint["read"].rsplit("/", 1)[-1]
+        page = skill.skills_path() / hint["read"].removeprefix("skill://selenium-flow/")
         slugs = {
             re.sub(r"[^a-z0-9 -]", "", line.lstrip("#").strip().lower()).replace(" ", "-")
-            for line in (references / page).read_text().splitlines()
+            for line in page.read_text().splitlines()
             if line.startswith("#")
         }
         assert hint["section"] in slugs, f"{page} has no heading for {hint['section']}"
@@ -165,9 +163,9 @@ async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode)
             return client.instructions or ""
 
     vscode = await told("Visual Studio Code")
-    assert "read_resource" in vscode and "skill://selenium-flow/selenium-flow/SKILL.md" in vscode
+    assert "read_resource" in vscode and "skill://selenium-flow/driving-a-browser/SKILL.md" in vscode
     reader = await told("Claude Code")
-    assert "read_resource" not in reader and "skill://selenium-flow/selenium-flow/SKILL.md" in reader
+    assert "read_resource" not in reader and "skill://selenium-flow/driving-a-browser/SKILL.md" in reader
 
 
 # What earlier chapters removed. Each was once the name an agent was told to
@@ -227,14 +225,19 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
                 ) + " ".join(a.description or "" for a in prompt.arguments or [])
             for resource in await c.list_resources():
                 texts[f"resource {resource.uri}"] = resource.description or ""
-            # The listing names SKILL.md alone; the manifest names the rest.
-            manifest = json.loads(
-                (await c.read_resource("skill://selenium-flow/selenium-flow/_manifest"))[0].text
-            )
-            for f in manifest["files"]:
-                uri = f"skill://selenium-flow/selenium-flow/{f['path']}"
-                body = await c.read_resource(uri)
-                texts[f"file {uri}"] = getattr(body[0], "text", "")
+            # The listing names each SKILL.md alone; its manifest names the rest.
+            skills = [
+                str(r.uri).removesuffix("/SKILL.md")
+                for r in await c.list_resources()
+                if str(r.uri).startswith("skill://")
+            ]
+            assert len(skills) == 5, skills
+            for root in skills:
+                manifest = json.loads((await c.read_resource(f"{root}/_manifest"))[0].text)
+                for f in manifest["files"]:
+                    uri = f"{root}/{f['path']}"
+                    body = await c.read_resource(uri)
+                    texts[f"file {uri}"] = getattr(body[0], "text", "")
     assert any(
         k.endswith("references/FLOWS.md") for k in texts
     ), "no skill reference read"

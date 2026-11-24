@@ -1,9 +1,10 @@
-"""The embedded skill: its authoring constraints, and how it is served.
+"""The embedded skills: their authoring constraints, and how they are served.
 
 Three different things are pinned here.
 
 The authoring rules (frontmatter shape, body length) are Anthropic's published
 limits; a skill that breaks them is not loadable by the clients meant to read it.
+Every skill is held to them (PLG-4).
 
 The URI is FastMCP's convention under kubed-mcp's namespace: its client helpers
 find skills by scanning for `skill://<path>/SKILL.md`, and the path is the
@@ -11,7 +12,7 @@ server's name and the skill's. The strongest test here does that discovery for
 real rather than asserting on a string.
 
 How a plugin's skill is served is kubed-mcp's (PLUG-19, PLUG-20 and SKL-*), with
-its own tests; these check selenium-flow's skill, as its server serves it.
+its own tests; these check selenium-flow's skills, as its server serves them.
 """
 
 import json
@@ -25,121 +26,264 @@ from fastmcp.skills import Skill, SkillsClientExtension
 from kubed.mcp.protocol import MCPError
 
 from kubed.selenium_flow.mcp import skill as skill_module
-from kubed.selenium_flow.mcp.skill import SKILL_NAME
 
 # The URIs served, spelled out here as the convention being checked rather than
 # read back from the server's own code: the server's name, then the skill's.
+NAMESPACE = "skill://selenium-flow"
 ENTRY = "SKILL.md"
-ROOT = "skill://selenium-flow/selenium-flow"
-RESOURCE_URI = f"{ROOT}/{ENTRY}"
 MANIFEST = "_manifest"
-MANIFEST_URI = f"{ROOT}/{MANIFEST}"
+# The entry point first: every other skill assumes it has been read.
+SKILLS = (
+    "driving-a-browser",
+    "building-flows",
+    "signing-in",
+    "using-the-admin-ui",
+    "deploying-the-server",
+)
+ENTRY_SKILL = "driving-a-browser"
+# Lines of SKILL.md, frontmatter included (#195): the references hold the
+# substance. The entry point carries the rules and the tool table, so it may
+# run longer.
+BUDGET = dict.fromkeys(SKILLS, (10, 40)) | {ENTRY_SKILL: (10, 100)}
 
 pytestmark = pytest.mark.unit
 
-SKILL_DIR = skill_module.skill_path()
-PYPROJECT = pathlib.Path(__file__).parent.parent / "pyproject.toml"
+SKILLS_DIR = skill_module.skills_path()
+REPO = pathlib.Path(__file__).parent.parent
+PYPROJECT = REPO / "pyproject.toml"
+# A skill:// address any text names: up to the closing backtick, quote or space.
+ADDRESS = re.compile(r"skill://selenium-flow/[A-Za-z0-9_./-]*[A-Za-z0-9_]")
 
 
-def frontmatter() -> dict:
-    return yaml.safe_load((SKILL_DIR / ENTRY).read_text().split("---", 2)[1])
+def root(name: str) -> str:
+    return f"{NAMESPACE}/{name}"
+
+
+def frontmatter(name: str) -> dict:
+    return yaml.safe_load((SKILLS_DIR / name / ENTRY).read_text().split("---", 2)[1])
+
+
+def body(name: str) -> str:
+    return (SKILLS_DIR / name / ENTRY).read_text()
+
+
+# ---- the set of skills -----------------------------------------------------
+
+
+def test_the_plugin_ships_exactly_the_five_skills():
+    """No folder beyond the five (#195), and none of them missing."""
+    on_disk = {p.name for p in SKILLS_DIR.iterdir() if p.is_dir()}
+    assert on_disk == set(SKILLS)
+
+
+def test_a_reference_file_name_is_unique_across_the_skills():
+    """`guidance.pointer(page)` names a page alone, so the page has to name
+    its skill."""
+    seen: dict[str, str] = {}
+    for name in SKILLS:
+        for page in (SKILLS_DIR / name / "references").glob("*"):
+            assert page.name not in seen, f"{page.name} is in {seen.get(page.name)} and {name}"
+            seen[page.name] = name
+
+
+def test_guidance_names_the_skill_that_ships_each_page():
+    from kubed.selenium_flow.core import guidance
+
+    assert set(guidance.PAGES.values()) <= set(SKILLS)
+    for page, name in guidance.PAGES.items():
+        assert (SKILLS_DIR / name / "references" / page).is_file(), page
 
 
 # ---- authoring constraints -------------------------------------------------
 
 
-def test_the_skill_is_present():
-    assert (SKILL_DIR / ENTRY).is_file()
+@pytest.mark.parametrize("name", SKILLS)
+def test_the_skill_is_present(name):
+    assert (SKILLS_DIR / name / ENTRY).is_file()
 
 
-def test_the_name_is_a_valid_skill_name():
+@pytest.mark.parametrize("name", SKILLS)
+def test_the_name_is_a_valid_skill_name(name):
     """Max 64 chars, lowercase letters, digits and hyphens only."""
-    assert re.fullmatch(r"[a-z0-9-]{1,64}", frontmatter()["name"])
+    assert re.fullmatch(r"[a-z0-9-]{1,64}", frontmatter(name)["name"])
 
 
-def test_the_description_is_present_and_within_budget():
+@pytest.mark.parametrize("name", SKILLS)
+def test_the_description_is_present_and_within_budget(name):
     """Max 1024 characters and non-empty: it is what decides whether a client
     loads the skill at all, so an empty one makes the skill invisible."""
-    description = frontmatter()["description"]
+    description = frontmatter(name)["description"]
     assert description.strip()
     assert len(description) <= 1024
 
 
-def test_the_description_says_when_to_use_it_not_just_what_it_is():
-    """A description that omits the trigger cannot be matched against a task."""
-    assert "use when" in frontmatter()["description"].lower()
+@pytest.mark.parametrize("name", SKILLS)
+def test_the_description_says_when_to_use_it_not_just_what_it_is(name):
+    """A description that omits the trigger cannot be matched against a task;
+    it opens with it (superpowers writing-skills)."""
+    assert frontmatter(name)["description"].startswith("Use when")
 
 
-def test_the_body_stays_within_the_recommended_budget():
-    """Under 500 lines; past that it should be split into supporting files."""
-    lines = (SKILL_DIR / ENTRY).read_text().splitlines()
-    assert len(lines) < 500, f"SKILL.md is {len(lines)} lines; split it up"
+@pytest.mark.parametrize("name", SKILLS)
+def test_the_body_stays_within_its_budget(name):
+    """Short and tabular: what the skill covers, then when to read which page."""
+    low, high = BUDGET[name]
+    lines = body(name).splitlines()
+    assert low <= len(lines) <= high, f"{name}/SKILL.md is {len(lines)} lines"
 
 
-def test_the_directory_name_is_the_skill_name():
+@pytest.mark.parametrize("name", SKILLS)
+def test_the_directory_name_is_the_skill_name(name):
     """FastMCP refuses a skill whose folder is named otherwise (PLG-8)."""
-    assert SKILL_DIR.name == SKILL_NAME == frontmatter()["name"]
+    assert frontmatter(name)["name"] == name
 
 
-def test_the_packaged_skill_is_a_valid_agent_skill():
+@pytest.mark.parametrize("name", SKILLS)
+def test_the_packaged_skill_is_a_valid_agent_skill(name):
     """The check that serves it, so an edit that breaks it fails here (PLG-18)."""
-    assert Skill.from_directory(SKILL_DIR).name == SKILL_NAME
+    assert Skill.from_directory(SKILLS_DIR / name).name == name
 
 
 # ---- the index and its references ------------------------------------------
 
 
-def references() -> list[str]:
-    """Every references/... path the index points at."""
-    return re.findall(r"references/[A-Z_]+\.md", (SKILL_DIR / ENTRY).read_text())
+def linked(name: str) -> set[tuple[str, str]]:
+    """Every (skill, path) a SKILL.md points at by address."""
+    found = set()
+    for address in ADDRESS.findall(body(name)):
+        skill, _, path = address.removeprefix(NAMESPACE + "/").partition("/")
+        found.add((skill, path))
+    return found
 
 
-def test_the_index_points_at_references():
-    """The top level is a guide to the rest, not the whole manual."""
-    assert references(), "SKILL.md links to no references at all"
+@pytest.mark.parametrize("name", SKILLS)
+def test_the_index_points_at_references_by_their_exact_address(name):
+    """The agent knows the exact link for whatever it needs right away."""
+    assert any(skill == name and path.startswith("references/") for skill, path in linked(name))
 
 
-def test_every_referenced_file_exists():
+@pytest.mark.parametrize("name", SKILLS)
+def test_every_address_the_index_names_exists(name):
     """A dead link costs a wasted round trip and teaches nothing."""
-    for path in sorted(set(references())):
-        assert (SKILL_DIR / path).is_file(), f"SKILL.md links to missing {path}"
+    for skill, path in sorted(linked(name)):
+        assert (SKILLS_DIR / skill / path).is_file(), f"{name}/SKILL.md links to missing {skill}/{path}"
 
 
-def test_every_reference_is_reachable_from_the_index():
+@pytest.mark.parametrize("name", SKILLS)
+def test_every_reference_is_reachable_from_its_own_index(name):
     """A file nobody links to will never be lazily loaded, so it may as well
     not ship."""
-    linked = set(references())
+    own = {path for skill, path in linked(name) if skill == name}
     on_disk = {
-        p.relative_to(SKILL_DIR).as_posix()
-        for p in (SKILL_DIR / "references").glob("*.md")
+        p.relative_to(SKILLS_DIR / name).as_posix()
+        for p in (SKILLS_DIR / name / "references").glob("*.md")
     }
-    assert on_disk <= linked, f"unreferenced files: {sorted(on_disk - linked)}"
+    assert on_disk <= own, f"unreferenced files: {sorted(on_disk - own)}"
+
+
+def test_the_entry_point_names_every_other_skill():
+    """The instructions name one entry; the rest are found from it."""
+    named = {skill for skill, _ in linked(ENTRY_SKILL)}
+    assert named >= set(SKILLS)
 
 
 def test_the_one_session_contract_has_a_reference():
     """There is one contract now — name yourself — where there were two modes,
     so there is one reference rather than a branch to take first."""
-    assert (SKILL_DIR / "references/WORKSPACES.md").is_file()
+    references = SKILLS_DIR / ENTRY_SKILL / "references"
+    assert (references / "WORKSPACES.md").is_file()
     for gone in ("STATELESS.md", "SAVED_SESSIONS.md"):
-        assert not (SKILL_DIR / "references" / gone).is_file(), gone
+        assert not (references / gone).is_file(), gone
 
 
 def test_flows_says_to_reuse_a_tag_in_use():
     """An agent sets tags while writing a flow, so the page it reads then sends
     it to the tags already in use before it makes one up."""
-    body = (SKILL_DIR / "references/FLOWS.md").read_text()
-    section = body.split("## Tags", 1)[1].split("\n## ", 1)[0]
+    text = (SKILLS_DIR / "building-flows/references/FLOWS.md").read_text()
+    section = text.split("## Tags", 1)[1].split("\n## ", 1)[0]
     assert "workspace://current/tags" in section
     assert "only when none fits" in section
 
 
-async def test_the_listing_names_the_skill_once(server):
-    """One row, so a client scanning resources/list sees one skill, not its files."""
+def test_the_admin_skill_states_its_rules():
+    """An agent doing admin work asks first and never persists the token
+    (#195, PLG-62)."""
+    text = re.sub(
+        r"\s+", " ", (SKILLS_DIR / "using-the-admin-ui/references/AGENT_AS_ADMIN.md").read_text()
+    )
+    rules = text.split("## The rules", 1)[1].split("## ", 1)[0]
+    for rule in (
+        "1. Ask the person first, and show them the change",
+        "2. Never `save_site_data` on the admin page.",
+        "3. Never `execute_script` there,",
+        "4. Never take control in Live.",
+        "5. Take a destructive action (End, End all, Delete, Clear, Forget, Move) only when the person has named its target, and click its confirm yourself.",
+        "6. Stay out of other workspaces' Site data and Network detail.",
+    ):
+        assert rule in rules, rule
+
+
+# ---- every address a reader is given reads ---------------------------------
+
+
+def addresses() -> list[tuple[str, str]]:
+    """Every `skill://selenium-flow/…` address the server computes (the entry
+    point and every page a pointer can name), and every one named literally in
+    the plugin, the docs an agent reads and the golden files, with where it was
+    found."""
+    from kubed.selenium_flow.core import guidance
+
+    computed = {("guidance.ENTRY", guidance.ENTRY)} | {
+        (f"guidance.pointer({page!r})", guidance.pointer(page)) for page in guidance.PAGES
+    }
+    files = [
+        *(REPO / "plugin").rglob("*.md"),
+        REPO / "README.md",
+        REPO / "AGENTS.md",
+        REPO / "CONTRIBUTING.md",
+        *(REPO / "tests" / "golden").glob("*.json"),
+    ]
+    found = set()
+    for path in files:
+        for address in ADDRESS.findall(path.read_text()):
+            # A template (`<skill>`, `{skill}`) or a bare prefix names no file.
+            if address.endswith((".md", MANIFEST)) and "<" not in address and "{" not in address:
+                found.add((path.relative_to(REPO).as_posix(), address))
+    return sorted(found | computed)
+
+
+def test_there_are_addresses_to_check():
+    assert len(addresses()) > 10
+
+
+async def test_every_address_named_anywhere_reads(server):
+    """A hint, a prompt or a page that names an address the server does not
+    serve teaches the agent the manual is broken. None of the old
+    single-skill addresses is left (no redirects)."""
+    unread = []
+    async with Client(server.mcp.server) as client:
+        for where, address in addresses():
+            try:
+                contents = await client.read_resource(address)
+            except MCPError:
+                unread.append((where, address))
+                continue
+            assert contents[0].text, address
+    assert not unread, unread
+
+
+# ---- served ----------------------------------------------------------------
+
+
+async def test_the_listing_names_each_skill_once(server):
+    """One row per skill, so a client scanning resources/list sees five skills,
+    not their files."""
     async with Client(server.mcp.server) as client:
         listed = await client.list_resources()
-    rows = [r for r in listed if str(r.uri).startswith("skill://")]
-    assert {str(r.uri) for r in rows} == {RESOURCE_URI}
-    assert rows[0].description == frontmatter()["description"]
+    rows = {str(r.uri): r for r in listed if str(r.uri).startswith("skill://")}
+    assert set(rows) == {f"{root(name)}/{ENTRY}" for name in SKILLS}
+    for name in SKILLS:
+        assert rows[f"{root(name)}/{ENTRY}"].description == frontmatter(name)["description"]
 
 
 async def test_no_skill_template_is_listed(server):
@@ -148,94 +292,115 @@ async def test_no_skill_template_is_listed(server):
     assert not [t for t in templates if t.uri_template.startswith("skill://")]
 
 
-@pytest.mark.parametrize("path", [MANIFEST, *sorted(set(references()))])
-async def test_every_file_still_reads_by_its_uri(server, path):
+def every_file() -> list[tuple[str, str]]:
+    return [
+        (name, path)
+        for name in SKILLS
+        for path in [MANIFEST, *sorted(p for s, p in linked(name) if s == name)]
+    ]
+
+
+@pytest.mark.parametrize("name, path", every_file())
+async def test_every_file_reads_by_its_uri(server, name, path):
     async with Client(server.mcp.server) as client:
-        contents = await client.read_resource(f"{ROOT}/{path}")
+        contents = await client.read_resource(f"{root(name)}/{path}")
     assert contents[0].text
     if path.endswith(".md"):
         assert contents[0].mimeType == "text/markdown"
     if path == MANIFEST:
-        assert json.loads(contents[0].text)["skill"] == SKILL_NAME
+        assert json.loads(contents[0].text)["skill"] == name
 
 
 async def test_an_unknown_skill_file_is_not_found(server):
     async with Client(server.mcp.server) as client:
         with pytest.raises(MCPError):
-            await client.read_resource(f"{ROOT}/NOPE.md")
+            await client.read_resource(f"{root(ENTRY_SKILL)}/NOPE.md")
+
+
+async def test_the_old_single_skill_address_is_gone(server):
+    """No redirect (Dr K's no-backcompat rule)."""
+    async with Client(server.mcp.server) as client:
+        with pytest.raises(MCPError):
+            await client.read_resource(f"{root('selenium-flow')}/{ENTRY}")
 
 
 @pytest.mark.parametrize("extensions", [[], [SkillsClientExtension()]], ids=["resources", "skills"])
-async def test_a_fastmcp_client_reads_the_whole_skill(server, extensions):
+@pytest.mark.parametrize("name", SKILLS)
+async def test_a_fastmcp_client_reads_the_whole_skill(server, extensions, name):
     """Every file the manifest names, verified against its digest, with or
     without the Skills extension."""
     async with Client(server.mcp.server, extensions=extensions) as client:
-        manifest = json.loads((await client.read_resource(MANIFEST_URI))[0].text)
-        read = await client.read_skill(RESOURCE_URI)
-    assert read.name == SKILL_NAME
+        manifest = json.loads((await client.read_resource(f"{root(name)}/{MANIFEST}"))[0].text)
+        read = await client.read_skill(f"{root(name)}/{ENTRY}")
+    assert read.name == name
     assert set(read.files) == {f["path"] for f in manifest["files"]}
 
 
 # ---- the FastMCP skill convention ------------------------------------------
 
 
-async def test_a_fastmcp_client_discovers_the_skill(server):
+async def test_a_fastmcp_client_discovers_the_skills(server):
     """The real thing: FastMCP's own client, against this server."""
     async with Client(server.mcp.server, extensions=[SkillsClientExtension()]) as client:
         found = await client.list_skills()
         listed = await client.list_skill_resources()
-    assert [s.frontmatter.name for s in found] == [SKILL_NAME]
-    assert found[0].frontmatter.description == frontmatter()["description"]
-    assert [str(r.uri) for r in listed] == [RESOURCE_URI]
+    assert sorted(s.frontmatter.name for s in found) == sorted(SKILLS)
+    for skill in found:
+        assert skill.frontmatter.description == frontmatter(skill.frontmatter.name)["description"]
+    assert sorted(str(r.uri) for r in listed) == sorted(f"{root(n)}/{ENTRY}" for n in SKILLS)
 
 
-async def test_a_fastmcp_client_can_read_the_manifest(server):
+@pytest.mark.parametrize("name", SKILLS)
+async def test_a_fastmcp_client_can_read_the_manifest(server, name):
     """What `read_skill` relies on without the extension."""
     async with Client(server.mcp.server) as client:
-        manifest = json.loads((await client.read_resource(MANIFEST_URI))[0].text)
-    assert manifest["skill"] == SKILL_NAME
+        manifest = json.loads((await client.read_resource(f"{root(name)}/{MANIFEST}"))[0].text)
+    assert manifest["skill"] == name
     assert ENTRY in [f["path"] for f in manifest["files"]]
 
 
 # ---- reading ---------------------------------------------------------------
 
 
-def test_the_plugin_serves_the_packaged_skill(server):
-    assert server.plugin.skills == (RESOURCE_URI,)
+def test_the_plugin_serves_the_packaged_skills(server):
+    assert sorted(server.plugin.skills) == sorted(f"{root(n)}/{ENTRY}" for n in SKILLS)
     assert server.plugin.namespace == "selenium-flow"
 
 
-async def test_the_served_text_keeps_its_frontmatter(server):
+@pytest.mark.parametrize("name", SKILLS)
+async def test_the_served_text_keeps_its_frontmatter(server, name):
     """The metadata is part of what a reader uses to judge relevance."""
     async with Client(server.mcp.server) as client:
-        contents = await client.read_resource(RESOURCE_URI)
+        contents = await client.read_resource(f"{root(name)}/{ENTRY}")
     assert contents[0].text.startswith("---")
 
 
-async def test_every_tool_and_resource_has_a_row_on_the_page_it_always_reads(built_ui, server):
+async def test_every_tool_and_resource_has_a_row(built_ui, server):
     """An agent that misreads its own task skips a router but scans a table.
 
     The first agent to fly a real app read FLOWS.md and never opened
     INTERACTION.md, because it thought it had a "this menu won't open" problem
     rather than an interaction question — so it never learned `hover` existed.
-    One row per tool and per resource, on the page it always reads.
+    One row per tool on the entry point it always reads, and one per resource
+    on RESOURCES.md, which the entry point links.
 
     Taken from the live server, with the two reading tools left out: they are
     how a client reads the resource rows, and the page says so in prose.
     """
     from kubed.selenium_flow.mcp import mirror
 
-    body = (SKILL_DIR / ENTRY).read_text()
+    entry = body(ENTRY_SKILL)
     tools = {t.name for t in await server.mcp.server.list_tools()} - set(mirror.MIRROR_TOOLS)
-    missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", body, re.MULTILINE))
-    assert not missing, f"SKILL.md's tool table has no row for {missing}"
+    missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", entry, re.MULTILINE))
+    assert not missing, f"{ENTRY_SKILL}/SKILL.md's tool table has no row for {missing}"
 
+    table = (SKILLS_DIR / ENTRY_SKILL / "references/RESOURCES.md").read_text()
     reads = {str(r.uri) for r in await server.mcp.server.list_resources()} | {
         t.uri_template for t in await server.mcp.server.list_resource_templates()
     }
     reads = {u for u in reads if not u.startswith(("ui://", "skill://"))}
-    missing = sorted(u for u in reads if not re.search(rf"^\| `{re.escape(u)}` \|", body, re.MULTILINE))
-    assert not missing, f"SKILL.md's resource table has no row for {missing}"
+    missing = sorted(u for u in reads if not re.search(rf"^\| `{re.escape(u)}` \|", table, re.MULTILINE))
+    assert not missing, f"RESOURCES.md's table has no row for {missing}"
 
 
 # ---- the examples have to work ---------------------------------------------
@@ -249,11 +414,8 @@ def documented_selectors() -> list[tuple[str, str]]:
     which is precisely the mistake this exists to catch. The first version of
     this helper used one, skipped every broken example, and passed.
     """
-    import re
-
     found = []
-    root = PYPROJECT.parent
-    pages = [*SKILL_DIR.rglob("*.md"), root / "README.md", root / "AGENTS.md"]
+    pages = [*SKILLS_DIR.rglob("*.md"), REPO / "README.md", REPO / "AGENTS.md"]
     for page in pages:
         if not page.is_file():
             continue
@@ -298,6 +460,9 @@ def test_every_documented_selector_is_one_the_server_would_accept():
         locator(parsed)  # raises if it is not exactly one of xpath or css
 
 
+CONTROL_PAGE = SKILLS_DIR / ENTRY_SKILL / "references/CONTROL.md"
+
+
 @pytest.mark.parametrize(
     "phrase, sent",
     [
@@ -312,10 +477,10 @@ def test_the_control_notice_phrases_are_what_the_server_sends(phrase, sent):
     teaches must be one the server says, in the sentence it says it in."""
     from kubed.selenium_flow.live import control
 
-    workspaces = (SKILL_DIR / "references/WORKSPACES.md").read_text()
+    page = CONTROL_PAGE.read_text()
     said = getattr(control, sent).format(who="drk", at="14:02")
     assert phrase in said
-    assert phrase in re.sub(r"\s+", " ", workspaces)
+    assert phrase in re.sub(r"\s+", " ", page)
 
 
 @pytest.mark.parametrize("sent", ["HELD", "STILL"])
@@ -324,7 +489,5 @@ def test_the_control_sentences_the_skill_quotes_whole_are_the_servers(sent):
     example quoted whole does not."""
     from kubed.selenium_flow.live import control
 
-    workspaces = re.sub(
-        r"\s+", " ", (SKILL_DIR / "references/WORKSPACES.md").read_text()
-    )
-    assert getattr(control, sent).format(who="alex", at="14:02") in workspaces
+    page = re.sub(r"\s+", " ", CONTROL_PAGE.read_text())
+    assert getattr(control, sent).format(who="alex", at="14:02") in page

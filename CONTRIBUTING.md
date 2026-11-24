@@ -71,7 +71,7 @@ The spec's [architecture](https://github.com/kubed-io/selenium-flow/wiki/Specifi
 | Path | Holds |
 |---|---|
 | `js/` | The JavaScript run in the page, mapped into the package as `core/js` |
-| `plugin/` | The skill, prompts and agents the server serves, mapped into the package as `mcp/plugin` |
+| `plugin/` | The skills, prompts and agents the server serves, mapped into the package as `mcp/plugin` |
 | `ui/` | The admin UI, the MCP App and the live view, in Svelte |
 | `scripts/` | The OpenAPI and wiki generators, the PR report, the image's requirements |
 | `tests/fakes.py`, `tests/conftest.py` | The shared test doubles and fixtures |
@@ -199,9 +199,9 @@ argument is safe; renaming, retyping or removing one is not.
 `plugin/` and `js/` are mapped into the package by `[tool.setuptools.package-dir]`. A file there
 ships only if `[tool.setuptools.package-data]` matches it; the patterns spell out
 `.claude-plugin/*`, because setuptools' glob skips dot-folders, and
-`test_every_plugin_file_is_matched_by_package_data` checks every file. The skill's directory name
-is its name, and `SKILL.md` is an index: every `references/` file it names exists and every file
-is linked from it ([plugin.md](docs/superpowers/specs/plugin.md)). The server serves the folder with
+`test_every_plugin_file_is_matched_by_package_data` checks every file. Each skill's directory name
+is its name, and its `SKILL.md` is an index: every `references/` file it names exists and every file
+is linked from it, and a reference's file name is unique across the skills ([plugin.md](docs/superpowers/specs/plugin.md)). The server serves the folder with
 kubed-mcp's `mcp.add_plugin`: each skill at `skill://selenium-flow/<name>/SKILL.md`, each command
 as a prompt, each agent on `agents/list`.
 

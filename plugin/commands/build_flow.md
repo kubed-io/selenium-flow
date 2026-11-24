@@ -17,7 +17,8 @@ Build a selenium-flow flow for: {{ task }}
 - Starts at: {{ url }}
 - Save it as: {{ name }}
 
-Drive it by hand first, then save what worked.
+Drive it by hand first, then save what worked. How flows are written is in
+`skill://selenium-flow/building-flows/SKILL.md`.
 
 1. Read `workspace://current`. If `live` is false, call `open_session()`. Then
    go to {{ url }}.
@@ -28,7 +29,7 @@ Drive it by hand first, then save what worked.
    you meant.
 4. Note what varies between runs, such as an account, an id or a site: those
    become parameters, written `${name}`. A password is a secret, never a
-   parameter.
+   parameter (`skill://selenium-flow/signing-in/references/SECRETS.md`).
 5. Note what must be true for the run to go on: those become `assert` steps with
    a `message` saying what should have been the case. Put one after anything
    that navigates.

@@ -46,7 +46,8 @@ key in it stops the server.
 | `RECORDING_DIR` | `$DATA_DIR/recordings` | where the Grid's recordings arrive. The recorder must keep `SE_VIDEO_FILE_NAME=auto` and `SE_VIDEO_FILE_NAME_SUFFIX=true` (or `SE_VIDEO_SESSION_SUBFOLDER=true`) so the Grid session id is in the path |
 | `RECORDING_WAIT` | `600` | seconds to wait for a recording after its browser ends |
 | `RECORDING_WATCH` / `RECORDING_POLL` | `auto` / `1000` | `events` or `poll` to watch that folder, and the poll interval in ms |
-| `SECRETS_DIRS` | unset | colon-separated directories of secrets; unset means none |
+| `SECRETS_DIRS` | unset | colon-separated directories of secrets; unset means none (*Secrets on the server*) |
+| `PUBLIC_BASE_URL` | unset | where browsers reach this server: file links become absolute, and `workspace://current` gains `config_url` |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `WARNING`, `ERROR` or `CRITICAL` |
 
 A browser lives until the Grid's own idle timeout (`SE_NODE_SESSION_TIMEOUT`, on
@@ -75,7 +76,7 @@ when `ROUTE_PREFIX` is set: `/flow/mcp` for `ROUTE_PREFIX=/flow`.
 the bare token as the header value, for clients that cannot send a scheme.
 
 A caller with no workspace name is refused with a message saying how to set one.
-WORKSPACES.md has the naming rules. The other per-client switch says whether the
+`skill://selenium-flow/driving-a-browser/references/WORKSPACES.md` has the naming rules. The other per-client switch says whether the
 client's model can read MCP resources: `X-MCP-Resources: off` or `on`, or
 `?resources=off` or `on`, and the header wins. A client that is off is given the
 tools `list_resources` and `read_resource` instead. With neither sent, Visual
@@ -122,3 +123,143 @@ boot, naming the option. No per-client switch sets it.
 Grid node. The image runs read-only as an unprivileged user, so mount an
 `emptyDir` at `/tmp` or point `TMPDIR` at a writable path. Without one, an upload
 fails with "cannot stage the upload: no writable temporary directory".
+
+## Secrets on the server
+
+An operator puts every secret on the server; no tool and no admin page creates,
+changes or reads one. A secret is a directory under one of `SECRETS_DIRS`,
+named for the secret, with one file per key:
+
+```
+/secrets/nextcloud/username
+/secrets/nextcloud/password
+/secrets/nextcloud/_description      Admin login for Nextcloud
+/secrets/nextcloud/_allowed_urls     https://nextcloud.example.com
+```
+
+- A file's content, stripped of surrounding whitespace, is the key's value, read
+  when it is typed, so a rotated file is used at once. A file whose name starts
+  with `_` or `.` is not a key.
+- `_allowed_urls` is the leash: one bare origin per line, scheme, host and port,
+  such as `https://nextcloud.example.com`. A secret without one, with no origin
+  in it, or with any line that is not a bare origin (a path, a query,
+  credentials) is refused, and agents see it listed with `refused` and the
+  sentence that says what to fix.
+- A port counts as written: `https://host:443` and `https://host` are two
+  origins. List each origin the browser signs in on.
+- A name in two directories comes from the first only. Every workspace on the
+  server sees every secret.
+
+On Kubernetes, mount each Secret as a directory, with `_allowed_urls` as one of
+its keys:
+
+```yaml
+volumes:
+- name: nextcloud
+  secret:
+    secretName: nextcloud-admin
+containers:
+- name: selenium-flow
+  env:
+  - name: SECRETS_DIRS
+    value: /secrets
+  volumeMounts:
+  - name: nextcloud
+    mountPath: /secrets/nextcloud
+    readOnly: true
+```
+
+The config file can define a secret too, or overlay a directory's, under
+`secrets.entries`; that key is read from the file only. Its `allowed_urls`
+replaces the directory's leash whole. Each key is exactly one of `file`, `env`
+or `value`, and `masked: false` leaves a key that is not secret out of the
+scrub:
+
+```yaml
+secrets:
+  entries:
+    nextcloud:
+      description: Admin login for Nextcloud
+      allowed_urls:
+      - https://nextcloud.example.com
+      keys:
+        username:
+          env: NEXTCLOUD_USER
+          masked: false
+        password:
+          file: /run/secrets/nextcloud-password
+```
+
+A bad line in a config entry's `allowed_urls` stops the boot instead.
+
+## The admin token as a secret
+
+An agent can do admin work in its own browser when the server's token is a
+secret it can type (`skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md`).
+Allow it on the exact origin the Grid's browsers load the admin page from, which
+may be the Service's address rather than the public one. With the token in
+`AUTH_TOKEN`, the key can read it from there:
+
+```yaml
+secrets:
+  entries:
+    admin:
+      description: The admin page's token
+      allowed_urls:
+      - https://flows.example.com
+      keys:
+        token:
+          env: AUTH_TOKEN
+```
+
+Every workspace sees every secret, so every caller of the server can then sign
+in to the admin page. Leave it out where that is too much.
+
+## OIDC
+
+The server can accept a JWT from one OIDC issuer beside the token: on `/mcp`,
+and in the admin page's **Sign in with OIDC**. The token stays the admin login,
+so OIDC needs `AUTH_TOKEN`.
+
+| Setting | Env | Is |
+|---|---|---|
+| `oidc.issuer` | `OIDC_ISSUER` | the issuer a JWT must name; with the next two, turns OIDC on |
+| `oidc.audience` | `OIDC_AUDIENCE` | the audience a JWT must include |
+| `oidc.jwks_uri` | `OIDC_JWKS_URI` | where the issuer publishes its signing keys |
+| `oidc.roles` | `OIDC_ROLES` | on `/mcp`, a JWT must hold one of these; empty checks none, and the boot warns |
+| `oidc.roles_claim` | `OIDC_ROLES_CLAIM` | the claim holding the roles, `roles` by default; dots walk into objects, as in `realm_access.roles` |
+| `oidc.client_id` | `OIDC_CLIENT_ID` | the admin page's public client; setting it shows **Sign in with OIDC** |
+| `oidc.admin_roles` | `OIDC_ADMIN_ROLES` | a sign-in on the admin page holding one of these is the admin |
+
+- `oidc.issuer`, `oidc.audience` and `oidc.jwks_uri` are set together or not at
+  all, and so are `oidc.client_id` and `oidc.admin_roles`; `oidc.client_id`
+  needs the first three. Each broken rule stops the boot with a sentence naming
+  it. In the environment, the two role lists are comma-separated.
+- A JWT is RS256, signed by a key at `oidc.jwks_uri`, names `oidc.issuer` and
+  includes `oidc.audience`, and has an `exp`.
+- The admin page's client is public: Authorization Code with PKCE (S256), no
+  client secret. Its access tokens must carry `oidc.audience` too, and `azp`
+  must be `oidc.client_id`; a token minted for another client is refused.
+- The redirect URI is the admin page's own address with one trailing slash:
+  `https://flows.example.com/`, or `https://flows.example.com/flow/` under
+  `ROUTE_PREFIX=/flow`. Register it on the client. The page talks to the issuer
+  from the browser, so the issuer must also accept requests from the page's
+  origin (Keycloak's *Web origins*).
+- A role in `oidc.admin_roles` lets a person in; a sign-in without one is told
+  it holds no admin role.
+
+```yaml
+oidc:
+  issuer: https://sso.example.com/realms/kubed
+  audience: selenium-flow
+  jwks_uri: https://sso.example.com/realms/kubed/protocol/openid-connect/certs
+  roles_claim: realm_access.roles
+  roles:
+  - selenium-flow
+  client_id: selenium-flow-admin
+  admin_roles:
+  - selenium-flow-admin
+```
+
+The file can hold `oidc` while `AUTH_TOKEN` comes from the environment: the
+rules run once every layer has merged.

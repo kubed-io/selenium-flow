@@ -40,7 +40,7 @@ page it was on, with a `hint`:
 {
   "status": "failed",
   "hint": {
-    "read": "skill://selenium-flow/selenium-flow/references/FLOWS.md",
+    "read": "skill://selenium-flow/building-flows/references/FLOWS.md",
     "section": "when-a-flow-fails",
     "prompt": "repair_flow",
     "arguments": {"flow": "sign-in", "step": "4"}
@@ -66,8 +66,8 @@ wrong. Then it is one of two things:
 ## Building one
 
 1. Drive it once by hand. `outline` gives each selector, checked to match one
-   element (READING_PAGES.md). `outline` is not a step: a saved flow does not
-   look around.
+   element (`skill://selenium-flow/driving-a-browser/references/READING_PAGES.md`).
+   `outline` is not a step: a saved flow does not look around.
 2. Write each call down as a step. What changes between runs becomes a
    parameter.
 3. `save_flow` once, with `sites` and `paths`, so the next agent on that page is
@@ -129,7 +129,8 @@ Declare them as JSON Schema and write `${name}` where the value goes:
 - A `${name}` that is not declared is refused at save. A value that cannot become
   what the field wants is refused when the run reaches that step.
 - A parameter is never secret: everything you pass may appear in the report, and
-  `save_flow` refuses `writeOnly`. For a password, use a secret (SECRETS.md).
+  `save_flow` refuses `writeOnly`. For a password, use a secret
+  (`skill://selenium-flow/signing-in/references/SECRETS.md`).
 
 ## Where a flow applies
 
@@ -206,7 +207,8 @@ wait for either outcome, then ask the real question once:
 
 A sign-in flow ends with an `assert` that proves you are in, then
 `{"tool": "save_site_data", "args": {}}`, so a later browser comes back signed in
-(SITE_DATA.md). The report never carries the saved data.
+(`skill://selenium-flow/signing-in/references/SITE_DATA.md`). The report never
+carries the saved data.
 
 ## How long a run may take
 
@@ -240,7 +242,8 @@ take that long, give it a `timeout`; if not, the step before is where it stuck.
 
 `global` is the shared library: every workspace lists and runs it, and
 `save_flow` and `delete_flow` refuse it. Only an admin moves a flow into
-`global`. Saving a name you read from `global` writes a copy into your own
+`global` (`skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md`,
+*Flows*). Saving a name you read from `global` writes a copy into your own
 library. Where a name is in both, yours wins, and `flow://flows` marks each entry
 `shared: true` or `false`. A flow name is 1 to 64 letters, digits, `.`, `-` and
 `_`, starting with a letter or digit.

@@ -57,11 +57,13 @@ request carried both: drop one. Retrying unchanged does not help.
 
 Call `open_session` once, then carry on.
 
-## Signed in before, signed out now
+## "this workspace's config is invalid"
 
-A new browser starts empty unless you saved site data. Sign in, confirm it, then
-`save_site_data()`. Saved and still signed out means the site ended its own
-session (SITE_DATA.md).
+Every call that names the workspace is refused, `workspace://current` included,
+until an admin fixes its `workspace.yaml`. Do not retry. Tell the person the
+reason and the link the refusal gives, and offer the corrected YAML:
+`skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md`,
+*Managing a workspace*.
 
 ## A result says `reopened`
 

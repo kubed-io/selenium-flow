@@ -260,9 +260,13 @@ async def test_the_listing_is_the_shipped_agents(server):
 async def test_get_returns_the_detail(server):
     async with Client(server.mcp.server) as client:
         got = await request(client, "agents/get", name="explorer")
-        uri = got["_meta"][META_KEY]["skills"]["selenium-flow"]
-        assert (await client.read_resource(uri))[0].text.startswith("---")
-    assert uri == "skill://selenium-flow/selenium-flow/SKILL.md"
+        skills = got["_meta"][META_KEY]["skills"]
+        for uri in skills.values():
+            assert (await client.read_resource(uri))[0].text.startswith("---")
+    assert skills == {
+        "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md",
+        "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
+    }
     assert got["agent"] == "explorer" and got["tools"] == [] and "capabilities" not in got
     assert {k: got[k] for k in FRESH} == FRESH
 

@@ -19,7 +19,7 @@ test('no # heading, no title', () => {
   expect(parse('Just text.').title).toBeNull()
 })
 
-const BASE = 'skill://selenium-flow/selenium-flow/references/TROUBLESHOOTING.md'
+const BASE = 'skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md'
 const draw = (text: string, props = {}) => render(Markdown, { props: { tokens: parse(text).blocks, base: BASE, ...props } })
 
 test('the block types the skill uses', () => {
@@ -50,9 +50,9 @@ test('raw HTML is text, never markup', () => {
 
 test('a URI in a code span drills through show', async () => {
   const onshow = vi.fn()
-  draw('See `skill://selenium-flow/selenium-flow/references/FLOWS.md` and `flow://flows/{name}`.', { onshow })
-  await fireEvent.click(screen.getByRole('button', { name: 'skill://selenium-flow/selenium-flow/references/FLOWS.md' }))
-  expect(onshow).toHaveBeenCalledWith('skill://selenium-flow/selenium-flow/references/FLOWS.md')
+  draw('See `skill://selenium-flow/building-flows/references/FLOWS.md` and `flow://flows/{name}`.', { onshow })
+  await fireEvent.click(screen.getByRole('button', { name: 'skill://selenium-flow/building-flows/references/FLOWS.md' }))
+  expect(onshow).toHaveBeenCalledWith('skill://selenium-flow/building-flows/references/FLOWS.md')
   expect(screen.queryByRole('button', { name: 'flow://flows/{name}' })).toBeNull()
   expect(screen.getByText('flow://flows/{name}').tagName).toBe('CODE')
 })
@@ -65,9 +65,9 @@ test('without onshow a URI is just code', () => {
 test('a relative link drills; a web link opens through the host', async () => {
   const onshow = vi.fn()
   const onlink = vi.fn()
-  draw('[flows](FLOWS.md) and [the wiki](https://example.com/wiki) and [bad](javascript:alert(1))', { onshow, onlink })
-  await fireEvent.click(screen.getByRole('button', { name: 'flows' }))
-  expect(onshow).toHaveBeenCalledWith('skill://selenium-flow/selenium-flow/references/FLOWS.md')
+  draw('[interaction](INTERACTION.md) and [the wiki](https://example.com/wiki) and [bad](javascript:alert(1))', { onshow, onlink })
+  await fireEvent.click(screen.getByRole('button', { name: 'interaction' }))
+  expect(onshow).toHaveBeenCalledWith('skill://selenium-flow/driving-a-browser/references/INTERACTION.md')
   const web = screen.getByRole('link', { name: 'the wiki' })
   expect(web).toHaveAttribute('href', 'https://example.com/wiki')
   await fireEvent.click(web)
@@ -77,7 +77,7 @@ test('a relative link drills; a web link opens through the host', async () => {
 })
 
 test('a link whose text is a URI keeps one button, not two', () => {
-  draw('[`skill://selenium-flow/selenium-flow/references/FLOWS.md`](FLOWS.md)', { onshow: vi.fn() })
+  draw('[`skill://selenium-flow/driving-a-browser/references/INTERACTION.md`](INTERACTION.md)', { onshow: vi.fn() })
   expect(screen.getAllByRole('button')).toHaveLength(1)
 })
 

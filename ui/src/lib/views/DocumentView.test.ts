@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/svelte'
 import { expect, test, vi } from 'vitest'
 import DocumentView from './DocumentView.svelte'
 
-const URI = 'skill://selenium-flow/selenium-flow/references/TROUBLESHOOTING.md'
+const URI = 'skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md'
 const page = (n: number) =>
   '# When something goes wrong\n\n' + Array.from({ length: n }, (_, i) => `Paragraph ${i + 1}.`).join('\n\n') + '\n'
 
@@ -33,15 +33,15 @@ test('without fullscreen the whole document draws', () => {
 })
 
 test('no # heading: the file name is the title', () => {
-  render(DocumentView, { props: { data: 'Just text.', uri: 'skill://selenium-flow/selenium-flow/references/NOTES.md' } })
+  render(DocumentView, { props: { data: 'Just text.', uri: 'skill://selenium-flow/driving-a-browser/references/NOTES.md' } })
   expect(screen.getByText('NOTES.md')).toBeInTheDocument()
 })
 
 test('a URI in the text drills through show', async () => {
   const onshow = vi.fn()
-  render(DocumentView, { props: { data: '# T\n\nRead `skill://selenium-flow/selenium-flow/references/FLOWS.md`.\n', uri: URI, onshow } })
-  await fireEvent.click(screen.getByRole('button', { name: 'skill://selenium-flow/selenium-flow/references/FLOWS.md' }))
-  expect(onshow).toHaveBeenCalledWith('skill://selenium-flow/selenium-flow/references/FLOWS.md')
+  render(DocumentView, { props: { data: '# T\n\nRead `skill://selenium-flow/building-flows/references/FLOWS.md`.\n', uri: URI, onshow } })
+  await fireEvent.click(screen.getByRole('button', { name: 'skill://selenium-flow/building-flows/references/FLOWS.md' }))
+  expect(onshow).toHaveBeenCalledWith('skill://selenium-flow/building-flows/references/FLOWS.md')
 })
 
 test('JSON is a tree, titled by its title or its URI', () => {
@@ -49,12 +49,12 @@ test('JSON is a tree, titled by its title or its URI', () => {
   expect(screen.getByText('Flow', { selector: 'strong' })).toBeInTheDocument()
   expect(container.querySelector('details')).not.toBeNull()
   unmount()
-  render(DocumentView, { props: { data: { skill: 'selenium-flow', files: [] }, uri: 'skill://selenium-flow/selenium-flow/_manifest' } })
+  render(DocumentView, { props: { data: { skill: 'driving-a-browser', files: [] }, uri: 'skill://selenium-flow/driving-a-browser/_manifest' } })
   expect(screen.getByText('_manifest', { selector: 'strong' })).toBeInTheDocument()
 })
 
 test('other text arrives as one code block: drawn as it is, titled by its file name', () => {
-  const uri = 'skill://selenium-flow/selenium-flow/references/example.yaml'
+  const uri = 'skill://selenium-flow/driving-a-browser/references/example.yaml'
   const { container } = render(DocumentView, { props: { data: '```\n# a comment\nsteps: []\n```\n', uri } })
   expect(screen.getByText('example.yaml', { selector: 'strong' })).toBeInTheDocument()
   expect(container.querySelector('pre code')).toHaveTextContent('# a comment steps: []')

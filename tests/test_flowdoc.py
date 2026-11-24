@@ -465,7 +465,7 @@ def _documented():
 
     from kubed.selenium_flow.mcp import skill as skill_module
 
-    root = skill_module.skill_path()
+    root = skill_module.skills_path()
     found = []
     for path in sorted(root.rglob("*.md")):
         for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.DOTALL):
@@ -486,7 +486,7 @@ def test_every_json_example_in_the_skill_parses():
 
     from kubed.selenium_flow.mcp import skill as skill_module
 
-    for path in skill_module.skill_path().rglob("*.md"):
+    for path in skill_module.skills_path().rglob("*.md"):
         for block in re.findall(r"```json\n(.*?)```", path.read_text(), re.DOTALL):
             json.loads(block)
 
@@ -495,7 +495,10 @@ def test_the_skill_documents_flows_in_both_references():
     """Guards the regex as much as the docs: finding nothing would pass the
     validation test vacuously."""
     where = {path for path, _ in _documented()}
-    assert {"references/FLOWS.md", "references/SECRETS.md"} <= where
+    assert {
+        "building-flows/references/FLOWS.md",
+        "signing-in/references/SECRETS.md",
+    } <= where
 
 
 @pytest.mark.parametrize(
