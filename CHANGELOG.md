@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **BREAKING:** The one skill is five, by reader and moment: `driving-a-browser` (the entry point), `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`, each at `skill://selenium-flow/<skill>/SKILL.md` (#195). `skill://selenium-flow/selenium-flow/…` no longer reads: nothing redirects it, and hints, the instructions, the prompts and the explorer name the new addresses.
 - **BREAKING:** The skill moves to `skill://selenium-flow/selenium-flow/SKILL.md`, and the server's name (`serverInfo.name`) is `selenium-flow`, not `Selenium` (#196). The old `skill://selenium-flow/SKILL.md` and `skill://selenium-flow/references/…` addresses no longer read: nothing redirects them.
 - Skill resources are named with the namespace, `selenium-flow/selenium-flow/SKILL.md`, in listings and in `_index.json` (#196).
 - A `plugin/` folder the server cannot load stops it at boot with a one-line message, not a traceback (#196).

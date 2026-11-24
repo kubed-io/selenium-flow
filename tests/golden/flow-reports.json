@@ -7,7 +7,7 @@
         "step": "1"
       },
       "prompt": "repair_flow",
-      "read": "skill://selenium-flow/selenium-flow/references/TROUBLESHOOTING.md"
+      "read": "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md"
     },
     "status": "failed",
     "steps": [
@@ -54,7 +54,7 @@
         "step": "2"
       },
       "prompt": "repair_flow",
-      "read": "skill://selenium-flow/selenium-flow/references/FLOWS.md",
+      "read": "skill://selenium-flow/building-flows/references/FLOWS.md",
       "section": "when-a-flow-fails"
     },
     "status": "failed",
@@ -129,7 +129,7 @@
         "step": "2"
       },
       "prompt": "repair_flow",
-      "read": "skill://selenium-flow/selenium-flow/references/FLOWS.md",
+      "read": "skill://selenium-flow/building-flows/references/FLOWS.md",
       "section": "how-long-a-run-may-take"
     },
     "status": "failed",

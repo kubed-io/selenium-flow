@@ -126,7 +126,7 @@ Give the server a data directory and every screenshot and print is kept with the
 
 ## 📖 It teaches you how to use it
 
-The server ships an Agent Skill at `skill://selenium-flow/selenium-flow/SKILL.md`: seven rules, a whole task end to end, and a table of when to reach for each tool. Eight references, from reading pages to troubleshooting, are each their own resource, so an agent loads only the one its task needs.
+The server ships five Agent Skills, one per reader and moment: `driving-a-browser`, the entry point at `skill://selenium-flow/driving-a-browser/SKILL.md`, then `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`. Each `SKILL.md` is a short table of when to read which reference, and each reference is its own resource, so an agent loads only the one its task needs.
 
 A client that speaks the agents extension also finds the explorer, a subagent that explores a site in your workspace, in a browser of its own beside yours, runs the flows that fit each page, saves new ones and reports back.
 
@@ -136,7 +136,7 @@ A client that speaks the agents extension also finds the explorer, a subagent th
 
 Open the server's root for every workspace: its browser, live screen, files, flows, saved site data, history and captured traffic. Sign in with the server's token or, for an admin role, through your OIDC provider.
 
-Hosts that render [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) get `show(uri)`, which draws any resource the server serves inline: your workspace, its files, flows, secrets and the skill. A client that can't read resources gets `list_resources` and `read_resource` instead.
+Hosts that render [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview) get `show(uri)`, which draws any resource the server serves inline: your workspace, its files, flows, secrets and the skills. A client that can't read resources gets `list_resources` and `read_resource` instead.
 
 ---
 

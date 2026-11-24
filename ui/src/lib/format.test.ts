@@ -95,7 +95,7 @@ test('readable undoes escapes and survives a bad one', () => {
 })
 
 test('leaf is the last segment, readable', () => {
-  expect(leaf('skill://selenium-flow/selenium-flow/references/FLOWS.md')).toBe('FLOWS.md')
+  expect(leaf('skill://selenium-flow/building-flows/references/FLOWS.md')).toBe('FLOWS.md')
   expect(leaf('workspace://files/a%20b.png')).toBe('a b.png')
   expect(leaf('flow://schema')).toBe('schema')
 })

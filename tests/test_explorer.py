@@ -52,8 +52,13 @@ OUT = {
     "network_body",
 }
 MIRROR = {"list_resources", "read_resource"}
-SKILL_ROOT = "skill://selenium-flow/selenium-flow/"
-SKILL_URI = f"{SKILL_ROOT}SKILL.md"
+NAMESPACE = "skill://selenium-flow/"
+SKILL_URI = f"{NAMESPACE}driving-a-browser/SKILL.md"
+# The skills the explorer names (#195): the entry point and the flows skill.
+SKILLS = {
+    "driving-a-browser": SKILL_URI,
+    "building-flows": f"{NAMESPACE}building-flows/SKILL.md",
+}
 HEADINGS = ["Found", "Flows used", "Flows saved", "Couldn't", "Browser"]
 QUOTED_URI = re.compile(r"`([a-z]+://[^`]+)`")
 QUOTED_NAME = re.compile(r"`([a-z_]+)`")
@@ -64,7 +69,7 @@ AGENTS = skill.plugin_path() / "agents"
 
 def shipped() -> Agent:
     text = (AGENTS / "explorer.md").read_text(encoding="utf-8")
-    return parse_agent(text, {"selenium-flow": SKILL_URI})
+    return parse_agent(text, SKILLS)
 
 
 def body() -> str:
@@ -85,7 +90,7 @@ def test_it_loads_strictly(caplog):  # spec test 1
     assert "is skipped" not in caplog.text
     assert front()["model"] == "sonnet"
     assert front()["maxTurns"] == 40
-    assert front()["skills"] == ["selenium-flow"]
+    assert front()["skills"] == ["driving-a-browser", "building-flows"]
 
 
 async def test_every_listed_tool_exists(server):  # spec test 2
@@ -145,7 +150,7 @@ async def test_it_names_the_skill_by_uri(server):  # spec test 4
     assert f"`{SKILL_URI}`" in body()
     async with Client(server.mcp.server) as client:
         got = await request(client, "agents/get", name="explorer")
-    assert got["_meta"]["io.kubed/agent"]["skills"] == {"selenium-flow": SKILL_URI}
+    assert got["_meta"]["io.kubed/agent"]["skills"] == SKILLS
     assert got["instructions"] == body()
 
 
@@ -161,7 +166,7 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
     assert text.count("://") == len(QUOTED_URI.findall(text)), "a URI outside backticks"
     assert {
         SKILL_URI,
-        "skill://selenium-flow/selenium-flow/references/FLOWS.md",
+        "skill://selenium-flow/building-flows/references/FLOWS.md",
         "session://<name>",
         "session://<name>/console",
         "session://<name>/network",
@@ -180,8 +185,8 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
             for t in await client.list_resource_templates()
         }
     for uri in named:
-        if uri.startswith(SKILL_ROOT):
-            assert (skill.skill_path() / uri.removeprefix(SKILL_ROOT)).is_file(), uri
+        if uri.startswith(NAMESPACE):
+            assert (skill.skills_path() / uri.removeprefix(NAMESPACE)).is_file(), uri
         else:
             assert uri in served, uri
 

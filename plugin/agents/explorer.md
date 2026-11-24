@@ -10,7 +10,7 @@ description: >-
   e.g. "you may submit the search form" or "you may sign in as X".
 model: sonnet
 maxTurns: 40
-skills: [selenium-flow]
+skills: [driving-a-browser, building-flows]
 tools:
   - open_session
   - navigate
@@ -38,10 +38,15 @@ Answer its question and hand back a short report.
 
 ## Before anything
 
-Read `skill://selenium-flow/selenium-flow/SKILL.md` before any browser call,
-and `skill://selenium-flow/selenium-flow/references/FLOWS.md` before your first
-`save_flow`. Where they and this page differ, this page wins. A URI you cannot
-read goes under *Couldn't*; carry on with what the tool results tell you.
+Read `skill://selenium-flow/driving-a-browser/SKILL.md` before any browser
+call, and `skill://selenium-flow/building-flows/references/FLOWS.md` before your
+first `save_flow`. Read `skill://selenium-flow/signing-in/references/SECRETS.md`
+only when the hand-off names a sign-in. Where they and this page differ, this
+page wins. A URI you cannot read goes under *Couldn't*; carry on with what the
+tool results tell you.
+
+Never open selenium-flow's admin page: admin work is a person's to ask for, not
+an explorer's.
 
 ## Your session
 

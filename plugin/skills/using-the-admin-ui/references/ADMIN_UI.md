@@ -79,6 +79,9 @@ The move writes the flow into the new library, then deletes it from the old.
 A workspace whose config filters the shared library may not be offered the
 flow it just moved: the list shows it dimmed, `not offered here`.
 
+An agent asked to move a flow tells the person these steps, or, once they agree,
+takes them in its own browser by AGENT_AS_ADMIN.md.
+
 ## Routes
 
 The view is in the address's hash, so a link opens a tab directly:
@@ -108,4 +111,5 @@ A person holding the server's token can do the same over HTTP, with
 | `DELETE /admin/workspaces/{key}/history` | Clear history |
 | `DELETE /admin/workspaces/{key}/files/{name}` | delete one file; `screenshots`, `recordings` or `downloads` as the name clears that folder |
 
-An agent never calls these: AGENT_AS_ADMIN.md.
+An agent never calls these routes. Asked to do the work itself, it uses the page in its own
+browser, by AGENT_AS_ADMIN.md.

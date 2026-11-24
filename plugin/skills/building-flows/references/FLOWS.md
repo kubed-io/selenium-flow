@@ -207,7 +207,8 @@ wait for either outcome, then ask the real question once:
 
 A sign-in flow ends with an `assert` that proves you are in, then
 `{"tool": "save_site_data", "args": {}}`, so a later browser comes back signed in
-(`skill://selenium-flow/signing-in/references/SITE_DATA.md`). The report never carries the saved data.
+(`skill://selenium-flow/signing-in/references/SITE_DATA.md`). The report never
+carries the saved data.
 
 ## How long a run may take
 
@@ -241,7 +242,8 @@ take that long, give it a `timeout`; if not, the step before is where it stuck.
 
 `global` is the shared library: every workspace lists and runs it, and
 `save_flow` and `delete_flow` refuse it. Only an admin moves a flow into
-`global` (`skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md`, *Flows*). Saving a name you read from `global` writes a copy into your own
+`global` (`skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md`,
+*Flows*). Saving a name you read from `global` writes a copy into your own
 library. Where a name is in both, yours wins, and `flow://flows` marks each entry
 `shared: true` or `false`. A flow name is 1 to 64 letters, digits, `.`, `-` and
 `_`, starting with a letter or digit.

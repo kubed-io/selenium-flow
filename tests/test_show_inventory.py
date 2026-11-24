@@ -26,7 +26,9 @@ pytestmark = pytest.mark.unit
 # The app shell is the drawing, not a thing to draw (spec
 # 2026-10-09-show-everything, ruling 8).
 EXEMPT = ("ui://",)
-SKILL = "skill://selenium-flow/selenium-flow/"
+SKILL = "skill://selenium-flow/driving-a-browser/"
+# Every skill sits under the namespace: one form for all five.
+NAMESPACE = "skill://selenium-flow/"
 
 # Research's table in the spec, with the skill's files folded into one.
 FORMS = {
@@ -61,7 +63,7 @@ FORMS = {
     "session://{name}/site-data",
     "session://{name}/site-data/{site}",
     "session://{name}/downloads/{file}",
-    SKILL + "*",
+    NAMESPACE + "*",
 }
 
 
@@ -128,11 +130,13 @@ async def undrawn(server) -> dict[str, str]:
     refused = {}
     async with Client(server.mcp.server) as c:
         uris = [str(r.uri) for r in await c.list_resources()]
-        # The listing names SKILL.md alone; the manifest has the rest.
-        manifest = json.loads((await c.read_resource(SKILL + "_manifest"))[0].text)
-        uris += [
-            SKILL + f["path"] for f in manifest["files"] if SKILL + f["path"] not in uris
-        ]
+        # The listing names each SKILL.md alone; its manifest has the rest.
+        for entry in [u for u in uris if u.startswith(NAMESPACE) and u.endswith("/SKILL.md")]:
+            root = entry.removesuffix("SKILL.md")
+            manifest = json.loads((await c.read_resource(root + "_manifest"))[0].text)
+            uris += [
+                root + f["path"] for f in manifest["files"] if root + f["path"] not in uris
+            ]
         for uri in uris:
             if uri.startswith(EXEMPT) or uri in BROWSER:
                 continue
@@ -152,7 +156,7 @@ def skill_with(tmp_path, monkeypatch):
     def serve(name: str, content: bytes) -> SeleniumMCP:
         copy = tmp_path / "plugin"
         shutil.copytree(skill.plugin_path(), copy)
-        (copy / "skills" / skill.SKILL_NAME / "references" / name).write_bytes(content)
+        (copy / "skills" / "driving-a-browser" / "references" / name).write_bytes(content)
         monkeypatch.setattr(skill, "plugin_path", lambda: copy)
         return every_section(tmp_path)
     return serve
@@ -176,14 +180,14 @@ async def test_a_second_skill_under_the_namespace_draws(
 ):
     copy = tmp_path / "plugin"
     shutil.copytree(skill.plugin_path(), copy)
-    second = copy / "skills" / "reading-pages"
+    second = copy / "skills" / "reading-tables"
     second.mkdir()
     (second / "SKILL.md").write_text(
-        "---\nname: reading-pages\ndescription: Read a page.\n---\n\n# Reading\n"
+        "---\nname: reading-tables\ndescription: Read a table.\n---\n\n# Reading\n"
     )
     monkeypatch.setattr(skill, "plugin_path", lambda: copy)
     server = every_section(tmp_path)
-    uri = "skill://selenium-flow/reading-pages/SKILL.md"
+    uri = "skill://selenium-flow/reading-tables/SKILL.md"
     assert uri in await served(server)
     async with Client(server.mcp.server) as c:
         result = await c.call_tool("show", {"uri": uri}, raise_on_error=False)
@@ -198,7 +202,7 @@ async def test_the_shell_itself_is_served_and_exempt(everything):
 async def test_the_inventory_is_the_one_the_spec_lists(everything):
     """A new resource fails here too: add it to the spec's table and to FORMS."""
     forms = {
-        SKILL + "*" if uri.startswith(SKILL) else uri
+        NAMESPACE + "*" if uri.startswith(NAMESPACE) else uri
         for uri in await served(everything)
         if not uri.startswith(EXEMPT)
     }

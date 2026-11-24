@@ -175,12 +175,12 @@ def test_where_it_sends_you_depends_on_what_failed(step, page, section):
 
 
 def test_the_uri_is_a_resource_uri_and_nothing_else():
-    """Everything after `skill://selenium-flow/selenium-flow/` is the file path, so an anchor
+    """Everything after `skill://selenium-flow/<skill>/` is the file path, so an anchor
     glued on the end names a file that does not exist. The section rides
     beside it (Copilot, #30)."""
     hint = hint_for({"tool": "assert", "error": "x"}, "login")
     assert "#" not in hint["read"]
-    assert hint["read"] == "skill://selenium-flow/selenium-flow/references/FLOWS.md"
+    assert hint["read"] == "skill://selenium-flow/building-flows/references/FLOWS.md"
     assert hint["section"] == "say-what-must-be-true"
 
 
@@ -188,14 +188,14 @@ def test_every_reference_it_can_name_exists():
     """A hint that points at a page nobody wrote is worse than no hint."""
     from kubed.selenium_flow.mcp import skill
 
-    references = skill.skill_path() / "references"
     for step in (
         {"tool": "assert", "error": "x"},
         {"tool": "interact", "error": "no clickable element matched"},
         {"tool": "navigate", "error": "something else"},
     ):
-        page = hint_for(step, "f")["read"].rsplit("/", 1)[-1].split("#")[0]
-        assert (references / page).is_file(), page
+        read = hint_for(step, "f")["read"].split("#")[0]
+        path = skill.skills_path() / read.removeprefix("skill://selenium-flow/")
+        assert path.is_file(), read
 
 
 def test_an_anchor_it_names_is_a_heading_that_exists():
@@ -203,16 +203,15 @@ def test_an_anchor_it_names_is_a_heading_that_exists():
     page, which is the same as not saying anything."""
     from kubed.selenium_flow.mcp import skill
 
-    references = skill.skill_path() / "references"
     for step in (
         {"tool": "assert", "error": "x"},
         {"tool": "interact", "error": "no clickable element matched"},
     ):
         hint = hint_for(step, "f")
-        page = hint["read"].rsplit("/", 1)[-1]
+        page = skill.skills_path() / hint["read"].removeprefix("skill://selenium-flow/")
         headings = {
             line.lstrip("# ").strip().lower().replace(" ", "-").replace(",", "")
-            for line in (references / page).read_text().splitlines()
+            for line in page.read_text().splitlines()
             if line.startswith("#")
         }
         assert hint["section"] in headings, f"{page} has no heading {hint['section']}"

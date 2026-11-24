@@ -158,7 +158,7 @@ async def test_the_skill_is_read_while_refused(broken):
     async with Client(broken.mcp.server) as client:
         uris = [str(r.uri) for r in await client.list_resources()]
         skills = [uri for uri in uris if uri.startswith("skill://")]
-        assert "skill://selenium-flow/selenium-flow/SKILL.md" in skills
+        assert "skill://selenium-flow/driving-a-browser/SKILL.md" in skills
         for uri in skills:
             assert (await client.read_resource(uri))[0], uri
 

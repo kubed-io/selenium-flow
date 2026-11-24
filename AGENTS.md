@@ -10,8 +10,8 @@ working in the repo and binds you too; this file adds only what an agent would o
    architecture. Before changing a behaviour, read its area file.
 2. [CONTRIBUTING.md](CONTRIBUTING.md): setup, commands, tests, CI, releases, the docs and where each
    goes, and the rules for writing code here.
-3. [`plugin/skills/selenium-flow/SKILL.md`](plugin/skills/selenium-flow/SKILL.md): how a model is
-   meant to use the server.
+3. [`plugin/skills/driving-a-browser/SKILL.md`](plugin/skills/driving-a-browser/SKILL.md): how a
+   model is meant to use the server; the other four skills in `plugin/skills/` are linked from it.
 
 Use the glossary's words. A workspace is what a caller names (`?workspace=` or `Sf-Workspace`); a
 session is the live browser open in it, at most one at a time. Never call a workspace a session.
