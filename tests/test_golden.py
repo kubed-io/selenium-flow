@@ -11,8 +11,11 @@ publishes, and it says nothing about whether the two *answer* alike.
 
 import base64
 import functools
+import hashlib
 import json
 import threading
+from importlib.metadata import version
+from pathlib import Path
 
 import pytest
 import requests
@@ -32,13 +35,14 @@ from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
 from kubed.selenium_flow.mcp import clients as clients_module
+from kubed.selenium_flow.mcp import skill
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
 from .conftest import NAMED, TOKEN, RecordingActions, calling_as
-from .fakes import FakeActions, FakeClock, FakeGrid, Vault, untabbed
-from .golden_tools import compare, normalised
+from .fakes import FakeActions, FakeClock, FakeGrid, Vault, header, request, untabbed
+from .golden_tools import GOLDEN, compare, normalised, render
 from .test_flowrun import SECRET_STEP, SIMPLE, flow
 
 pytestmark = pytest.mark.unit
@@ -79,6 +83,265 @@ async def test_the_tools_are_what_they_were(server, monkeypatch, resources):
     compare(
         f"tools-{resources}.json", await published(server, monkeypatch, resources)
     )
+
+
+# ---- the plugin surface ------------------------------------------------------
+
+LIBRARY = "skill://selenium-flow/"
+SERVER_INFO = "io.modelcontextprotocol/serverInfo"
+DIRECTORY = "inode/directory"
+
+
+def relative(uri: str) -> str:
+    """A skill file's path from the repo root."""
+    return f"plugin/skills/{uri.removeprefix(LIBRARY)}"
+
+
+def on_disk(uri: str) -> Path | None:
+    """The plugin file served at ``uri``, or None for anything else: another
+    scheme, a folder, and the ``_manifest`` and ``_index.*`` the plugin layer
+    generates."""
+    if not uri.startswith(LIBRARY):
+        return None
+    rest = uri.removeprefix(LIBRARY)
+    name = rest.rsplit("/", 1)[-1]
+    if "/" not in rest or name == "_manifest" or name.startswith("_index."):
+        return None
+    path = skill.plugin_path() / "skills" / rest
+    return path if path.is_file() else None
+
+
+def stood_in(uri: str, text: str) -> str:
+    """``text``, or the file's name when it is the file's bytes exactly: a
+    served text that differs from disk by a byte stays whole, so the diff
+    shows it."""
+    path = on_disk(uri)
+    if path is not None and text.encode("utf-8") == path.read_bytes():
+        return f"<{relative(uri)}>"
+    return text
+
+
+def _measured(row: dict, uri: str) -> dict:
+    """A row's size and digest (a manifest calls it ``hash``) as stand-ins,
+    when both are the file's on disk."""
+    path = on_disk(uri)
+    key = "digest" if "digest" in row else "hash"
+    if path is None or "size" not in row or key not in row:
+        return row
+    data = path.read_bytes()
+    if row["size"] != len(data) or row[key] != f"sha256:{hashlib.sha256(data).hexdigest()}":
+        return row
+    name = relative(uri)
+    return {**row, "size": f"<size of {name}>", key: f"<digest of {name}>"}
+
+
+def _headed(row: dict, uri: str) -> dict:
+    """A skill entry's front matter and a row's description as stand-ins,
+    when they are the front matter of the SKILL.md on disk."""
+    path = on_disk(uri)
+    if path is None or path.name != "SKILL.md":
+        return row
+    front = header(path.read_text(encoding="utf-8"))
+    name = relative(uri)
+    row = dict(row)
+    if row.get("frontmatter") == front:
+        row["frontmatter"] = f"<frontmatter of {name}>"
+    if "description" in row and row["description"] == front.get("description"):
+        row["description"] = f"<description of {name}>"
+    return row
+
+
+def _stand_ins(data):
+    """Every row naming a skill file, with what is the file's own stood in."""
+    if isinstance(data, list):
+        return [_stand_ins(v) for v in data]
+    if not isinstance(data, dict):
+        return data
+    out = {k: _stand_ins(v) for k, v in data.items()}
+    uri = out.get("uri")
+    if isinstance(uri, str):
+        out = _headed(_measured(out, uri), uri)
+    return out
+
+
+def _without_server_info(data):
+    """``data`` without FastMCP's serverInfo, which names its version, and
+    without the ``_meta`` it leaves empty."""
+    if isinstance(data, list):
+        return [_without_server_info(v) for v in data]
+    if not isinstance(data, dict):
+        return data
+    out = {k: _without_server_info(v) for k, v in data.items()}
+    meta = out.get("_meta")
+    if isinstance(meta, dict) and SERVER_INFO in meta:
+        meta.pop(SERVER_INFO)
+        if not meta:
+            out.pop("_meta")
+    return out
+
+
+def _text(uri: str, text: str):
+    """A read's text: a manifest parsed, its files' sizes and digests stood
+    in; an ``_index.json`` parsed, for `_stand_ins` to reach its rows; any
+    other file stood in when it is the file on disk."""
+    if uri.endswith("/_manifest"):
+        manifest = json.loads(text)
+        root = uri.removesuffix("_manifest")
+        manifest["files"] = [
+            _measured(f, root + f["path"]) for f in manifest.get("files", [])
+        ]
+        return manifest
+    if uri.endswith("/_index.json"):
+        return json.loads(text)
+    return stood_in(uri, text)
+
+
+def _parsed(result: dict) -> dict:
+    """A tool result whose text blocks are JSON, parsed, for `_stand_ins` to
+    reach the rows inside them."""
+    return {
+        **result,
+        "content": [
+            {**c, "text": json.loads(c["text"])} if "text" in c else c
+            for c in result["content"]
+        ],
+    }
+
+
+async def plugin_surface(server, monkeypatch, mode: str, resources: str) -> dict:
+    """Everything kubed-mcp's plugin layer serves one client, as it comes over
+    the wire: ``request`` sends even the methods a client knows, so a result is
+    the server's dict and not a client model's reading of it.
+
+    It reads only ``skill://`` URIs: the others ask the Grid.
+    """
+    monkeypatch.setattr(
+        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
+    )
+    info = Implementation(name="a spec-complete client", version="1")
+    cell: dict = {}
+    async with Client(server.mcp.server, mode=mode, client_info=info) as client:
+        cell["initialize"] = {
+            "capabilities": {"extensions": client.server_capabilities.extensions},
+            "instructions": client.instructions,
+        }
+        cell["resources/list"] = (await request(client, "resources/list"))["resources"]
+        cell["resources/templates/list"] = (
+            await request(client, "resources/templates/list")
+        )["resourceTemplates"]
+        listing = await request(client, "skills/list")
+        cell["skills/list"] = listing
+        cell["skills/get"] = {
+            entry["uri"]: await request(client, "skills/get", uri=entry["uri"])
+            for entry in listing["skills"]
+        }
+
+        folders = []
+        directories = {}
+        for entry in listing["skills"]:
+            pending = [entry["uri"].removesuffix("/SKILL.md")]
+            while pending:
+                folder = pending.pop(0)
+                folders.append(folder)
+                result = await request(client, "resources/directory/read", uri=folder)
+                directories[folder] = result
+                pending += [
+                    row["uri"] for row in result["resources"]
+                    if row.get("mimeType") == DIRECTORY
+                ]
+        cell["resources/directory/read"] = directories
+
+        uris = []
+        for entry in listing["skills"]:
+            uris += [entry["uri"], *(row["uri"] for row in entry["resources"])]
+            uris.append(entry["uri"].removesuffix("SKILL.md") + "_manifest")
+        uris += [f"{folder}/_index.{kind}" for folder in folders for kind in ("md", "json")]
+        uris = list(dict.fromkeys(uris))
+        reads = {}
+        for uri in uris:
+            result = await request(client, "resources/read", uri=uri)
+            reads[uri] = [
+                {"text": _text(uri, c["text"]), "mimeType": c.get("mimeType")}
+                for c in result["contents"]
+            ]
+        cell["resources/read"] = reads
+
+        prompts = await request(client, "prompts/list")
+        cell["prompts/list"] = prompts
+        cell["prompts/get"] = {}
+        for prompt in prompts["prompts"]:
+            given = {
+                a["name"]: f"<{a['name']}>"
+                for a in prompt.get("arguments", [])
+                if a.get("required")
+            }
+            cell["prompts/get"][prompt["name"]] = await request(
+                client, "prompts/get", name=prompt["name"], arguments=given
+            )
+
+        agents = await request(client, "agents/list")
+        cell["agents/list"] = agents
+        cell["agents/get"] = {
+            agent["name"]: await request(client, "agents/get", name=agent["name"])
+            for agent in agents["agents"]
+        }
+
+        if resources == "off":
+            cell["tools/list_resources"] = _parsed(
+                await request(client, "tools/call", name="list_resources", arguments={})
+            )
+            mirrored = {}
+            # A folder is a miss naming its index (`FolderNotFound.miss`): an
+            # error result, recorded as served.
+            for uri in [*uris, *folders]:
+                result = await request(
+                    client, "tools/call", name="read_resource", arguments={"uri": uri}
+                )
+                result["content"] = [
+                    {**c, "text": _text(uri, c["text"])} if "text" in c else c
+                    for c in result["content"]
+                ]
+                mirrored[uri] = result
+            cell["tools/read_resource"] = mirrored
+
+    versions = {
+        version("kubed-selenium-flow"): "<version>",
+        version("kubed-mcp"): "<kubed-mcp version>",
+    }
+    return normalised(_stand_ins(_without_server_info(cell)), replace=versions)
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+@pytest.mark.parametrize("resources", ["on", "off"])
+async def test_the_plugin_surface_is_what_it_was(server, monkeypatch, mode, resources):
+    first = await plugin_surface(server, monkeypatch, mode, resources)
+    again = await plugin_surface(server, monkeypatch, mode, resources)
+    assert render(first) == render(again), "the surface moved between two runs"
+    compare(f"plugin-{mode}-{resources}.json", first)
+
+
+def test_the_plugin_golden_names_no_version():
+    for path in GOLDEN.glob("plugin-*.json"):
+        text = path.read_text()
+        assert version("kubed-mcp") not in text, path.name
+        assert "serverInfo" not in text, path.name
+
+
+def test_a_file_unlike_its_disk_copy_keeps_its_text():
+    uri = "skill://selenium-flow/driving-a-browser/SKILL.md"
+    text = on_disk(uri).read_text(encoding="utf-8")
+    assert stood_in(uri, text) == f"<{relative(uri)}>"
+    assert stood_in(uri, text.replace("\n", "\r\n")) == text.replace("\n", "\r\n")
+    assert stood_in(uri, text + "\n") == text + "\n"
+
+
+def test_on_disk_maps_only_plugin_files():
+    assert on_disk("skill://selenium-flow/signing-in/references/SECRETS.md") == (
+        skill.plugin_path() / "skills/signing-in/references/SECRETS.md"
+    )
+    assert on_disk("skill://selenium-flow/signing-in/_manifest") is None
+    assert on_disk("skill://selenium-flow/signing-in/_index.md") is None
+    assert on_disk("workspace://current") is None
 
 
 # ---- the OpenAPI document ----------------------------------------------------

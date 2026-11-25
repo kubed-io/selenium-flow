@@ -1,0 +1,3154 @@
+{
+  "agents/get": {
+    "explorer": {
+      "_meta": {
+        "io.kubed/agent": {
+          "frontmatter": {
+            "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+            "maxTurns": 40,
+            "model": "sonnet",
+            "name": "explorer",
+            "skills": [
+              "driving-a-browser",
+              "building-flows"
+            ],
+            "tools": [
+              "open_session",
+              "navigate",
+              "extract",
+              "outline",
+              "screenshot",
+              "interact",
+              "write",
+              "press_key",
+              "frame",
+              "dialog",
+              "await_control",
+              "run_flow",
+              "save_flow",
+              "execute_script",
+              "end_browser",
+              "ReadMcpResourceTool",
+              "ToolSearch"
+            ]
+          },
+          "skills": {
+            "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
+            "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md"
+          }
+        }
+      },
+      "agent": "explorer",
+      "cacheScope": "private",
+      "instructions": "# Explorer\n\nYou work for a main agent, in its workspace and in a session of your own.\nAnswer its question and hand back a short report.\n\n## Before anything\n\nRead `skill://selenium-flow/driving-a-browser/SKILL.md` before any browser\ncall, and `skill://selenium-flow/building-flows/references/FLOWS.md` before your\nfirst `save_flow`. Read `skill://selenium-flow/signing-in/references/SECRETS.md`\nonly when the hand-off names a sign-in. Where they and this page differ, this\npage wins. A URI you cannot read goes under *Couldn't*; carry on with what the\ntool results tell you.\n\nNever open selenium-flow's admin page: admin work is a person's to ask for, not\nan explorer's.\n\n## Your session\n\nWork in the session the hand-off names, or `explorer` when it names none. Open\nit with `open_session(session=…)`, then pass that same `session` on every call.\nA call without it acts in the main agent's session, not yours.\n\nA refusal saying the connection is pinned to another session will come back\nfor every call. Stop at the first one, and report under *Couldn't* that this\nconnection is pinned to one session, so you cannot work in your own. Never drop\n`session` to get past it: that drives the main agent's browser.\n\nRead your session's state at `session://<name>`, `session://<name>/console`\nand `session://<name>/network`, with your session's name as `<name>`; never\n`workspace://…`, which is the main agent's. A result's `see` or `uri` already\nnames your session.\n\nYour session starts with no site data, so you are signed in nowhere. Sign in\nthrough a flow, and only when the hand-off names the sign-in.\n\nA refusal naming `await_control` means a person holds the browser. Call\n`await_control` once with your `session`, and if they still hold it, stop and\nreport.\n\nWhen you report, end your session's browser with `end_browser(session=…)`.\n\n## Flows first\n\nWhen a result or `session://<name>` carries `flows_here`, apply the skill's\nrule to the step in hand before driving by hand. Run a flow only with values the\nmain agent handed you or the page shows, never invented ones. A flow that would\nchange something on the site counts as that change. Read `flow://flows/{name}`\nwhen a description leaves you unsure.\n\nWhere no flow fits, drive by hand.\n\n## Saving flows\n\nSave each sequence that will plainly recur, such as a sign-in, a search or the\nway to a page deep in the site, with `save_flow`. Set `sites` and `paths` so\n`flows_here` offers it there next time, and give it a name and description that\nsay what it does.\n\nNever overwrite a flow you did not save in this run. Before each save, read\n`flow://flows`: a name listed there, in the workspace's library or the shared\none, is taken unless you saved it in this run. Pick another.\n\n## Steps that change the site\n\nPlacing an order, sending a message, deleting, submitting any form: each changes\nsomething on the site, and by default you take none of them.\n\n- When the hand-off names a step, for example \"you may submit the search form\"\n  or \"you may sign in as X\", take that step once.\n- A second time, or a step the hand-off does not name, goes under *Couldn't*\n  with the step you would have taken.\n- A search or a sign-in is not exempt: take it only when it is named.\n- When in doubt whether a step changes the site, treat it as if it does.\n\n## When to stop\n\n- The question is answered.\n- Something you were not given blocks you: a sign-in, a CAPTCHA, a value no\n  flow or page supplies.\n- The next step would change the site and the hand-off does not name it.\n- A person still holds the browser after one `await_control`.\n- You have 40 turns. By about the 35th, stop and write the report, so a run cut\n  short still says what it found.\n\n## The report\n\nPlain Markdown, at most about 200 words, under these five headings in order:\n\n- **Found:** the answer to the question, or what you learned instead.\n- **Flows used:** the name of each, and whether it worked.\n- **Flows saved:** for each, its name, what it does and its required\n  parameters.\n- **Couldn't:** each blocker and why. For a step that would have changed the\n  site, name the step, so the main agent can name it in its next hand-off.\n- **Browser:** the last page you reached, as origin, path and hash route. No\n  query string: a query can carry a token.\n\nNo page text beyond what answers the question, and no screenshots inline.",
+      "modelRoutingHint": {
+        "role": "medium",
+        "vision": false
+      },
+      "resultType": "complete",
+      "tools": [],
+      "ttlMs": 0
+    }
+  },
+  "agents/list": {
+    "agents": [
+      {
+        "capabilities": [],
+        "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+        "name": "explorer"
+      }
+    ],
+    "cacheScope": "private",
+    "resultType": "complete",
+    "ttlMs": 0
+  },
+  "initialize": {
+    "capabilities": {
+      "extensions": {
+        "io.modelcontextprotocol/agents": {
+          "listChanged": false
+        },
+        "io.modelcontextprotocol/skills": {
+          "directoryRead": true
+        }
+      }
+    },
+    "instructions": "Drives a real Chrome or Firefox browser on Selenium Grid. The browser is persistent: it stays alive between tool calls and keeps its page, cookies and scroll position.\n\nName your workspace first: add ?workspace=<name> to the MCP URL, or send an Sf-Workspace header. Every call is then about that workspace, and no call takes a session id — calling again with the same name is how you get the same browser back, after a reconnect or a restart.\n\nLifecycle:\n1. Call open_session to start a browser. Pass browser=\"firefox\" for Firefox; the default is Chrome. Every other tool behaves identically on both.\n2. Call the other tools. They act on your workspace's browser.\n3. Call end_browser when finished, including after a failure. Browsers are a scarce resource and an abandoned one holds a slot until the Grid reaps it. Your workspace survives it, so open_session picks up where you left off.\n\nA workspace can hold more sessions, each a browser of its own. To work in a named one, pass its session on every call: a call without it acts in your own. Its state is session://<name>/… (console, network, site-data, downloads), and a result's see or uri already names it. workspace:// is the connection's own session: for a subagent on its main agent's connection, the main agent's.\n\nElements are addressed by XPath or by CSS - pass one or the other, never both: selector={\"xpath\": \"//input[@name='q']\"} or selector={\"css\": \"input[name=q]\"}.\n\nMost actions take an optional url. It is not an assertion: if the browser is somewhere else it navigates there first, so you can jump straight to a page instead of clicking a path to it.\n\nPrefer extract to read a page — it is far cheaper than a screenshot. Use execute_script for anything the other tools do not cover, scrolling included.\n\n\nEverything this server has to read is a URI — workspace://current, session://downloads, flow://flows, secret://secrets and the like, wherever a hint or an error names one. Read one with read_resource(uri); list_resources shows where to start.\n\nHow to drive this well — when to screenshot rather than extract, what a timeout on a good XPath usually means, how to write a flow — is at skill://selenium-flow/driving-a-browser/SKILL.md. Read it with read_resource before your first call; it ships with this server, so it describes this version of it.\n"
+  },
+  "prompts/get": {
+    "build_flow": {
+      "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+      "messages": [
+        {
+          "content": {
+            "text": "Build a selenium-flow flow for: <task>\n\n- Starts at: <url>\n- Save it as: propose one from the task, lowercase with hyphens\n\nDrive it by hand first, then save what worked. How flows are written is in\n`skill://selenium-flow/building-flows/SKILL.md`.\n\n1. Read `workspace://current`. If `live` is false, call `open_session()`. Then\n   go to <url>.\n2. `outline` the page before each action, scoped with a `selector` or filtered\n   with `text`, and take the selector it gives you.\n3. Carry out the task one call at a time with `interact`, `write`, `press_key`\n   and `extract`. The URL and title after each action say whether it did what\n   you meant.\n4. Note what varies between runs, such as an account, an id or a site: those\n   become parameters, written `${name}`. A password is a secret, never a\n   parameter (`skill://selenium-flow/signing-in/references/SECRETS.md`).\n5. Note what must be true for the run to go on: those become `assert` steps with\n   a `message` saying what should have been the case. Put one after anything\n   that navigates.\n6. Make the first step navigate, or assert that the browser is already where it\n   needs to be.\n7. `save_flow` with a name, description, `sites`, `paths`, `parameters` and the\n   steps you ran.\n8. Run it twice with `run_flow`: once where you built it, and once from a clean\n   start, `end_browser()` then `open_session(url=\"<url>\")`.\n\nReport the flow's name, what it takes, and both runs.\n",
+            "type": "text"
+          },
+          "role": "user"
+        }
+      ]
+    },
+    "repair_flow": {
+      "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+      "messages": [
+        {
+          "content": {
+            "text": "Repair the saved flow <flow> with the selenium-flow tools.\n\n- Failing step: the run will say\n- Symptom: not described, so start from what the run reports\n\nA flow breaks because the page changed under it, or because it ran somewhere it\nwas not written for. Find out which before editing anything.\n\n1. Read `workspace://current`. If `live` is false, call `open_session()`: a\n   flow never opens a browser.\n2. Read `flow://flows/<flow>` for its steps and parameters.\n3. `run_flow(name=\"<flow>\", verbose=true)`, passing its required\n   parameters as `params`; ask me for any value you do not have. The failing\n   step's `error` is the diagnosis: for an element that is there but cannot be\n   used, it says why and what to do. *When a flow fails* in\n   `skill://selenium-flow/building-flows/references/FLOWS.md` reads a failed\n   run; an error that is not about a locator is in\n   `skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md`.\n4. Go to the page that step acts on, with `navigate` or by running the steps\n   before it by hand.\n5. `outline` that page, scoped with a `selector` or filtered with `text`, to see\n   what the step should address now.\n6. Fix the cause:\n   - The page changed: an element moved, was renamed or is now behind a menu.\n     Fix the step's selector, or add the `interact` step that opens what hides\n     it.\n   - The flow assumed a page it did not navigate to: give it a first step that\n     navigates, or an `assert` whose `message` says where it must be.\n7. `save_flow` under the same name, then `run_flow` again and read what it\n   returns to confirm it passes for the right reason.\n8. If the flow should refuse to run in some state, such as already signed in,\n   add an `assert` whose `message` says so.\n\nReport what had changed, what you edited, and the run that proves it.\n",
+            "type": "text"
+          },
+          "role": "user"
+        }
+      ]
+    }
+  },
+  "prompts/list": {
+    "prompts": [
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "arguments": [
+          {
+            "description": "What the flow should do, in a sentence — \"sign in and open the orders page for an account\".",
+            "name": "task",
+            "required": true
+          },
+          {
+            "description": "Where it starts.",
+            "name": "url",
+            "required": true
+          },
+          {
+            "description": "What to save it as. Leave empty and a name will be proposed from the task.",
+            "name": "name",
+            "required": false
+          }
+        ],
+        "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+        "name": "build_flow"
+      },
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "arguments": [
+          {
+            "description": "The flow's name, as flow://flows lists it.",
+            "name": "flow",
+            "required": true
+          },
+          {
+            "description": "Which step failed, if you know. Leave empty to find out by running it.",
+            "name": "step",
+            "required": false
+          },
+          {
+            "description": "What went wrong, in a few words. Leave empty to start from the failure itself.",
+            "name": "symptom",
+            "required": false
+          }
+        ],
+        "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+        "name": "repair_flow"
+      }
+    ]
+  },
+  "resources/directory/read": {
+    "skill://selenium-flow/building-flows": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "<description of plugin/skills/building-flows/SKILL.md>",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/building-flows/SKILL.md",
+          "uri": "skill://selenium-flow/building-flows/SKILL.md"
+        },
+        {
+          "description": "A folder of the building-flows skill",
+          "mimeType": "inode/directory",
+          "name": "selenium-flow/building-flows/references",
+          "uri": "skill://selenium-flow/building-flows/references"
+        }
+      ]
+    },
+    "skill://selenium-flow/building-flows/references": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Flows",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/building-flows/references/FLOWS.md",
+          "uri": "skill://selenium-flow/building-flows/references/FLOWS.md"
+        }
+      ]
+    },
+    "skill://selenium-flow/deploying-the-server": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/deploying-the-server/SKILL.md",
+          "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+        },
+        {
+          "description": "A folder of the deploying-the-server skill",
+          "mimeType": "inode/directory",
+          "name": "selenium-flow/deploying-the-server/references",
+          "uri": "skill://selenium-flow/deploying-the-server/references"
+        }
+      ]
+    },
+    "skill://selenium-flow/deploying-the-server/references": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Setting up selenium-flow",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/deploying-the-server/references/CONFIGURATION.md",
+          "uri": "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md"
+        }
+      ]
+    },
+    "skill://selenium-flow/driving-a-browser": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/SKILL.md",
+          "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+        },
+        {
+          "description": "A folder of the driving-a-browser skill",
+          "mimeType": "inode/directory",
+          "name": "selenium-flow/driving-a-browser/references",
+          "uri": "skill://selenium-flow/driving-a-browser/references"
+        }
+      ]
+    },
+    "skill://selenium-flow/driving-a-browser/references": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "A person in control",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/references/CONTROL.md",
+          "uri": "skill://selenium-flow/driving-a-browser/references/CONTROL.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Files",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/references/FILES.md",
+          "uri": "skill://selenium-flow/driving-a-browser/references/FILES.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Acting on a page",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/references/INTERACTION.md",
+          "uri": "skill://selenium-flow/driving-a-browser/references/INTERACTION.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Reading a page",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/references/READING_PAGES.md",
+          "uri": "skill://selenium-flow/driving-a-browser/references/READING_PAGES.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Everything to read",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/references/RESOURCES.md",
+          "uri": "skill://selenium-flow/driving-a-browser/references/RESOURCES.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "When something goes wrong",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md",
+          "uri": "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Workspaces",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/references/WORKSPACES.md",
+          "uri": "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md"
+        }
+      ]
+    },
+    "skill://selenium-flow/signing-in": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "<description of plugin/skills/signing-in/SKILL.md>",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/signing-in/SKILL.md",
+          "uri": "skill://selenium-flow/signing-in/SKILL.md"
+        },
+        {
+          "description": "A folder of the signing-in skill",
+          "mimeType": "inode/directory",
+          "name": "selenium-flow/signing-in/references",
+          "uri": "skill://selenium-flow/signing-in/references"
+        }
+      ]
+    },
+    "skill://selenium-flow/signing-in/references": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Secrets",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/signing-in/references/SECRETS.md",
+          "uri": "skill://selenium-flow/signing-in/references/SECRETS.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Site data",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/signing-in/references/SITE_DATA.md",
+          "uri": "skill://selenium-flow/signing-in/references/SITE_DATA.md"
+        }
+      ]
+    },
+    "skill://selenium-flow/using-the-admin-ui": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/using-the-admin-ui/SKILL.md",
+          "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+        },
+        {
+          "description": "A folder of the using-the-admin-ui skill",
+          "mimeType": "inode/directory",
+          "name": "selenium-flow/using-the-admin-ui/references",
+          "uri": "skill://selenium-flow/using-the-admin-ui/references"
+        }
+      ]
+    },
+    "skill://selenium-flow/using-the-admin-ui/references": {
+      "resources": [
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Signing in to the admin page",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md",
+          "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "The admin page",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/using-the-admin-ui/references/ADMIN_UI.md",
+          "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Doing admin work yourself",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md",
+          "uri": "skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "Watching and taking over a browser",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md",
+          "uri": "skill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md"
+        },
+        {
+          "_meta": {
+            "fastmcp": {
+              "tags": []
+            }
+          },
+          "description": "A workspace's config",
+          "mimeType": "text/markdown",
+          "name": "selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md",
+          "uri": "skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md"
+        }
+      ]
+    }
+  },
+  "resources/list": [
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "The workspace this client named, and your own session (browser) in it. Any session, by name, is session://{name}.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nconfig is this workspace's own settings, each with its value and its source (default or workspace). Only an admin changes them, at config_url when the server has one.\n\ntags maps each tag in use on this workspace's flows, and the global flows it is offered, to how many carry it: reuse one when you tag a flow.\n\nReading this never opens a browser: live is false when no session is open.",
+      "mimeType": "application/json",
+      "name": "Current Workspace",
+      "uri": "workspace://current"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "What your session's last save_site_data holds: one entry per site with counts, never a value; the sites the workspace went to come first. Every browser this session opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full; session://{name}/site-data is another session's. Reading this never opens a browser.",
+      "mimeType": "application/json",
+      "name": "Site Data",
+      "uri": "workspace://site-data"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
+      "mimeType": "application/json",
+      "name": "Console",
+      "uri": "workspace://console"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
+      "mimeType": "application/json",
+      "name": "Network",
+      "uri": "workspace://network"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "The files in Files: prints, and anything kept with keep_file. Also names two folders — workspace://files/screenshots and workspace://files/recordings — each with its own listing. Your session's downloads are session://downloads, a named session's session://{name}/downloads.\n\nEvery entry carries its own uri, to keep with keep_file(uri), and a URL that opens in a browser for a while, so an image can be shown to someone rather than described to them.",
+      "mimeType": "application/json",
+      "name": "Workspace Files",
+      "uri": "workspace://files"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "This workspace's saved screenshots, not yet kept. keep_file(uri) moves one into workspace://files, where it stays until a person deletes it. Prints land in Files directly, not here.",
+      "mimeType": "application/json",
+      "name": "Screenshots",
+      "uri": "workspace://files/screenshots"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "This workspace's recordings: one video per browser opened with open_session(record=true), filed shortly after that browser ends. keep_file(uri) moves one into workspace://files. Each entry's url plays it; reading one by its uri answers that entry, not the video.",
+      "mimeType": "application/json",
+      "name": "Recordings",
+      "uri": "workspace://files/recordings"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Your own session's downloads; session://{name}/downloads lists another's. They belong to the browser and disappear when it ends or the Grid reaps it; keep_file(uri) copies one into workspace://files before that happens. With no session open, reading it says so.",
+      "mimeType": "application/json",
+      "name": "Downloads",
+      "uri": "session://downloads"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "The flows this workspace can run: saved sequences of tool calls that run server-side in one call.\n\nEach entry has a name, a description, its tags, the parameters it takes and how many steps it has — never the steps themselves, which flow://flows/{name} returns.\n\nFlows saved in this workspace come first; anything in the shared 'global' library is also listed, and a flow of your own with the same name wins.",
+      "mimeType": "application/json",
+      "name": "Saved Flows",
+      "uri": "flow://flows"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "The shape of a flow document: every tool that may be a step and the parameters it takes. Read this before writing a flow.",
+      "mimeType": "application/json",
+      "name": "Flow Document Schema",
+      "uri": "flow://schema"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites, unless its key_sources entry says masked: false.",
+      "mimeType": "application/json",
+      "name": "Secrets",
+      "uri": "secret://secrets"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "<description of plugin/skills/building-flows/SKILL.md>",
+      "mimeType": "text/markdown",
+      "name": "selenium-flow/building-flows/SKILL.md",
+      "uri": "skill://selenium-flow/building-flows/SKILL.md"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
+      "mimeType": "text/markdown",
+      "name": "selenium-flow/deploying-the-server/SKILL.md",
+      "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
+      "mimeType": "text/markdown",
+      "name": "selenium-flow/driving-a-browser/SKILL.md",
+      "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "<description of plugin/skills/signing-in/SKILL.md>",
+      "mimeType": "text/markdown",
+      "name": "selenium-flow/signing-in/SKILL.md",
+      "uri": "skill://selenium-flow/signing-in/SKILL.md"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
+      "mimeType": "text/markdown",
+      "name": "selenium-flow/using-the-admin-ui/SKILL.md",
+      "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+    }
+  ],
+  "resources/read": {
+    "skill://selenium-flow/building-flows/SKILL.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/building-flows/SKILL.md>"
+      }
+    ],
+    "skill://selenium-flow/building-flows/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "<description of plugin/skills/building-flows/SKILL.md>",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/building-flows/SKILL.md",
+            "uri": "skill://selenium-flow/building-flows/SKILL.md"
+          },
+          {
+            "description": "A folder of the building-flows skill",
+            "mimeType": "inode/directory",
+            "name": "selenium-flow/building-flows/references",
+            "uri": "skill://selenium-flow/building-flows/references"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/building-flows/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/building-flows/SKILL.md: Use when a selenium-flow result carries flows_here, steps will be repeated and are worth saving, a flow run fails, or a flow needs building or repairing.\nskill://selenium-flow/building-flows/references: A folder of the building-flows skill\n"
+      }
+    ],
+    "skill://selenium-flow/building-flows/_manifest": [
+      {
+        "mimeType": "application/json",
+        "text": {
+          "files": [
+            {
+              "hash": "<digest of plugin/skills/building-flows/SKILL.md>",
+              "path": "SKILL.md",
+              "size": "<size of plugin/skills/building-flows/SKILL.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/building-flows/references/FLOWS.md>",
+              "path": "references/FLOWS.md",
+              "size": "<size of plugin/skills/building-flows/references/FLOWS.md>"
+            }
+          ],
+          "skill": "building-flows"
+        }
+      }
+    ],
+    "skill://selenium-flow/building-flows/references/FLOWS.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/building-flows/references/FLOWS.md>"
+      }
+    ],
+    "skill://selenium-flow/building-flows/references/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Flows",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/building-flows/references/FLOWS.md",
+            "uri": "skill://selenium-flow/building-flows/references/FLOWS.md"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/building-flows/references/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/building-flows/references/FLOWS.md: Flows\n"
+      }
+    ],
+    "skill://selenium-flow/deploying-the-server/SKILL.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/deploying-the-server/SKILL.md>"
+      }
+    ],
+    "skill://selenium-flow/deploying-the-server/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/deploying-the-server/SKILL.md",
+            "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+          },
+          {
+            "description": "A folder of the deploying-the-server skill",
+            "mimeType": "inode/directory",
+            "name": "selenium-flow/deploying-the-server/references",
+            "uri": "skill://selenium-flow/deploying-the-server/references"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/deploying-the-server/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/deploying-the-server/SKILL.md: Use when deploying or configuring the selenium-flow server, connecting an MCP or HTTP client to it, setting a client's session defaults, or putting secrets or OIDC on the server.\nskill://selenium-flow/deploying-the-server/references: A folder of the deploying-the-server skill\n"
+      }
+    ],
+    "skill://selenium-flow/deploying-the-server/_manifest": [
+      {
+        "mimeType": "application/json",
+        "text": {
+          "files": [
+            {
+              "hash": "<digest of plugin/skills/deploying-the-server/SKILL.md>",
+              "path": "SKILL.md",
+              "size": "<size of plugin/skills/deploying-the-server/SKILL.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/deploying-the-server/references/CONFIGURATION.md>",
+              "path": "references/CONFIGURATION.md",
+              "size": "<size of plugin/skills/deploying-the-server/references/CONFIGURATION.md>"
+            }
+          ],
+          "skill": "deploying-the-server"
+        }
+      }
+    ],
+    "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/deploying-the-server/references/CONFIGURATION.md>"
+      }
+    ],
+    "skill://selenium-flow/deploying-the-server/references/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Setting up selenium-flow",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/deploying-the-server/references/CONFIGURATION.md",
+            "uri": "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/deploying-the-server/references/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md: Setting up selenium-flow\n"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/SKILL.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/driving-a-browser/SKILL.md>"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/SKILL.md",
+            "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+          },
+          {
+            "description": "A folder of the driving-a-browser skill",
+            "mimeType": "inode/directory",
+            "name": "selenium-flow/driving-a-browser/references",
+            "uri": "skill://selenium-flow/driving-a-browser/references"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/driving-a-browser/SKILL.md: Use when a task needs a live browser through selenium-flow - a page that renders only under JavaScript, a form to fill, steps to click through, Chrome or Firefox, a screenshot, PDF or download. Read it before the first selenium-flow call, and again when a call fails or is refused because a person holds the browser.\nskill://selenium-flow/driving-a-browser/references: A folder of the driving-a-browser skill\n"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/_manifest": [
+      {
+        "mimeType": "application/json",
+        "text": {
+          "files": [
+            {
+              "hash": "<digest of plugin/skills/driving-a-browser/SKILL.md>",
+              "path": "SKILL.md",
+              "size": "<size of plugin/skills/driving-a-browser/SKILL.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/driving-a-browser/references/CONTROL.md>",
+              "path": "references/CONTROL.md",
+              "size": "<size of plugin/skills/driving-a-browser/references/CONTROL.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/driving-a-browser/references/FILES.md>",
+              "path": "references/FILES.md",
+              "size": "<size of plugin/skills/driving-a-browser/references/FILES.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/driving-a-browser/references/INTERACTION.md>",
+              "path": "references/INTERACTION.md",
+              "size": "<size of plugin/skills/driving-a-browser/references/INTERACTION.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/driving-a-browser/references/READING_PAGES.md>",
+              "path": "references/READING_PAGES.md",
+              "size": "<size of plugin/skills/driving-a-browser/references/READING_PAGES.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/driving-a-browser/references/RESOURCES.md>",
+              "path": "references/RESOURCES.md",
+              "size": "<size of plugin/skills/driving-a-browser/references/RESOURCES.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>",
+              "path": "references/TROUBLESHOOTING.md",
+              "size": "<size of plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/driving-a-browser/references/WORKSPACES.md>",
+              "path": "references/WORKSPACES.md",
+              "size": "<size of plugin/skills/driving-a-browser/references/WORKSPACES.md>"
+            }
+          ],
+          "skill": "driving-a-browser"
+        }
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/CONTROL.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/driving-a-browser/references/CONTROL.md>"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/FILES.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/driving-a-browser/references/FILES.md>"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/INTERACTION.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/driving-a-browser/references/INTERACTION.md>"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/READING_PAGES.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/driving-a-browser/references/READING_PAGES.md>"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/RESOURCES.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/driving-a-browser/references/RESOURCES.md>"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/driving-a-browser/references/WORKSPACES.md>"
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "A person in control",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/references/CONTROL.md",
+            "uri": "skill://selenium-flow/driving-a-browser/references/CONTROL.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Files",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/references/FILES.md",
+            "uri": "skill://selenium-flow/driving-a-browser/references/FILES.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Acting on a page",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/references/INTERACTION.md",
+            "uri": "skill://selenium-flow/driving-a-browser/references/INTERACTION.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Reading a page",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/references/READING_PAGES.md",
+            "uri": "skill://selenium-flow/driving-a-browser/references/READING_PAGES.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Everything to read",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/references/RESOURCES.md",
+            "uri": "skill://selenium-flow/driving-a-browser/references/RESOURCES.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "When something goes wrong",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md",
+            "uri": "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Workspaces",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/references/WORKSPACES.md",
+            "uri": "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/driving-a-browser/references/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/driving-a-browser/references/CONTROL.md: A person in control\nskill://selenium-flow/driving-a-browser/references/FILES.md: Files\nskill://selenium-flow/driving-a-browser/references/INTERACTION.md: Acting on a page\nskill://selenium-flow/driving-a-browser/references/READING_PAGES.md: Reading a page\nskill://selenium-flow/driving-a-browser/references/RESOURCES.md: Everything to read\nskill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md: When something goes wrong\nskill://selenium-flow/driving-a-browser/references/WORKSPACES.md: Workspaces\n"
+      }
+    ],
+    "skill://selenium-flow/signing-in/SKILL.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/signing-in/SKILL.md>"
+      }
+    ],
+    "skill://selenium-flow/signing-in/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "<description of plugin/skills/signing-in/SKILL.md>",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/signing-in/SKILL.md",
+            "uri": "skill://selenium-flow/signing-in/SKILL.md"
+          },
+          {
+            "description": "A folder of the signing-in skill",
+            "mimeType": "inode/directory",
+            "name": "selenium-flow/signing-in/references",
+            "uri": "skill://selenium-flow/signing-in/references"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/signing-in/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/signing-in/SKILL.md: Use when a page in a selenium-flow browser asks for a password, token or other credential, a secret is refused, the browser should stay signed in across browsers, or a site signed it out unexpectedly.\nskill://selenium-flow/signing-in/references: A folder of the signing-in skill\n"
+      }
+    ],
+    "skill://selenium-flow/signing-in/_manifest": [
+      {
+        "mimeType": "application/json",
+        "text": {
+          "files": [
+            {
+              "hash": "<digest of plugin/skills/signing-in/SKILL.md>",
+              "path": "SKILL.md",
+              "size": "<size of plugin/skills/signing-in/SKILL.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/signing-in/references/SECRETS.md>",
+              "path": "references/SECRETS.md",
+              "size": "<size of plugin/skills/signing-in/references/SECRETS.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/signing-in/references/SITE_DATA.md>",
+              "path": "references/SITE_DATA.md",
+              "size": "<size of plugin/skills/signing-in/references/SITE_DATA.md>"
+            }
+          ],
+          "skill": "signing-in"
+        }
+      }
+    ],
+    "skill://selenium-flow/signing-in/references/SECRETS.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/signing-in/references/SECRETS.md>"
+      }
+    ],
+    "skill://selenium-flow/signing-in/references/SITE_DATA.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/signing-in/references/SITE_DATA.md>"
+      }
+    ],
+    "skill://selenium-flow/signing-in/references/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Secrets",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/signing-in/references/SECRETS.md",
+            "uri": "skill://selenium-flow/signing-in/references/SECRETS.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Site data",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/signing-in/references/SITE_DATA.md",
+            "uri": "skill://selenium-flow/signing-in/references/SITE_DATA.md"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/signing-in/references/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/signing-in/references/SECRETS.md: Secrets\nskill://selenium-flow/signing-in/references/SITE_DATA.md: Site data\n"
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/SKILL.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/using-the-admin-ui/SKILL.md>"
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/using-the-admin-ui/SKILL.md",
+            "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+          },
+          {
+            "description": "A folder of the using-the-admin-ui skill",
+            "mimeType": "inode/directory",
+            "name": "selenium-flow/using-the-admin-ui/references",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/using-the-admin-ui/SKILL.md: Use when a person asks about selenium-flow's admin page or wants admin work done - a workspace's config, a flow moved to the shared library, site data, history or files cleared, a browser ended, watched or taken over, or signing in to the admin page.\nskill://selenium-flow/using-the-admin-ui/references: A folder of the using-the-admin-ui skill\n"
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/_manifest": [
+      {
+        "mimeType": "application/json",
+        "text": {
+          "files": [
+            {
+              "hash": "<digest of plugin/skills/using-the-admin-ui/SKILL.md>",
+              "path": "SKILL.md",
+              "size": "<size of plugin/skills/using-the-admin-ui/SKILL.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>",
+              "path": "references/ADMIN_SIGN_IN.md",
+              "size": "<size of plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>",
+              "path": "references/ADMIN_UI.md",
+              "size": "<size of plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>",
+              "path": "references/AGENT_AS_ADMIN.md",
+              "size": "<size of plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>",
+              "path": "references/LIVE_VIEW.md",
+              "size": "<size of plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>"
+            },
+            {
+              "hash": "<digest of plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>",
+              "path": "references/WORKSPACE_CONFIG.md",
+              "size": "<size of plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>"
+            }
+          ],
+          "skill": "using-the-admin-ui"
+        }
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>"
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>"
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>"
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>"
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>"
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/references/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Signing in to the admin page",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "The admin page",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/using-the-admin-ui/references/ADMIN_UI.md",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Doing admin work yourself",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "Watching and taking over a browser",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md"
+          },
+          {
+            "_meta": {
+              "fastmcp": {
+                "tags": []
+              }
+            },
+            "description": "A workspace's config",
+            "mimeType": "text/markdown",
+            "name": "selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md"
+          }
+        ]
+      }
+    ],
+    "skill://selenium-flow/using-the-admin-ui/references/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md: Signing in to the admin page\nskill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md: The admin page\nskill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md: Doing admin work yourself\nskill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md: Watching and taking over a browser\nskill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md: A workspace's config\n"
+      }
+    ]
+  },
+  "resources/templates/list": [
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One key of workspace://current, as {workspace, <part>: value}: for instance workspace://current/url or workspace://current/grid_timeout. It is null when the workspace has nothing for that key. A name that is not a key is refused, and the refusal lists them. Built as workspace://current is, and reading it never opens a browser.",
+      "mimeType": "application/json",
+      "name": "Current Workspace, one part",
+      "uriTemplate": "workspace://current/{part}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing. This is your own session's; session://{name}/site-data/{site} is another's.",
+      "mimeType": "application/json",
+      "name": "Site Data for One Site",
+      "uriTemplate": "workspace://site-data/{site}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
+      "mimeType": "application/json",
+      "name": "Console, narrowed",
+      "uriTemplate": "workspace://console{?level,pages}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
+      "mimeType": "application/json",
+      "name": "Network, narrowed",
+      "uriTemplate": "workspace://network{?filter,pages}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One captured request in full: its headers (authorization, cookies and any secret you typed shown as •••), status, timing and size. network_body(id) fetches its response body. This is your own session's; session://{name}/network/{id} is another's, and network_body(id, session=name) fetches its body.",
+      "mimeType": "application/json",
+      "name": "One Request",
+      "uriTemplate": "workspace://network/{id}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One session of this workspace, by name: the same answer as workspace://current, for that session instead of yours. default is the workspace's own; workspace://current's sessions lists the rest. Its console, network, site data and downloads are session://{name}/console, /network, /site-data and /downloads. A name with no session is not found. Reading this never opens a browser.",
+      "mimeType": "application/json",
+      "name": "Session",
+      "uriTemplate": "session://{name}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
+      "mimeType": "application/json",
+      "name": "Session Console, narrowed",
+      "uriTemplate": "session://{name}/console{?level,pages}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
+      "mimeType": "application/json",
+      "name": "Session Console",
+      "uriTemplate": "session://{name}/console"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
+      "mimeType": "application/json",
+      "name": "Session Network, narrowed",
+      "uriTemplate": "session://{name}/network{?filter,pages}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
+      "mimeType": "application/json",
+      "name": "Session Network",
+      "uriTemplate": "session://{name}/network"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One of a session's captured requests in full, by name, as workspace://network/{id} shows yours. network_body(id, session=name) fetches its response body. A name with no session is not found.",
+      "mimeType": "application/json",
+      "name": "Session Request",
+      "uriTemplate": "session://{name}/network/{id}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "What one session's last save_site_data holds, by name, as workspace://site-data lists yours: counts, never a value. session://{name}/site-data/{site} shows one site in full. Reading this never opens a browser. A name with no session is not found.",
+      "mimeType": "application/json",
+      "name": "Session Site Data",
+      "uriTemplate": "session://{name}/site-data"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One site of a session's saved data, by name, as workspace://site-data/{site} shows yours; httpOnly values masked. The site is a host from the session://{name}/site-data listing. A name with no session is not found.",
+      "mimeType": "application/json",
+      "name": "Session Site Data for One Site",
+      "uriTemplate": "session://{name}/site-data/{site}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "The downloads of one session's browser, by name, as session://downloads lists yours. A name with no session is not found.",
+      "mimeType": "application/json",
+      "name": "Session Downloads",
+      "uriTemplate": "session://{name}/downloads"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One download of one session's browser, by name, as bytes: as session://downloads/{name} reads yours. A name with no session is not found.",
+      "mimeType": "application/octet-stream",
+      "name": "Session Download",
+      "uriTemplate": "session://{name}/downloads/{file}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One file from Files, as bytes, carrying its own media type. The name comes from the workspace://files listing. A video (a kept recording) answers its entry instead, as JSON: its url plays it.",
+      "mimeType": "application/octet-stream",
+      "name": "Workspace File",
+      "uriTemplate": "workspace://files/{name}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One screenshot, as bytes, from workspace://files/screenshots. It answers after the browser that took it has gone, because a screenshot is already ours (§F1.10).",
+      "mimeType": "application/octet-stream",
+      "name": "Screenshot",
+      "uriTemplate": "workspace://files/screenshots/{name}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One download, as bytes, from session://downloads — read from the browser itself, so this answers only while it is open. keep_file(uri) copies it somewhere that outlives the browser.",
+      "mimeType": "application/octet-stream",
+      "name": "Download",
+      "uriTemplate": "session://downloads/{name}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One recording from workspace://files/recordings, described: its url plays it. Not the video's bytes — a model cannot watch one, and a resource would carry it as base64.",
+      "mimeType": "application/json",
+      "name": "Recording",
+      "uriTemplate": "workspace://files/recordings/{name}"
+    },
+    {
+      "_meta": {
+        "fastmcp": {
+          "tags": []
+        }
+      },
+      "description": "One saved flow, with its steps. The name comes from the flow://flows listing.",
+      "mimeType": "application/json",
+      "name": "Saved Flow",
+      "uriTemplate": "flow://flows/{name}"
+    }
+  ],
+  "skills/get": {
+    "skill://selenium-flow/building-flows/SKILL.md": {
+      "cacheScope": "private",
+      "resultType": "complete",
+      "skill": {
+        "frontmatter": "<frontmatter of plugin/skills/building-flows/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/building-flows/SKILL.md>",
+            "size": "<size of plugin/skills/building-flows/SKILL.md>",
+            "uri": "skill://selenium-flow/building-flows/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/building-flows/references/FLOWS.md>",
+            "size": "<size of plugin/skills/building-flows/references/FLOWS.md>",
+            "uri": "skill://selenium-flow/building-flows/references/FLOWS.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/building-flows/SKILL.md"
+      },
+      "ttlMs": 0
+    },
+    "skill://selenium-flow/deploying-the-server/SKILL.md": {
+      "cacheScope": "private",
+      "resultType": "complete",
+      "skill": {
+        "frontmatter": "<frontmatter of plugin/skills/deploying-the-server/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/deploying-the-server/SKILL.md>",
+            "size": "<size of plugin/skills/deploying-the-server/SKILL.md>",
+            "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/deploying-the-server/references/CONFIGURATION.md>",
+            "size": "<size of plugin/skills/deploying-the-server/references/CONFIGURATION.md>",
+            "uri": "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+      },
+      "ttlMs": 0
+    },
+    "skill://selenium-flow/driving-a-browser/SKILL.md": {
+      "cacheScope": "private",
+      "resultType": "complete",
+      "skill": {
+        "frontmatter": "<frontmatter of plugin/skills/driving-a-browser/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/SKILL.md>",
+            "size": "<size of plugin/skills/driving-a-browser/SKILL.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/CONTROL.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/CONTROL.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/CONTROL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/FILES.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/FILES.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/FILES.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/INTERACTION.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/INTERACTION.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/INTERACTION.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/READING_PAGES.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/READING_PAGES.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/READING_PAGES.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/RESOURCES.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/RESOURCES.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/RESOURCES.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/WORKSPACES.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/WORKSPACES.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+      },
+      "ttlMs": 0
+    },
+    "skill://selenium-flow/signing-in/SKILL.md": {
+      "cacheScope": "private",
+      "resultType": "complete",
+      "skill": {
+        "frontmatter": "<frontmatter of plugin/skills/signing-in/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/signing-in/SKILL.md>",
+            "size": "<size of plugin/skills/signing-in/SKILL.md>",
+            "uri": "skill://selenium-flow/signing-in/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/signing-in/references/SECRETS.md>",
+            "size": "<size of plugin/skills/signing-in/references/SECRETS.md>",
+            "uri": "skill://selenium-flow/signing-in/references/SECRETS.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/signing-in/references/SITE_DATA.md>",
+            "size": "<size of plugin/skills/signing-in/references/SITE_DATA.md>",
+            "uri": "skill://selenium-flow/signing-in/references/SITE_DATA.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/signing-in/SKILL.md"
+      },
+      "ttlMs": 0
+    },
+    "skill://selenium-flow/using-the-admin-ui/SKILL.md": {
+      "cacheScope": "private",
+      "resultType": "complete",
+      "skill": {
+        "frontmatter": "<frontmatter of plugin/skills/using-the-admin-ui/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/SKILL.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/SKILL.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+      },
+      "ttlMs": 0
+    }
+  },
+  "skills/list": {
+    "cacheScope": "private",
+    "resultType": "complete",
+    "skills": [
+      {
+        "frontmatter": "<frontmatter of plugin/skills/building-flows/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/building-flows/SKILL.md>",
+            "size": "<size of plugin/skills/building-flows/SKILL.md>",
+            "uri": "skill://selenium-flow/building-flows/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/building-flows/references/FLOWS.md>",
+            "size": "<size of plugin/skills/building-flows/references/FLOWS.md>",
+            "uri": "skill://selenium-flow/building-flows/references/FLOWS.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/building-flows/SKILL.md"
+      },
+      {
+        "frontmatter": "<frontmatter of plugin/skills/deploying-the-server/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/deploying-the-server/SKILL.md>",
+            "size": "<size of plugin/skills/deploying-the-server/SKILL.md>",
+            "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/deploying-the-server/references/CONFIGURATION.md>",
+            "size": "<size of plugin/skills/deploying-the-server/references/CONFIGURATION.md>",
+            "uri": "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+      },
+      {
+        "frontmatter": "<frontmatter of plugin/skills/driving-a-browser/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/SKILL.md>",
+            "size": "<size of plugin/skills/driving-a-browser/SKILL.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/CONTROL.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/CONTROL.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/CONTROL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/FILES.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/FILES.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/FILES.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/INTERACTION.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/INTERACTION.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/INTERACTION.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/READING_PAGES.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/READING_PAGES.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/READING_PAGES.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/RESOURCES.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/RESOURCES.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/RESOURCES.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/driving-a-browser/references/WORKSPACES.md>",
+            "size": "<size of plugin/skills/driving-a-browser/references/WORKSPACES.md>",
+            "uri": "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+      },
+      {
+        "frontmatter": "<frontmatter of plugin/skills/signing-in/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/signing-in/SKILL.md>",
+            "size": "<size of plugin/skills/signing-in/SKILL.md>",
+            "uri": "skill://selenium-flow/signing-in/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/signing-in/references/SECRETS.md>",
+            "size": "<size of plugin/skills/signing-in/references/SECRETS.md>",
+            "uri": "skill://selenium-flow/signing-in/references/SECRETS.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/signing-in/references/SITE_DATA.md>",
+            "size": "<size of plugin/skills/signing-in/references/SITE_DATA.md>",
+            "uri": "skill://selenium-flow/signing-in/references/SITE_DATA.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/signing-in/SKILL.md"
+      },
+      {
+        "frontmatter": "<frontmatter of plugin/skills/using-the-admin-ui/SKILL.md>",
+        "resources": [
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/SKILL.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/SKILL.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md"
+          },
+          {
+            "digest": "<digest of plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>",
+            "size": "<size of plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>",
+            "uri": "skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md"
+          }
+        ],
+        "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+      }
+    ],
+    "ttlMs": 0
+  },
+  "tools/list_resources": {
+    "_meta": {
+      "fastmcp": {
+        "wrap_result": true
+      }
+    },
+    "content": [
+      {
+        "text": [
+          {
+            "description": "The workspace this client named, and your own session (browser) in it. Any session, by name, is session://{name}.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nconfig is this workspace's own settings, each with its value and its source (default or workspace). Only an admin changes them, at config_url when the server has one.\n\ntags maps each tag in use on this workspace's flows, and the global flows it is offered, to how many carry it: reuse one when you tag a flow.\n\nReading this never opens a browser: live is false when no session is open.",
+            "mime_type": "application/json",
+            "name": "Current Workspace",
+            "uri": "workspace://current"
+          },
+          {
+            "description": "What your session's last save_site_data holds: one entry per site with counts, never a value; the sites the workspace went to come first. Every browser this session opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full; session://{name}/site-data is another session's. Reading this never opens a browser.",
+            "mime_type": "application/json",
+            "name": "Site Data",
+            "uri": "workspace://site-data"
+          },
+          {
+            "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
+            "mime_type": "application/json",
+            "name": "Console",
+            "uri": "workspace://console"
+          },
+          {
+            "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
+            "mime_type": "application/json",
+            "name": "Network",
+            "uri": "workspace://network"
+          },
+          {
+            "description": "The files in Files: prints, and anything kept with keep_file. Also names two folders — workspace://files/screenshots and workspace://files/recordings — each with its own listing. Your session's downloads are session://downloads, a named session's session://{name}/downloads.\n\nEvery entry carries its own uri, to keep with keep_file(uri), and a URL that opens in a browser for a while, so an image can be shown to someone rather than described to them.",
+            "mime_type": "application/json",
+            "name": "Workspace Files",
+            "uri": "workspace://files"
+          },
+          {
+            "description": "This workspace's saved screenshots, not yet kept. keep_file(uri) moves one into workspace://files, where it stays until a person deletes it. Prints land in Files directly, not here.",
+            "mime_type": "application/json",
+            "name": "Screenshots",
+            "uri": "workspace://files/screenshots"
+          },
+          {
+            "description": "This workspace's recordings: one video per browser opened with open_session(record=true), filed shortly after that browser ends. keep_file(uri) moves one into workspace://files. Each entry's url plays it; reading one by its uri answers that entry, not the video.",
+            "mime_type": "application/json",
+            "name": "Recordings",
+            "uri": "workspace://files/recordings"
+          },
+          {
+            "description": "Your own session's downloads; session://{name}/downloads lists another's. They belong to the browser and disappear when it ends or the Grid reaps it; keep_file(uri) copies one into workspace://files before that happens. With no session open, reading it says so.",
+            "mime_type": "application/json",
+            "name": "Downloads",
+            "uri": "session://downloads"
+          },
+          {
+            "description": "The flows this workspace can run: saved sequences of tool calls that run server-side in one call.\n\nEach entry has a name, a description, its tags, the parameters it takes and how many steps it has — never the steps themselves, which flow://flows/{name} returns.\n\nFlows saved in this workspace come first; anything in the shared 'global' library is also listed, and a flow of your own with the same name wins.",
+            "mime_type": "application/json",
+            "name": "Saved Flows",
+            "uri": "flow://flows"
+          },
+          {
+            "description": "The shape of a flow document: every tool that may be a step and the parameters it takes. Read this before writing a flow.",
+            "mime_type": "application/json",
+            "name": "Flow Document Schema",
+            "uri": "flow://schema"
+          },
+          {
+            "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites, unless its key_sources entry says masked: false.",
+            "mime_type": "application/json",
+            "name": "Secrets",
+            "uri": "secret://secrets"
+          },
+          {
+            "description": "<description of plugin/skills/building-flows/SKILL.md>",
+            "mime_type": "text/markdown",
+            "name": "selenium-flow/building-flows/SKILL.md",
+            "uri": "skill://selenium-flow/building-flows/SKILL.md"
+          },
+          {
+            "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
+            "mime_type": "text/markdown",
+            "name": "selenium-flow/deploying-the-server/SKILL.md",
+            "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+          },
+          {
+            "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
+            "mime_type": "text/markdown",
+            "name": "selenium-flow/driving-a-browser/SKILL.md",
+            "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+          },
+          {
+            "description": "<description of plugin/skills/signing-in/SKILL.md>",
+            "mime_type": "text/markdown",
+            "name": "selenium-flow/signing-in/SKILL.md",
+            "uri": "skill://selenium-flow/signing-in/SKILL.md"
+          },
+          {
+            "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
+            "mime_type": "text/markdown",
+            "name": "selenium-flow/using-the-admin-ui/SKILL.md",
+            "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+          },
+          {
+            "description": "One key of workspace://current, as {workspace, <part>: value}: for instance workspace://current/url or workspace://current/grid_timeout. It is null when the workspace has nothing for that key. A name that is not a key is refused, and the refusal lists them. Built as workspace://current is, and reading it never opens a browser.",
+            "name": "Current Workspace, one part",
+            "uri_template": "workspace://current/{part}"
+          },
+          {
+            "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing. This is your own session's; session://{name}/site-data/{site} is another's.",
+            "name": "Site Data for One Site",
+            "uri_template": "workspace://site-data/{site}"
+          },
+          {
+            "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
+            "name": "Console, narrowed",
+            "uri_template": "workspace://console{?level,pages}"
+          },
+          {
+            "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
+            "name": "Network, narrowed",
+            "uri_template": "workspace://network{?filter,pages}"
+          },
+          {
+            "description": "One captured request in full: its headers (authorization, cookies and any secret you typed shown as •••), status, timing and size. network_body(id) fetches its response body. This is your own session's; session://{name}/network/{id} is another's, and network_body(id, session=name) fetches its body.",
+            "name": "One Request",
+            "uri_template": "workspace://network/{id}"
+          },
+          {
+            "description": "One session of this workspace, by name: the same answer as workspace://current, for that session instead of yours. default is the workspace's own; workspace://current's sessions lists the rest. Its console, network, site data and downloads are session://{name}/console, /network, /site-data and /downloads. A name with no session is not found. Reading this never opens a browser.",
+            "name": "Session",
+            "uri_template": "session://{name}"
+          },
+          {
+            "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
+            "name": "Session Console, narrowed",
+            "uri_template": "session://{name}/console{?level,pages}"
+          },
+          {
+            "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
+            "name": "Session Console",
+            "uri_template": "session://{name}/console"
+          },
+          {
+            "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
+            "name": "Session Network, narrowed",
+            "uri_template": "session://{name}/network{?filter,pages}"
+          },
+          {
+            "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
+            "name": "Session Network",
+            "uri_template": "session://{name}/network"
+          },
+          {
+            "description": "One of a session's captured requests in full, by name, as workspace://network/{id} shows yours. network_body(id, session=name) fetches its response body. A name with no session is not found.",
+            "name": "Session Request",
+            "uri_template": "session://{name}/network/{id}"
+          },
+          {
+            "description": "What one session's last save_site_data holds, by name, as workspace://site-data lists yours: counts, never a value. session://{name}/site-data/{site} shows one site in full. Reading this never opens a browser. A name with no session is not found.",
+            "name": "Session Site Data",
+            "uri_template": "session://{name}/site-data"
+          },
+          {
+            "description": "One site of a session's saved data, by name, as workspace://site-data/{site} shows yours; httpOnly values masked. The site is a host from the session://{name}/site-data listing. A name with no session is not found.",
+            "name": "Session Site Data for One Site",
+            "uri_template": "session://{name}/site-data/{site}"
+          },
+          {
+            "description": "The downloads of one session's browser, by name, as session://downloads lists yours. A name with no session is not found.",
+            "name": "Session Downloads",
+            "uri_template": "session://{name}/downloads"
+          },
+          {
+            "description": "One download of one session's browser, by name, as bytes: as session://downloads/{name} reads yours. A name with no session is not found.",
+            "name": "Session Download",
+            "uri_template": "session://{name}/downloads/{file}"
+          },
+          {
+            "description": "One file from Files, as bytes, carrying its own media type. The name comes from the workspace://files listing. A video (a kept recording) answers its entry instead, as JSON: its url plays it.",
+            "name": "Workspace File",
+            "uri_template": "workspace://files/{name}"
+          },
+          {
+            "description": "One screenshot, as bytes, from workspace://files/screenshots. It answers after the browser that took it has gone, because a screenshot is already ours (§F1.10).",
+            "name": "Screenshot",
+            "uri_template": "workspace://files/screenshots/{name}"
+          },
+          {
+            "description": "One download, as bytes, from session://downloads — read from the browser itself, so this answers only while it is open. keep_file(uri) copies it somewhere that outlives the browser.",
+            "name": "Download",
+            "uri_template": "session://downloads/{name}"
+          },
+          {
+            "description": "One recording from workspace://files/recordings, described: its url plays it. Not the video's bytes — a model cannot watch one, and a resource would carry it as base64.",
+            "name": "Recording",
+            "uri_template": "workspace://files/recordings/{name}"
+          },
+          {
+            "description": "One saved flow, with its steps. The name comes from the flow://flows listing.",
+            "name": "Saved Flow",
+            "uri_template": "flow://flows/{name}"
+          }
+        ],
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "result": [
+        {
+          "description": "The workspace this client named, and your own session (browser) in it. Any session, by name, is session://{name}.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nconfig is this workspace's own settings, each with its value and its source (default or workspace). Only an admin changes them, at config_url when the server has one.\n\ntags maps each tag in use on this workspace's flows, and the global flows it is offered, to how many carry it: reuse one when you tag a flow.\n\nReading this never opens a browser: live is false when no session is open.",
+          "mime_type": "application/json",
+          "name": "Current Workspace",
+          "uri": "workspace://current"
+        },
+        {
+          "description": "What your session's last save_site_data holds: one entry per site with counts, never a value; the sites the workspace went to come first. Every browser this session opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full; session://{name}/site-data is another session's. Reading this never opens a browser.",
+          "mime_type": "application/json",
+          "name": "Site Data",
+          "uri": "workspace://site-data"
+        },
+        {
+          "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
+          "mime_type": "application/json",
+          "name": "Console",
+          "uri": "workspace://console"
+        },
+        {
+          "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
+          "mime_type": "application/json",
+          "name": "Network",
+          "uri": "workspace://network"
+        },
+        {
+          "description": "The files in Files: prints, and anything kept with keep_file. Also names two folders — workspace://files/screenshots and workspace://files/recordings — each with its own listing. Your session's downloads are session://downloads, a named session's session://{name}/downloads.\n\nEvery entry carries its own uri, to keep with keep_file(uri), and a URL that opens in a browser for a while, so an image can be shown to someone rather than described to them.",
+          "mime_type": "application/json",
+          "name": "Workspace Files",
+          "uri": "workspace://files"
+        },
+        {
+          "description": "This workspace's saved screenshots, not yet kept. keep_file(uri) moves one into workspace://files, where it stays until a person deletes it. Prints land in Files directly, not here.",
+          "mime_type": "application/json",
+          "name": "Screenshots",
+          "uri": "workspace://files/screenshots"
+        },
+        {
+          "description": "This workspace's recordings: one video per browser opened with open_session(record=true), filed shortly after that browser ends. keep_file(uri) moves one into workspace://files. Each entry's url plays it; reading one by its uri answers that entry, not the video.",
+          "mime_type": "application/json",
+          "name": "Recordings",
+          "uri": "workspace://files/recordings"
+        },
+        {
+          "description": "Your own session's downloads; session://{name}/downloads lists another's. They belong to the browser and disappear when it ends or the Grid reaps it; keep_file(uri) copies one into workspace://files before that happens. With no session open, reading it says so.",
+          "mime_type": "application/json",
+          "name": "Downloads",
+          "uri": "session://downloads"
+        },
+        {
+          "description": "The flows this workspace can run: saved sequences of tool calls that run server-side in one call.\n\nEach entry has a name, a description, its tags, the parameters it takes and how many steps it has — never the steps themselves, which flow://flows/{name} returns.\n\nFlows saved in this workspace come first; anything in the shared 'global' library is also listed, and a flow of your own with the same name wins.",
+          "mime_type": "application/json",
+          "name": "Saved Flows",
+          "uri": "flow://flows"
+        },
+        {
+          "description": "The shape of a flow document: every tool that may be a step and the parameters it takes. Read this before writing a flow.",
+          "mime_type": "application/json",
+          "name": "Flow Document Schema",
+          "uri": "flow://schema"
+        },
+        {
+          "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites, unless its key_sources entry says masked: false.",
+          "mime_type": "application/json",
+          "name": "Secrets",
+          "uri": "secret://secrets"
+        },
+        {
+          "description": "<description of plugin/skills/building-flows/SKILL.md>",
+          "mime_type": "text/markdown",
+          "name": "selenium-flow/building-flows/SKILL.md",
+          "uri": "skill://selenium-flow/building-flows/SKILL.md"
+        },
+        {
+          "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
+          "mime_type": "text/markdown",
+          "name": "selenium-flow/deploying-the-server/SKILL.md",
+          "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+        },
+        {
+          "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
+          "mime_type": "text/markdown",
+          "name": "selenium-flow/driving-a-browser/SKILL.md",
+          "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+        },
+        {
+          "description": "<description of plugin/skills/signing-in/SKILL.md>",
+          "mime_type": "text/markdown",
+          "name": "selenium-flow/signing-in/SKILL.md",
+          "uri": "skill://selenium-flow/signing-in/SKILL.md"
+        },
+        {
+          "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
+          "mime_type": "text/markdown",
+          "name": "selenium-flow/using-the-admin-ui/SKILL.md",
+          "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+        },
+        {
+          "description": "One key of workspace://current, as {workspace, <part>: value}: for instance workspace://current/url or workspace://current/grid_timeout. It is null when the workspace has nothing for that key. A name that is not a key is refused, and the refusal lists them. Built as workspace://current is, and reading it never opens a browser.",
+          "name": "Current Workspace, one part",
+          "uri_template": "workspace://current/{part}"
+        },
+        {
+          "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing. This is your own session's; session://{name}/site-data/{site} is another's.",
+          "name": "Site Data for One Site",
+          "uri_template": "workspace://site-data/{site}"
+        },
+        {
+          "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
+          "name": "Console, narrowed",
+          "uri_template": "workspace://console{?level,pages}"
+        },
+        {
+          "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
+          "name": "Network, narrowed",
+          "uri_template": "workspace://network{?filter,pages}"
+        },
+        {
+          "description": "One captured request in full: its headers (authorization, cookies and any secret you typed shown as •••), status, timing and size. network_body(id) fetches its response body. This is your own session's; session://{name}/network/{id} is another's, and network_body(id, session=name) fetches its body.",
+          "name": "One Request",
+          "uri_template": "workspace://network/{id}"
+        },
+        {
+          "description": "One session of this workspace, by name: the same answer as workspace://current, for that session instead of yours. default is the workspace's own; workspace://current's sessions lists the rest. Its console, network, site data and downloads are session://{name}/console, /network, /site-data and /downloads. A name with no session is not found. Reading this never opens a browser.",
+          "name": "Session",
+          "uri_template": "session://{name}"
+        },
+        {
+          "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
+          "name": "Session Console, narrowed",
+          "uri_template": "session://{name}/console{?level,pages}"
+        },
+        {
+          "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
+          "name": "Session Console",
+          "uri_template": "session://{name}/console"
+        },
+        {
+          "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
+          "name": "Session Network, narrowed",
+          "uri_template": "session://{name}/network{?filter,pages}"
+        },
+        {
+          "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
+          "name": "Session Network",
+          "uri_template": "session://{name}/network"
+        },
+        {
+          "description": "One of a session's captured requests in full, by name, as workspace://network/{id} shows yours. network_body(id, session=name) fetches its response body. A name with no session is not found.",
+          "name": "Session Request",
+          "uri_template": "session://{name}/network/{id}"
+        },
+        {
+          "description": "What one session's last save_site_data holds, by name, as workspace://site-data lists yours: counts, never a value. session://{name}/site-data/{site} shows one site in full. Reading this never opens a browser. A name with no session is not found.",
+          "name": "Session Site Data",
+          "uri_template": "session://{name}/site-data"
+        },
+        {
+          "description": "One site of a session's saved data, by name, as workspace://site-data/{site} shows yours; httpOnly values masked. The site is a host from the session://{name}/site-data listing. A name with no session is not found.",
+          "name": "Session Site Data for One Site",
+          "uri_template": "session://{name}/site-data/{site}"
+        },
+        {
+          "description": "The downloads of one session's browser, by name, as session://downloads lists yours. A name with no session is not found.",
+          "name": "Session Downloads",
+          "uri_template": "session://{name}/downloads"
+        },
+        {
+          "description": "One download of one session's browser, by name, as bytes: as session://downloads/{name} reads yours. A name with no session is not found.",
+          "name": "Session Download",
+          "uri_template": "session://{name}/downloads/{file}"
+        },
+        {
+          "description": "One file from Files, as bytes, carrying its own media type. The name comes from the workspace://files listing. A video (a kept recording) answers its entry instead, as JSON: its url plays it.",
+          "name": "Workspace File",
+          "uri_template": "workspace://files/{name}"
+        },
+        {
+          "description": "One screenshot, as bytes, from workspace://files/screenshots. It answers after the browser that took it has gone, because a screenshot is already ours (§F1.10).",
+          "name": "Screenshot",
+          "uri_template": "workspace://files/screenshots/{name}"
+        },
+        {
+          "description": "One download, as bytes, from session://downloads — read from the browser itself, so this answers only while it is open. keep_file(uri) copies it somewhere that outlives the browser.",
+          "name": "Download",
+          "uri_template": "session://downloads/{name}"
+        },
+        {
+          "description": "One recording from workspace://files/recordings, described: its url plays it. Not the video's bytes — a model cannot watch one, and a resource would carry it as base64.",
+          "name": "Recording",
+          "uri_template": "workspace://files/recordings/{name}"
+        },
+        {
+          "description": "One saved flow, with its steps. The name comes from the flow://flows listing.",
+          "name": "Saved Flow",
+          "uri_template": "flow://flows/{name}"
+        }
+      ]
+    }
+  },
+  "tools/read_resource": {
+    "skill://selenium-flow/building-flows": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/building-flows'. skill://selenium-flow/building-flows is a folder: read skill://selenium-flow/building-flows/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/building-flows/SKILL.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/building-flows/SKILL.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/building-flows/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/building-flows/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/building-flows/SKILL.md",
+              "uri": "skill://selenium-flow/building-flows/SKILL.md"
+            },
+            {
+              "description": "A folder of the building-flows skill",
+              "mimeType": "inode/directory",
+              "name": "selenium-flow/building-flows/references",
+              "uri": "skill://selenium-flow/building-flows/references"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/building-flows/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/building-flows/SKILL.md: Use when a selenium-flow result carries flows_here, steps will be repeated and are worth saving, a flow run fails, or a flow needs building or repairing.\nskill://selenium-flow/building-flows/references: A folder of the building-flows skill\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/building-flows/_manifest": {
+      "content": [
+        {
+          "text": {
+            "files": [
+              {
+                "hash": "<digest of plugin/skills/building-flows/SKILL.md>",
+                "path": "SKILL.md",
+                "size": "<size of plugin/skills/building-flows/SKILL.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/building-flows/references/FLOWS.md>",
+                "path": "references/FLOWS.md",
+                "size": "<size of plugin/skills/building-flows/references/FLOWS.md>"
+              }
+            ],
+            "skill": "building-flows"
+          },
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/building-flows/references": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/building-flows/references'. skill://selenium-flow/building-flows/references is a folder: read skill://selenium-flow/building-flows/references/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/building-flows/references/FLOWS.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/building-flows/references/FLOWS.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/building-flows/references/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Flows",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/building-flows/references/FLOWS.md",
+              "uri": "skill://selenium-flow/building-flows/references/FLOWS.md"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/building-flows/references/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/building-flows/references/FLOWS.md: Flows\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/deploying-the-server": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/deploying-the-server'. skill://selenium-flow/deploying-the-server is a folder: read skill://selenium-flow/deploying-the-server/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/deploying-the-server/SKILL.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/deploying-the-server/SKILL.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/deploying-the-server/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/deploying-the-server/SKILL.md",
+              "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+            },
+            {
+              "description": "A folder of the deploying-the-server skill",
+              "mimeType": "inode/directory",
+              "name": "selenium-flow/deploying-the-server/references",
+              "uri": "skill://selenium-flow/deploying-the-server/references"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/deploying-the-server/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/deploying-the-server/SKILL.md: Use when deploying or configuring the selenium-flow server, connecting an MCP or HTTP client to it, setting a client's session defaults, or putting secrets or OIDC on the server.\nskill://selenium-flow/deploying-the-server/references: A folder of the deploying-the-server skill\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/deploying-the-server/_manifest": {
+      "content": [
+        {
+          "text": {
+            "files": [
+              {
+                "hash": "<digest of plugin/skills/deploying-the-server/SKILL.md>",
+                "path": "SKILL.md",
+                "size": "<size of plugin/skills/deploying-the-server/SKILL.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/deploying-the-server/references/CONFIGURATION.md>",
+                "path": "references/CONFIGURATION.md",
+                "size": "<size of plugin/skills/deploying-the-server/references/CONFIGURATION.md>"
+              }
+            ],
+            "skill": "deploying-the-server"
+          },
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/deploying-the-server/references": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/deploying-the-server/references'. skill://selenium-flow/deploying-the-server/references is a folder: read skill://selenium-flow/deploying-the-server/references/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/deploying-the-server/references/CONFIGURATION.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/deploying-the-server/references/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Setting up selenium-flow",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/deploying-the-server/references/CONFIGURATION.md",
+              "uri": "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/deploying-the-server/references/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md: Setting up selenium-flow\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/driving-a-browser'. skill://selenium-flow/driving-a-browser is a folder: read skill://selenium-flow/driving-a-browser/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/driving-a-browser/SKILL.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/driving-a-browser/SKILL.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/SKILL.md",
+              "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+            },
+            {
+              "description": "A folder of the driving-a-browser skill",
+              "mimeType": "inode/directory",
+              "name": "selenium-flow/driving-a-browser/references",
+              "uri": "skill://selenium-flow/driving-a-browser/references"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/driving-a-browser/SKILL.md: Use when a task needs a live browser through selenium-flow - a page that renders only under JavaScript, a form to fill, steps to click through, Chrome or Firefox, a screenshot, PDF or download. Read it before the first selenium-flow call, and again when a call fails or is refused because a person holds the browser.\nskill://selenium-flow/driving-a-browser/references: A folder of the driving-a-browser skill\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/_manifest": {
+      "content": [
+        {
+          "text": {
+            "files": [
+              {
+                "hash": "<digest of plugin/skills/driving-a-browser/SKILL.md>",
+                "path": "SKILL.md",
+                "size": "<size of plugin/skills/driving-a-browser/SKILL.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/driving-a-browser/references/CONTROL.md>",
+                "path": "references/CONTROL.md",
+                "size": "<size of plugin/skills/driving-a-browser/references/CONTROL.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/driving-a-browser/references/FILES.md>",
+                "path": "references/FILES.md",
+                "size": "<size of plugin/skills/driving-a-browser/references/FILES.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/driving-a-browser/references/INTERACTION.md>",
+                "path": "references/INTERACTION.md",
+                "size": "<size of plugin/skills/driving-a-browser/references/INTERACTION.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/driving-a-browser/references/READING_PAGES.md>",
+                "path": "references/READING_PAGES.md",
+                "size": "<size of plugin/skills/driving-a-browser/references/READING_PAGES.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/driving-a-browser/references/RESOURCES.md>",
+                "path": "references/RESOURCES.md",
+                "size": "<size of plugin/skills/driving-a-browser/references/RESOURCES.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>",
+                "path": "references/TROUBLESHOOTING.md",
+                "size": "<size of plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/driving-a-browser/references/WORKSPACES.md>",
+                "path": "references/WORKSPACES.md",
+                "size": "<size of plugin/skills/driving-a-browser/references/WORKSPACES.md>"
+              }
+            ],
+            "skill": "driving-a-browser"
+          },
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/driving-a-browser/references'. skill://selenium-flow/driving-a-browser/references is a folder: read skill://selenium-flow/driving-a-browser/references/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/driving-a-browser/references/CONTROL.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/driving-a-browser/references/CONTROL.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references/FILES.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/driving-a-browser/references/FILES.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references/INTERACTION.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/driving-a-browser/references/INTERACTION.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references/READING_PAGES.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/driving-a-browser/references/READING_PAGES.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references/RESOURCES.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/driving-a-browser/references/RESOURCES.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/driving-a-browser/references/TROUBLESHOOTING.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/driving-a-browser/references/WORKSPACES.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "A person in control",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/references/CONTROL.md",
+              "uri": "skill://selenium-flow/driving-a-browser/references/CONTROL.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Files",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/references/FILES.md",
+              "uri": "skill://selenium-flow/driving-a-browser/references/FILES.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Acting on a page",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/references/INTERACTION.md",
+              "uri": "skill://selenium-flow/driving-a-browser/references/INTERACTION.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Reading a page",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/references/READING_PAGES.md",
+              "uri": "skill://selenium-flow/driving-a-browser/references/READING_PAGES.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Everything to read",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/references/RESOURCES.md",
+              "uri": "skill://selenium-flow/driving-a-browser/references/RESOURCES.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "When something goes wrong",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md",
+              "uri": "skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Workspaces",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/references/WORKSPACES.md",
+              "uri": "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/driving-a-browser/references/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/driving-a-browser/references/CONTROL.md: A person in control\nskill://selenium-flow/driving-a-browser/references/FILES.md: Files\nskill://selenium-flow/driving-a-browser/references/INTERACTION.md: Acting on a page\nskill://selenium-flow/driving-a-browser/references/READING_PAGES.md: Reading a page\nskill://selenium-flow/driving-a-browser/references/RESOURCES.md: Everything to read\nskill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md: When something goes wrong\nskill://selenium-flow/driving-a-browser/references/WORKSPACES.md: Workspaces\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/signing-in": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/signing-in'. skill://selenium-flow/signing-in is a folder: read skill://selenium-flow/signing-in/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/signing-in/SKILL.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/signing-in/SKILL.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/signing-in/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/signing-in/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/signing-in/SKILL.md",
+              "uri": "skill://selenium-flow/signing-in/SKILL.md"
+            },
+            {
+              "description": "A folder of the signing-in skill",
+              "mimeType": "inode/directory",
+              "name": "selenium-flow/signing-in/references",
+              "uri": "skill://selenium-flow/signing-in/references"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/signing-in/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/signing-in/SKILL.md: Use when a page in a selenium-flow browser asks for a password, token or other credential, a secret is refused, the browser should stay signed in across browsers, or a site signed it out unexpectedly.\nskill://selenium-flow/signing-in/references: A folder of the signing-in skill\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/signing-in/_manifest": {
+      "content": [
+        {
+          "text": {
+            "files": [
+              {
+                "hash": "<digest of plugin/skills/signing-in/SKILL.md>",
+                "path": "SKILL.md",
+                "size": "<size of plugin/skills/signing-in/SKILL.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/signing-in/references/SECRETS.md>",
+                "path": "references/SECRETS.md",
+                "size": "<size of plugin/skills/signing-in/references/SECRETS.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/signing-in/references/SITE_DATA.md>",
+                "path": "references/SITE_DATA.md",
+                "size": "<size of plugin/skills/signing-in/references/SITE_DATA.md>"
+              }
+            ],
+            "skill": "signing-in"
+          },
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/signing-in/references": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/signing-in/references'. skill://selenium-flow/signing-in/references is a folder: read skill://selenium-flow/signing-in/references/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/signing-in/references/SECRETS.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/signing-in/references/SECRETS.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/signing-in/references/SITE_DATA.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/signing-in/references/SITE_DATA.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/signing-in/references/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Secrets",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/signing-in/references/SECRETS.md",
+              "uri": "skill://selenium-flow/signing-in/references/SECRETS.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Site data",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/signing-in/references/SITE_DATA.md",
+              "uri": "skill://selenium-flow/signing-in/references/SITE_DATA.md"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/signing-in/references/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/signing-in/references/SECRETS.md: Secrets\nskill://selenium-flow/signing-in/references/SITE_DATA.md: Site data\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/using-the-admin-ui'. skill://selenium-flow/using-the-admin-ui is a folder: read skill://selenium-flow/using-the-admin-ui/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/using-the-admin-ui/SKILL.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/using-the-admin-ui/SKILL.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/using-the-admin-ui/SKILL.md",
+              "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+            },
+            {
+              "description": "A folder of the using-the-admin-ui skill",
+              "mimeType": "inode/directory",
+              "name": "selenium-flow/using-the-admin-ui/references",
+              "uri": "skill://selenium-flow/using-the-admin-ui/references"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/using-the-admin-ui/SKILL.md: Use when a person asks about selenium-flow's admin page or wants admin work done - a workspace's config, a flow moved to the shared library, site data, history or files cleared, a browser ended, watched or taken over, or signing in to the admin page.\nskill://selenium-flow/using-the-admin-ui/references: A folder of the using-the-admin-ui skill\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/_manifest": {
+      "content": [
+        {
+          "text": {
+            "files": [
+              {
+                "hash": "<digest of plugin/skills/using-the-admin-ui/SKILL.md>",
+                "path": "SKILL.md",
+                "size": "<size of plugin/skills/using-the-admin-ui/SKILL.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>",
+                "path": "references/ADMIN_SIGN_IN.md",
+                "size": "<size of plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>",
+                "path": "references/ADMIN_UI.md",
+                "size": "<size of plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>",
+                "path": "references/AGENT_AS_ADMIN.md",
+                "size": "<size of plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>",
+                "path": "references/LIVE_VIEW.md",
+                "size": "<size of plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>"
+              },
+              {
+                "hash": "<digest of plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>",
+                "path": "references/WORKSPACE_CONFIG.md",
+                "size": "<size of plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>"
+              }
+            ],
+            "skill": "using-the-admin-ui"
+          },
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/references": {
+      "content": [
+        {
+          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/using-the-admin-ui/references'. skill://selenium-flow/using-the-admin-ui/references is a folder: read skill://selenium-flow/using-the-admin-ui/references/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true
+    },
+    "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/using-the-admin-ui/references/ADMIN_SIGN_IN.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/using-the-admin-ui/references/ADMIN_UI.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/using-the-admin-ui/references/AGENT_AS_ADMIN.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/using-the-admin-ui/references/LIVE_VIEW.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md": {
+      "content": [
+        {
+          "text": "<plugin/skills/using-the-admin-ui/references/WORKSPACE_CONFIG.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/references/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Signing in to the admin page",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md",
+              "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "The admin page",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/using-the-admin-ui/references/ADMIN_UI.md",
+              "uri": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Doing admin work yourself",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md",
+              "uri": "skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Watching and taking over a browser",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md",
+              "uri": "skill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "A workspace's config",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md",
+              "uri": "skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false
+    },
+    "skill://selenium-flow/using-the-admin-ui/references/_index.md": {
+      "content": [
+        {
+          "text": "skill://selenium-flow/using-the-admin-ui/references/ADMIN_SIGN_IN.md: Signing in to the admin page\nskill://selenium-flow/using-the-admin-ui/references/ADMIN_UI.md: The admin page\nskill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md: Doing admin work yourself\nskill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md: Watching and taking over a browser\nskill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md: A workspace's config\n",
+          "type": "text"
+        }
+      ],
+      "isError": false
+    }
+  }
+}
