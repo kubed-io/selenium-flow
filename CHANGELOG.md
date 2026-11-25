@@ -153,6 +153,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A flow can declare the `sites` and `paths` it applies to, and a result that lands on one of them names it in `flows_here`.
 - Clicks use the first visible match of a selector and say what received the click; click errors say what is at the point.
 
+### Changed
+
+- The server needs kubed-mcp 0.2.0rc1 (#201).
+
 ## [0.3.0] - 2026-09-26
 
 ### Added
