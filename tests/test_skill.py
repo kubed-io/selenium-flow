@@ -384,13 +384,13 @@ async def test_every_tool_and_resource_has_a_row(built_ui, server):
     One row per tool on the entry point it always reads, and one per resource
     on RESOURCES.md, which the entry point links.
 
-    Taken from the live server, with the two reading tools left out: they are
-    how a client reads the resource rows, and the page says so in prose.
+    Taken from the live server, with kubed-mcp's two reading tools left out: they
+    are how a client reads the resource rows, and the page says so in prose.
     """
-    from kubed.selenium_flow.mcp import mirror
+    from .conftest import RESOURCE_TOOLS
 
     entry = body(ENTRY_SKILL)
-    tools = {t.name for t in await server.mcp.server.list_tools()} - set(mirror.MIRROR_TOOLS)
+    tools = {t.name for t in await server.mcp.server.list_tools()} - RESOURCE_TOOLS
     missing = sorted(t for t in tools if not re.search(rf"^\| `{t}` \|", entry, re.MULTILINE))
     assert not missing, f"{ENTRY_SKILL}/SKILL.md's tool table has no row for {missing}"
 

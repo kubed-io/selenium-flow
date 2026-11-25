@@ -220,7 +220,8 @@ async def test_read_resource_passes_the_hint_on(server):
             "read_resource", {"uri": REFERENCES}, raise_on_error=False
         )
     assert result.is_error
-    assert f"no resource at {REFERENCES!r}. " in result.content[0].text
+    # resources/read's own miss, which kubed-mcp's read_resource passes on (DLV-6).
+    assert f"Resource not found: {REFERENCES!r}. " in result.content[0].text
     assert f"{REFERENCES}/_index.md" in result.content[0].text
 
 

@@ -32,12 +32,11 @@ from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.capabilities import CAPABILITIES
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
-from kubed.selenium_flow.mcp import mirror
 from kubed.selenium_flow.mcp.scrubbed import EXEMPT
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .capture_events import done, log, nav_started, req
-from .conftest import NAMED, TOKEN, http
+from .conftest import NAMED, RESOURCE_TOOLS, TOKEN, http, over_http
 from .fakes import FakeGrid, untabbed
 from .test_redaction import golden
 
@@ -288,10 +287,12 @@ def _filled(template: str, ids: dict) -> str:
     return re.sub(r"\{[^}]+\}", "sample", re.sub(r"\{\?[^}]+\}", "", template))
 
 
-def _named(monkeypatch, **flags):
+def _named(monkeypatch):
+    """Name the workspace for selenium-flow, over HTTP too. The resources mode is
+    kubed-mcp's, read from the real request: send ``X-MCP-Resources`` over HTTP."""
     monkeypatch.setattr(
         clients_module, "request_values",
-        lambda: http({"workspace": NAMED, **flags}),
+        lambda: http({"workspace": NAMED}),
     )
 
 
@@ -328,12 +329,14 @@ async def _uris(client) -> list[str]:
 
 async def _listed_tools(server, monkeypatch) -> set[str]:
     """Every tool a client is shown, in either resources mode."""
-    names = set()
-    for flags in ({}, {"resources": "off"}):
-        _named(monkeypatch, **flags)
-        async with Client(server.mcp.server) as c:
-            names |= {t.name for t in await c.list_tools()}
     _named(monkeypatch)
+    names = set()
+    for resources in ("on", "off"):
+        async with over_http(server, {"X-MCP-Resources": resources}) as c:
+            shown = {t.name for t in await c.list_tools()}
+        if resources == "off":
+            assert shown >= RESOURCE_TOOLS, "the off listing has the reading tools"
+        names |= shown
     return names
 
 
@@ -436,6 +439,7 @@ async def every_answer(server, leaky, monkeypatch) -> Answers:
         leaky.raises = False
 
         # Every resource and template, as a client reads it and through `show`.
+        concrete = {str(r.uri) for r in await c.list_resources()}
         uris = [
             _filled(uri, ids) for uri in await _uris(c) if not uri.startswith(EXEMPT)
         ]
@@ -447,20 +451,16 @@ async def every_answer(server, leaky, monkeypatch) -> Answers:
                 answers.append((f"resource {uri} (error)", str(exc)))
             await answers.call(c, "show", {"uri": uri}, f"show {uri}")
 
-    # The same, through the mirror tools a client that cannot read resources gets.
-    _named(monkeypatch, resources="off")
-    async with Client(server.mcp.server) as c:
-        listed = await answers.call(c, mirror.LIST_TOOL, {}, "mcp list_resources")
-        rows = json.loads(_text_of(listed).split("\n")[-1])["result"]
-        mirrored = [
-            _filled(row.get("uri") or row["uri_template"], ids) for row in rows
-        ]
-        assert set(mirrored) >= set(uris) - {u for u in uris if u.startswith(EXEMPT)}
-        for uri in mirrored:
-            if uri.startswith(EXEMPT):
-                continue
-            await answers.call(c, mirror.READ_TOOL, {"uri": uri}, f"read_resource {uri}")
-    _named(monkeypatch)
+    # The same, through kubed-mcp's tools, over HTTP with resources off, as a
+    # client that cannot read resources gets them.
+    async with over_http(server, {"X-MCP-Resources": "off"}) as c:
+        listed = await answers.call(c, "list_resources", {}, "mcp list_resources")
+        rows = json.loads(_text_of(listed))["resources"]
+        listed_uris = {row["uri"] for row in rows}
+        assert listed_uris >= concrete - {u for u in concrete if u.startswith(EXEMPT)}
+        # The tool lists no templates (DLV-6), so the tool reads what the client read.
+        for uri in uris:
+            await answers.call(c, "read_resource", {"uri": uri}, f"read_resource {uri}")
 
     # Deleting, ending and opening over MCP, last there: ending ends the
     # browser the rest were called on.
@@ -722,8 +722,8 @@ async def test_a_read_whose_scrub_fails_answers_the_fixed_sentence(monkeypatch, 
 
 
 async def test_a_read_whose_scrub_fails_reaches_the_client_as_the_sentence(server, monkeypatch):
-    """Through the whole server: `Explained` passes the sentence on, and the
-    mirror tool says it too."""
+    """Through the whole server: `Explained` passes the sentence on, and
+    `read_resource` says it too."""
     from kubed.selenium_flow import faults
 
     _named(monkeypatch)
@@ -738,10 +738,56 @@ async def test_a_read_whose_scrub_fails_reaches_the_client_as_the_sentence(serve
             await c.read_resource("workspace://files/notes.txt")
         assert faults.SCRUB_FAILED in str(raised.value)
         mirrored = await c.call_tool(
-            mirror.READ_TOOL, {"uri": "workspace://files/notes.txt"}, raise_on_error=False
+            "read_resource", {"uri": "workspace://files/notes.txt"}, raise_on_error=False
         )
     assert mirrored.is_error and faults.SCRUB_FAILED in _text_of(mirrored)
     assert not leaks(_text_of(mirrored))
+
+
+@pytest.mark.parametrize("name", ["conf.cfg", "app.ini", "main.ts"])
+async def test_a_kept_file_read_as_text_is_scrubbed_whatever_its_extension(
+    server, monkeypatch, name
+):
+    """`read_resource` hands a blob over as text by kubed-mcp's own table of
+    extensions, which knows more than `mimetypes`: a kept `.cfg`, `.ini` or
+    `.ts` whose bytes are UTF-8 reaches the model as text, so it is scrubbed."""
+    _named(monkeypatch)
+    server.flows.write_file(NAMED, name, ALL.encode(), files_module.FILES)
+    uri = f"workspace://files/{name}"
+    async with Client(server.mcp.server) as c:
+        read = _contents(await c.read_resource(uri))
+        tool = _text_of(await c.call_tool("read_resource", {"uri": uri}, raise_on_error=False))
+    for said in (read, tool):
+        assert not leaks(said), said
+        assert MARKED in said, said
+
+
+async def test_bytes_of_any_type_that_are_utf8_are_scrubbed(monkeypatch):
+    from fastmcp.resources import ResourceContent
+
+    middleware, workspaces, _ = _scrubbed_server(monkeypatch, SCOPES)
+    try:
+        _, read = await _through(middleware, "workspace://files/x.bin", [
+            ResourceContent(f"a {VALUE}".encode(), "application/x-unknown"),
+        ])
+        assert read.contents[0].content == f"a {MARKED}".encode()
+    finally:
+        workspaces.scrubber.close()
+
+
+async def test_binary_bytes_that_are_not_utf8_pass_as_the_same_object(monkeypatch):
+    from fastmcp.resources import ResourceContent
+
+    middleware, workspaces, _ = _scrubbed_server(monkeypatch, SCOPES)
+    image = b"\x89PNG\r\n\x1a\n" + VALUE.encode()
+    try:
+        for media in ("image/png", "application/octet-stream"):
+            served, read = await _through(middleware, "workspace://files/x.png", [
+                ResourceContent(image, media),
+            ])
+            assert read is served and read.contents[0].content is image
+    finally:
+        workspaces.scrubber.close()
 
 
 async def test_text_bytes_that_are_not_utf8_are_scrubbed_all_the_same(monkeypatch):
