@@ -1,0 +1,22 @@
+name: 🤖 Agent · Renovate
+
+# The renovate agent on a Renovate PR: kubed-io/actions' agent-renovate.yml says what it does.
+on:
+  # n8n sends it, for a PR whose head is renovate/*
+  repository_dispatch:
+    types:
+    - agent-renovate
+
+permissions: {}
+
+jobs:
+  agent:
+    name: Agent
+    uses: kubed-io/actions/.github/workflows/agent-renovate.yml@main
+    secrets: inherit
+    # the agent reads; the follow-up commit and the comment are on the App's token
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
