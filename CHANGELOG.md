@@ -154,7 +154,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clicks use the first visible match of a selector and say what received the click; click errors say what is at the point.
 - `list_resources` and `read_resource` are kubed-mcp's: the listing has no templates, a miss no longer lists them, and an `X-MCP-Resources` value the server does not recognise, such as `maybe`, is ignored with a warning instead of meaning on (#190).
 - Behind a gateway prefix, the instructions name the skill with the prefix (#190).
-- The prompts and the explorer agent also read as resources, at `prompts://selenium-flow/…` and `agents://selenium-flow/explorer.md` (#190).
+- The prompts and the explorer agent also read as resources, at `prompts://selenium-flow/<name>.md` and `agents://selenium-flow/explorer.md`, with an `_index.md` and `_index.json` per folder; neither is listed by default (#190, #189).
 
 ### Changed
 
