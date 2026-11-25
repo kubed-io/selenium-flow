@@ -1,0 +1,25 @@
+name: 🐙 Renovate
+
+# New versions of everything this repo pins, on the Dependency Dashboard issue. It runs
+# when a box is ticked there, when main moves (a merged update drops off the dashboard),
+# weekly for a quiet repo, and on demand.
+on:
+  issues:
+    types:
+    - edited
+  push:
+    branches:
+    - main
+  schedule:
+  # the one line that differs between repos: a day and hour no other repo has
+  - cron: 0 23 * * 4
+  workflow_dispatch:
+
+jobs:
+  renovate:
+    name: Renovate
+    uses: kubed-io/actions/.github/workflows/renovate.yml@main
+    secrets: inherit
+    permissions:
+      contents: read
+      id-token: write

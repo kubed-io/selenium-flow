@@ -56,3 +56,7 @@ above, and also:
 - You never commit. What you leave changed is committed after you answer, `docs/` included: the
   workflow commits it to the wiki branch and moves the pointer.
 - You never edit `.github/`. A person commits workflow changes.
+- The Renovate agent (`agent-renovate.yml`) follows up Renovate's pull requests. There is no
+  README `## Upgrading` table here: the pins are `pyproject.toml`'s dependencies, the
+  Dockerfile's base images and `PY_VERSION`, `ui/package.json`, and the workflows' `uses:` lines.
+  Its check is the lint and unit suite above, not `kubectl build`.
