@@ -7,6 +7,7 @@ name: 📖 Wiki
 #
 #   pull_request        generate only, never pushes — the "does it still build?" gate
 #   push: main          generate and push to the wiki
+#   push: issue-*       only bring the open PRs into that family branch up to date
 #   workflow_dispatch   manual republish, e.g. after editing docs/notes
 #   workflow_call       called by publish.yml; the caller decides whether to push
 #
@@ -33,7 +34,7 @@ on:
   # every merge, not only one that changes the pages: after it, the open PRs are brought up
   # to date (the last step), and a merge of any kind leaves them behind
   push:
-    branches: [main]
+    branches: [main, 'issue-*']
   workflow_dispatch:
     inputs:
       push:
@@ -78,7 +79,10 @@ jobs:
     env:
       # true only for a real publish: merge to main, or a dispatch/call with
       # push=true. A pull_request run never pushes.
-      PUSH: ${{ (github.event_name == 'push' || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.push)) && 'true' || 'false' }}
+      PUSH: ${{ ((github.event_name == 'push' && github.ref_name == 'main') || ((github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call') && inputs.push)) && 'true' || 'false' }}
+      # a push to a family's branch (issue-*) only brings the PRs into it up to date (the last
+      # step): nothing is generated or published, and the wiki's master is never written
+      FAMILY: ${{ github.event_name == 'push' && github.ref_name != 'main' }}
     steps:
 
     # Only a run that pushes needs a writable identity; a pull_request run just
@@ -133,6 +137,7 @@ jobs:
           merge --no-edit -X ours -m "Merge the wiki's master into ${GITHUB_SHA:0:8}'s pin" FETCH_HEAD
 
     - name: Set up Python
+      if: env.FAMILY != 'true'
       uses: actions/setup-python@v7
       with:
         python-version: '3.13'
@@ -140,9 +145,11 @@ jobs:
     # The generator imports the package to build the spec from the live tool
     # schemas, so the package itself is the dependency, not just a YAML writer.
     - name: Install
+      if: env.FAMILY != 'true'
       run: pip install .
 
     - name: Generate
+      if: env.FAMILY != 'true'
       run: python scripts/generate_wiki.py
 
     # Two separate questions. `changed`: did regenerating alter the pages.
@@ -160,6 +167,7 @@ jobs:
     # This has to run before any regeneration commit moves HEAD.
     - name: Diff
       id: diff
+      if: env.FAMILY != 'true'
       working-directory: docs
       run: |
         remote=$(git ls-remote origin refs/heads/master | cut -f1)
@@ -249,6 +257,7 @@ jobs:
     # the wiki's head (which holds every PR's spec and plan) and whose CHANGELOG keeps both sides.
     # Anything else is left for the PR's agent and named in the summary. It pushes as the App,
     # so each PR's checks run again (cluster spec 2026-11-12-agent-flow-parallel-design, R-L9).
+    # On a family branch's push it is the only step, with that branch as the base (quick-mcp #41).
     # !cancelled(): it does not depend on the publish above, so a wiki push refused (a browser
     # edit) still leaves the PRs current
     - name: Bring the Open PRs Up to Date
