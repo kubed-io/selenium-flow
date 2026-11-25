@@ -158,7 +158,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The server needs kubed-mcp 0.2.0rc3 (#201, #190).
+- The server needs kubed-mcp 0.3.0 (#201, #190, #209).
 
 ## [0.3.0] - 2026-09-26
 
