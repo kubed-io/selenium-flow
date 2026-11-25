@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import kubed.mcp
 import yaml
 from pydantic import (
     AfterValidator,
@@ -202,6 +203,18 @@ class WorkspaceSettings(Section):
     )
 
 
+def _json_object(value):
+    """A mapping setting: a JSON object in env and flags, a mapping in the file."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise ValueError("must be a JSON object") from None
+    if not isinstance(value, dict):
+        raise ValueError("must be a JSON object")
+    return value
+
+
 class SessionSettings(Section):
     browser: Literal["chrome", "firefox"] | None = Field(
         None, description="chrome or firefox, for new sessions."
@@ -252,14 +265,7 @@ class SessionSettings(Section):
     @field_validator("capabilities", mode="before")
     @classmethod
     def _capabilities_json(cls, value):
-        if isinstance(value, str):
-            try:
-                value = json.loads(value)
-            except ValueError:
-                raise ValueError("must be a JSON object") from None
-        if not isinstance(value, dict):
-            raise ValueError("must be a JSON object")
-        return value
+        return _json_object(value)
 
     @field_validator("capabilities")
     @classmethod
@@ -412,6 +418,23 @@ class SecuritySettings(Section):
         return origins
 
 
+class TelemetrySettings(kubed.mcp.TelemetrySettings, Section):
+    """kubed-mcp's telemetry settings, made a `Section` so `leaves()` reads its
+    keys and its errors hide their input; `QuickMCP` reads it as `config.telemetry`."""
+
+    # NoDecode keeps a bad env value a ConfigError: pydantic-settings' own JSON
+    # decode would raise a SettingsError outside it.
+    tags: Annotated[dict[str, str], NoDecode] = Field(
+        default_factory=dict,
+        description=kubed.mcp.TelemetrySettings.model_fields["tags"].description,
+    )
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tags_json(cls, value):
+        return _json_object(value)
+
+
 _ORIGIN = re.compile(
     r"[A-Za-z][A-Za-z0-9+.-]*://(\*\.)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?"
     r"(:[0-9]{1,5})?"
@@ -500,6 +523,12 @@ class Settings(Section):
     security: SecuritySettings = Field(
         default_factory=SecuritySettings,
         description="Who may frame the admin page.",
+    )
+    telemetry: TelemetrySettings = Field(
+        default_factory=TelemetrySettings,
+        description=(
+            "Profiles, traces and metrics, run by kubed-mcp; all off unless set."
+        ),
     )
 
 
@@ -968,6 +997,8 @@ URL_LEAVES = {
     "public_base_url",
     "oidc.issuer",
     "oidc.jwks_uri",
+    # A Pyroscope address may carry basic auth (`http://user:pass@host:4040`).
+    "telemetry.profiles",
 }
 
 
