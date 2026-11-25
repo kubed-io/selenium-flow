@@ -9,17 +9,17 @@ is about what a client is shown or reads.
 
 import base64
 import json
+import logging
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from mcp.types import Implementation, ResourceTemplateReference
 
-from kubed.selenium_flow.mcp import clients as clients_module
-from kubed.selenium_flow.mcp import mirror
-from kubed.selenium_flow.mcp.resources import RESOURCE_URI
+from kubed.selenium_flow.mcp import instructions
+from kubed.selenium_flow.mcp.resources import RESOURCE_URI, where_linked
 
-from .conftest import NAMED, calling_as, http
+from .conftest import NAMED, RESOURCE_TOOLS, calling_as, http, over_http
 
 pytestmark = pytest.mark.unit
 
@@ -30,66 +30,97 @@ def reader(data_server, monkeypatch):
     return data_server
 
 
-async def listed(server, name="a spec-complete client"):
-    async with Client(server.mcp.server, client_info=Implementation(name=name, version="1")) as c:
-        return {tool.name for tool in await c.list_tools()}
-
-
 async def read(server, uri):
     async with Client(server.mcp.server) as c:
-        return await c.call_tool(mirror.READ_TOOL, {"uri": uri})
+        return await c.call_tool("read_resource", {"uri": uri})
 
 
 # ---- who reads resources -----------------------------------------------------
 
 
-def test_resources_are_assumed_supported(monkeypatch):
-    """A spec-complete client is the default assumption."""
-    monkeypatch.setattr(clients_module, "request_values", lambda: http())
-    assert clients_module.reads_resources(clients_module.caller()) is True
+async def listed(client):
+    return {t.name for t in await client.list_tools()}
 
 
-@pytest.mark.parametrize("value", ["off", "false", "0", "no", "none", "OFF"])
-def test_a_client_can_declare_it_cannot_read_resources(monkeypatch, value):
-    monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": value}))
-    assert clients_module.reads_resources(clients_module.caller()) is False
+VS_CODE = ["Visual Studio Code", "Visual Studio Code - Insiders"]
 
 
-def test_the_header_wins_here_too(monkeypatch):
-    """The header wins, as it does for every client default, for the same reason."""
-    monkeypatch.setattr(
-        clients_module, "request_values", lambda: http({"resources": "on"}, {"x-mcp-resources": "off"})
-    )
-    assert clients_module.reads_resources(clients_module.caller()) is False
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+@pytest.mark.parametrize("name", VS_CODE)
+async def test_vs_code_with_no_header_gets_todays_delivery(reader, name, mode):  # Review Focus 3
+    async with over_http(reader, mode=mode, client_info=Implementation(name=name, version="1")) as c:
+        assert await listed(c) >= RESOURCE_TOOLS
+        assert c.instructions == instructions.instructions(False)
 
 
-def test_stdio_clients_are_assumed_to_read_resources(monkeypatch):
-    monkeypatch.setattr(clients_module, "request_values", lambda: None)
-    assert clients_module.reads_resources(clients_module.caller()) is True
+@pytest.mark.parametrize("info", [Implementation(name="a spec-complete client", version="1"), None])
+async def test_any_other_client_with_no_header_is_on(reader, info):
+    async with over_http(reader, client_info=info) as c:
+        assert not RESOURCE_TOOLS & await listed(c)
+        assert c.instructions == instructions.instructions(True)
 
 
-async def test_vs_code_is_given_the_reading_tools_without_asking(reader):
-    """Its model cannot list or read a resource, so the default is decided by
-    who is calling."""
-    assert await listed(reader, "Visual Studio Code") >= mirror.MIRROR_TOOLS
-    assert await listed(reader, "Visual Studio Code - Insiders") >= mirror.MIRROR_TOOLS
+@pytest.mark.parametrize("name", VS_CODE)
+async def test_vs_code_saying_on_is_taken_at_its_word(reader, name):
+    """The request's value beats the table (DLV-3)."""
+    info = Implementation(name=name, version="1")
+    async with over_http(reader, {"X-MCP-Resources": "on"}, client_info=info) as c:
+        assert not RESOURCE_TOOLS & await listed(c)
+        assert c.instructions == instructions.instructions(True)
 
 
-async def test_a_client_that_reads_resources_is_not_shown_them(reader):
-    assert not mirror.MIRROR_TOOLS & await listed(reader)
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+@pytest.mark.parametrize(
+    "given", [{"headers": {"X-MCP-Resources": "off"}}, {"params": {"resources": "off"}}]
+)
+async def test_off_by_header_or_query_lists_the_tools_and_points_at_them(reader, mode, given):
+    async with over_http(reader, mode=mode, **given) as c:
+        assert await listed(c) >= RESOURCE_TOOLS
+        assert c.instructions == instructions.instructions(False)
 
 
-async def test_saying_so_beats_being_recognised(reader, monkeypatch):
-    """VS Code with resources=on is taken at its word — the day it can read
-    them, nobody should have to wait for a release to say so."""
-    monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "on"}))
-    assert not mirror.MIRROR_TOOLS & await listed(reader, "Visual Studio Code")
+async def test_the_header_beats_the_query(reader):
+    async with over_http(reader, {"X-MCP-Resources": "on"}, {"resources": "off"}) as c:
+        assert not RESOURCE_TOOLS & await listed(c)
+    async with over_http(reader, {"X-MCP-Resources": "off"}, {"resources": "on"}) as c:
+        assert await listed(c) >= RESOURCE_TOOLS
 
 
-async def test_the_old_per_resource_tools_are_gone(reader, monkeypatch):
+async def test_an_unrecognised_value_is_ignored_with_one_warning(reader, caplog):  # named difference 1
+    caplog.set_level(logging.WARNING, logger="kubed.mcp.delivery")
+    # Legacy: one session id for the connection. On 2026-07-28 each request is its own (DLV-5).
+    async with over_http(
+        reader, {"X-MCP-Resources": "bogus-190"}, {"resources": "off"}, mode="legacy"
+    ) as c:
+        assert await listed(c) >= RESOURCE_TOOLS
+        await listed(c)
+    said = [r for r in caplog.records if "bogus-190" in r.getMessage()]
+    assert len(said) == 1 and "header X-MCP-Resources" in said[0].getMessage()
+
+
+@pytest.mark.parametrize("given", [
+    {}, {"headers": {"X-MCP-Resources": "off"}}, {"headers": {"X-MCP-Resources": "on"}},
+    {"headers": {"X-MCP-Resources": "bogus-190"}, "params": {"resources": "off"}},
+    {"params": {"resources": "none"}},
+    {"client_info": Implementation(name="Visual Studio Code", version="1")},
+])
+async def test_the_instructions_agree_with_the_listing(reader, given):  # Review Focus 4
+    async with over_http(reader, **given) as c:
+        tools_shown = "read_resource" in await listed(c)
+        assert ("read_resource(uri)" in c.instructions) is tools_shown
+
+
+async def test_the_instructions_carry_the_gateway_prefix(reader):  # named difference 5
+    async with over_http(reader, {"X-MCP-Resource-Prefix": "sf+"}) as c:
+        assert "sf+skill://selenium-flow/driving-a-browser/SKILL.md" in c.instructions
+    async with over_http(reader) as c:
+        assert c.instructions == instructions.instructions(True)
+
+
+async def test_the_old_per_resource_tools_are_gone(reader):
     """Seven tools, one per resource, became two that take a URI."""
-    monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "off"}))
-    names = await listed(reader)
+    async with over_http(reader, {"X-MCP-Resources": "off"}) as c:
+        names = await listed(c)
     for gone in (
         "current_session", "selenium_flow_skill", "list_flows", "get_flow",
         "flow_schema", "list_secrets",
@@ -103,11 +134,11 @@ async def test_the_old_per_resource_tools_are_gone(reader, monkeypatch):
 
 async def test_the_listing_is_every_uri_to_read_and_nothing_to_draw(built_ui, reader):
     async with Client(reader.mcp.server) as c:
-        rows = (await c.call_tool(mirror.LIST_TOOL, {})).structured_content["result"]
+        result = await c.call_tool("list_resources", {})
+    rows = json.loads(result.content[0].text)["resources"]
     uris = {row.get("uri") or row.get("uri_template") for row in rows}
     assert RESOURCE_URI in uris
     assert "skill://selenium-flow/driving-a-browser/SKILL.md" in uris
-    assert "flow://flows/{name}" in uris
     assert not any(u.startswith("ui://") for u in uris), "the app shell is not reading"
 
 
@@ -117,12 +148,6 @@ async def test_a_resource_reads_the_same_through_the_tool(reader):
     assert got["name"] == "login" and got["steps"]
     skill = (await read(reader, "skill://selenium-flow/driving-a-browser/SKILL.md")).content[0].text
     assert "name: driving-a-browser" in skill
-
-
-async def test_a_uri_that_is_not_there_is_told_the_templates(reader):
-    with pytest.raises(ToolError) as refused:
-        await read(reader, "flows://login")
-    assert "flow://flows/{name}" in str(refused.value)
 
 
 async def test_the_app_shell_is_refused_rather_than_read(reader):
@@ -154,15 +179,25 @@ async def test_any_other_binary_is_described_not_dumped(reader):
     said = json.loads(result.content[0].text)
     assert said["binary"] is True and said["bytes"] == len(pdf)
     assert said["mime_type"] == "application/pdf"
-    assert "Read session://downloads for this file's link" in said["read"]
+    assert said["read"] == (
+        "Not returned: binary content is not text. Read session://downloads for this "
+        "file's link, which any HTTP client can download."
+    )
     assert len(result.content[0].text) < 1_000
 
 
-async def test_both_tools_only_read(reader, monkeypatch):
-    monkeypatch.setattr(clients_module, "request_values", lambda: http({"resources": "off"}))
-    async with Client(reader.mcp.server) as c:
+def test_where_linked_names_the_listing_that_holds_the_link():
+    said = "Read {} for this file's link, which any HTTP client can download."
+    assert where_linked("workspace://files/report.pdf") == said.format("workspace://files")
+    assert where_linked("session://downloads/report.pdf") == said.format("session://downloads")
+    assert where_linked("session://tester/downloads/g.pdf") == said.format("session://tester/downloads")
+    assert where_linked("flow://flows/login") is None
+
+
+async def test_both_tools_only_read(reader):
+    async with over_http(reader, {"X-MCP-Resources": "off"}) as c:
         tools = {t.name: t for t in await c.list_tools()}
-    for name in mirror.MIRROR_TOOLS:
+    for name in RESOURCE_TOOLS:
         assert tools[name].annotations.read_only_hint is True, name
 
 
@@ -287,15 +322,7 @@ async def test_a_flow_that_is_not_there_says_where_the_flows_are(reader):
     assert "flow://flows" in str(refused.value)
 
 
-async def test_the_listing_publishes_both_row_shapes(reader):
-    """A tool-only client learns from the output schema which rows have a uri
-    and which a uri_template (Copilot, #39)."""
-    tool = await reader.mcp.get_tool(mirror.LIST_TOOL)
-    schema = json.dumps(tool.output_schema)
-    assert "uri_template" in schema and "mime_type" in schema
-
-
-async def test_the_mirror_refuses_an_old_uri_naming_the_new_one(reader):
+async def test_read_resource_refuses_an_old_uri_naming_the_new_one(reader):
     from fastmcp.exceptions import ToolError
 
     with pytest.raises(ToolError, match="`session://current` is now `workspace://current`"):
@@ -330,7 +357,7 @@ async def read_whole(server):
         return json.loads((await c.read_resource(RESOURCE_URI))[0].text)
 
 
-async def test_a_part_is_the_wholes_value_through_the_mirror_too(reader):
+async def test_a_part_is_the_wholes_value_through_read_resource_too(reader):
     result = await read(reader, f"{RESOURCE_URI}/browser")
     assert json.loads(result.content[0].text) == {"workspace": NAMED, "browser": None}
 

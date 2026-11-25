@@ -525,16 +525,17 @@ def test_the_admin_says_where_a_sub_sessions_request_is(server):
 
 
 
-async def test_the_mirror_says_where_a_named_sessions_download_is_linked(server):
-    from kubed.selenium_flow.mcp import mirror
-
+async def test_read_resource_says_where_a_named_sessions_download_is_linked(server):
     server.workspaces.actions.grid.read_file = lambda sid, name: b"%PDF" + b"x" * 100
     async with Client(server.mcp.server) as c:
         result = await c.call_tool(
-            mirror.READ_TOOL, {"uri": "session://tester/downloads/g-tester.pdf"}
+            "read_resource", {"uri": "session://tester/downloads/g-tester.pdf"}
         )
     said = json.loads(result.content[0].text)
-    assert "Read session://tester/downloads for this file's link" in said["read"]
+    assert said["read"] == (
+        "Not returned: binary content is not text. Read session://tester/downloads "
+        "for this file's link, which any HTTP client can download."
+    )
 
 
 async def test_show_draws_what_a_named_session_points_at(server, built_ui):
@@ -736,7 +737,7 @@ async def test_no_log_line_names_a_sub_session(server, caplog, monkeypatch):
                 await c.read_resource(f"session://{SUBJECT}/{tail}")
         with contextlib.suppress(MCPError):
             await c.read_resource(f"session://{SUBJECT}/downloads/nothing.pdf")
-        # The mirror passes the URI in its error.
+        # read_resource passes the URI in its error.
         for uri in (f"session://{GONE}/network", f"session://{SUBJECT}/nothing"):
             with pytest.raises(ToolError) as refused:
                 await c.call_tool("read_resource", {"uri": uri})

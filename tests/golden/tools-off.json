@@ -711,7 +711,7 @@
       "read_only_hint": true,
       "title": "List resources"
     },
-    "description": "List the resources and templates to start from: each row's uri, name and description, and uri_template rows whose {placeholders} you fill in. A skill's other files are named in its SKILL.md. Read one with read_resource.",
+    "description": "List every resource this server has, as resources/list does for this request.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -1227,11 +1227,11 @@
     "annotations": {
       "destructive_hint": false,
       "idempotent_hint": true,
-      "open_world_hint": true,
+      "open_world_hint": false,
       "read_only_hint": true,
       "title": "Read a resource"
     },
-    "description": "Read the resource at uri: workspace://current, skill://selenium-flow/driving-a-browser/SKILL.md, flow://flows/{name}, anything list_resources shows or a skill page names. Images come back as images; other binary files are described, not returned.",
+    "description": "Read one resource by its URI, as resources/read does.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

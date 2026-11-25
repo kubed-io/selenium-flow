@@ -2,11 +2,13 @@
 
 It is state to read, not an action to perform, so a client can pull it into
 context without spending a tool call. A client that cannot read resources reads
-it through `mirror.read_resource`, at the same URI.
+it through kubed-mcp's `read_resource` (DLV-6), at the same URI; for a binary
+file that tool reads, `where_linked` says where its link is listed.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 from kubed.mcp import QuickMCP
@@ -56,6 +58,34 @@ PART_DESCRIPTION = (
     "key is refused, and the refusal lists them. Built as workspace://current "
     "is, and reading it never opens a browser."
 )
+
+
+# Where a binary file's link is listed, by the prefix of its URI.
+LINKED_FROM = (
+    ("workspace://files/", "workspace://files"),
+    ("session://downloads/", "session://downloads"),
+)
+
+
+# A named session's downloads: its listing is the URI up to the file.
+NAMED_DOWNLOAD = re.compile(r"(session://[^/?]+/downloads)/[^/]+")
+
+
+def where_linked(uri: str) -> str | None:
+    """Where the link of the binary file at ``uri`` is listed, or None.
+
+    kubed-mcp's `read_resource` says it after "Not returned: binary content is
+    not text." in place of bytes a model cannot use (DLV-6).
+    """
+    named = NAMED_DOWNLOAD.fullmatch(uri)
+    linked = ((uri, named.group(1)),) if named else LINKED_FROM
+    for prefix, listing in linked:
+        if uri.startswith(prefix):
+            return (
+                f"Read {listing} for this file's link, which any HTTP "
+                "client can download."
+            )
+    return None
 
 
 def register(mcp: QuickMCP, workspaces: Workspaces) -> None:

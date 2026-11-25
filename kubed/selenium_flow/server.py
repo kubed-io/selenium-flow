@@ -39,7 +39,6 @@ from .mcp import (
     control,
     failures,
     instructions,
-    mirror,
     resources,
     scrubbed,
     show,
@@ -290,7 +289,7 @@ class SeleniumMCP:
         self.mcp = QuickMCP(
             SERVER_NAME,
             config=settings,
-            instructions=instructions.first_instructions(),
+            instructions=instructions.instructions(),
             auth=self.doors.mcp,
             lifespan=lifespan,
         )
@@ -308,9 +307,10 @@ class SeleniumMCP:
 
         # Everything to read is a resource.
         resources.register(self.mcp, self.workspaces)
-        # A client that cannot read resources gets `mirror`'s two tools, which
-        # read the same URIs.
-        mirror.register(self.mcp)
+        # A client that cannot read resources gets kubed-mcp's list_resources
+        # and read_resource (DLV-6), over the same URIs; a binary file read
+        # there is pointed at the listing that holds its link.
+        self.mcp.binary_pointer(resources.where_linked)
         completions.register(self.mcp)
 
         if not admin_page.ui_built("admin"):
@@ -386,8 +386,8 @@ class SeleniumMCP:
             self.mcp, self.secrets, auth_token, prefix=self.prefix,
             configs=self.configs,
         )
-        self.mcp.add_middleware(mirror.HideMirrors(app_tools, apps_enabled))
-        self.mcp.add_middleware(instructions.InstructionsFor())
+        self.mcp.add_middleware(apps.HideApps(app_tools, apps_enabled))
+        self.mcp.instructions(instructions.for_delivery)
         # Before anything names the workspace to act on it: a workspace whose
         # config is refused answers nothing else.
         self.mcp.add_middleware(clients.Refused(self.configs))

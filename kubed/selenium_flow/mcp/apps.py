@@ -3,8 +3,9 @@
 `show` returns one resource's JSON and the name of the component that draws it,
 and the host paints it in a sandboxed iframe beside the tool call. A client
 without the UI extension reads the same JSON as a resource or through
-`read_resource`. An MCP client sees only its own workspace, so the workspace
-list is never a tool or a resource.
+kubed-mcp's `read_resource`, and `HideApps` keeps the app tools out of its
+listing. An MCP client sees only its own workspace, so the workspace list is
+never a tool or a resource.
 
 An app runs on a sandbox origin of the host's choosing, so its URLs are
 absolute: without PUBLIC_BASE_URL they are paths only something that knows the
@@ -16,6 +17,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlsplit
 
+from kubed.mcp import Middleware
 from kubed.mcp.protocol import UI_EXTENSION_ID, AppConfig, ResourceCSP
 from kubed.mcp.request import get_context
 
@@ -41,6 +43,25 @@ def supported() -> bool:
         return bool(get_context().client_supports_extension(UI_EXTENSION_ID))
     except Exception:  # noqa: BLE001 - capability probing must not fail a tool
         return False
+
+
+class HideApps(Middleware):
+    """Keep the app tools out of the listing of a client that cannot draw them.
+
+    One server object serves every client, so the listing is filtered per
+    request. Hidden tools stay callable. ``app_tools`` are listed only to a host
+    that renders MCP Apps.
+    """
+
+    def __init__(self, app_tools=(), apps_enabled: bool = True):
+        self.app_tools = set(app_tools)
+        self.apps_enabled = apps_enabled
+
+    async def on_list_tools(self, context, call_next):
+        tools = await call_next(context)
+        if self.apps_enabled and supported():
+            return tools
+        return [tool for tool in tools if tool.name not in self.app_tools]
 
 
 def config_for(base: str) -> AppConfig:
