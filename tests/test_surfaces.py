@@ -17,9 +17,9 @@ from kubed.selenium_flow.core.capabilities import (
 )
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
-from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import mirror
 
+from .conftest import over_http
 from .fakes import KeyDriver
 
 pytestmark = pytest.mark.unit
@@ -174,7 +174,7 @@ async def test_open_session_takes_headless_as_an_optional_boolean(server):
 
 
 @pytest.mark.parametrize("resources", ["on", "off"])
-async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resources):
+async def test_every_tool_declares_its_safety_hints(server, resources):
     """A client reads these to decide whether to ask the user first.
 
     An unannotated tool falls back to the MCP defaults — `readOnlyHint` false
@@ -187,10 +187,8 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
     checking only the default mode once left the mirrors unannotated —
     advertised as destructive when every one of them merely reads.
     """
-    monkeypatch.setattr(
-        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
-    )
-    tools = await server.mcp.server.list_tools()
+    async with over_http(server, {"X-MCP-Resources": resources}) as client:
+        tools = await client.list_tools()
     assert tools, "no tools listed, so this proves nothing"
     for tool in tools:
         hints = tool.annotations
@@ -199,7 +197,7 @@ async def test_every_tool_declares_its_safety_hints(server, monkeypatch, resourc
 
 
 @pytest.mark.parametrize("resources", ["on", "off"])
-async def test_only_reading_the_page_is_marked_read_only(server, monkeypatch, resources):
+async def test_only_reading_the_page_is_marked_read_only(server, resources):
     """The hint is a promise a client is entitled to act on, so it is asserted
     against a named list rather than left to whoever adds the next tool.
 
@@ -215,13 +213,10 @@ async def test_only_reading_the_page_is_marked_read_only(server, monkeypatch, re
     only reads, where `execute_script` hands the page whatever the caller wrote.
     The rule is about what the page is asked to do, not about the mechanism.
     """
-    monkeypatch.setattr(
-        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
-    )
+    async with over_http(server, {"X-MCP-Resources": resources}) as client:
+        tools = await client.list_tools()
     read_only = {
-        t.name
-        for t in await server.mcp.server.list_tools()
-        if t.annotations.read_only_hint
+        t.name for t in tools if t.annotations and t.annotations.readOnlyHint
     } - FLOW_TOOLS - mirror.MIRROR_TOOLS
     assert read_only == {
         "extract", "outline", "network_body", "await_control"

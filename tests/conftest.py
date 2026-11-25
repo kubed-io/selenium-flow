@@ -13,9 +13,13 @@ anything that needs a live Grid is an integration test and is marked as one.
 """
 
 import logging
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
+from urllib.parse import urlencode
 
+import httpx2
 import pytest
+from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.config import Settings
@@ -118,6 +122,37 @@ def http(params=None, headers=None):
         {k: [v] for k, v in (params or {}).items()},
         {k: [v] for k, v in (headers or {}).items()},
     )
+
+
+@asynccontextmanager
+async def over_http(server, headers=None, params=None, *, mode=None, client_info=None):
+    """A client of ``server`` over the real ASGI app, authenticated with ``TOKEN``.
+
+    ``headers`` and ``params`` travel as an HTTP client would send them, so the
+    server reads them itself. ``mode`` and ``client_info`` go to ``Client`` when given.
+    """
+    app = server.mcp.server.http_app()
+
+    def factory(headers=None, timeout=None, auth=None, **kwargs):
+        return httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=app),
+            base_url="http://test",
+            headers=headers,
+            timeout=timeout if timeout is not None else httpx2.Timeout(30),
+            **kwargs,
+        )
+
+    url = f"http://test/mcp?{urlencode(params)}" if params else "http://test/mcp"
+    transport = StreamableHttpTransport(
+        url,
+        headers={"Authorization": f"Bearer {TOKEN}", **(headers or {})},
+        httpx_client_factory=factory,
+    )
+    options = {"client_info": client_info}
+    if mode is not None:
+        options["mode"] = mode
+    async with app.router.lifespan_context(app), Client(transport, **options) as client:
+        yield client
 
 
 def manager(actions=None, store=None):
