@@ -26,7 +26,6 @@ pytestmark = pytest.mark.unit
 NAMESPACE = "selenium-flow"
 PROMPTS = f"prompts://{NAMESPACE}"
 AGENTS = f"agents://{NAMESPACE}"
-DIRECTORY = "inode/directory"
 VALUE = "selenium-flow"
 
 
@@ -126,9 +125,8 @@ async def test_the_agent_row_carries_its_agent(server):
     async with Client(server.mcp.server) as client:
         (row,) = await read_json(client, f"{AGENTS}/_index.json")
         got = await request(client, "agents/get", name="explorer")
-    meta = row["_meta"]["io.kubed/agent"]
-    assert meta["name"] == "explorer"
-    assert all(meta[k] == v for k, v in got["_meta"]["io.kubed/agent"].items())
+    agent = {**got["_meta"]["io.kubed/agent"], "name": "explorer"}
+    assert row["_meta"] == {"io.kubed/agent": agent}
 
 
 async def test_neither_scheme_is_listed(server):

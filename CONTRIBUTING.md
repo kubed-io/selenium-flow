@@ -203,7 +203,9 @@ ships only if `[tool.setuptools.package-data]` matches it; the patterns spell ou
 is its name, and its `SKILL.md` is an index: every `references/` file it names exists and every file
 is linked from it, and a reference's file name is unique across the skills ([plugin.md](docs/superpowers/specs/plugin.md)). The server serves the folder with
 kubed-mcp's `mcp.add_plugin`: each skill at `skill://selenium-flow/<name>/SKILL.md`, each command
-as a prompt, each agent on `agents/list`.
+as a prompt and at `prompts://selenium-flow/<name>.md`, and each agent on `agents/list` and at
+`agents://selenium-flow/<name>.md`. The last two are unlisted by default, with an `_index.md` and an
+`_index.json` per folder.
 
 ### Python style
 

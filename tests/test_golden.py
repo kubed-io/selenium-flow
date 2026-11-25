@@ -258,6 +258,8 @@ async def plugin_surface(server, mode: str, resources: str) -> dict:
                 for row in result["resources"]:
                     if row.get("mimeType") == DIRECTORY:
                         pending.append(row["uri"])
+                    # A skill's files come from skills/list's rows below; only prompt
+                    # and agent files are collected here.
                     elif not folder.startswith("skill://"):
                         files.append(row["uri"])
 
