@@ -158,6 +158,116 @@
     ]
   },
   "resources/directory/read": {
+    "agents://selenium-flow": {
+      "resources": [
+        {
+          "_meta": {
+            "io.kubed/agent": {
+              "frontmatter": {
+                "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+                "maxTurns": 40,
+                "model": "sonnet",
+                "name": "explorer",
+                "skills": [
+                  "driving-a-browser",
+                  "building-flows"
+                ],
+                "tools": [
+                  "open_session",
+                  "navigate",
+                  "extract",
+                  "outline",
+                  "screenshot",
+                  "interact",
+                  "write",
+                  "press_key",
+                  "frame",
+                  "dialog",
+                  "await_control",
+                  "run_flow",
+                  "save_flow",
+                  "execute_script",
+                  "end_browser",
+                  "ReadMcpResourceTool",
+                  "ToolSearch"
+                ]
+              },
+              "name": "explorer",
+              "skills": {
+                "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
+                "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md"
+              }
+            }
+          },
+          "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+          "mimeType": "text/markdown",
+          "name": "explorer",
+          "uri": "agents://selenium-flow/explorer.md"
+        }
+      ]
+    },
+    "prompts://selenium-flow": {
+      "resources": [
+        {
+          "_meta": {
+            "io.kubed/prompt": {
+              "argument-hint": "<task> <url> [name]",
+              "arguments": [
+                {
+                  "description": "What the flow should do, in a sentence — \"sign in and open the orders page for an account\".",
+                  "name": "task",
+                  "required": true
+                },
+                {
+                  "description": "Where it starts.",
+                  "name": "url",
+                  "required": true
+                },
+                {
+                  "description": "What to save it as. Leave empty and a name will be proposed from the task.",
+                  "name": "name",
+                  "required": false
+                }
+              ],
+              "name": "build_flow"
+            }
+          },
+          "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+          "mimeType": "text/markdown",
+          "name": "build_flow",
+          "uri": "prompts://selenium-flow/build_flow.md"
+        },
+        {
+          "_meta": {
+            "io.kubed/prompt": {
+              "argument-hint": "<flow> [step] [symptom]",
+              "arguments": [
+                {
+                  "description": "The flow's name, as flow://flows lists it.",
+                  "name": "flow",
+                  "required": true
+                },
+                {
+                  "description": "Which step failed, if you know. Leave empty to find out by running it.",
+                  "name": "step",
+                  "required": false
+                },
+                {
+                  "description": "What went wrong, in a few words. Leave empty to start from the failure itself.",
+                  "name": "symptom",
+                  "required": false
+                }
+              ],
+              "name": "repair_flow"
+            }
+          },
+          "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+          "mimeType": "text/markdown",
+          "name": "repair_flow",
+          "uri": "prompts://selenium-flow/repair_flow.md"
+        }
+      ]
+    },
     "skill://selenium-flow/building-flows": {
       "resources": [
         {
@@ -639,6 +749,152 @@
     }
   ],
   "resources/read": {
+    "agents://selenium-flow/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "io.kubed/agent": {
+                "frontmatter": {
+                  "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+                  "maxTurns": 40,
+                  "model": "sonnet",
+                  "name": "explorer",
+                  "skills": [
+                    "driving-a-browser",
+                    "building-flows"
+                  ],
+                  "tools": [
+                    "open_session",
+                    "navigate",
+                    "extract",
+                    "outline",
+                    "screenshot",
+                    "interact",
+                    "write",
+                    "press_key",
+                    "frame",
+                    "dialog",
+                    "await_control",
+                    "run_flow",
+                    "save_flow",
+                    "execute_script",
+                    "end_browser",
+                    "ReadMcpResourceTool",
+                    "ToolSearch"
+                  ]
+                },
+                "name": "explorer",
+                "skills": {
+                  "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
+                  "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md"
+                }
+              }
+            },
+            "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+            "mimeType": "text/markdown",
+            "name": "explorer",
+            "uri": "agents://selenium-flow/explorer.md"
+          }
+        ]
+      }
+    ],
+    "agents://selenium-flow/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "agents://selenium-flow/explorer.md: Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".\n"
+      }
+    ],
+    "agents://selenium-flow/explorer.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/agents/explorer.md>"
+      }
+    ],
+    "prompts://selenium-flow/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "io.kubed/prompt": {
+                "argument-hint": "<task> <url> [name]",
+                "arguments": [
+                  {
+                    "description": "What the flow should do, in a sentence — \"sign in and open the orders page for an account\".",
+                    "name": "task",
+                    "required": true
+                  },
+                  {
+                    "description": "Where it starts.",
+                    "name": "url",
+                    "required": true
+                  },
+                  {
+                    "description": "What to save it as. Leave empty and a name will be proposed from the task.",
+                    "name": "name",
+                    "required": false
+                  }
+                ],
+                "name": "build_flow"
+              }
+            },
+            "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+            "mimeType": "text/markdown",
+            "name": "build_flow",
+            "uri": "prompts://selenium-flow/build_flow.md"
+          },
+          {
+            "_meta": {
+              "io.kubed/prompt": {
+                "argument-hint": "<flow> [step] [symptom]",
+                "arguments": [
+                  {
+                    "description": "The flow's name, as flow://flows lists it.",
+                    "name": "flow",
+                    "required": true
+                  },
+                  {
+                    "description": "Which step failed, if you know. Leave empty to find out by running it.",
+                    "name": "step",
+                    "required": false
+                  },
+                  {
+                    "description": "What went wrong, in a few words. Leave empty to start from the failure itself.",
+                    "name": "symptom",
+                    "required": false
+                  }
+                ],
+                "name": "repair_flow"
+              }
+            },
+            "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+            "mimeType": "text/markdown",
+            "name": "repair_flow",
+            "uri": "prompts://selenium-flow/repair_flow.md"
+          }
+        ]
+      }
+    ],
+    "prompts://selenium-flow/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "prompts://selenium-flow/build_flow.md: Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.\nprompts://selenium-flow/repair_flow.md: Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.\n"
+      }
+    ],
+    "prompts://selenium-flow/build_flow.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/commands/build_flow.md>"
+      }
+    ],
+    "prompts://selenium-flow/repair_flow.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/commands/repair_flow.md>"
+      }
+    ],
     "skill://selenium-flow/building-flows/SKILL.md": [
       {
         "mimeType": "text/markdown",
