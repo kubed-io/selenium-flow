@@ -12,7 +12,7 @@ def root(skill: str) -> str:
     return f"skill://{SERVER_NAME}/{skill}"
 
 
-# The entry point: the one skill the instructions and the mirror name.
+# The entry point: the one skill the instructions name.
 ENTRY = f"{root('driving-a-browser')}/SKILL.md"
 
 # The references a pointer may name, and the skill that ships each. A file name

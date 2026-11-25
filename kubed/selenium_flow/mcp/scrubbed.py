@@ -6,21 +6,25 @@ each read is scrubbed with every leashed secret and whatever the browser of the
 session it belongs to holds (`Scrubber.resource`, `_owner`).
 
 `Scrubbed` is a middleware on `on_read_resource`, which FastMCP also runs for
-`FastMCP.read_resource`, so a client's own reader, `read_resource` (`mirror`)
-and `show` see one scrubbed text.
+`FastMCP.read_resource`, so a client's own reader, kubed-mcp's `read_resource`
+tool (DLV-6) and `show` see one scrubbed text.
 
 Text is scrubbed, and JSON text also value by value: a value a page spelt
 backwards, upper-cased or with a quote in it is escaped again by the serialiser,
 where the text scan would not see it. Bytes whose media type is text (a kept
 `.txt`, a downloaded `.csv`) are scrubbed as UTF-8, any byte that is not carried
-through as it is, because the mirror hands them to a model as text. Other bytes
-(an image, a PDF, a video) pass as they are.
+through as it is. Bytes of any other type are scrubbed as text too when they
+decode as strict UTF-8: `read_resource` types a blob by kubed-mcp's own table of
+extensions (a `.cfg`, `.ini` or `.ts` is text there and unknown to `mimetypes`)
+and hands it to a model as text when its bytes are UTF-8, so whatever either
+table says, what can reach a model as text is scrubbed. Other bytes (an image, a
+PDF, a video) pass as they are.
 
 A refusal is scrubbed too, in place and keeping its type. FastMCP logs a failed
 read before any middleware runs; `failures.QuietCallerMistakes` handles that.
 
-Exempt: what this server wrote itself and can hold no value (the skill, the app
-shell, the flow document schema and the secrets catalogue).
+Exempt: what this server wrote itself and can hold no value (the skills, the prompts
+and the agent, the app shell, the flow document schema and the secrets catalogue).
 
 A read whose scrub fails answers `ResourceError` with the `ScrubFailed`
 sentence, never the unscrubbed text, and the failure is logged by its type
@@ -46,7 +50,7 @@ from . import clients
 log = logging.getLogger(__name__)
 
 # Text this server wrote, which holds no value.
-EXEMPT = ("skill://", "ui://", "flow://schema", "secret://secrets")
+EXEMPT = ("skill://", "prompts://", "agents://", "ui://", "flow://schema", "secret://secrets")
 
 # Media types that are text whatever their `text/` prefix says.
 TEXT_TYPES = frozenset(
@@ -173,13 +177,19 @@ class Scrubbed(Middleware):
         return out if changed else None
 
     def _bytes(self, name: str, uri: str, item: ResourceContent, data: bytes):
-        """Text served as bytes, scrubbed as text; anything else as it is."""
+        """Text served as bytes, and any bytes that are UTF-8, scrubbed as text;
+        anything else as it is."""
         media = _media(uri, item.mime_type)
-        if not textual(media):
-            return data
-        # Bytes that are not UTF-8 ride through as surrogates and come back as
-        # they were.
-        text = data.decode("utf-8", errors="surrogateescape")
+        if textual(media):
+            # Bytes that are not UTF-8 ride through as surrogates and come back
+            # as they were.
+            text = data.decode("utf-8", errors="surrogateescape")
+        else:
+            # A reader may type the name by a table of its own, and decode it.
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError:
+                return data
         scrubbed = self._text(name, media, text)
         if scrubbed is text:
             return data

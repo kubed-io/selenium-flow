@@ -214,10 +214,6 @@ def test_a_session_name_is_unnamed_over_http(server, path, headers):  # ruling 1
     assert response.json() == {"error": UNNAMED}
 
 
-def test_x_mcp_resources_is_still_read():  # ruling 4
-    assert caller_of(headers={"sf-workspace": "desk", "x-mcp-resources": "off"}).flags == {"resources": "off"}
-
-
 def test_naming_it_twice_is_refused_rather_than_resolved():
     """Dr K's rule, and it replaces a precedence the old surface had. A request
     carrying both has two ideas about who is calling, and picking one hides that

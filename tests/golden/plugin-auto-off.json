@@ -165,6 +165,118 @@
     "ttlMs": 0
   },
   "resources/directory/read": {
+    "agents://selenium-flow": {
+      "resources": [
+        {
+          "_meta": {
+            "io.kubed/agent": {
+              "frontmatter": {
+                "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+                "maxTurns": 40,
+                "model": "sonnet",
+                "name": "explorer",
+                "skills": [
+                  "driving-a-browser",
+                  "building-flows"
+                ],
+                "tools": [
+                  "open_session",
+                  "navigate",
+                  "extract",
+                  "outline",
+                  "screenshot",
+                  "interact",
+                  "write",
+                  "press_key",
+                  "frame",
+                  "dialog",
+                  "await_control",
+                  "run_flow",
+                  "save_flow",
+                  "execute_script",
+                  "end_browser",
+                  "ReadMcpResourceTool",
+                  "ToolSearch"
+                ]
+              },
+              "name": "explorer",
+              "skills": {
+                "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
+                "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md"
+              }
+            }
+          },
+          "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+          "mimeType": "text/markdown",
+          "name": "explorer",
+          "uri": "agents://selenium-flow/explorer.md"
+        }
+      ],
+      "resultType": "complete"
+    },
+    "prompts://selenium-flow": {
+      "resources": [
+        {
+          "_meta": {
+            "io.kubed/prompt": {
+              "argument-hint": "<task> <url> [name]",
+              "arguments": [
+                {
+                  "description": "What the flow should do, in a sentence — \"sign in and open the orders page for an account\".",
+                  "name": "task",
+                  "required": true
+                },
+                {
+                  "description": "Where it starts.",
+                  "name": "url",
+                  "required": true
+                },
+                {
+                  "description": "What to save it as. Leave empty and a name will be proposed from the task.",
+                  "name": "name",
+                  "required": false
+                }
+              ],
+              "name": "build_flow"
+            }
+          },
+          "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+          "mimeType": "text/markdown",
+          "name": "build_flow",
+          "uri": "prompts://selenium-flow/build_flow.md"
+        },
+        {
+          "_meta": {
+            "io.kubed/prompt": {
+              "argument-hint": "<flow> [step] [symptom]",
+              "arguments": [
+                {
+                  "description": "The flow's name, as flow://flows lists it.",
+                  "name": "flow",
+                  "required": true
+                },
+                {
+                  "description": "Which step failed, if you know. Leave empty to find out by running it.",
+                  "name": "step",
+                  "required": false
+                },
+                {
+                  "description": "What went wrong, in a few words. Leave empty to start from the failure itself.",
+                  "name": "symptom",
+                  "required": false
+                }
+              ],
+              "name": "repair_flow"
+            }
+          },
+          "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+          "mimeType": "text/markdown",
+          "name": "repair_flow",
+          "uri": "prompts://selenium-flow/repair_flow.md"
+        }
+      ],
+      "resultType": "complete"
+    },
     "skill://selenium-flow/building-flows": {
       "resources": [
         {
@@ -656,6 +768,152 @@
     }
   ],
   "resources/read": {
+    "agents://selenium-flow/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "io.kubed/agent": {
+                "frontmatter": {
+                  "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+                  "maxTurns": 40,
+                  "model": "sonnet",
+                  "name": "explorer",
+                  "skills": [
+                    "driving-a-browser",
+                    "building-flows"
+                  ],
+                  "tools": [
+                    "open_session",
+                    "navigate",
+                    "extract",
+                    "outline",
+                    "screenshot",
+                    "interact",
+                    "write",
+                    "press_key",
+                    "frame",
+                    "dialog",
+                    "await_control",
+                    "run_flow",
+                    "save_flow",
+                    "execute_script",
+                    "end_browser",
+                    "ReadMcpResourceTool",
+                    "ToolSearch"
+                  ]
+                },
+                "name": "explorer",
+                "skills": {
+                  "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
+                  "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md"
+                }
+              }
+            },
+            "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+            "mimeType": "text/markdown",
+            "name": "explorer",
+            "uri": "agents://selenium-flow/explorer.md"
+          }
+        ]
+      }
+    ],
+    "agents://selenium-flow/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "agents://selenium-flow/explorer.md: Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".\n"
+      }
+    ],
+    "agents://selenium-flow/explorer.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/agents/explorer.md>"
+      }
+    ],
+    "prompts://selenium-flow/_index.json": [
+      {
+        "mimeType": "application/json",
+        "text": [
+          {
+            "_meta": {
+              "io.kubed/prompt": {
+                "argument-hint": "<task> <url> [name]",
+                "arguments": [
+                  {
+                    "description": "What the flow should do, in a sentence — \"sign in and open the orders page for an account\".",
+                    "name": "task",
+                    "required": true
+                  },
+                  {
+                    "description": "Where it starts.",
+                    "name": "url",
+                    "required": true
+                  },
+                  {
+                    "description": "What to save it as. Leave empty and a name will be proposed from the task.",
+                    "name": "name",
+                    "required": false
+                  }
+                ],
+                "name": "build_flow"
+              }
+            },
+            "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+            "mimeType": "text/markdown",
+            "name": "build_flow",
+            "uri": "prompts://selenium-flow/build_flow.md"
+          },
+          {
+            "_meta": {
+              "io.kubed/prompt": {
+                "argument-hint": "<flow> [step] [symptom]",
+                "arguments": [
+                  {
+                    "description": "The flow's name, as flow://flows lists it.",
+                    "name": "flow",
+                    "required": true
+                  },
+                  {
+                    "description": "Which step failed, if you know. Leave empty to find out by running it.",
+                    "name": "step",
+                    "required": false
+                  },
+                  {
+                    "description": "What went wrong, in a few words. Leave empty to start from the failure itself.",
+                    "name": "symptom",
+                    "required": false
+                  }
+                ],
+                "name": "repair_flow"
+              }
+            },
+            "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+            "mimeType": "text/markdown",
+            "name": "repair_flow",
+            "uri": "prompts://selenium-flow/repair_flow.md"
+          }
+        ]
+      }
+    ],
+    "prompts://selenium-flow/_index.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "prompts://selenium-flow/build_flow.md: Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.\nprompts://selenium-flow/repair_flow.md: Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.\n"
+      }
+    ],
+    "prompts://selenium-flow/build_flow.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/commands/build_flow.md>"
+      }
+    ],
+    "prompts://selenium-flow/repair_flow.md": [
+      {
+        "mimeType": "text/markdown",
+        "text": "<plugin/commands/repair_flow.md>"
+      }
+    ],
     "skill://selenium-flow/building-flows/SKILL.md": [
       {
         "mimeType": "text/markdown",
@@ -1856,422 +2114,393 @@
     "ttlMs": 0
   },
   "tools/list_resources": {
-    "_meta": {
-      "fastmcp": {
-        "wrap_result": true
-      }
-    },
     "content": [
       {
-        "text": [
-          {
-            "description": "The workspace this client named, and your own session (browser) in it. Any session, by name, is session://{name}.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nconfig is this workspace's own settings, each with its value and its source (default or workspace). Only an admin changes them, at config_url when the server has one.\n\ntags maps each tag in use on this workspace's flows, and the global flows it is offered, to how many carry it: reuse one when you tag a flow.\n\nReading this never opens a browser: live is false when no session is open.",
-            "mime_type": "application/json",
-            "name": "Current Workspace",
-            "uri": "workspace://current"
-          },
-          {
-            "description": "What your session's last save_site_data holds: one entry per site with counts, never a value; the sites the workspace went to come first. Every browser this session opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full; session://{name}/site-data is another session's. Reading this never opens a browser.",
-            "mime_type": "application/json",
-            "name": "Site Data",
-            "uri": "workspace://site-data"
-          },
-          {
-            "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
-            "mime_type": "application/json",
-            "name": "Console",
-            "uri": "workspace://console"
-          },
-          {
-            "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
-            "mime_type": "application/json",
-            "name": "Network",
-            "uri": "workspace://network"
-          },
-          {
-            "description": "The files in Files: prints, and anything kept with keep_file. Also names two folders — workspace://files/screenshots and workspace://files/recordings — each with its own listing. Your session's downloads are session://downloads, a named session's session://{name}/downloads.\n\nEvery entry carries its own uri, to keep with keep_file(uri), and a URL that opens in a browser for a while, so an image can be shown to someone rather than described to them.",
-            "mime_type": "application/json",
-            "name": "Workspace Files",
-            "uri": "workspace://files"
-          },
-          {
-            "description": "This workspace's saved screenshots, not yet kept. keep_file(uri) moves one into workspace://files, where it stays until a person deletes it. Prints land in Files directly, not here.",
-            "mime_type": "application/json",
-            "name": "Screenshots",
-            "uri": "workspace://files/screenshots"
-          },
-          {
-            "description": "This workspace's recordings: one video per browser opened with open_session(record=true), filed shortly after that browser ends. keep_file(uri) moves one into workspace://files. Each entry's url plays it; reading one by its uri answers that entry, not the video.",
-            "mime_type": "application/json",
-            "name": "Recordings",
-            "uri": "workspace://files/recordings"
-          },
-          {
-            "description": "Your own session's downloads; session://{name}/downloads lists another's. They belong to the browser and disappear when it ends or the Grid reaps it; keep_file(uri) copies one into workspace://files before that happens. With no session open, reading it says so.",
-            "mime_type": "application/json",
-            "name": "Downloads",
-            "uri": "session://downloads"
-          },
-          {
-            "description": "The flows this workspace can run: saved sequences of tool calls that run server-side in one call.\n\nEach entry has a name, a description, its tags, the parameters it takes and how many steps it has — never the steps themselves, which flow://flows/{name} returns.\n\nFlows saved in this workspace come first; anything in the shared 'global' library is also listed, and a flow of your own with the same name wins.",
-            "mime_type": "application/json",
-            "name": "Saved Flows",
-            "uri": "flow://flows"
-          },
-          {
-            "description": "The shape of a flow document: every tool that may be a step and the parameters it takes. Read this before writing a flow.",
-            "mime_type": "application/json",
-            "name": "Flow Document Schema",
-            "uri": "flow://schema"
-          },
-          {
-            "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites, unless its key_sources entry says masked: false.",
-            "mime_type": "application/json",
-            "name": "Secrets",
-            "uri": "secret://secrets"
-          },
-          {
-            "description": "<description of plugin/skills/building-flows/SKILL.md>",
-            "mime_type": "text/markdown",
-            "name": "selenium-flow/building-flows/SKILL.md",
-            "uri": "skill://selenium-flow/building-flows/SKILL.md"
-          },
-          {
-            "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
-            "mime_type": "text/markdown",
-            "name": "selenium-flow/deploying-the-server/SKILL.md",
-            "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
-          },
-          {
-            "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
-            "mime_type": "text/markdown",
-            "name": "selenium-flow/driving-a-browser/SKILL.md",
-            "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
-          },
-          {
-            "description": "<description of plugin/skills/signing-in/SKILL.md>",
-            "mime_type": "text/markdown",
-            "name": "selenium-flow/signing-in/SKILL.md",
-            "uri": "skill://selenium-flow/signing-in/SKILL.md"
-          },
-          {
-            "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
-            "mime_type": "text/markdown",
-            "name": "selenium-flow/using-the-admin-ui/SKILL.md",
-            "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
-          },
-          {
-            "description": "One key of workspace://current, as {workspace, <part>: value}: for instance workspace://current/url or workspace://current/grid_timeout. It is null when the workspace has nothing for that key. A name that is not a key is refused, and the refusal lists them. Built as workspace://current is, and reading it never opens a browser.",
-            "name": "Current Workspace, one part",
-            "uri_template": "workspace://current/{part}"
-          },
-          {
-            "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing. This is your own session's; session://{name}/site-data/{site} is another's.",
-            "name": "Site Data for One Site",
-            "uri_template": "workspace://site-data/{site}"
-          },
-          {
-            "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
-            "name": "Console, narrowed",
-            "uri_template": "workspace://console{?level,pages}"
-          },
-          {
-            "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
-            "name": "Network, narrowed",
-            "uri_template": "workspace://network{?filter,pages}"
-          },
-          {
-            "description": "One captured request in full: its headers (authorization, cookies and any secret you typed shown as •••), status, timing and size. network_body(id) fetches its response body. This is your own session's; session://{name}/network/{id} is another's, and network_body(id, session=name) fetches its body.",
-            "name": "One Request",
-            "uri_template": "workspace://network/{id}"
-          },
-          {
-            "description": "One session of this workspace, by name: the same answer as workspace://current, for that session instead of yours. default is the workspace's own; workspace://current's sessions lists the rest. Its console, network, site data and downloads are session://{name}/console, /network, /site-data and /downloads. A name with no session is not found. Reading this never opens a browser.",
-            "name": "Session",
-            "uri_template": "session://{name}"
-          },
-          {
-            "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
-            "name": "Session Console, narrowed",
-            "uri_template": "session://{name}/console{?level,pages}"
-          },
-          {
-            "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
-            "name": "Session Console",
-            "uri_template": "session://{name}/console"
-          },
-          {
-            "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
-            "name": "Session Network, narrowed",
-            "uri_template": "session://{name}/network{?filter,pages}"
-          },
-          {
-            "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
-            "name": "Session Network",
-            "uri_template": "session://{name}/network"
-          },
-          {
-            "description": "One of a session's captured requests in full, by name, as workspace://network/{id} shows yours. network_body(id, session=name) fetches its response body. A name with no session is not found.",
-            "name": "Session Request",
-            "uri_template": "session://{name}/network/{id}"
-          },
-          {
-            "description": "What one session's last save_site_data holds, by name, as workspace://site-data lists yours: counts, never a value. session://{name}/site-data/{site} shows one site in full. Reading this never opens a browser. A name with no session is not found.",
-            "name": "Session Site Data",
-            "uri_template": "session://{name}/site-data"
-          },
-          {
-            "description": "One site of a session's saved data, by name, as workspace://site-data/{site} shows yours; httpOnly values masked. The site is a host from the session://{name}/site-data listing. A name with no session is not found.",
-            "name": "Session Site Data for One Site",
-            "uri_template": "session://{name}/site-data/{site}"
-          },
-          {
-            "description": "The downloads of one session's browser, by name, as session://downloads lists yours. A name with no session is not found.",
-            "name": "Session Downloads",
-            "uri_template": "session://{name}/downloads"
-          },
-          {
-            "description": "One download of one session's browser, by name, as bytes: as session://downloads/{name} reads yours. A name with no session is not found.",
-            "name": "Session Download",
-            "uri_template": "session://{name}/downloads/{file}"
-          },
-          {
-            "description": "One file from Files, as bytes, carrying its own media type. The name comes from the workspace://files listing. A video (a kept recording) answers its entry instead, as JSON: its url plays it.",
-            "name": "Workspace File",
-            "uri_template": "workspace://files/{name}"
-          },
-          {
-            "description": "One screenshot, as bytes, from workspace://files/screenshots. It answers after the browser that took it has gone, because a screenshot is already ours (§F1.10).",
-            "name": "Screenshot",
-            "uri_template": "workspace://files/screenshots/{name}"
-          },
-          {
-            "description": "One download, as bytes, from session://downloads — read from the browser itself, so this answers only while it is open. keep_file(uri) copies it somewhere that outlives the browser.",
-            "name": "Download",
-            "uri_template": "session://downloads/{name}"
-          },
-          {
-            "description": "One recording from workspace://files/recordings, described: its url plays it. Not the video's bytes — a model cannot watch one, and a resource would carry it as base64.",
-            "name": "Recording",
-            "uri_template": "workspace://files/recordings/{name}"
-          },
-          {
-            "description": "One saved flow, with its steps. The name comes from the flow://flows listing.",
-            "name": "Saved Flow",
-            "uri_template": "flow://flows/{name}"
-          }
-        ],
+        "text": {
+          "resources": [
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "The workspace this client named, and your own session (browser) in it. Any session, by name, is session://{name}.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nconfig is this workspace's own settings, each with its value and its source (default or workspace). Only an admin changes them, at config_url when the server has one.\n\ntags maps each tag in use on this workspace's flows, and the global flows it is offered, to how many carry it: reuse one when you tag a flow.\n\nReading this never opens a browser: live is false when no session is open.",
+              "mimeType": "application/json",
+              "name": "Current Workspace",
+              "uri": "workspace://current"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "What your session's last save_site_data holds: one entry per site with counts, never a value; the sites the workspace went to come first. Every browser this session opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full; session://{name}/site-data is another session's. Reading this never opens a browser.",
+              "mimeType": "application/json",
+              "name": "Site Data",
+              "uri": "workspace://site-data"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
+              "mimeType": "application/json",
+              "name": "Console",
+              "uri": "workspace://console"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
+              "mimeType": "application/json",
+              "name": "Network",
+              "uri": "workspace://network"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "The files in Files: prints, and anything kept with keep_file. Also names two folders — workspace://files/screenshots and workspace://files/recordings — each with its own listing. Your session's downloads are session://downloads, a named session's session://{name}/downloads.\n\nEvery entry carries its own uri, to keep with keep_file(uri), and a URL that opens in a browser for a while, so an image can be shown to someone rather than described to them.",
+              "mimeType": "application/json",
+              "name": "Workspace Files",
+              "uri": "workspace://files"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "This workspace's saved screenshots, not yet kept. keep_file(uri) moves one into workspace://files, where it stays until a person deletes it. Prints land in Files directly, not here.",
+              "mimeType": "application/json",
+              "name": "Screenshots",
+              "uri": "workspace://files/screenshots"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "This workspace's recordings: one video per browser opened with open_session(record=true), filed shortly after that browser ends. keep_file(uri) moves one into workspace://files. Each entry's url plays it; reading one by its uri answers that entry, not the video.",
+              "mimeType": "application/json",
+              "name": "Recordings",
+              "uri": "workspace://files/recordings"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "Your own session's downloads; session://{name}/downloads lists another's. They belong to the browser and disappear when it ends or the Grid reaps it; keep_file(uri) copies one into workspace://files before that happens. With no session open, reading it says so.",
+              "mimeType": "application/json",
+              "name": "Downloads",
+              "uri": "session://downloads"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "The flows this workspace can run: saved sequences of tool calls that run server-side in one call.\n\nEach entry has a name, a description, its tags, the parameters it takes and how many steps it has — never the steps themselves, which flow://flows/{name} returns.\n\nFlows saved in this workspace come first; anything in the shared 'global' library is also listed, and a flow of your own with the same name wins.",
+              "mimeType": "application/json",
+              "name": "Saved Flows",
+              "uri": "flow://flows"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "The shape of a flow document: every tool that may be a step and the parameters it takes. Read this before writing a flow.",
+              "mimeType": "application/json",
+              "name": "Flow Document Schema",
+              "uri": "flow://schema"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites, unless its key_sources entry says masked: false.",
+              "mimeType": "application/json",
+              "name": "Secrets",
+              "uri": "secret://secrets"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/building-flows/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/building-flows/SKILL.md",
+              "uri": "skill://selenium-flow/building-flows/SKILL.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/deploying-the-server/SKILL.md",
+              "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/driving-a-browser/SKILL.md",
+              "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/signing-in/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/signing-in/SKILL.md",
+              "uri": "skill://selenium-flow/signing-in/SKILL.md"
+            },
+            {
+              "_meta": {
+                "fastmcp": {
+                  "tags": []
+                }
+              },
+              "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
+              "mimeType": "text/markdown",
+              "name": "selenium-flow/using-the-admin-ui/SKILL.md",
+              "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
+            }
+          ]
+        },
         "type": "text"
       }
     ],
     "isError": false,
-    "resultType": "complete",
-    "structuredContent": {
-      "result": [
-        {
-          "description": "The workspace this client named, and your own session (browser) in it. Any session, by name, is session://{name}.\n\nReturns the workspace name, which browser it is, the page it is on, the window size as WxH, whether it is inside a frame, and whether a session is currently open (live). Read it before judging anything about layout — the window is not a fixed size and is what decides whether something is off-screen.\n\ngrid_timeout is how many seconds the Grid lets a session in this workspace sit idle before it ends it; every call starts that clock again.\n\ncapture says whether this workspace's browsers capture their console and network (open_session(capture=true)); capturing is whether that is happening right now — false while it is paused, until the next call; captured counts what was kept since the last navigation. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture.\n\nconfig is this workspace's own settings, each with its value and its source (default or workspace). Only an admin changes them, at config_url when the server has one.\n\ntags maps each tag in use on this workspace's flows, and the global flows it is offered, to how many carry it: reuse one when you tag a flow.\n\nReading this never opens a browser: live is false when no session is open.",
-          "mime_type": "application/json",
-          "name": "Current Workspace",
-          "uri": "workspace://current"
-        },
-        {
-          "description": "What your session's last save_site_data holds: one entry per site with counts, never a value; the sites the workspace went to come first. Every browser this session opens has it back before open_session returns.\n\nworkspace://site-data/{site} shows one site in full; session://{name}/site-data is another session's. Reading this never opens a browser.",
-          "mime_type": "application/json",
-          "name": "Site Data",
-          "uri": "workspace://site-data"
-        },
-        {
-          "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
-          "mime_type": "application/json",
-          "name": "Console",
-          "uri": "workspace://console"
-        },
-        {
-          "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
-          "mime_type": "application/json",
-          "name": "Network",
-          "uri": "workspace://network"
-        },
-        {
-          "description": "The files in Files: prints, and anything kept with keep_file. Also names two folders — workspace://files/screenshots and workspace://files/recordings — each with its own listing. Your session's downloads are session://downloads, a named session's session://{name}/downloads.\n\nEvery entry carries its own uri, to keep with keep_file(uri), and a URL that opens in a browser for a while, so an image can be shown to someone rather than described to them.",
-          "mime_type": "application/json",
-          "name": "Workspace Files",
-          "uri": "workspace://files"
-        },
-        {
-          "description": "This workspace's saved screenshots, not yet kept. keep_file(uri) moves one into workspace://files, where it stays until a person deletes it. Prints land in Files directly, not here.",
-          "mime_type": "application/json",
-          "name": "Screenshots",
-          "uri": "workspace://files/screenshots"
-        },
-        {
-          "description": "This workspace's recordings: one video per browser opened with open_session(record=true), filed shortly after that browser ends. keep_file(uri) moves one into workspace://files. Each entry's url plays it; reading one by its uri answers that entry, not the video.",
-          "mime_type": "application/json",
-          "name": "Recordings",
-          "uri": "workspace://files/recordings"
-        },
-        {
-          "description": "Your own session's downloads; session://{name}/downloads lists another's. They belong to the browser and disappear when it ends or the Grid reaps it; keep_file(uri) copies one into workspace://files before that happens. With no session open, reading it says so.",
-          "mime_type": "application/json",
-          "name": "Downloads",
-          "uri": "session://downloads"
-        },
-        {
-          "description": "The flows this workspace can run: saved sequences of tool calls that run server-side in one call.\n\nEach entry has a name, a description, its tags, the parameters it takes and how many steps it has — never the steps themselves, which flow://flows/{name} returns.\n\nFlows saved in this workspace come first; anything in the shared 'global' library is also listed, and a flow of your own with the same name wins.",
-          "mime_type": "application/json",
-          "name": "Saved Flows",
-          "uri": "flow://flows"
-        },
-        {
-          "description": "The shape of a flow document: every tool that may be a step and the parameters it takes. Read this before writing a flow.",
-          "mime_type": "application/json",
-          "name": "Flow Document Schema",
-          "uri": "flow://schema"
-        },
-        {
-          "description": "The secrets you can bind to a field, by name.\n\nYou never see a value — not here, not anywhere. Each entry gives the secret's name, the keys inside it, what it is for, and the sites it may be used on.\n\nTo use one, do NOT ask for it: name it where the value would go. Pass write a secret instead of text — secret={'name': ..., 'key': ...} — or in a saved flow put the same thing in that step's args. The server reads it and types it; it never passes through you, which is the point.\n\nEvery secret names the sites it may be used on (allowed_urls), and only there. One that carries `refused` cannot be used at all until an operator fixes it, and the sentence says how. A value you typed comes back as [secret:name/key] in every later read on its sites, unless its key_sources entry says masked: false.",
-          "mime_type": "application/json",
-          "name": "Secrets",
-          "uri": "secret://secrets"
-        },
-        {
-          "description": "<description of plugin/skills/building-flows/SKILL.md>",
-          "mime_type": "text/markdown",
-          "name": "selenium-flow/building-flows/SKILL.md",
-          "uri": "skill://selenium-flow/building-flows/SKILL.md"
-        },
-        {
-          "description": "<description of plugin/skills/deploying-the-server/SKILL.md>",
-          "mime_type": "text/markdown",
-          "name": "selenium-flow/deploying-the-server/SKILL.md",
-          "uri": "skill://selenium-flow/deploying-the-server/SKILL.md"
-        },
-        {
-          "description": "<description of plugin/skills/driving-a-browser/SKILL.md>",
-          "mime_type": "text/markdown",
-          "name": "selenium-flow/driving-a-browser/SKILL.md",
-          "uri": "skill://selenium-flow/driving-a-browser/SKILL.md"
-        },
-        {
-          "description": "<description of plugin/skills/signing-in/SKILL.md>",
-          "mime_type": "text/markdown",
-          "name": "selenium-flow/signing-in/SKILL.md",
-          "uri": "skill://selenium-flow/signing-in/SKILL.md"
-        },
-        {
-          "description": "<description of plugin/skills/using-the-admin-ui/SKILL.md>",
-          "mime_type": "text/markdown",
-          "name": "selenium-flow/using-the-admin-ui/SKILL.md",
-          "uri": "skill://selenium-flow/using-the-admin-ui/SKILL.md"
-        },
-        {
-          "description": "One key of workspace://current, as {workspace, <part>: value}: for instance workspace://current/url or workspace://current/grid_timeout. It is null when the workspace has nothing for that key. A name that is not a key is refused, and the refusal lists them. Built as workspace://current is, and reading it never opens a browser.",
-          "name": "Current Workspace, one part",
-          "uri_template": "workspace://current/{part}"
-        },
-        {
-          "description": "One site's saved data: its cookies, and the localStorage and sessionStorage of each of its origins. An httpOnly cookie's value is shown as •••; nothing else is hidden. The site is a host from the workspace://site-data listing. This is your own session's; session://{name}/site-data/{site} is another's.",
-          "name": "Site Data for One Site",
-          "uri_template": "workspace://site-data/{site}"
-        },
-        {
-          "description": "What the page logged since the last navigation, newest first: errors, warnings, info, and uncaught exceptions with where they were thrown. ?level=error or ?level=warn narrows it; ?pages=2 (up to 5) reaches back over earlier pages. debug entries are counted, not kept. dropped, when present, counts events lost in a flood, so some may be missing. Present only for a workspace opened with open_session(capture=true); otherwise it says so. Reading this never opens a browser. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/console is another's.",
-          "name": "Console, narrowed",
-          "uri_template": "workspace://console{?level,pages}"
-        },
-        {
-          "description": "Requests the page made since the last navigation, newest first, each with an id: method, URL, status, type, size and time. ?filter=failed or ?filter=xhr narrows it; ?pages=2 (up to 5) reaches back. Successful stylesheets, images, fonts, scripts and media are counted, not kept; dropped, when present, counts events lost in a flood; unmasked, credentials too long to mask, which an echo may show. workspace://network/{id} shows one with its headers; network_body(id) fetches its response body while the browser lives. Credentials are shown as •••. What was captured is the workspace's, not the browser's: it stays readable after the session ends, until capture.ttl passes with nothing new or open_session is called without capture. This is your own session's; session://{name}/network is another's.",
-          "name": "Network, narrowed",
-          "uri_template": "workspace://network{?filter,pages}"
-        },
-        {
-          "description": "One captured request in full: its headers (authorization, cookies and any secret you typed shown as •••), status, timing and size. network_body(id) fetches its response body. This is your own session's; session://{name}/network/{id} is another's, and network_body(id, session=name) fetches its body.",
-          "name": "One Request",
-          "uri_template": "workspace://network/{id}"
-        },
-        {
-          "description": "One session of this workspace, by name: the same answer as workspace://current, for that session instead of yours. default is the workspace's own; workspace://current's sessions lists the rest. Its console, network, site data and downloads are session://{name}/console, /network, /site-data and /downloads. A name with no session is not found. Reading this never opens a browser.",
-          "name": "Session",
-          "uri_template": "session://{name}"
-        },
-        {
-          "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
-          "name": "Session Console, narrowed",
-          "uri_template": "session://{name}/console{?level,pages}"
-        },
-        {
-          "description": "One session's console, by name, as workspace://console reads yours: ?level= and ?pages= narrow it the same, and it needs open_session(session=name, capture=true). A name with no session is not found.",
-          "name": "Session Console",
-          "uri_template": "session://{name}/console"
-        },
-        {
-          "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
-          "name": "Session Network, narrowed",
-          "uri_template": "session://{name}/network{?filter,pages}"
-        },
-        {
-          "description": "One session's requests, by name, as workspace://network lists yours, ?filter= and ?pages= included. session://{name}/network/{id} shows one with its headers; network_body(id, session=name) fetches its response body while the browser lives. A name with no session is not found.",
-          "name": "Session Network",
-          "uri_template": "session://{name}/network"
-        },
-        {
-          "description": "One of a session's captured requests in full, by name, as workspace://network/{id} shows yours. network_body(id, session=name) fetches its response body. A name with no session is not found.",
-          "name": "Session Request",
-          "uri_template": "session://{name}/network/{id}"
-        },
-        {
-          "description": "What one session's last save_site_data holds, by name, as workspace://site-data lists yours: counts, never a value. session://{name}/site-data/{site} shows one site in full. Reading this never opens a browser. A name with no session is not found.",
-          "name": "Session Site Data",
-          "uri_template": "session://{name}/site-data"
-        },
-        {
-          "description": "One site of a session's saved data, by name, as workspace://site-data/{site} shows yours; httpOnly values masked. The site is a host from the session://{name}/site-data listing. A name with no session is not found.",
-          "name": "Session Site Data for One Site",
-          "uri_template": "session://{name}/site-data/{site}"
-        },
-        {
-          "description": "The downloads of one session's browser, by name, as session://downloads lists yours. A name with no session is not found.",
-          "name": "Session Downloads",
-          "uri_template": "session://{name}/downloads"
-        },
-        {
-          "description": "One download of one session's browser, by name, as bytes: as session://downloads/{name} reads yours. A name with no session is not found.",
-          "name": "Session Download",
-          "uri_template": "session://{name}/downloads/{file}"
-        },
-        {
-          "description": "One file from Files, as bytes, carrying its own media type. The name comes from the workspace://files listing. A video (a kept recording) answers its entry instead, as JSON: its url plays it.",
-          "name": "Workspace File",
-          "uri_template": "workspace://files/{name}"
-        },
-        {
-          "description": "One screenshot, as bytes, from workspace://files/screenshots. It answers after the browser that took it has gone, because a screenshot is already ours (§F1.10).",
-          "name": "Screenshot",
-          "uri_template": "workspace://files/screenshots/{name}"
-        },
-        {
-          "description": "One download, as bytes, from session://downloads — read from the browser itself, so this answers only while it is open. keep_file(uri) copies it somewhere that outlives the browser.",
-          "name": "Download",
-          "uri_template": "session://downloads/{name}"
-        },
-        {
-          "description": "One recording from workspace://files/recordings, described: its url plays it. Not the video's bytes — a model cannot watch one, and a resource would carry it as base64.",
-          "name": "Recording",
-          "uri_template": "workspace://files/recordings/{name}"
-        },
-        {
-          "description": "One saved flow, with its steps. The name comes from the flow://flows listing.",
-          "name": "Saved Flow",
-          "uri_template": "flow://flows/{name}"
-        }
-      ]
-    }
+    "resultType": "complete"
   },
   "tools/read_resource": {
+    "agents://selenium-flow": {
+      "content": [
+        {
+          "text": "Resource not found: 'agents://selenium-flow'. agents://selenium-flow is a folder: read agents://selenium-flow/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true,
+      "resultType": "complete"
+    },
+    "agents://selenium-flow/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "io.kubed/agent": {
+                  "frontmatter": {
+                    "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+                    "maxTurns": 40,
+                    "model": "sonnet",
+                    "name": "explorer",
+                    "skills": [
+                      "driving-a-browser",
+                      "building-flows"
+                    ],
+                    "tools": [
+                      "open_session",
+                      "navigate",
+                      "extract",
+                      "outline",
+                      "screenshot",
+                      "interact",
+                      "write",
+                      "press_key",
+                      "frame",
+                      "dialog",
+                      "await_control",
+                      "run_flow",
+                      "save_flow",
+                      "execute_script",
+                      "end_browser",
+                      "ReadMcpResourceTool",
+                      "ToolSearch"
+                    ]
+                  },
+                  "name": "explorer",
+                  "skills": {
+                    "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
+                    "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md"
+                  }
+                }
+              },
+              "description": "Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".",
+              "mimeType": "text/markdown",
+              "name": "explorer",
+              "uri": "agents://selenium-flow/explorer.md"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "resultType": "complete"
+    },
+    "agents://selenium-flow/_index.md": {
+      "content": [
+        {
+          "text": "agents://selenium-flow/explorer.md: Explores a website in your selenium-flow workspace and reports back briefly: what it found, the flows it used, the flows it saved for next time. It works in a session of its own, `explorer` unless you hand it a session name, so you keep using your own browser meanwhile. It starts with no sign-ins of its own. Hand it the question, the starting URL, and the values any flow will need. It changes nothing on the site unless you name the exact step it may take, e.g. \"you may submit the search form\" or \"you may sign in as X\".\n",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "resultType": "complete"
+    },
+    "agents://selenium-flow/explorer.md": {
+      "content": [
+        {
+          "text": "<plugin/agents/explorer.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "resultType": "complete"
+    },
+    "prompts://selenium-flow": {
+      "content": [
+        {
+          "text": "Resource not found: 'prompts://selenium-flow'. prompts://selenium-flow is a folder: read prompts://selenium-flow/_index.md to list it.",
+          "type": "text"
+        }
+      ],
+      "isError": true,
+      "resultType": "complete"
+    },
+    "prompts://selenium-flow/_index.json": {
+      "content": [
+        {
+          "text": [
+            {
+              "_meta": {
+                "io.kubed/prompt": {
+                  "argument-hint": "<task> <url> [name]",
+                  "arguments": [
+                    {
+                      "description": "What the flow should do, in a sentence — \"sign in and open the orders page for an account\".",
+                      "name": "task",
+                      "required": true
+                    },
+                    {
+                      "description": "Where it starts.",
+                      "name": "url",
+                      "required": true
+                    },
+                    {
+                      "description": "What to save it as. Leave empty and a name will be proposed from the task.",
+                      "name": "name",
+                      "required": false
+                    }
+                  ],
+                  "name": "build_flow"
+                }
+              },
+              "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+              "mimeType": "text/markdown",
+              "name": "build_flow",
+              "uri": "prompts://selenium-flow/build_flow.md"
+            },
+            {
+              "_meta": {
+                "io.kubed/prompt": {
+                  "argument-hint": "<flow> [step] [symptom]",
+                  "arguments": [
+                    {
+                      "description": "The flow's name, as flow://flows lists it.",
+                      "name": "flow",
+                      "required": true
+                    },
+                    {
+                      "description": "Which step failed, if you know. Leave empty to find out by running it.",
+                      "name": "step",
+                      "required": false
+                    },
+                    {
+                      "description": "What went wrong, in a few words. Leave empty to start from the failure itself.",
+                      "name": "symptom",
+                      "required": false
+                    }
+                  ],
+                  "name": "repair_flow"
+                }
+              },
+              "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+              "mimeType": "text/markdown",
+              "name": "repair_flow",
+              "uri": "prompts://selenium-flow/repair_flow.md"
+            }
+          ],
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "resultType": "complete"
+    },
+    "prompts://selenium-flow/_index.md": {
+      "content": [
+        {
+          "text": "prompts://selenium-flow/build_flow.md: Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.\nprompts://selenium-flow/repair_flow.md: Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.\n",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "resultType": "complete"
+    },
+    "prompts://selenium-flow/build_flow.md": {
+      "content": [
+        {
+          "text": "<plugin/commands/build_flow.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "resultType": "complete"
+    },
+    "prompts://selenium-flow/repair_flow.md": {
+      "content": [
+        {
+          "text": "<plugin/commands/repair_flow.md>",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "resultType": "complete"
+    },
     "skill://selenium-flow/building-flows": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/building-flows'. skill://selenium-flow/building-flows is a folder: read skill://selenium-flow/building-flows/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/building-flows'. skill://selenium-flow/building-flows is a folder: read skill://selenium-flow/building-flows/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -2353,7 +2582,7 @@
     "skill://selenium-flow/building-flows/references": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/building-flows/references'. skill://selenium-flow/building-flows/references is a folder: read skill://selenium-flow/building-flows/references/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/building-flows/references'. skill://selenium-flow/building-flows/references is a folder: read skill://selenium-flow/building-flows/references/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -2405,7 +2634,7 @@
     "skill://selenium-flow/deploying-the-server": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/deploying-the-server'. skill://selenium-flow/deploying-the-server is a folder: read skill://selenium-flow/deploying-the-server/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/deploying-the-server'. skill://selenium-flow/deploying-the-server is a folder: read skill://selenium-flow/deploying-the-server/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -2487,7 +2716,7 @@
     "skill://selenium-flow/deploying-the-server/references": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/deploying-the-server/references'. skill://selenium-flow/deploying-the-server/references is a folder: read skill://selenium-flow/deploying-the-server/references/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/deploying-the-server/references'. skill://selenium-flow/deploying-the-server/references is a folder: read skill://selenium-flow/deploying-the-server/references/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -2539,7 +2768,7 @@
     "skill://selenium-flow/driving-a-browser": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/driving-a-browser'. skill://selenium-flow/driving-a-browser is a folder: read skill://selenium-flow/driving-a-browser/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/driving-a-browser'. skill://selenium-flow/driving-a-browser is a folder: read skill://selenium-flow/driving-a-browser/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -2651,7 +2880,7 @@
     "skill://selenium-flow/driving-a-browser/references": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/driving-a-browser/references'. skill://selenium-flow/driving-a-browser/references is a folder: read skill://selenium-flow/driving-a-browser/references/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/driving-a-browser/references'. skill://selenium-flow/driving-a-browser/references is a folder: read skill://selenium-flow/driving-a-browser/references/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -2829,7 +3058,7 @@
     "skill://selenium-flow/signing-in": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/signing-in'. skill://selenium-flow/signing-in is a folder: read skill://selenium-flow/signing-in/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/signing-in'. skill://selenium-flow/signing-in is a folder: read skill://selenium-flow/signing-in/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -2916,7 +3145,7 @@
     "skill://selenium-flow/signing-in/references": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/signing-in/references'. skill://selenium-flow/signing-in/references is a folder: read skill://selenium-flow/signing-in/references/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/signing-in/references'. skill://selenium-flow/signing-in/references is a folder: read skill://selenium-flow/signing-in/references/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -2989,7 +3218,7 @@
     "skill://selenium-flow/using-the-admin-ui": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/using-the-admin-ui'. skill://selenium-flow/using-the-admin-ui is a folder: read skill://selenium-flow/using-the-admin-ui/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/using-the-admin-ui'. skill://selenium-flow/using-the-admin-ui is a folder: read skill://selenium-flow/using-the-admin-ui/_index.md to list it.",
           "type": "text"
         }
       ],
@@ -3091,7 +3320,7 @@
     "skill://selenium-flow/using-the-admin-ui/references": {
       "content": [
         {
-          "text": "Error calling tool 'read_resource': no resource at 'skill://selenium-flow/using-the-admin-ui/references'. skill://selenium-flow/using-the-admin-ui/references is a folder: read skill://selenium-flow/using-the-admin-ui/references/_index.md to list it.",
+          "text": "Resource not found: 'skill://selenium-flow/using-the-admin-ui/references'. skill://selenium-flow/using-the-admin-ui/references is a folder: read skill://selenium-flow/using-the-admin-ui/references/_index.md to list it.",
           "type": "text"
         }
       ],

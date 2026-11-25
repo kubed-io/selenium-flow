@@ -34,13 +34,12 @@ from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
-from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import skill
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
-from .conftest import NAMED, TOKEN, RecordingActions, calling_as
+from .conftest import NAMED, TOKEN, RecordingActions, calling_as, over_http
 from .fakes import FakeActions, FakeClock, FakeGrid, Vault, header, request, untabbed
 from .golden_tools import GOLDEN, compare, normalised, render
 from .test_flowrun import SECRET_STEP, SIMPLE, flow
@@ -54,14 +53,11 @@ SETTINGS = {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN
 # ---- the tools, in both client modes -----------------------------------------
 
 
-async def published(server, monkeypatch, resources):
+async def published(server, resources):
     """What a client that reads resources (``on``) or does not (``off``) is
-    shown: the per-request shaping in ``mcp.clients`` and ``mcp.mirror``."""
-    monkeypatch.setattr(
-        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
-    )
+    shown: the per-request shaping in kubed-mcp's delivery and ``mcp.apps``."""
     info = Implementation(name="a spec-complete client", version="1")
-    async with Client(server.mcp.server, client_info=info) as client:
+    async with over_http(server, {"X-MCP-Resources": resources}, client_info=info) as client:
         tools = await client.list_tools()
     return {
         tool.name: {
@@ -79,35 +75,47 @@ async def published(server, monkeypatch, resources):
 
 
 @pytest.mark.parametrize("resources", ["on", "off"])
-async def test_the_tools_are_what_they_were(server, monkeypatch, resources):
-    compare(
-        f"tools-{resources}.json", await published(server, monkeypatch, resources)
-    )
+async def test_the_tools_are_what_they_were(server, resources):
+    compare(f"tools-{resources}.json", await published(server, resources))
 
 
 # ---- the plugin surface ------------------------------------------------------
 
-LIBRARY = "skill://selenium-flow/"
+ROOTS = {
+    "skill://selenium-flow/": "plugin/skills/",
+    "prompts://selenium-flow/": "plugin/commands/",
+    "agents://selenium-flow/": "plugin/agents/",
+}
 SERVER_INFO = "io.modelcontextprotocol/serverInfo"
 DIRECTORY = "inode/directory"
 
 
+def _root(uri: str) -> str | None:
+    """The served root ``uri`` is under, if any."""
+    return next((root for root in ROOTS if uri.startswith(root)), None)
+
+
 def relative(uri: str) -> str:
-    """A skill file's path from the repo root."""
-    return f"plugin/skills/{uri.removeprefix(LIBRARY)}"
+    """A plugin file's path from the repo root."""
+    root = _root(uri)
+    return ROOTS[root] + uri.removeprefix(root)
 
 
 def on_disk(uri: str) -> Path | None:
     """The plugin file served at ``uri``, or None for anything else: another
     scheme, a folder, and the ``_manifest`` and ``_index.*`` the plugin layer
     generates."""
-    if not uri.startswith(LIBRARY):
+    root = _root(uri)
+    if root is None:
         return None
-    rest = uri.removeprefix(LIBRARY)
+    rest = uri.removeprefix(root)
     name = rest.rsplit("/", 1)[-1]
-    if "/" not in rest or name == "_manifest" or name.startswith("_index."):
+    if name == "_manifest" or name.startswith("_index."):
         return None
-    path = skill.plugin_path() / "skills" / rest
+    # A skill's root is a folder: `skill://selenium-flow/<skill>`.
+    if root.startswith("skill://") and "/" not in rest:
+        return None
+    path = skill.plugin_path() / ROOTS[root].removeprefix("plugin/") / rest
     return path if path.is_file() else None
 
 
@@ -208,19 +216,19 @@ def _parsed(result: dict) -> dict:
     }
 
 
-async def plugin_surface(server, monkeypatch, mode: str, resources: str) -> dict:
+async def plugin_surface(server, mode: str, resources: str) -> dict:
     """Everything kubed-mcp's plugin layer serves one client, as it comes over
     the wire: ``request`` sends even the methods a client knows, so a result is
     the server's dict and not a client model's reading of it.
 
-    It reads only ``skill://`` URIs: the others ask the Grid.
+    It reads only the plugin's URIs (``skill://``, ``prompts://``,
+    ``agents://``): the others ask the Grid.
     """
-    monkeypatch.setattr(
-        clients_module, "request_values", lambda: ({"resources": [resources]}, {})
-    )
     info = Implementation(name="a spec-complete client", version="1")
     cell: dict = {}
-    async with Client(server.mcp.server, mode=mode, client_info=info) as client:
+    async with over_http(
+        server, {"X-MCP-Resources": resources}, mode=mode, client_info=info
+    ) as client:
         cell["initialize"] = {
             "capabilities": {"extensions": client.server_capabilities.extensions},
             "instructions": client.instructions,
@@ -238,23 +246,34 @@ async def plugin_surface(server, monkeypatch, mode: str, resources: str) -> dict
 
         folders = []
         directories = {}
-        for entry in listing["skills"]:
-            pending = [entry["uri"].removesuffix("/SKILL.md")]
+        files = []
+
+        async def walk(start: str) -> None:
+            pending = [start]
             while pending:
                 folder = pending.pop(0)
                 folders.append(folder)
                 result = await request(client, "resources/directory/read", uri=folder)
                 directories[folder] = result
-                pending += [
-                    row["uri"] for row in result["resources"]
-                    if row.get("mimeType") == DIRECTORY
-                ]
+                for row in result["resources"]:
+                    if row.get("mimeType") == DIRECTORY:
+                        pending.append(row["uri"])
+                    # A skill's files come from skills/list's rows below; only prompt
+                    # and agent files are collected here.
+                    elif not folder.startswith("skill://"):
+                        files.append(row["uri"])
+
+        for entry in listing["skills"]:
+            await walk(entry["uri"].removesuffix("/SKILL.md"))
+        for start in ("prompts://selenium-flow", "agents://selenium-flow"):
+            await walk(start)
         cell["resources/directory/read"] = directories
 
         uris = []
         for entry in listing["skills"]:
             uris += [entry["uri"], *(row["uri"] for row in entry["resources"])]
             uris.append(entry["uri"].removesuffix("SKILL.md") + "_manifest")
+        uris += files
         uris += [f"{folder}/_index.{kind}" for folder in folders for kind in ("md", "json")]
         uris = list(dict.fromkeys(uris))
         reads = {}
@@ -313,9 +332,9 @@ async def plugin_surface(server, monkeypatch, mode: str, resources: str) -> dict
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 @pytest.mark.parametrize("resources", ["on", "off"])
-async def test_the_plugin_surface_is_what_it_was(server, monkeypatch, mode, resources):
-    first = await plugin_surface(server, monkeypatch, mode, resources)
-    again = await plugin_surface(server, monkeypatch, mode, resources)
+async def test_the_plugin_surface_is_what_it_was(server, mode, resources):
+    first = await plugin_surface(server, mode, resources)
+    again = await plugin_surface(server, mode, resources)
     assert render(first) == render(again), "the surface moved between two runs"
     compare(f"plugin-{mode}-{resources}.json", first)
 
@@ -333,6 +352,10 @@ def test_a_file_unlike_its_disk_copy_keeps_its_text():
     assert stood_in(uri, text) == f"<{relative(uri)}>"
     assert stood_in(uri, text.replace("\n", "\r\n")) == text.replace("\n", "\r\n")
     assert stood_in(uri, text + "\n") == text + "\n"
+    uri = "prompts://selenium-flow/build_flow.md"
+    text = on_disk(uri).read_text(encoding="utf-8")
+    assert stood_in(uri, text) == "<plugin/commands/build_flow.md>"
+    assert stood_in(uri, text.replace("\n", "\r\n")) == text.replace("\n", "\r\n")
 
 
 def test_on_disk_maps_only_plugin_files():
@@ -342,6 +365,14 @@ def test_on_disk_maps_only_plugin_files():
     assert on_disk("skill://selenium-flow/signing-in/_manifest") is None
     assert on_disk("skill://selenium-flow/signing-in/_index.md") is None
     assert on_disk("workspace://current") is None
+    assert on_disk("prompts://selenium-flow/build_flow.md") == (
+        skill.plugin_path() / "commands/build_flow.md"
+    )
+    assert on_disk("agents://selenium-flow/explorer.md") == (
+        skill.plugin_path() / "agents/explorer.md"
+    )
+    assert on_disk("prompts://selenium-flow/_index.json") is None
+    assert on_disk("agents://selenium-flow") is None
 
 
 # ---- the OpenAPI document ----------------------------------------------------

@@ -9,6 +9,8 @@ the real thing.
 
 import io
 import logging
+import subprocess
+import sys
 
 import pytest
 import uvicorn
@@ -23,9 +25,10 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def listened(monkeypatch):
+def listened(monkeypatch, fastmcp_logger):
     """Boot without listening: ``listened`` is a list of (host, port) the server
-    was told to serve on, empty if the boot never got that far."""
+    was told to serve on, empty if the boot never got that far. It also puts the
+    ``fastmcp`` logger back."""
     served = []
 
     async def serve(self, sockets=None):
@@ -62,6 +65,25 @@ def config(tmp_path, text=""):
     path = tmp_path / "config.yaml"
     path.write_text(text, encoding="utf-8")
     return ["--config-file", str(path)]
+
+
+def test_a_boot_leaves_the_fastmcp_logger_as_it_found_it(request):
+    """Under random order a boot can run before the nbf refusal check in
+    ``test_auth.py``, which attaches a handler to ``fastmcp``. A boot that left
+    that logger propagating logged the record twice there. The child pins the
+    order: a booting test, then the check."""
+    done = subprocess.run(
+        [
+            sys.executable, "-m", "pytest", "-p", "no:randomly", "-p", "no:cacheprovider", "-q",
+            "tests/test_main.py::test_oidc_without_roles_warns",
+            "tests/test_auth.py::test_our_refusals_are_logged_with_the_subject[not-yet-valid]",
+        ],
+        cwd=request.config.rootpath,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert done.returncode == 0, (done.returncode, done.stdout[-2000:])
 
 
 def test_a_config_key_the_server_does_not_know_stops_the_boot(tmp_path, listened):

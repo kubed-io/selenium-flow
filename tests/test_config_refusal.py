@@ -153,6 +153,16 @@ async def test_every_resource_is_refused_the_context_included(broken):
             assert REFUSED in str(refused.value), uri
 
 
+async def test_a_refused_workspace_is_refused_once_through_read_resource(broken):
+    """The call is refused before kubed-mcp's tool reads through the middleware, so
+    the sentence is said once, not again by the read inside it (Review Focus 2)."""
+    async with Client(broken.mcp.server) as client:
+        with pytest.raises(ToolError) as refused:
+            await client.call_tool("read_resource", {"uri": "workspace://current"})
+    assert str(refused.value).count(REFUSED) == 1
+    assert broken.workspaces.store.get(NAMED) is None, "nothing ran"
+
+
 async def test_the_skill_is_read_while_refused(broken):
     """Static, shipped in the image, and how the agent learns what to do now."""
     async with Client(broken.mcp.server) as client:
