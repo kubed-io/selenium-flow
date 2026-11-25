@@ -275,15 +275,37 @@ def test_the_copied_venv_is_proved_to_work_at_build_time():
     tree."""
     runner = dockerfile_stages()["runner"]
     assert any("kubed.selenium_flow.server" in ln for ln in runner)
+    assert any("import pyroscope" in ln and "opentelemetry.sdk" in ln for ln in runner)
 
 
-def test_the_project_is_installed_with_its_extra():
+def test_the_project_is_installed_with_its_extras():
     """`[redis]` is what lets workspaces survive a restart by an env var rather than a
     different image. `--no-deps` would silently drop it."""
     builder = dockerfile_stages()["builder"]
     install = next(ln for ln in builder if ln.startswith("pip install --no-cache-dir ."))
-    assert "[redis]" in install
+    assert "[redis,telemetry]" in install
     assert "--no-deps" not in install
+
+
+def test_the_telemetry_extra_is_kubed_mcps_and_nothing_else_carries_it():
+    project = tomllib.loads(PYPROJECT.read_text())["project"]
+    extra = project["optional-dependencies"]["telemetry"]
+    assert len(extra) == 1 and extra[0].startswith("kubed-mcp[telemetry]")
+    everywhere_else = project["dependencies"] + project["optional-dependencies"]["test"]
+    assert not [d for d in everywhere_else if "telemetry" in d or "pyroscope" in d]
+
+
+def test_the_telemetry_extra_pins_kubed_mcp_as_the_dependency_does():
+    project = tomllib.loads(PYPROJECT.read_text())["project"]
+    pin = next(d for d in project["dependencies"] if d.startswith("kubed-mcp["))
+    extra = project["optional-dependencies"]["telemetry"][0]
+    assert extra.split("]", 1)[1] == pin.split("]", 1)[1]
+
+
+def test_the_image_installs_both_extras():
+    builder = dockerfile_stages()["builder"]
+    listed = next(ln for ln in builder if "requirements.py runtime" in ln)
+    assert "--extra redis" in listed and "--extra telemetry" in listed
 
 
 def test_the_floor_is_3_11_and_needs_no_toml_backport():
@@ -462,7 +484,7 @@ def test_the_ui_is_built_in_its_own_stage_and_reaches_the_package():
     assert "npm ci" in text and "npm run build" in text
     assert re.search(r"^COPY --from=ui \S+ kubed/selenium_flow/http/static$", text, re.MULTILINE)
     # before the project install, so the wheel the venv gets has the UI in it
-    assert text.index("COPY --from=ui") < text.index("pip install --no-cache-dir .[redis]")
+    assert text.index("COPY --from=ui") < text.index("pip install --no-cache-dir .[redis,telemetry]")
 
 
 def test_the_build_context_leaves_out_node_modules_and_the_built_ui():
