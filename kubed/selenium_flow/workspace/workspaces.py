@@ -274,13 +274,11 @@ class Caller:
     is malformed or given twice, :attr:`library`).
 
     ``named_by`` says which mechanism supplied the name, for the log line and
-    the status resource. ``client`` is the calling client's ``clientInfo``
-    name, or "".
+    the status resource.
     """
 
     named: str = ""
     named_by: str = ""
-    client: str = ""
     # Why a request's name is not one, raised when the name is asked for.
     refusal: ValueError | None = None
     # The client's own setting defaults, as (query, header) values, last of each.
@@ -301,8 +299,6 @@ class Caller:
         cls,
         params: Mapping[str, list[str]],
         headers: Mapping[str, list[str]],
-        *,
-        client: str = "",
     ) -> Caller:
         """The caller a request describes: every value a list, headers lowercased.
 
@@ -332,14 +328,14 @@ class Caller:
         said = (_last(params, CLIENT_PARAMS), _last(headers, CLIENT_HEADERS))
         pin, pin_refusal = _pin(params, headers)
         return cls(
-            named, named_by, client, refusal, said,
+            named, named_by, refusal, said,
             pin=pin, pin_refusal=pin_refusal,
         )
 
     @classmethod
-    def stdio(cls, *, client: str = "") -> Caller:
+    def stdio(cls) -> Caller:
         """The one client a stdio process serves, named by the transport."""
-        return cls(STDIO_NAME, "stdio", client)
+        return cls(STDIO_NAME, "stdio")
 
     @property
     def name(self) -> str:

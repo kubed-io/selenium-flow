@@ -1,6 +1,5 @@
-"""Who is calling: the workspace, the session it pins, the client's name and the
-bearer; and the middleware that carries a caller to a task and refuses a refused
-workspace.
+"""Who is calling: the workspace, the session it pins and the bearer; and the
+middleware that carries a caller to a task and refuses a refused workspace.
 
 Whether a client reads resources is not decided here. ``X-MCP-Resources`` and
 ``?resources=`` are kubed-mcp's (DLV-2), and so is VS Code's default of off, by
@@ -17,7 +16,7 @@ from kubed.mcp import Middleware, ToolError
 from kubed.mcp import request as mcp_request
 from kubed.mcp.auth import get_access_token
 from kubed.mcp.protocol import INVALID_PARAMS, MCPError
-from kubed.mcp.request import Values, get_context
+from kubed.mcp.request import Values
 
 from .. import faults
 from ..principal import Principal
@@ -30,9 +29,6 @@ from ..workspace.workspaces import (
     values_of,
 )
 from .failures import nameless
-
-# Where the `2026-07-28` protocol carries the client's identity on every request.
-CLIENT_INFO_META = "io.modelcontextprotocol/clientInfo"
 
 # The workspace a background task's worker is about. The worker has no
 # request, only the headers snapshotted at submission, so ``?workspace=`` never
@@ -82,45 +78,15 @@ def principal() -> Principal | None:
     return getattr(token, "principal", None)
 
 
-def caller(client: str | None = None) -> Caller:
+def caller() -> Caller:
     """Who is calling this MCP request: read once, here, and handed in.
 
-    Off HTTP it is the stdio caller. ``client`` is the client's name when the
-    caller knows it (a handshake does), and is otherwise looked up.
+    Off HTTP it is the stdio caller.
     """
-    client = name() if client is None else client
     values = request_values()
     if values is None:
-        return Caller.stdio(client=client)
-    return replace(Caller.from_request(*values, client=client), principal=principal())
-
-
-def name() -> str:
-    """The calling client's `clientInfo.name`, or "" when it cannot be told.
-
-    A `2025` client said it once, in `initialize`, and the transport session
-    holds it; a `2026-07-28` client says it in every request's `_meta`. Never
-    raises.
-    """
-    try:
-        context = get_context()
-    except RuntimeError:
-        return ""
-    try:
-        request = context.request_context
-        meta = request.meta if request is not None else None
-        if isinstance(meta, dict):
-            info = meta.get(CLIENT_INFO_META)
-            if isinstance(info, dict) and info.get("name"):
-                return str(info["name"])
-    except Exception:  # noqa: BLE001 - identity is a hint, never a failure
-        pass
-    try:
-        params = context.session.client_params
-        info = getattr(params, "client_info", None) if params is not None else None
-        return str(getattr(info, "name", "") or "")
-    except Exception:  # noqa: BLE001 - no session, no initialize: unidentified
-        return ""
+        return Caller.stdio()
+    return replace(Caller.from_request(*values), principal=principal())
 
 
 class Carry(Middleware):
@@ -180,7 +146,7 @@ class Refused(Middleware):
     async def _refusal(self) -> Exception | None:
         if not self.configs.enabled:
             return None
-        named = caller(client="")
+        named = caller()
         if named.refusal is not None or not named.named:
             return None
         return await anyio.to_thread.run_sync(self.configs.refusal, named.named)
