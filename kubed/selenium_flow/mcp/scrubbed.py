@@ -23,8 +23,8 @@ PDF, a video) pass as they are.
 A refusal is scrubbed too, in place and keeping its type. FastMCP logs a failed
 read before any middleware runs; `failures.QuietCallerMistakes` handles that.
 
-Exempt: what this server wrote itself and can hold no value (the skill, the app
-shell, the flow document schema and the secrets catalogue).
+Exempt: what this server wrote itself and can hold no value (the skills, the prompts
+and the agent, the app shell, the flow document schema and the secrets catalogue).
 
 A read whose scrub fails answers `ResourceError` with the `ScrubFailed`
 sentence, never the unscrubbed text, and the failure is logged by its type
@@ -50,7 +50,7 @@ from . import clients
 log = logging.getLogger(__name__)
 
 # Text this server wrote, which holds no value.
-EXEMPT = ("skill://", "ui://", "flow://schema", "secret://secrets")
+EXEMPT = ("skill://", "prompts://", "agents://", "ui://", "flow://schema", "secret://secrets")
 
 # Media types that are text whatever their `text/` prefix says.
 TEXT_TYPES = frozenset(
