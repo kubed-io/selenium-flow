@@ -17,9 +17,8 @@ from kubed.selenium_flow.core.capabilities import (
 )
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
-from kubed.selenium_flow.mcp import mirror
 
-from .conftest import over_http
+from .conftest import RESOURCE_TOOLS, over_http
 from .fakes import KeyDriver
 
 pytestmark = pytest.mark.unit
@@ -184,7 +183,7 @@ async def test_every_tool_declares_its_safety_hints(server, resources):
 
     Parametrised over `resources` because that switch CHANGES THE TOOL LIST: a
     client that cannot read resources is also given the reading tools, and
-    checking only the default mode once left the mirrors unannotated —
+    checking only the default mode once left the reading tools unannotated —
     advertised as destructive when every one of them merely reads.
     """
     async with over_http(server, {"X-MCP-Resources": resources}) as client:
@@ -216,8 +215,8 @@ async def test_only_reading_the_page_is_marked_read_only(server, resources):
     async with over_http(server, {"X-MCP-Resources": resources}) as client:
         tools = await client.list_tools()
     read_only = {
-        t.name for t in tools if t.annotations and t.annotations.readOnlyHint
-    } - FLOW_TOOLS - mirror.MIRROR_TOOLS
+        t.name for t in tools if t.annotations and t.annotations.read_only_hint
+    } - FLOW_TOOLS - RESOURCE_TOOLS
     assert read_only == {
         "extract", "outline", "network_body", "await_control"
     }, "only these read the page"

@@ -38,6 +38,8 @@ from ..workspace.sessions import nameless
 FASTMCP_LOGGER = "fastmcp.server.server"
 FAILED_CALL = "Error calling tool"
 FAILED_READ = "Error reading resource"
+# kubed-mcp's tool that reads a resource for a client that cannot (DLV-6).
+READ_TOOL = "read_resource"
 # MCP's code for a resource that is not there (the spec's "Resource not
 # found"); `mcp_types` names only the JSON-RPC ones.
 RESOURCE_NOT_FOUND = -32002
@@ -82,9 +84,14 @@ class Explained(Middleware):
             # 'x': <str(exc)>". A ToolError with no cause, or one caused by
             # FastMCP itself, was already written for a caller.
             cause = exc.__cause__
+            if cause is None and name == READ_TOOL:
+                # kubed-mcp's read_resource raises the read's message with no
+                # cause (DLV-6), and the message quotes the URI as sent, which
+                # can name a sub-session or carry a credential.
+                raise ToolError(nameless(without_userinfo(str(exc)))) from None
             if cause is None or isinstance(cause, FastMCPError):
                 raise
-            # A tool that reads a resource (the mirror) carries its URI.
+            # A tool that reads a resource (`show`) carries its URI.
             said = nameless(faults.message(cause))
             raise ToolError(f"{FAILED_CALL} {name!r}: {said}") from cause
 
@@ -103,9 +110,9 @@ class Explained(Middleware):
         try:
             return await call_next(context)
         except NotFoundError as exc:
-            # A URI that moved is answered with where it went, as
-            # `read_resource` does. FastMCP words a NotFoundError itself, so
-            # this is an MCPError.
+            # A URI that moved is answered with where it went, and kubed-mcp's
+            # `read_resource` reads through here, so it says the same.
+            # FastMCP words a NotFoundError itself, so this is an MCPError.
             try:
                 retired_uri(getattr(context.message, "uri", ""))
             except ValueError as moved:

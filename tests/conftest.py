@@ -56,6 +56,9 @@ TOKEN = "test-token-abc123"
 NAMED = "desktop"
 OTHER = "laptop"
 
+# kubed-mcp's two reading tools (DLV-6): listed only when a request turns resources off.
+RESOURCE_TOOLS = frozenset({"list_resources", "read_resource"})
+
 
 # ---- the real server -------------------------------------------------------
 

@@ -1,15 +1,10 @@
-"""Who is calling, and what their client lets the model reach.
+"""Who is calling: the workspace, the session it pins, the client's name and the
+bearer; and the middleware that carries a caller to a task and refuses a refused
+workspace.
 
-Resources are published for every client, and a client that cannot read them
-is given `mirror`'s two tools instead. Whether a client can is decided here, in
-this order:
-
-1. What the caller said: ``?resources=off`` on the MCP URL, or an
-   ``X-MCP-Resources: off`` header, which wins because an admin sets it in a
-   credential.
-2. Who the caller is: a client known not to hand resources to its model counts
-   as off. VS Code's model cannot list or read one.
-3. Otherwise yes.
+Whether a client reads resources is not decided here. ``X-MCP-Resources`` and
+``?resources=`` are kubed-mcp's (DLV-2), and so is VS Code's default of off, by
+its table of known clients (DLV-15).
 """
 
 from __future__ import annotations
@@ -35,12 +30,6 @@ from ..workspace.workspaces import (
     values_of,
 )
 from .failures import nameless
-
-_OFF = ("off", "false", "0", "no", "none")
-
-# `clientInfo.name` prefixes of clients whose model cannot read resources. Add
-# one only after watching that client fail to reach a resource.
-NO_RESOURCES = ("Visual Studio Code",)
 
 # Where the `2026-07-28` protocol carries the client's identity on every request.
 CLIENT_INFO_META = "io.modelcontextprotocol/clientInfo"
@@ -132,33 +121,6 @@ def name() -> str:
         return str(getattr(info, "name", "") or "")
     except Exception:  # noqa: BLE001 - no session, no initialize: unidentified
         return ""
-
-
-def named_in(message) -> str:
-    """The client name a handshake message carries, before any session holds it.
-
-    `initialize` has it in `params.clientInfo`, `server/discover` in the
-    request's `_meta`. The instructions answer these two messages, before
-    `name()` has anywhere to look.
-    """
-    params = getattr(message, "params", None)
-    info = getattr(params, "client_info", None)
-    if info is not None and getattr(info, "name", None):
-        return str(info.name)
-    meta = getattr(params, "meta", None)
-    if isinstance(meta, dict):
-        info = meta.get(CLIENT_INFO_META)
-        if isinstance(info, dict) and info.get("name"):
-            return str(info["name"])
-    return ""
-
-
-def reads_resources(caller: Caller) -> bool:
-    """Whether this caller's model can be expected to read MCP resources."""
-    said = caller.flags.get("resources")
-    if said is not None:
-        return str(said).strip().lower() not in _OFF
-    return not caller.client.startswith(NO_RESOURCES)
 
 
 class Carry(Middleware):

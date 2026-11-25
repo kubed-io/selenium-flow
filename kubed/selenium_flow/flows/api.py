@@ -294,7 +294,7 @@ class Schemas:
     """The step schemas, built once from the registered tools.
 
     Lazily, because `get_tool` is async and registration is not. From
-    `ENDPOINTS`, never a listing: `mirror.HideMirrors` filters a listing per
+    `ENDPOINTS`, never a listing: `apps.HideApps` filters a listing per
     caller, and what a step may say must not depend on who asks.
     """
 

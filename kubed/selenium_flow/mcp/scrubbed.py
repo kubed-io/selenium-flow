@@ -6,14 +6,14 @@ each read is scrubbed with every leashed secret and whatever the browser of the
 session it belongs to holds (`Scrubber.resource`, `_owner`).
 
 `Scrubbed` is a middleware on `on_read_resource`, which FastMCP also runs for
-`FastMCP.read_resource`, so a client's own reader, `read_resource` (`mirror`)
-and `show` see one scrubbed text.
+`FastMCP.read_resource`, so a client's own reader, kubed-mcp's `read_resource`
+tool (DLV-6) and `show` see one scrubbed text.
 
 Text is scrubbed, and JSON text also value by value: a value a page spelt
 backwards, upper-cased or with a quote in it is escaped again by the serialiser,
 where the text scan would not see it. Bytes whose media type is text (a kept
 `.txt`, a downloaded `.csv`) are scrubbed as UTF-8, any byte that is not carried
-through as it is, because the mirror hands them to a model as text. Other bytes
+through as it is, because `read_resource` hands them to a model as text. Other bytes
 (an image, a PDF, a video) pass as they are.
 
 A refusal is scrubbed too, in place and keeping its type. FastMCP logs a failed

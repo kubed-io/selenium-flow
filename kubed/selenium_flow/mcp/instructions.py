@@ -1,17 +1,18 @@
 """The server ``instructions``, chosen for each connection.
 
 What a client is told depends on whether its model reads resources, so the
-text is chosen on each handshake: ``initialize`` and ``server/discover`` both
-carry it.
+text is chosen on each handshake. kubed-mcp calls `for_delivery` on each
+``initialize`` and ``server/discover``, with the inputs that request resolved
+(DLV-11); the server is built with `instructions()`, the text kubed-mcp falls
+back to.
 """
 
 from __future__ import annotations
 
-from kubed.mcp import Middleware
+from kubed.mcp.delivery import Resolved
 
 from ..core.guidance import ENTRY
 from ..workspace.workspaces import NAME_PARAM
-from . import clients
 
 INSTRUCTIONS = f"""\
 Drives a real Chrome or Firefox browser on Selenium Grid. The browser is \
@@ -75,35 +76,6 @@ def instructions(reads_resources: bool = True) -> str:
     return text + SKILL_POINTER.format(how=how)
 
 
-def first_instructions() -> str:
-    """What the server object starts with, before any handshake has named a client.
-
-    The same text `InstructionsFor` gives a client it cannot identify.
-    """
-    unknown = clients.reads_resources(clients.Caller.stdio(client=""))
-    return instructions(unknown)
-
-
-class InstructionsFor(Middleware):
-    """Answer each handshake with the instructions for the client it came from.
-
-    A client that cannot read resources is told to use read_resource.
-    """
-
-    def _text(self, context) -> str:
-        caller = clients.caller(clients.named_in(context.message))
-        return instructions(clients.reads_resources(caller))
-
-    async def on_initialize(self, context, call_next):
-        result = await call_next(context)
-        if result is not None:
-            result.instructions = self._text(context)
-        return result
-
-    async def on_discover(self, context, call_next):
-        result = await call_next(context)
-        if isinstance(result, dict):
-            result["instructions"] = self._text(context)
-        elif result is not None:
-            result.instructions = self._text(context)
-        return result
+def for_delivery(delivery: Resolved) -> str:
+    """The instructions for a request, by whether it resolved resources off."""
+    return instructions(delivery.resources != "off")

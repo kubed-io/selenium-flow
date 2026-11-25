@@ -397,7 +397,8 @@ async def test_nothing_readable_on_this_server_returns_a_secret_value(
         ],
     )
     async with Client(secret_server.mcp.server) as client:
-        rows = (await client.call_tool("list_resources", {})).structured_content["result"]
+        listed = await client.call_tool("list_resources", {})
+        rows = json.loads(listed.content[0].text)["resources"]
         uris = [row["uri"] for row in rows if "uri" in row] + ["flow://flows/login"]
         assert secrets.LIST_URI in uris
         for uri in uris:

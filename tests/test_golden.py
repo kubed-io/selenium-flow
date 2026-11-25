@@ -55,7 +55,7 @@ SETTINGS = {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN
 
 async def published(server, resources):
     """What a client that reads resources (``on``) or does not (``off``) is
-    shown: the per-request shaping in ``mcp.clients`` and ``mcp.mirror``."""
+    shown: the per-request shaping in kubed-mcp's delivery and ``mcp.apps``."""
     info = Implementation(name="a spec-complete client", version="1")
     async with over_http(server, {"X-MCP-Resources": resources}, client_info=info) as client:
         tools = await client.list_tools()

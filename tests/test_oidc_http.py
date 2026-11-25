@@ -16,7 +16,6 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.mcp import mirror
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
@@ -114,7 +113,7 @@ async def current(server, bearer):
         httpx_client_factory=factory,
     )
     async with app.router.lifespan_context(app), Client(transport) as client:
-        result = await client.call_tool(mirror.READ_TOOL, {"uri": "workspace://current"})
+        result = await client.call_tool("read_resource", {"uri": "workspace://current"})
     return json.loads(result.content[0].text)
 
 
