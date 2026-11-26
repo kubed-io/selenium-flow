@@ -1,5 +1,7 @@
 """The switch from the environment to the config, held in place."""
 
+import asyncio
+import json
 import logging
 import os
 import pathlib
@@ -94,6 +96,22 @@ def test_the_oidc_and_recording_checks_keep_their_messages():
         SeleniumMCP({"grid": GRID, "recording": {"enabled": True}})
 
 
+def test_a_refused_config_stops_before_anything_is_built(tmp_path):
+    """The checks run before the store pings Redis and before the data folder
+    is touched: the refusal is the one named, and `sessions/` stays put."""
+    oidc = {"issuer": "https://id.example.com", "audience": "a",
+            "jwks_uri": "https://id.example.com/jwks"}
+    with pytest.raises(ConfigError, match=r"^oidc needs auth.token"):
+        SeleniumMCP({"grid": GRID, "oidc": oidc, "workspace": {"store": "redis"},
+                     "redis": {"host": "127.0.0.1", "port": 1}})
+    (tmp_path / "sessions" / "w").mkdir(parents=True)
+    with pytest.raises(ConfigError, match=r"must not overlap"):
+        SeleniumMCP({"grid": GRID, "data": {"dir": str(tmp_path)},
+                     "recording": {"enabled": True, "dir": str(tmp_path / "workspaces")}})
+    assert (tmp_path / "sessions" / "w").is_dir()
+    assert not (tmp_path / "workspaces").exists()
+
+
 def test_the_config_capabilities_and_version_reach_every_open():
     """`session.capabilities` is its own source, beside the cascade (spec
     2026-10-26-session-capabilities): the actions hold it for every build.
@@ -140,15 +158,53 @@ def test_the_startup_log_counts_dirs_and_config_entries_separately(monkeypatch, 
     assert "secrets=1 dir, 3 from config" in caplog.text
 
 
-def test_the_startup_log_never_shows_the_grid_urls_credentials(monkeypatch, caplog):
-    """`GRID_URL` may carry userinfo, and the startup log is not a secret
-    store — same reason `urls.without_userinfo` strips it from the probes."""
-    monkeypatch.setattr(SeleniumMCP, "run", lambda self, **kw: None)
-    monkeypatch.setenv("GRID_URL", "http://u:hunter2@hub:4444")
-    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+CREDENTIALED = {
+    "GRID_URL": "http://gu:hunter1@grid.invalid:4444",
+    "GRID_CONSOLE_URL": "https://cu:hunter2@console.example.com/ui",
+    "PUBLIC_BASE_URL": "https://pu:hunter3@flow.example.com",
+    "SESSION_CAPABILITIES": json.dumps({
+        "proxy": {"proxyType": "manual", "httpProxy": "xu:hunter4@proxy.example.com:3128"},
+        "goog:chromeOptions": {"args": ["--proxy-server=http://au:hunter5@proxy.example.com:3128"]},
+    }),
+}
+
+
+def test_the_startup_log_never_shows_a_urls_credentials(monkeypatch, caplog):
+    """A URL setting may carry userinfo (`GRID_URL=http://user:pass@hub:4444`),
+    and the log is not a secret store. Both lines a boot writes are read:
+    main's own, and the `config:` line kubed-mcp logs as the lifespan enters,
+    which `run` here enters for real."""
+
+    async def enter(server):
+        app = server.mcp.server.http_app()
+        async with app.router.lifespan_context(app):
+            pass
+
+    monkeypatch.setattr(SeleniumMCP, "run", lambda self, **kw: asyncio.run(enter(self)))
+    for name, value in CREDENTIALED.items():
+        monkeypatch.setenv(name, value)
+    with caplog.at_level(logging.INFO):
         main_module.main([])
-    assert "hunter2" not in caplog.text
-    assert "http://hub:4444" in caplog.text
+    [boot] = [r.getMessage() for r in caplog.records if r.name == "kubed.mcp.config"]
+    assert 'grid.url="http://grid.invalid:4444"' in boot
+    assert "https://console.example.com/ui" in boot and "https://flow.example.com" in boot
+    assert '"httpProxy":"proxy.example.com:3128"' in boot
+    assert "--proxy-server=http://proxy.example.com:3128" in boot
+    assert "http://grid.invalid:4444" in caplog.text
+    assert not re.search(r"hunter\d|[gcpxa]u:", caplog.text)
+
+
+def test_the_boot_line_filter_is_installed_once_and_touches_nothing_else():
+    SeleniumMCP({"grid": GRID})
+    SeleniumMCP({"grid": GRID})
+    logger = logging.getLogger("kubed.mcp.config")
+    assert logger.filters.count(server_module.BOOT_LINE_FILTER) == 1
+    other = logging.LogRecord("kubed.mcp.config", logging.INFO, "", 0,
+                              "probe %s", ("http://u:p@grid.invalid",), None)
+    broken = logging.LogRecord("kubed.mcp.config", logging.INFO, "", 0, "%s %s", ("one",), None)
+    assert server_module.BOOT_LINE_FILTER.filter(other) is True
+    assert other.getMessage() == "probe http://u:p@grid.invalid"
+    assert server_module.BOOT_LINE_FILTER.filter(broken) is True
 
 
 def test_the_startup_log_says_telemetry_off_by_default(monkeypatch, caplog):

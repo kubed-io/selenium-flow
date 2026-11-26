@@ -131,7 +131,8 @@ def test_an_unknown_flag_stops_the_boot(listened):
 def test_a_top_level_transport_stops_the_boot(tmp_path, listened):
     with pytest.raises(SystemExit) as caught:
         main_module.main(config(tmp_path, "transport: stdio\n"))
-    assert "transport (file " in str(caught.value.code)
+    assert f"transport (file {tmp_path / 'config.yaml'})" in str(caught.value.code)
+    assert listened == []
 
 
 @pytest.mark.parametrize("text, shown", [("grid:\n  url: http://g:4444\n", "path"), (None, "none")])

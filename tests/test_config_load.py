@@ -147,6 +147,12 @@ def test_a_blank_secrets_dir_in_the_config_file_is_dropped(tmp_path):
     assert loaded(environ={"CONFIG_FILE": path})[0].secrets.dirs == []
 
 
+def test_a_null_secrets_dirs_in_the_config_file_is_the_default(tmp_path):
+    path = _file(tmp_path, "secrets:\n  dirs:\n")
+    cfg, sources = loaded(environ={"CONFIG_FILE": path})
+    assert (cfg.secrets.dirs, sources["secrets.dirs"]) == ([], Source("default"))
+
+
 @pytest.mark.parametrize("body", [
     "secrets:\n  dirs: 5\n",
     "secrets:\n  dirs: [5]\n",
@@ -388,6 +394,13 @@ def test_security_frame_ancestors_from_env_and_args():
     ]
     args = ["--security-frame-ancestors", "https://c.example"]
     assert loaded(args)[0].security.frame_ancestors == ["https://c.example"]
+
+
+@pytest.mark.parametrize("value", ["https://u:hunter2@x.example.com/", "https://u:hunter2@*"])
+def test_a_refused_frame_ancestor_never_shows_its_userinfo(value):
+    with pytest.raises(ValueError, match=r"security\.frame_ancestors") as caught:
+        loaded(environ={"SECURITY_FRAME_ANCESTORS": value})
+    assert "hunter2" not in str(caught.value)
 
 
 def test_data_dir_is_the_setting_and_reads_from_env():

@@ -521,6 +521,7 @@ class SecuritySettings(Section):
         # Each entry is pasted into a Content-Security-Policy header, so one
         # that carries a `;`, a space or a non-ASCII character would add a
         # directive or crash the response, and `*` or `none` would defeat it.
+        # A refused entry is quoted without its userinfo: it may be a credential.
         for origin in origins:
             if origin in ("*", "none", "'none'"):
                 raise ValueError(
@@ -530,8 +531,9 @@ class SecuritySettings(Section):
                 )
             if not _ORIGIN.fullmatch(origin):
                 raise ValueError(
-                    f"{origin!r} is not an origin: write scheme://host[:port], "
-                    "or scheme://*.host for every subdomain, in printable ASCII"
+                    f"{without_userinfo(origin)!r} is not an origin: write "
+                    "scheme://host[:port], or scheme://*.host for every "
+                    "subdomain, in printable ASCII"
                 )
         return origins
 
@@ -907,6 +909,26 @@ def _without_proxy_userinfo(value):
     if isinstance(value, list):
         return [_without_proxy_userinfo(item) for item in value]
     return value
+
+
+# A W3C proxy key and its JSON string value, as a line of compact JSON writes it.
+_PROXY_ENTRY = re.compile(
+    r'"(?P<key>' + "|".join(sorted(PROXY_KEYS)) + r')":"(?P<value>(?:[^"\\]|\\.)*)"'
+)
+
+
+def _proxy_entry_without_userinfo(match: re.Match) -> str:
+    key = match["key"]
+    value = json.loads(f'"{match["value"]}"')
+    value = _without_proxy_userinfo({key: value})[key]
+    return f"{json.dumps(key)}:{json.dumps(value, ensure_ascii=False)}"
+
+
+def without_config_userinfo(text: str) -> str:
+    """``text``, a line that writes settings as JSON, with the userinfo cut out
+    as the Settings tab cuts it: every URL's by `without_userinfo`, then a proxy
+    key's ``user:pass@`` by `_without_proxy_userinfo`'s rule."""
+    return _PROXY_ENTRY.sub(_proxy_entry_without_userinfo, without_userinfo(text))
 
 
 # The tab's four labels for kubed-mcp's sources: code builds the server with

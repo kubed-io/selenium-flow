@@ -76,7 +76,7 @@ redis = [
 # Profiles, traces and metrics (kubed-mcp's telemetry). The image installs it so
 # turning one on is a config change, not a rebuild; a plain install leaves it out,
 # and a signal switched on without it logs a warning and the server still serves.
-# Its range is the kubed-mcp dependency's (test_packaging holds them equal).
+# Its pin is the kubed-mcp dependency's (test_packaging holds them equal).
 telemetry = [
   "kubed-mcp[telemetry]==0.4.0rc2",
 ]

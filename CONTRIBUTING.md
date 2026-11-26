@@ -180,10 +180,12 @@ argument is safe; renaming, retyping or removing one is not.
 
 ### Config
 
-- `config.py` is the schema. A setting's path is its name: `redis.host` is `REDIS_HOST` and
-  `--redis-host` ([config.md](docs/superpowers/specs/config.md), CFG-4 for the naming limits).
-- `os.environ` is read in `config.py` and `secrets.py` only
-  (`test_the_environment_is_read_in_two_modules_only`). Everything else takes `Settings`.
+- `config.py` holds the sections, which kubed-mcp loads. A setting's names are written on its
+  `Field`: `redis.host` is `env="REDIS_HOST"` and `arg="--redis-host"`, and `test_config_schema`
+  holds them to the path rule ([config.md](docs/superpowers/specs/config.md), CFG-3, and CFG-4 for
+  the naming limits).
+- `os.environ` is read in `secrets.py` only (`test_the_environment_is_read_in_one_module_only`).
+  Everything else takes the loaded config, or its section of it.
 - Defaults are the library's, never one deployment's: `REDIS_DB` is 0, and `REDIS_PREFIX` keeps a
   shared database safe.
 
@@ -191,7 +193,6 @@ argument is safe; renaming, retyping or removing one is not.
 
 | What | Guarded by |
 |---|---|
-| `_Environment` overrides pydantic-settings' private `_load_env_vars` | `tests/test_config_load.py` |
 | The live socket mounts through FastMCP's `_additional_http_routes` | `tests/test_admin_live.py` |
 
 ### The plugin

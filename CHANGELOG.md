@@ -25,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **BREAKING:** Config loads through kubed-mcp 0.4: in the config file, `transport`, `host`, `port` and `log_level` move under `serving:`, and a file that still sets them at the top is refused. Their env names and flags are unchanged, and the Settings tab shows them as `serving.*` (#214).
+- **BREAKING:** The old names `FLOW_DATA_DIR`, `SESSION_STORE` and `SESSION_TTL` are ignored, and `flow:`, `session.store` and `session.ttl` in the file are refused as unknown keys (#214).
+- `DELIVERY_RESOURCES`, `DELIVERY_LISTED` and `DELIVERY_VIA` (`delivery:` in the file) set the delivery inputs' defaults (#214).
+- Config errors list one problem a line, each naming the setting and where it came from, such as `serving.port (env PORT)`. An unknown flag is one of them and exits 1, not 2; a `config_file` key inside the file is refused as an unknown key; and a file that isn't a mapping says `must be a mapping, not a <type>` (#214).
+- **BREAKING:** An object from the environment or a flag, such as `SESSION_CAPABILITIES` or `TELEMETRY_TAGS`, merges into the file's instead of replacing it (#214).
+- **BREAKING:** Environment names match exactly, in upper case: `redis_host` no longer sets `redis.host` (#214).
+- The Settings tab shows `telemetry.profiles` only as set or not set, and a store derived from `REDIS_HOST` or `REDIS_URL` as a default (#214).
+- Fixed: a refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
 - **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65).
 - **Profiles and traces:** the image pushes profiles to Pyroscope when `TELEMETRY_PROFILES` names it, and runs OpenTelemetry with `TELEMETRY_OTEL=true` (#199).
 - **BREAKING:** The one skill is five, by reader and moment: `driving-a-browser` (the entry point), `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`, each at `skill://selenium-flow/<skill>/SKILL.md` (#195, #196). The old `skill://selenium-flow/SKILL.md` and `skill://selenium-flow/references/…` addresses no longer read: nothing redirects them, and hints, the instructions, the prompts and the explorer name the new ones.

@@ -25,8 +25,10 @@ from .config import (
     ConfigError,
     config_file,
     describe,
+    oidc_problem,
     recording_dir,
     recording_problem,
+    without_config_userinfo,
 )
 from .core import pointer, tabs
 from .core.actions import Actions
@@ -71,6 +73,31 @@ from .workspace.store import WorkspaceStore
 from .workspace.workspaces import Workspaces, acting
 
 log = logging.getLogger(__name__)
+
+
+class _BootLineWithoutUserinfo(logging.Filter):
+    """kubed-mcp's `config:` boot line, its URLs' userinfo cut out.
+
+    kubed-mcp 0.4.0rc2 logs every leaf not at its default in full, on
+    `kubed.mcp.config` as the lifespan enters, and only a sensitive leaf is
+    masked: `grid.url`, `public_base_url` or a proxy in `session.capabilities`
+    would print its `user:pass@`. Stripped here, as the Settings tab strips it,
+    until kubed-mcp masks userinfo itself; then this goes.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            text = record.getMessage()
+            if text.startswith("config: "):
+                record.msg, record.args = without_config_userinfo(text), ()
+        except Exception:  # noqa: BLE001 - a log line must never fail the boot
+            pass
+        return True
+
+
+# One instance, so a second server adds nothing: `addFilter` skips a filter
+# already there.
+BOOT_LINE_FILTER = _BootLineWithoutUserinfo()
 
 
 class SeleniumMCP:
@@ -137,6 +164,8 @@ class SeleniumMCP:
                 await bus.stop()
                 scrubber.close()
 
+        # On the logger, not a handler, so every builder of a server has it.
+        logging.getLogger("kubed.mcp.config").addFilter(BOOT_LINE_FILTER)
         # A server built in code reads no environment: only `main` passes argv.
         loading = (
             {"config": config, "argv": list(argv or ()), "environ": environ}
@@ -166,6 +195,12 @@ class SeleniumMCP:
         # Before anything else is built, so its own log lines are kept.
         if on_loaded is not None:
             on_loaded(settings)
+        # Checked here, where every server is built, so no config skips them,
+        # and before anything is built: the store pings Redis and the flows
+        # move the data folder, and a refused config must do neither.
+        problem = oidc_problem(settings) or recording_problem(settings)
+        if problem:
+            raise ConfigError(problem)
         self.grid = Grid(settings.grid.url)
         # Before the actions: the pointer store is derived from it.
         self.store = (
@@ -267,10 +302,6 @@ class SeleniumMCP:
         # files. Built before the workspaces, which tell it about every
         # recorded browser; None when recording is off.
         self.collector = None
-        # Checked here, where every server is built, so no config skips it.
-        problem = recording_problem(settings)
-        if problem:
-            raise ConfigError(problem)
         if settings.recording.enabled:
             inbox = Path(recording_dir(settings))
             if not inbox.is_dir() or not os.access(inbox, os.R_OK | os.W_OK | os.X_OK):
