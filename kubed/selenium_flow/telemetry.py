@@ -83,8 +83,9 @@ class Telemetry:
             CALL_DURATION,
             unit="s",
             description=(
-                "A call's own time in its session's turn, "
-                "not counting the wait for it."
+                "A call's own time: inside its session's turn, not counting "
+                "the wait for it, for a call that takes one; from its start "
+                "to its end for one that takes none."
             ),
             explicit_bucket_boundaries_advisory=BUCKETS,
         )
@@ -161,9 +162,17 @@ class Telemetry:
         return counts
 
     def start_call(
-        self, workspace: str, *, sub_session: bool, tool: str, browser: str
+        self,
+        workspace: str,
+        *,
+        sub_session: bool,
+        tool: str,
+        browser: str,
+        start_time: int | None = None,
     ) -> Span | None:
-        """Begin a call's span under the current context, without making it current."""
+        """Begin a call's span under the current context, without making it
+        current. ``start_time`` (ns since the epoch) backdates it to when the
+        call started, for a span made only once the call is over."""
         try:
             return self.tracer.start_span(
                 f"call {tool}",
@@ -174,6 +183,7 @@ class Telemetry:
                     "selenium_flow.tool": tool,
                     "selenium_flow.browser": browser,
                 },
+                start_time=start_time,
             )
         except Exception as exc:  # noqa: BLE001 - telemetry never raises
             log.warning("telemetry: a call span failed (%s)", type(exc).__name__)

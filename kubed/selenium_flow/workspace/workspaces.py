@@ -59,7 +59,7 @@ from ..core import tabs as tabs_module
 from ..core.actions import CUTS, INSECURE_SKIP, OPEN_PRIVATE, Actions, cut_names
 from ..core.browser import in_frame
 from ..core.coerce import as_bool
-from ..core.defaults import DEFAULT_BROWSER
+from ..core.defaults import DEFAULT_BROWSER, normalize_browser
 from ..monitor.monitor import ATTACH_FAILED, DEFAULT_TIMEOUT, KEEPALIVE
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
 from ..principal import Principal
@@ -74,7 +74,7 @@ from ..urls import (
 )
 from . import locks, sessions
 from . import settings as settings_module
-from .calls import Calls, told
+from .calls import Calls, Timing, told
 from .config import Configs
 from .origins import OriginChanged, Origins
 from .scrub import Scrubber
@@ -376,6 +376,26 @@ class Caller:
 def _kind(settings: Mapping | None) -> str:
     """The kind of browser ``settings`` open (``chrome``, ``firefox``)."""
     return (settings or {}).get("browser") or DEFAULT_BROWSER
+
+
+def _wanted_kind(browser) -> str:
+    """The kind of browser an open asks for before its settings are resolved:
+    a known kind or "", never what the caller typed, since a metric's
+    attributes are a closed set."""
+    if browser is None or not str(browser).strip():
+        return ""
+    try:
+        return normalize_browser(browser)
+    except ValueError:
+        return ""
+
+
+def _named_by(caller: Caller) -> str:
+    """The workspace ``caller`` names, or "" when it names none (yet)."""
+    try:
+        return caller.name
+    except ValueError:
+        return ""
 
 
 def _measured(opened: dict) -> str | None:
@@ -1762,6 +1782,7 @@ class Workspaces:
         restore_site_data: bool = True,
         *,
         session: str | None = None,
+        surface: str = "mcp",
         **wanted,
     ) -> dict:
         """Open a browser in the caller's session, or pick up the one it was
@@ -1771,28 +1792,40 @@ class Workspaces:
         Its answer is scrubbed (`_open_browser`), and so is its failure, with
         every leashed secret: a first page that failed may quote where it
         landed, and no browser holds the slot yet.
+
+        It takes no turn, so the whole open is one `Calls.timed` call on
+        ``surface``, a Grid wait and a setting it refuses included.
         """
-        chosen = self._chosen(caller, session)
-        if chosen and chosen != sessions.DEFAULT:
-            # Checked before its record is made, so a refused open makes and
-            # lists nothing (WS-78). `_open_browser` checks again, as it must
-            # for every other session.
-            planned = sessions.key_of(caller.name, chosen)
-            self._scrubbing(
-                planned, lambda: self._resolve_open(caller, planned, url, wanted)
+        with self.calls.timed(
+            _named_by(caller),
+            tool="open_session",
+            surface=surface,
+            browser=_wanted_kind(wanted.get("browser")),
+        ) as timing:
+            chosen = self._chosen(caller, session)
+            if chosen and chosen != sessions.DEFAULT:
+                # Checked before its record is made, so a refused open makes and
+                # lists nothing (WS-78). `_open_browser` checks again, as it must
+                # for every other session.
+                planned = sessions.key_of(caller.name, chosen)
+                timing.workspace = planned
+                self._scrubbing(
+                    planned, lambda: self._resolve_open(caller, planned, url, wanted)
+                )
+            key = self.session_of(caller, session, opening=True)
+            timing.workspace = key
+            # Read before the open, as `act` reads it.
+            own = self.own(caller, session, key)
+            told = self._scrubbing(
+                key,
+                lambda: self._open_browser(
+                    caller, key, url, fresh, restore_site_data, timing=timing,
+                    **wanted,
+                ),
             )
-        key = self.session_of(caller, session, opening=True)
-        # Read before the open, as `act` reads it.
-        own = self.own(caller, session, key)
-        told = self._scrubbing(
-            key,
-            lambda: self._open_browser(
-                caller, key, url, fresh, restore_site_data, **wanted
-            ),
-        )
-        # Its restore report names the session it opened (`act`).
-        self.pointed(key, own, told)
-        return told
+            # Its restore report names the session it opened (`act`).
+            self.pointed(key, own, told)
+            return told
 
     def _open_browser(
         self,
@@ -1801,9 +1834,12 @@ class Workspaces:
         url: str | None,
         fresh,
         restore_site_data,
+        *,
+        timing: Timing | None = None,
         **wanted,
     ) -> dict:
-        """`open_browser`, before its failure's scrub.
+        """`open_browser`, before its failure's scrub. ``timing`` is the open's
+        `Calls.timed` call, told the kind of browser once it is resolved.
 
         The only place a browser is created and its settings chosen. Shared by
         both surfaces for the same reason :meth:`act` is.
@@ -1826,6 +1862,8 @@ class Workspaces:
         self._refuse(key, "open_session")
         previous, resolved = self._resolve_open(caller, key, url, wanted)
         settings = resolved.settings
+        if timing is not None:
+            timing.browser = _kind(settings)
         # A session holds one browser: a second opened without ending the
         # first would hold a Grid slot, referenced by nothing, until the idle
         # timeout.
@@ -2409,14 +2447,31 @@ class Workspaces:
         return [v["origin"] for v in self._history(name)]
 
     def end_browser(
-        self, caller: Caller, *, admin: bool = False, session: str | None = None
+        self,
+        caller: Caller,
+        *,
+        admin: bool = False,
+        session: str | None = None,
+        surface: str = "mcp",
     ) -> str | None:
         """End the browser of the caller's session (``session`` names it,
         WS-49), keeping its record: every other session's browser is left
-        open (WS-74). See `_end_browser`."""
-        return self._end_browser(self.session_of(caller, session), admin=admin)
+        open (WS-74). See `_end_browser`.
 
-    def _end_browser(self, key: str, *, admin: bool = False) -> str | None:
+        It takes no turn, so the end is one `Calls.timed` call on
+        ``surface``, unless it is the admin's End, which is no call."""
+        if admin:
+            return self._end_browser(self.session_of(caller, session), admin=True)
+        with self.calls.timed(
+            _named_by(caller), tool="end_browser", surface=surface
+        ) as timing:
+            key = self.session_of(caller, session)
+            timing.workspace = key
+            return self._end_browser(key, timing=timing)
+
+    def _end_browser(
+        self, key: str, *, admin: bool = False, timing: Timing | None = None
+    ) -> str | None:
         """End the browser the session ``key`` holds, keeping its record.
 
         The one place a browser is ended: the caller ending its own, the admin
@@ -2437,6 +2492,7 @@ class Workspaces:
         says ended it.
 
         Returns the browser that was ended, or None if there was none.
+        ``timing`` is the caller's `end_browser` call, told which kind it ends.
         """
         name = key
         if not admin:
@@ -2444,6 +2500,8 @@ class Workspaces:
         record = self.store.get(name)
         if record is None or not record.attached:
             return None
+        if timing is not None:
+            timing.browser = _kind(record.settings)
         target = record.session_id
         locks.interrupt(target)
         quit_ok = False

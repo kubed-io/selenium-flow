@@ -143,7 +143,11 @@ def test_the_histogram_describes_the_calls_own_time():
     rec.telemetry.call_finished(FINISHED)
     [metric] = [m for rm in rec.metrics.get_metrics_data().resource_metrics
                 for sm in rm.scope_metrics for m in sm.metrics if m.name == CALL_DURATION]
-    assert metric.description == "A call's own time in its session's turn, not counting the wait for it."
+    assert metric.description == (
+        "A call's own time: inside its session's turn, not counting the wait "
+        "for it, for a call that takes one; from its start to its end for one "
+        "that takes none."
+    )
 
 
 def test_a_span_starts_under_the_current_context_and_is_not_made_current():
