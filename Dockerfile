@@ -70,6 +70,10 @@ ENV PATH=/opt/venv/bin:$PATH
 COPY pyproject.toml ./
 COPY scripts/requirements.py ./scripts/
 
+# The newest kubed-mcp on PyPI (build-image's `fresh`). Those two files alone would
+# keep this layer, and the kubed-mcp it installed, until one of them changes.
+ARG DEPS_FRESH
+
 RUN <<'SHELL'
 set -eu
 # Read out of pyproject.toml rather than restated here: a second copy is a

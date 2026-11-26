@@ -183,6 +183,8 @@ jobs:
     - name: Build and Push
       uses: kubed-io/actions/build-image@main
       with:
+        # a kubed-mcp release reinstalls the dependency layer
+        fresh: kubed-mcp
         push: ${{ env.PUSH }}
         username: ${{ secrets.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
