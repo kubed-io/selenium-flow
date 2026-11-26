@@ -24,7 +24,9 @@ of what it does here:
 - with capture on, what the page reported while the call ran is counted and
   comes back as the hint, ``"page": {...}``, which the host puts on its result,
   or, for a call that raised, as one sentence on its error, which
-  `faults.message` reads.
+  `faults.message` reads;
+- with telemetry on, the call is a ``call <tool>`` span from `begin` to `end`,
+  never made current, naming the workspace and never the sub-session.
 
 The host holds the session's lock (`workspace.locks`) from `begin` to `end`, so
 another call's events cannot land inside this one's window. At the end, one
@@ -72,6 +74,7 @@ class Begun(NamedTuple):
     started: float
     mark: Mark | None
     own: str | None = None
+    span: object | None = None
 
 
 def told(monitor, what: str, *args, **kwargs):
@@ -149,6 +152,7 @@ class Calls:
         capture=None,
         control=None,
         clock: Callable[[], float] = time.time,
+        telemetry=None,
     ):
         self.monitor = monitor
         self.capture = capture
@@ -156,6 +160,8 @@ class Calls:
         # with ``refusal(session_id, tool)``, or None, which refuses nothing.
         self.control = control
         self.clock = clock
+        # `telemetry.Telemetry`, or None: no span.
+        self.telemetry = telemetry
 
     def refuse(self, session_id: str, tool: str) -> None:
         """Raise the refusal for ``tool`` on this browser, if a person holds it."""
@@ -183,13 +189,16 @@ class Calls:
         told(self.monitor, "keep", workspace, session_id, browser=browser)
         told(self.monitor, "calling", session_id)
         self._resume(workspace, session_id, browser)
-        return Begun(
-            workspace,
-            session_id,
-            self.clock(),
-            self._mark(workspace, session_id),
-            own,
-        )
+        mark = self._mark(workspace, session_id)
+        span = None
+        if self.telemetry is not None:
+            span = self.telemetry.start_call(
+                sessions.split(workspace)[0],
+                sub_session=sessions.is_sub(workspace),
+                tool=tool,
+                browser=browser,
+            )
+        return Begun(workspace, session_id, self.clock(), mark, own, span)
 
     def end(
         self,
@@ -203,6 +212,11 @@ class Calls:
         """Touch, flush, count and say the call; the hint, or None. Never raises."""
         # The call's own time: the flush below is bookkeeping, not the action.
         duration = max(0.0, self.clock() - begun.started)
+        how = outcome(error)
+        if self.telemetry is not None:
+            self.telemetry.end_call(
+                begun.span, surface=surface, outcome=how, error=error
+            )
         told(self.monitor, "called", begun.session_id)
         page = None
         if begun.mark is not None:
@@ -218,7 +232,7 @@ class Calls:
                 browser,
                 tool,
                 surface,
-                outcome(error),
+                how,
                 begun.started,
                 duration,
             ),
