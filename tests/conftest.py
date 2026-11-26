@@ -23,6 +23,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from starlette.testclient import TestClient
 
+from kubed.selenium_flow import config
 from kubed.selenium_flow.core import pointer
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
@@ -274,6 +275,16 @@ def mcp_log():
     directly."""
     with log_lines(FASTMCP_LOGGER) as lines:
         yield lines
+
+
+@pytest.fixture(autouse=True)
+def _no_config_environment(request, monkeypatch):
+    """No test reads the runner's config: every setting's env name and CONFIG_FILE are
+    unset, as quick-mcp's conftest does. An integration test's GRID_URL is its input."""
+    if request.node.get_closest_marker("integration"):
+        return
+    for name in {leaf.env for leaf in config.leaves()}:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)

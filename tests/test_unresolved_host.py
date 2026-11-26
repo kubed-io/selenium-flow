@@ -20,7 +20,6 @@ from selenium.common.exceptions import WebDriverException
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors, faults
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -221,7 +220,7 @@ def test_an_open_whose_first_page_does_not_resolve_leaves_no_browser(
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)})
+        {"grid": {"url": "http://grid.invalid:4444"}, "data": {"dir": str(tmp_path)}}
     )
     quit = []
     monkeypatch.setattr(server.actions.grid, "quit", quit.append)

@@ -14,7 +14,6 @@ from fastmcp import Client
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp.skill import plugin_path
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -51,10 +50,10 @@ def secret_server(tmp_path):
     secret.mkdir(parents=True)
     (secret / "password").write_text(VALUE)
     (secret / "_allowed_urls").write_text("https://a.example.com\n")
-    made = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
-        secrets={"dirs": str(tmp_path / "secrets")},
-    )))
+    made = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN},
+        "secrets": {"dirs": str(tmp_path / "secrets")},
+    }))
     yield made
     made.workspaces.scrubber.close()
 

@@ -566,7 +566,6 @@ OWN_SEE = "workspace://console?level=error"
 def wired(tmp_path, monkeypatch):
     """A real server, its browsers doubled at the action: every `navigate`
     and `write` makes the page throw, in the session whose browser it is."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.core.actions import Actions
     from kubed.selenium_flow.secrets import ALLOWED_URLS
     from kubed.selenium_flow.server import SeleniumMCP
@@ -605,12 +604,12 @@ def wired(tmp_path, monkeypatch):
     monkeypatch.setattr(Actions, "navigate", navigate)
     monkeypatch.setattr(Actions, "write", write)
     monkeypatch.setattr(Actions, "page", lambda self, sid: {"url": B_SITE, "title": "B"})
-    server = built["server"] = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path / "data")},
-        secrets={"dirs": str(tmp_path / "secrets")},
-    )))
+    server = built["server"] = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "data": {"dir": str(tmp_path / "data")},
+        "secrets": {"dirs": str(tmp_path / "secrets")},
+    }))
     server.workspaces.actions.grid = AliveGrid()
     store = server.workspaces.store
     store.set(NAMED, Workspace(

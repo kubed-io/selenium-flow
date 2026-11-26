@@ -7,7 +7,6 @@ from selenium.common.exceptions import SessionNotCreatedException
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.faults import NodeRefused, NoNodeTook
 from kubed.selenium_flow.server import SeleniumMCP
@@ -185,11 +184,11 @@ REFUSED = "session not created: no such version"
 def open_over_http(settings=None, headers=None, json=None):
     """`POST /browser` on a real server whose Grid's node refuses the open."""
     server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            auth={"token": TOKEN},
+        {
+            "grid": {"url": "http://grid.invalid:4444"},
+            "auth": {"token": TOKEN},
             **(settings or {}),
-        )
+        }
     )
 
     def refuse(built):
@@ -247,7 +246,7 @@ def test_headful_sends_no_flag(given):
 
 def test_headless_over_http_reaches_the_open():
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     )
     grid = Grid(RAN)
     server.actions.grid = grid

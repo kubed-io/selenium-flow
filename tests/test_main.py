@@ -16,6 +16,7 @@ import pytest
 import uvicorn
 
 from kubed.selenium_flow import main as main_module
+from kubed.selenium_flow import server as server_module
 from kubed.selenium_flow.http import access_log
 from kubed.selenium_flow.main import WIRE_LOGGERS
 
@@ -25,18 +26,17 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def listened(monkeypatch, fastmcp_logger):
+def listened(monkeypatch, fastmcp_logger, levels):
     """Boot without listening: ``listened`` is a list of (host, port) the server
     was told to serve on, empty if the boot never got that far. It also puts the
-    ``fastmcp`` logger back."""
+    ``fastmcp`` logger back, and the root's level, which ``QuickMCP.run()`` sets
+    to ``serving.log_level``."""
     served = []
 
     async def serve(self, sockets=None):
         served.append((self.config.host, self.config.port))
 
     monkeypatch.setattr(uvicorn.Server, "serve", serve)
-    for name in ("AUTH_TOKEN", "CONFIG_FILE", "PORT", "HOST", "LOG_LEVEL"):
-        monkeypatch.delenv(name, raising=False)
     return served
 
 
@@ -97,6 +97,51 @@ def test_a_config_key_the_server_does_not_know_stops_the_boot(tmp_path, listened
     assert listened == []
 
 
+def test_logging_is_configured_before_the_server_is_built(tmp_path, listened, monkeypatch):
+    # By order, not by records: under pytest the root already has handlers, so
+    # basicConfig sets no level and a caplog check could not tell the two apart.
+    seen = []
+    monkeypatch.setattr(main_module, "configure_logging", lambda level: seen.append(("logging", level)))
+    real = server_module.secrets.from_settings
+    monkeypatch.setattr(server_module.secrets, "from_settings",
+                        lambda *a, **k: seen.append(("secrets",)) or real(*a, **k))
+    main_module.main(config(tmp_path, "serving:\n  log_level: debug\n"))
+    assert seen[:2] == [("logging", "DEBUG"), ("secrets",)]
+
+
+def test_a_load_error_exits_naming_it_and_never_the_value(tmp_path, listened, monkeypatch):
+    monkeypatch.setenv("PORT", "hunter2")
+    monkeypatch.setenv("REDIS_PASSWORD", "hunter2")
+    with pytest.raises(SystemExit) as caught:
+        main_module.main(config(tmp_path))
+    text = str(caught.value.code)
+    assert text.startswith("selenium-flow: the config did not load:\n")
+    assert "serving.port (env PORT)" in text and "hunter2" not in text
+    assert listened == []
+
+
+def test_an_unknown_flag_stops_the_boot(listened):
+    with pytest.raises(SystemExit) as caught:
+        main_module.main(["--bogus", "1"])
+    assert "no item takes this flag" in str(caught.value.code)
+    assert listened == []
+
+
+def test_a_top_level_transport_stops_the_boot(tmp_path, listened):
+    with pytest.raises(SystemExit) as caught:
+        main_module.main(config(tmp_path, "transport: stdio\n"))
+    assert "transport (file " in str(caught.value.code)
+
+
+@pytest.mark.parametrize("text, shown", [("grid:\n  url: http://g:4444\n", "path"), (None, "none")])
+def test_the_boot_line_names_the_file_or_none(tmp_path, listened, caplog, text, shown):
+    caplog.set_level(logging.INFO, logger="kubed.selenium_flow.main")
+    main_module.main(config(tmp_path, text) if text is not None else [])
+    [line] = [r.getMessage() for r in caplog.records if r.getMessage().startswith("config=")]
+    expected = str(tmp_path / "config.yaml") if shown == "path" else "none"
+    assert line.startswith(f"config={expected} ")
+
+
 def test_selenium_wire_loggers_are_held_at_info_whatever_log_level_says(
     tmp_path, listened, levels
 ):
@@ -105,7 +150,7 @@ def test_selenium_wire_loggers_are_held_at_info_whatever_log_level_says(
     for name in WIRE_LOGGERS:
         logging.getLogger(name).setLevel(logging.DEBUG)
     logging.getLogger().setLevel(logging.DEBUG)
-    main_module.main(config(tmp_path, "log_level: DEBUG\n"))
+    main_module.main(config(tmp_path, "serving:\n  log_level: DEBUG\n"))
     for name in WIRE_LOGGERS:
         assert logging.getLogger(name).level == logging.INFO, name
 
@@ -117,7 +162,7 @@ def test_fastmcp_logs_through_the_root_handler_at_info_or_the_root_level(
     LOG_LEVEL=WARNING still quiets it. The handlers go in ``QuickMCP.run()``,
     which ``main`` reaches here."""
     logging.getLogger().setLevel(logging.WARNING)
-    main_module.main(config(tmp_path, "log_level: WARNING\n"))
+    main_module.main(config(tmp_path, "serving:\n  log_level: WARNING\n"))
     assert fastmcp_logger.handlers == []
     assert fastmcp_logger.propagate is True
     assert fastmcp_logger.level == logging.WARNING
@@ -128,7 +173,7 @@ def test_fastmcp_is_never_opened_below_info_whatever_log_level_says(
 ):
     """FastMCP logs every tool's arguments at DEBUG: scripts, typed text."""
     logging.getLogger().setLevel(logging.DEBUG)
-    main_module.main(config(tmp_path, "log_level: DEBUG\n"))
+    main_module.main(config(tmp_path, "serving:\n  log_level: DEBUG\n"))
     ops = logging.getLogger("fastmcp.server.mixins.mcp_operations")
     assert not ops.isEnabledFor(logging.DEBUG)
 
@@ -198,7 +243,7 @@ def test_oidc_without_roles_warns(tmp_path, listened, caplog):
 
 
 def test_the_server_listens_where_the_config_says(tmp_path, listened):
-    main_module.main(config(tmp_path, "host: 127.0.0.1\nport: 8123\n"))
+    main_module.main(config(tmp_path, "serving:\n  host: 127.0.0.1\n  port: 8123\n"))
     assert listened == [("127.0.0.1", 8123)]
 
 
@@ -206,7 +251,7 @@ def test_a_tokenless_server_on_a_reachable_address_warns_loudly(
     tmp_path, listened, caplog
 ):
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
-        main_module.main(config(tmp_path, "host: 10.1.2.3\nport: 8123\n"))
+        main_module.main(config(tmp_path, "serving:\n  host: 10.1.2.3\n  port: 8123\n"))
     warned = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert [r.getMessage() for r in warned] == [
         "AUTH_TOKEN is not set: anyone who can reach 10.1.2.3:8123 can drive every browser"
@@ -217,14 +262,14 @@ def test_a_tokenless_server_on_a_reachable_address_warns_loudly(
 @pytest.mark.parametrize("host", ["127.example.com", "127.0.0.2.nip.io"])
 def test_a_host_that_only_starts_with_127_is_not_loopback(tmp_path, listened, caplog, host):
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
-        main_module.main(config(tmp_path, f"host: {host}\n"))
+        main_module.main(config(tmp_path, f"serving:\n  host: {host}\n"))
     assert [r for r in caplog.records if r.levelno == logging.WARNING]
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
 def test_a_tokenless_loopback_server_does_not_warn(tmp_path, listened, caplog, host):
     with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
-        main_module.main(config(tmp_path, f"host: '{host}'\n"))
+        main_module.main(config(tmp_path, f"serving:\n  host: '{host}'\n"))
     assert not [r for r in caplog.records if r.levelno == logging.WARNING]
 
 

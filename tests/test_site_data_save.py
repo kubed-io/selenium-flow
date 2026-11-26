@@ -294,7 +294,6 @@ def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monk
     second app keeps the first's storage too (spec round 2)."""
     from starlette.testclient import TestClient
 
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.core.browser import Grid
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.workspace.workspaces import Workspaces
@@ -303,7 +302,7 @@ def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monk
 
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: page())
     monkeypatch.setattr(Workspaces, "resolved", lambda self, name: ("live-id", "chrome"))
-    server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})))
+    server = untabbed(SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}))
     server.actions.channels = channels_for(FakeChannel())
     # Stamped now, not at NOW: the save reads the history as the next write
     # would keep it, and a fixed stamp ages out of the store's TTL.
@@ -346,7 +345,6 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
 ):
     """The run writes its pages once, at the end; a save step in the middle
     still has to read the sites before it, so they go in first."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.core.browser import Grid
     from kubed.selenium_flow.flows import api as flowapi
     from kubed.selenium_flow.server import SeleniumMCP
@@ -358,9 +356,9 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
     tab = Tab()
     monkeypatch.setattr(Grid, "reconnect", lambda self, sid: tab)
     monkeypatch.setattr(Grid, "is_alive", lambda self, sid: True)
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "data": {"dir": str(tmp_path)},
+    }))
     server.actions.channels = channels_for(FakeChannel())
     server.flows.save(NAMED, "trip", {"steps": [
         {"tool": "navigate", "args": {"url": a + "/"}},

@@ -17,7 +17,6 @@ from starlette.routing import Match
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors, faults
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
@@ -89,11 +88,10 @@ def test_no_ops_endpoint_hands_out_the_grids_credentials(monkeypatch):
     """`GRID_URL` may carry userinfo, and these answer to anyone."""
     import requests
 
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     grid = "http://user:hunter2@[fd00::1]:4444"
-    server = SeleniumMCP(Settings(grid={"url": grid}))
+    server = SeleniumMCP({"grid": {"url": grid}})
 
     def quotes_the_url():  # a parse or proxy error, not the HTTPError already cut
         raise requests.exceptions.InvalidURL(f"Failed to parse: {grid}/status")
@@ -183,11 +181,10 @@ def test_a_flow_run_runs_off_the_event_loop(server, monkeypatch):
 def test_the_probes_answer_when_the_grid_url_is_malformed():
     """An operator's typo is not a reason for a probe to raise: a kubelet would
     read the 500 as the process being broken, which it is not."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     # No closing bracket: `urlsplit().port` raises on this.
-    server = SeleniumMCP(Settings(grid={"url": "http://user:hunter2@[fd00::1:4444"}))
+    server = SeleniumMCP({"grid": {"url": "http://user:hunter2@[fd00::1:4444"}})
     client = TestClient(server.mcp.server.http_app())
     info = client.get("/info")
     assert info.status_code == 200 and "hunter2" not in info.text
@@ -454,7 +451,7 @@ def test_an_unsupported_browser_is_a_400_with_the_real_list(open_client):
 def route_table():
     """The app's routes, built once. Nothing here sends a request or changes
     state, so every test in the module may share it."""
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    server = SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}})
     return server.mcp.server.http_app().routes
 
 
@@ -570,9 +567,9 @@ def test_the_prefix_is_a_mount_point_and_slash_means_root(given, expected):
 @pytest.fixture
 def prefixed():
     """A server mounted under ``/flow``."""
-    return SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, route_prefix="/flow",
-    ))
+    return SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}, "route_prefix": "/flow",
+    })
 
 
 def test_every_tree_moves_with_the_prefix(prefixed):
@@ -826,12 +823,11 @@ def test_a_slash_redirect_is_relative_as_the_server_is_run(path, location):
     server sees it - after the ingress stripped `/flow` and ended TLS. Relative,
     it resolves against what the browser asked for. Built with the middleware
     `run` actually serves with, read off the call to FastMCP."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN},
+    })
     served = {}
     server.mcp.run = lambda **kwargs: served.update(kwargs)
     server.run()

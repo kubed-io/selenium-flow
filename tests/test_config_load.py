@@ -266,8 +266,7 @@ def test_an_empty_auth_token_reads_as_not_set(tmp_path):
 def test_an_empty_auth_token_env_leaves_auth_off():
     from kubed.selenium_flow.server import SeleniumMCP
 
-    cfg, sources = loaded(environ={"AUTH_TOKEN": ""})
-    server = SeleniumMCP(cfg, sources=sources)
+    server = SeleniumMCP(argv=[], environ={"AUTH_TOKEN": ""})
     assert server.auth_token is None
 
 

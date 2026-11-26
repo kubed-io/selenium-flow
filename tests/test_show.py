@@ -8,7 +8,6 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.http.files import NO_DOWNLOADS
 from kubed.selenium_flow.mcp import apps, show
 from kubed.selenium_flow.server import SeleniumMCP
@@ -35,11 +34,11 @@ def secrets_server(tmp_path, named_caller):
     demo.mkdir(parents=True)
     (demo / "username").write_text("user-7f3a")
     (demo / "password").write_text("pass-9c1e")
-    return SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        secrets={"dirs": str(tmp_path / "secrets")},
-    ))
+    return SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "secrets": {"dirs": str(tmp_path / "secrets")},
+    })
 
 
 @pytest.mark.parametrize(
@@ -278,10 +277,10 @@ async def test_the_app_may_call_show_itself(built_ui, server):
 async def test_the_app_may_frame_its_own_files(built_ui):
     """The Lightbox previews a PDF in an <iframe>: without frameDomains the
     host's CSP refuses it."""
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
-        public_base_url="https://flow.example.com/base",
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN},
+        "public_base_url": "https://flow.example.com/base",
+    })
     with patch.object(apps, "supported", return_value=True):
         async with Client(server.mcp.server) as c:
             tool = next(t for t in await c.list_tools() if t.name == "show")

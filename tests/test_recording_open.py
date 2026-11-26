@@ -190,8 +190,10 @@ def test_describe_says_whether_the_held_browser_is_recorded():
 
 
 def test_recording_enabled_without_a_data_dir_does_not_boot():
+    from kubed.selenium_flow.server import SeleniumMCP
+
     with pytest.raises(config.ConfigError, match=r"recording\.enabled needs data\.dir"):
-        config.load([], {"RECORDING_ENABLED": "true"})
+        SeleniumMCP({"recording": {"enabled": True}})
 
 
 def test_the_inbox_defaults_inside_the_data_dir_and_can_be_set_apart():

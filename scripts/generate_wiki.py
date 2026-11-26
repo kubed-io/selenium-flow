@@ -33,7 +33,6 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from kubed.selenium_flow import config
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.capabilities import CAPABILITIES, ENDPOINTS
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
@@ -134,7 +133,7 @@ ORDER = [tool for _, _, tools in GROUPS for tool in tools]
 async def _build() -> dict:
     # A token so the security scheme is described; the address is never dialled.
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "generated"})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": "generated"}}
     )
     return await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
 
@@ -456,7 +455,8 @@ def configuration() -> str:
         "Every setting can be set in a YAML config file, in the environment, or "
         "on the command line, and a later one wins: **default < config < env < "
         "args**. A setting's file path is its name: `redis.host` is "
-        "`REDIS_HOST` and `--redis-host`.\n\n"
+        "`REDIS_HOST` and `--redis-host`. The `serving` keys drop their "
+        "section: `serving.port` is `PORT` and `--port`.\n\n"
         "The file is named by `--config-file` or `CONFIG_FILE`. There is no "
         "default location. A file with an unknown key stops the server with "
         "the reason.\n\n"

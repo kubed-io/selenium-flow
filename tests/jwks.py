@@ -13,8 +13,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fastmcp.server.auth.providers.jwt import RSAKeyPair
 from joserfc import jwt
 from joserfc.jwk import RSAKey
+from kubed.mcp import Config
 
-from kubed.selenium_flow.config import Settings
+from .fakes import configured
 
 KID = "test-key"
 AUDIENCE = "https://mcp.example.com"
@@ -76,7 +77,7 @@ class Issuer:
         claims = {"azp": azp, "roles": list(roles)} | overrides.pop("claims", {})
         return self.mint(claims=claims, **overrides)
 
-    def settings(self, token: str, roles=("mcp",), admin_roles=()) -> Settings:
+    def settings(self, token: str, roles=("mcp",), admin_roles=()) -> Config:
         oidc = {
             "issuer": self.issuer,
             "audience": AUDIENCE,
@@ -85,7 +86,7 @@ class Issuer:
         }
         if admin_roles:
             oidc |= {"client_id": ADMIN_CLIENT, "admin_roles": list(admin_roles)}
-        return Settings(
+        return configured(
             grid={"url": "http://grid.invalid:4444"},
             auth={"token": token},
             oidc=oidc,

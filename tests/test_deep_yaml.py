@@ -19,15 +19,14 @@ SERVE = textwrap.dedent(
     """
     import json, sys
     from starlette.testclient import TestClient
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     path, field, text = sys.argv[1], sys.argv[2], sys.stdin.read()
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": "t"},
-        data={"dir": sys.argv[3]},
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": "t"},
+        "data": {"dir": sys.argv[3]},
+    })
     client = TestClient(server.mcp.server.http_app(), headers={"Authorization": "Bearer t"})
     if field:
         response = client.put(path, json={field: text})

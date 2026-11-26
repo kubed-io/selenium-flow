@@ -1,4 +1,4 @@
-"""The MCP server: `create_app` builds it from the settings, as a `QuickMCP`.
+"""The MCP server: `create_app` builds it as a `QuickMCP`, which loads the config.
 
 Only wiring. The behaviour is in ``core/actions.py``, the two surfaces in
 ``mcp/tools.py`` and ``routes.py``, so a new capability needs no change here.
@@ -8,16 +8,26 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
-from kubed.mcp import QuickMCP
+from kubed.mcp import Config, QuickMCP
 from starlette.middleware import Middleware
 
 from . import capture as capture_module
-from . import config, routes, secrets
+from . import routes, secrets
 from .bidi import Channels
 from .capture.store import Capture
+from .config import (
+    SECTIONS,
+    ConfigError,
+    config_file,
+    describe,
+    recording_dir,
+    recording_problem,
+)
 from .core import pointer, tabs
 from .core.actions import Actions
 from .core.browser import SHOWN_TIMEOUT, Grid
@@ -77,19 +87,85 @@ class SeleniumMCP:
 
     def __init__(
         self,
-        settings: config.Settings | None = None,
+        config: Mapping[str, Any] | None = None,
         *,
-        sources: dict[str, str] | None = None,
+        argv: Sequence[str] | None = None,
+        environ: Mapping[str, str] | None = None,
         store: WorkspaceStore | None = None,
         pointers=None,
         telemetry: Telemetry | None = None,
+        on_loaded: Callable[[Config], None] | None = None,
     ):
-        settings = settings if settings is not None else config.Settings()
-        self.settings = settings
-        # Where each value came from, for the Settings tab.
-        self.sources = (
-            dict(sources) if sources is not None else config.sources_for(settings)
+        """Load the config, then build everything from it.
+
+        Given ``argv`` or ``environ``, kubed-mcp reads the file, the environment
+        (the process's when ``environ`` is None) and the flags. Otherwise
+        ``config`` is the whole of it and nothing else is read. ``on_loaded``
+        is handed the config before anything else is built.
+        """
+
+        # These live on the server's event loop: the bus starts first, so
+        # nothing is announced to a loop that is not there, and the monitor
+        # before the collector, which asks it to watch what is still owed.
+        # Defined before the `QuickMCP` it is handed to, it reads what is
+        # built after it only when it runs.
+        @asynccontextmanager
+        async def lifespan(_server):
+            controls, bus, monitor = self.controls, self.bus, self.monitor
+            collector, tunnels, telemetry = self.collector, self.tunnels, self.telemetry
+            scrubber = self.workspaces.scrubber
+            controls.start()
+            bus.start()
+            await monitor.start()
+            if collector is not None:
+                await collector.start()
+            try:
+                yield {}
+            finally:
+                # The meter shuts down after this exits, and its last
+                # collection must not wait on the Grid.
+                if telemetry is not None:
+                    telemetry.stop()
+                # First, every waiter is let go before anything it waits on
+                # stops. `waiting.Tasks` has already done it; again here is a
+                # no-op.
+                controls.stop()
+                if collector is not None:
+                    await collector.stop()
+                tunnels.stop()
+                await monitor.stop()
+                await bus.stop()
+                scrubber.close()
+
+        # A server built in code reads no environment: only `main` passes argv.
+        loading = (
+            {"config": config, "argv": list(argv or ()), "environ": environ}
+            if argv is not None or environ is not None
+            else {"config": config or {}}
         )
+        try:
+            # The name is the skill's namespace too: skill://<SERVER_NAME>/<skill>.
+            self.mcp = QuickMCP(
+                SERVER_NAME,
+                sections=SECTIONS,
+                **loading,
+                instructions=instructions.instructions(),
+                # kubed-mcp's delivery inputs in this server's spelling too:
+                # Sf-Resources, Sf-Listed, Sf-Via and Sf-Resource-Prefix, beside
+                # X-MCP-*, the Sf- name winning (DLV-16).
+                header_prefix="Sf",
+                lifespan=lifespan,
+            )
+        except ValueError as exc:
+            # The config did not load: the message names each path and its
+            # source, and never a value.
+            raise ConfigError(str(exc)) from None
+        settings = self.settings = self.mcp.config
+        # Where each value came from, for the Settings tab.
+        self.sources = self.mcp.config_sources
+        # Before anything else is built, so its own log lines are kept.
+        if on_loaded is not None:
+            on_loaded(settings)
         self.grid = Grid(settings.grid.url)
         # Before the actions: the pointer store is derived from it.
         self.store = (
@@ -128,7 +204,7 @@ class SeleniumMCP:
         # cannot hide an old workspace from the move the boot asks for.
         self.flows = flowstore.from_settings(
             settings.data,
-            config.recording_dir(settings) if settings.recording.enabled else None,
+            recording_dir(settings) if settings.recording.enabled else None,
         )
 
         # Each workspace's own config, read from its folder. A workspace
@@ -191,14 +267,14 @@ class SeleniumMCP:
         # files. Built before the workspaces, which tell it about every
         # recorded browser; None when recording is off.
         self.collector = None
-        problem = config.recording_problem(settings)
+        # Checked here, where every server is built, so no config skips it.
+        problem = recording_problem(settings)
         if problem:
-            # `load` checks this too; Settings built in code skips `load`.
-            raise config.ConfigError(problem)
+            raise ConfigError(problem)
         if settings.recording.enabled:
-            inbox = Path(config.recording_dir(settings))
+            inbox = Path(recording_dir(settings))
             if not inbox.is_dir() or not os.access(inbox, os.R_OK | os.W_OK | os.X_OK):
-                raise config.ConfigError(
+                raise ConfigError(
                     f"recording.dir {inbox} must exist and be readable and writable "
                     "by this server: filing a recording moves it out"
                 )
@@ -226,7 +302,9 @@ class SeleniumMCP:
         # The catalogue of secrets an agent may bind (names, never values), or
         # None. Built before the workspaces, whose every answer is checked for
         # the secrets in scope where it ran.
-        self.secrets = secrets.from_settings(settings.secrets, settings.config_file)
+        self.secrets = secrets.from_settings(
+            settings.secrets, config_file(self.sources)
+        )
 
         self.workspaces = Workspaces(
             self.actions,
@@ -275,58 +353,14 @@ class SeleniumMCP:
         # open. `oidc` adds a JWT beside it on /mcp, and the admin door also
         # admits an admin-UI JWT when `oidc.client_id` is set.
         self.doors = http_auth.doors(settings)
+        self.mcp.auth = self.doors.mcp
 
-        # These live on the server's event loop: the bus starts first, so
-        # nothing is announced to a loop that is not there, and the monitor
-        # before the collector, which asks it to watch what is still owed.
-        collector, monitor, bus = self.collector, self.monitor, self.bus
-        tunnels, controls = self.tunnels, self.controls
-        scrubber = self.workspaces.scrubber
-        telemetry = self.telemetry
-
-        @asynccontextmanager
-        async def lifespan(_server):
-            controls.start()
-            bus.start()
-            await monitor.start()
-            if collector is not None:
-                await collector.start()
-            try:
-                yield {}
-            finally:
-                # The meter shuts down after this exits, and its last
-                # collection must not wait on the Grid.
-                if telemetry is not None:
-                    telemetry.stop()
-                # First, every waiter is let go before anything it waits on
-                # stops. `waiting.Tasks` has already done it; again here is a
-                # no-op.
-                controls.stop()
-                if collector is not None:
-                    await collector.stop()
-                tunnels.stop()
-                await monitor.stop()
-                await bus.stop()
-                scrubber.close()
-
-        # The name is the skill's namespace too: skill://<SERVER_NAME>/<skill>.
-        self.mcp = QuickMCP(
-            SERVER_NAME,
-            config=settings,
-            instructions=instructions.instructions(),
-            # kubed-mcp's delivery inputs in this server's spelling too:
-            # Sf-Resources, Sf-Listed, Sf-Via and Sf-Resource-Prefix, beside
-            # X-MCP-*, the Sf- name winning (DLV-16).
-            header_prefix="Sf",
-            auth=self.doors.mcp,
-            lifespan=lifespan,
-        )
         # Built above, because the routes and the workspaces hold it too; the
         # tools are handed it as `Inject[Actions]`.
         self.mcp.singleton(Actions, instance=self.actions)
         # Docket's worker waits for its tasks when it stops, so the controls
         # let every waiter go first.
-        self.mcp.add_extension(waiting.Tasks(first=controls.stop))
+        self.mcp.add_extension(waiting.Tasks(first=self.controls.stop))
         tools.register(self.mcp, self.workspaces, self.secrets, live=settings.live)
 
         # The skill, the prompts a person picks (a failed run's hint names
@@ -451,7 +485,7 @@ class SeleniumMCP:
             flow_store=self.flows,
             schemas=schemas,
             catalogue=self.secrets,
-            settings_payload=lambda: config.describe(self.settings, self.sources),
+            settings_payload=lambda: describe(self.settings, self.sources),
             link_ttl=settings.link_ttl,
             frame_ancestors=settings.security.frame_ancestors,
             door=self.doors.admin,
@@ -474,11 +508,11 @@ class SeleniumMCP:
     def run(self) -> None:
         """Serve as the settings say, blocking until the process is stopped.
 
-        `QuickMCP.run` reads the transport, host and port off the settings, and
+        `QuickMCP.run` reads the transport, host and port off `serving`, and
         uses the path and the middleware only over HTTP.
         """
         middleware = http_middleware()
-        if self.settings.transport != "stdio":
+        if self.settings.serving.transport != "stdio":
             # The access log names each request by its route template, never
             # by its path; the route spans use the same templates.
             templates = access_log.quiet(self.mcp.server.http_app(path=self.mcp_path))
@@ -490,20 +524,25 @@ class SeleniumMCP:
 
 
 def create_app(
-    settings: config.Settings | None = None,
+    config: Mapping[str, Any] | None = None,
     *,
-    sources: dict[str, str] | None = None,
+    argv: Sequence[str] | None = None,
+    environ: Mapping[str, str] | None = None,
     store: WorkspaceStore | None = None,
     pointers=None,
     telemetry: Telemetry | None = None,
+    on_loaded: Callable[[Config], None] | None = None,
 ) -> SeleniumMCP:
-    """The server for ``settings``: its `mcp` is the `QuickMCP` that serves it."""
+    """The server for ``config``, or for what ``argv`` and ``environ`` say: its
+    `mcp` is the `QuickMCP` that serves it."""
     return SeleniumMCP(
-        settings,
-        sources=sources,
+        config,
+        argv=argv,
+        environ=environ,
         store=store,
         pointers=pointers,
         telemetry=telemetry,
+        on_loaded=on_loaded,
     )
 
 

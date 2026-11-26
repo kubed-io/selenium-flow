@@ -15,7 +15,6 @@ from fastmcp_tasks import call_tool_task
 from fastmcp_tasks.models import CreateTaskResult
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.faults import BidiUnavailable
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.live.control import HANDED_BACK, HELD, NOTICE_REQUESTED
@@ -34,7 +33,7 @@ URI = "workspace://files/recordings/rec-20261008-1403.mp4"
 
 
 def make(tmp_path):
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)}))
+    server = SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}, "data": {"dir": str(tmp_path)}})
     for name in ("w1", "w2"):
         server.flows.write_file(name, "rec-20261008-1403.mp4", b"\x00" * 64, RECORDINGS_DIR)
     return server
