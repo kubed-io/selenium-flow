@@ -1,0 +1,40 @@
+name: 🏷️ PR Labels
+
+# A label change re-runs PR Tasks' changelog gate with a fresh payload, so applying the
+# `no changelog` label passes it. It is its own workflow, not a label event of pr.yml: the
+# merge box reads only the latest run of each workflow, and a label run of pr.yml, its checks
+# skipped, hid their passes and left them Expected for good (quick-mcp #65). Every label
+# runs the gate: a skipped PR Tasks here would stand in for a failed one.
+
+on:
+  pull_request:
+    branches: [main, 'issue-*']
+    types: [labeled, unlabeled]
+
+concurrency:
+  group: pr-labels-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  pr-tasks:
+    name: PR Tasks
+    # a draft's gate is ready_for_review's, in pr.yml
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    # `pull_request.user.login`, not `github.actor`: the actor is whoever applied the label,
+    # so a human touching a Dependabot PR would put the gate back
+    - name: Make sure Changelog is updated
+      if: github.event.pull_request.user.login != 'dependabot[bot]'
+      uses: tarides/changelog-check-action@v4
+      with:
+        changelog: CHANGELOG.md
