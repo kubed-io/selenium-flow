@@ -76,7 +76,7 @@ NO_PROTOCOL = (
         f"kubed.selenium_flow.{name}"
         for name in (
             "names", "urls", "errors", "faults", "binding", "secrets", "config",
-            "redaction",
+            "redaction", "telemetry",
         )
     ),
 )
@@ -119,6 +119,7 @@ NO_SELENIUM = tuple(
         "flows.report",
         "flows.places",
         "redaction",
+        "telemetry",
         "names",
         "urls",
         "faults",

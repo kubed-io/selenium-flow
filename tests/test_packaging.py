@@ -291,8 +291,11 @@ def test_the_telemetry_extra_is_kubed_mcps_and_nothing_else_carries_it():
     project = tomllib.loads(PYPROJECT.read_text())["project"]
     extra = project["optional-dependencies"]["telemetry"]
     assert len(extra) == 1 and extra[0].startswith("kubed-mcp[telemetry]")
-    everywhere_else = project["dependencies"] + project["optional-dependencies"]["test"]
-    assert not [d for d in everywhere_else if "telemetry" in d or "pyroscope" in d]
+    test = project["optional-dependencies"]["test"]
+    assert not [d for d in project["dependencies"] if "telemetry" in d or "pyroscope" in d]
+    # "opentelemetry" contains "telemetry": the tests' own SDK is the one entry allowed.
+    assert not [d for d in test if "kubed-mcp[telemetry]" in d or "pyroscope" in d]
+    assert all(d.startswith("opentelemetry-sdk") for d in test if "telemetry" in d)
 
 
 def test_the_telemetry_extra_pins_kubed_mcp_as_the_dependency_does():

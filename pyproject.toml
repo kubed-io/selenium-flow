@@ -104,6 +104,9 @@ test = [
   "ruff",
   "uvicorn",
   "openapi-spec-validator",
+  # The in-memory span exporter and metric reader the telemetry tests read (CI
+  # installs .[test] only).
+  "opentelemetry-sdk>=1.45.2,<2",
   "redis>=5.0,<9",
 ]
 
