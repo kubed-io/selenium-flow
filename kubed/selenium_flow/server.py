@@ -78,7 +78,7 @@ log = logging.getLogger(__name__)
 class _BootLineWithoutUserinfo(logging.Filter):
     """kubed-mcp's `config:` boot line, its URLs' userinfo cut out.
 
-    kubed-mcp 0.4.0rc2 logs every leaf not at its default in full, on
+    kubed-mcp 0.4.0 logs every leaf not at its default in full, on
     `kubed.mcp.config` as the lifespan enters, and only a sensitive leaf is
     masked: `grid.url`, `public_base_url` or a proxy in `session.capabilities`
     would print its `user:pass@`. Stripped here, as the Settings tab strips it,

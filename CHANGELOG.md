@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** An object from the environment or a flag, such as `SESSION_CAPABILITIES` or `TELEMETRY_TAGS`, merges into the file's instead of replacing it (#214).
 - **BREAKING:** Environment names match exactly, in upper case: `redis_host` no longer sets `redis.host` (#214).
 - The Settings tab shows `telemetry.profiles` only as set or not set, and a store derived from `REDIS_HOST` or `REDIS_URL` as a default (#214).
+- The server needs kubed-mcp 0.4.0. With `TELEMETRY_OTEL=true`, a log line written inside a span ends with its `trace_id` and `span_id`, and resource reads are in the call metrics (#214).
 - Fixed: a refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
 - **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65).
 - **Profiles and traces:** the image pushes profiles to Pyroscope when `TELEMETRY_PROFILES` names it, and runs OpenTelemetry with `TELEMETRY_OTEL=true` (#199).

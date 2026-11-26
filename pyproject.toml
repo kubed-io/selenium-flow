@@ -29,9 +29,8 @@ maintainers = [{ name = "kubed-io" }]
 dependencies = [
   # The platform this server shares with mcp-kb (kubed.mcp, a namespace package
   # beside kubed.selenium_flow). Every FastMCP name comes through its facade, and
-  # it owns the FastMCP pin (>=4.2,<5). The pin is exact while kubed-mcp is a
-  # release candidate.
-  "kubed-mcp[tasks]==0.4.0rc2",
+  # it owns the FastMCP pin (>=4.2,<5).
+  "kubed-mcp[tasks]>=0.4.0,<0.5",
   "selenium>=4.48.0,<5",
   "requests>=2.32.0",
   "pyyaml>=6.0",
@@ -76,9 +75,9 @@ redis = [
 # Profiles, traces and metrics (kubed-mcp's telemetry). The image installs it so
 # turning one on is a config change, not a rebuild; a plain install leaves it out,
 # and a signal switched on without it logs a warning and the server still serves.
-# Its pin is the kubed-mcp dependency's (test_packaging holds them equal).
+# Its range is the kubed-mcp dependency's (test_packaging holds them equal).
 telemetry = [
-  "kubed-mcp[telemetry]==0.4.0rc2",
+  "kubed-mcp[telemetry]>=0.4.0,<0.5",
 ]
 build = [
   "setuptools_scm",
