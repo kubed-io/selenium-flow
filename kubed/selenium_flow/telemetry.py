@@ -22,6 +22,7 @@ from opentelemetry import metrics, trace
 from opentelemetry.metrics import CallbackOptions, Observation
 from opentelemetry.trace import Span, SpanKind, Status, StatusCode
 
+from .core.defaults import BROWSERS
 from .monitor.events import CallFinished
 
 log = logging.getLogger(__name__)
@@ -46,12 +47,23 @@ def _version() -> str | None:
 def grid_counts(status: dict) -> dict[tuple[str, str], int]:
     """The Grid's slots by `(browser, state)`, `state` being `busy` or `free`.
 
+    Every state is present, 0 included, for each browser this server opens and
+    each browser a slot names, so a read that found no slots still has keys.
+
     A busy slot holds a session. A free slot counts only on a node that is up
     and below its `maxSessions`, and no more of them than that leaves room for:
     a slot a node would refuse a session on is not capacity.
     """
-    counts: dict[tuple[str, str], int] = {}
-    for node in (status.get("value") or {}).get("nodes") or ():
+    counts: dict[tuple[str, str], int] = {
+        (browser, state): 0 for browser in BROWSERS for state in ("busy", "free")
+    }
+    nodes = (status.get("value") or {}).get("nodes") or ()
+    for node in nodes:
+        for slot in node.get("slots") or ():
+            browser = (slot.get("stereotype") or {}).get("browserName", "")
+            counts.setdefault((browser, "busy"), 0)
+            counts.setdefault((browser, "free"), 0)
+    for node in nodes:
         slots = node.get("slots") or ()
         busy = sum(1 for slot in slots if slot.get("session"))
         for slot in slots:
