@@ -290,6 +290,10 @@ class SeleniumMCP:
             SERVER_NAME,
             config=settings,
             instructions=instructions.instructions(),
+            # kubed-mcp's delivery inputs in this server's spelling too:
+            # Sf-Resources, Sf-Listed, Sf-Via and Sf-Resource-Prefix, beside
+            # X-MCP-*, the Sf- name winning (DLV-16).
+            header_prefix="Sf",
             auth=self.doors.mcp,
             lifespan=lifespan,
         )

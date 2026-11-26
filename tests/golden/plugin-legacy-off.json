@@ -63,6 +63,16 @@
     "ttlMs": 0
   },
   "initialize": {
+    "_meta": {
+      "io.kubed/delivery": {
+        "listed": [
+          "skills"
+        ],
+        "prefix": null,
+        "resources": "off",
+        "via": "mcp"
+      }
+    },
     "capabilities": {
       "extensions": {
         "io.modelcontextprotocol/agents": {

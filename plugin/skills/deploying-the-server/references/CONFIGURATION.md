@@ -76,11 +76,16 @@ when `ROUTE_PREFIX` is set: `/flow/mcp` for `ROUTE_PREFIX=/flow`.
 the bare token as the header value, for clients that cannot send a scheme.
 
 A caller with no workspace name is refused with a message saying how to set one.
-`skill://selenium-flow/driving-a-browser/references/WORKSPACES.md` has the naming rules. The other per-client switch says whether the
-client's model can read MCP resources: `X-MCP-Resources: off` or `on`, or
-`?resources=off` or `on`, and the header wins. A client that is off is given the
+`skill://selenium-flow/driving-a-browser/references/WORKSPACES.md` has the naming rules. Two per-client switches follow. The first says whether the
+client's model can read MCP resources: `Sf-Resources: off` or `on` (or its alias
+`X-MCP-Resources`), or `?resources=off` or `on`, and the `Sf-` name wins. A client that is off is given the
 tools `list_resources` and `read_resource` instead. With neither sent, Visual
-Studio Code counts as off and every other client as on.
+Studio Code counts as off and every other client as on. The second says how the client
+already has the plugin's skills, prompts and agent: `Sf-Via: local` (or `?via=local`) keeps
+all of them out of every listing; `extension` keeps the prompts and the skill rows out of
+the listings and leaves the skills and the agent to the client's extension. Either way the
+instructions name the skill the client has, and everything still reads. Unset, it is `mcp`,
+and everything comes from this server.
 
 ## A client's session defaults
 

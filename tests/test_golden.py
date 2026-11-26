@@ -39,7 +39,14 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
-from .conftest import NAMED, TOKEN, RecordingActions, calling_as, over_http
+from .conftest import (
+    NAMED,
+    TOKEN,
+    RecordingActions,
+    calling_as,
+    delivery_meta,
+    over_http,
+)
 from .fakes import FakeActions, FakeClock, FakeGrid, Vault, header, request, untabbed
 from .golden_tools import GOLDEN, compare, normalised, render
 from .test_flowrun import SECRET_STEP, SIMPLE, flow
@@ -216,7 +223,9 @@ def _parsed(result: dict) -> dict:
     }
 
 
-async def plugin_surface(server, mode: str, resources: str) -> dict:
+async def plugin_surface(
+    server, mode: str, resources: str, via: str | None = None
+) -> dict:
     """Everything kubed-mcp's plugin layer serves one client, as it comes over
     the wire: ``request`` sends even the methods a client knows, so a result is
     the server's dict and not a client model's reading of it.
@@ -226,12 +235,14 @@ async def plugin_surface(server, mode: str, resources: str) -> dict:
     """
     info = Implementation(name="a spec-complete client", version="1")
     cell: dict = {}
-    async with over_http(
-        server, {"X-MCP-Resources": resources}, mode=mode, client_info=info
-    ) as client:
+    headers = {"X-MCP-Resources": resources}
+    if via is not None:
+        headers["Sf-Via"] = via
+    async with over_http(server, headers, mode=mode, client_info=info) as client:
         cell["initialize"] = {
             "capabilities": {"extensions": client.server_capabilities.extensions},
             "instructions": client.instructions,
+            "_meta": {"io.kubed/delivery": await delivery_meta(client)},
         }
         cell["resources/list"] = (await request(client, "resources/list"))["resources"]
         cell["resources/templates/list"] = (
@@ -337,6 +348,15 @@ async def test_the_plugin_surface_is_what_it_was(server, mode, resources):
     again = await plugin_surface(server, mode, resources)
     assert render(first) == render(again), "the surface moved between two runs"
     compare(f"plugin-{mode}-{resources}.json", first)
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+@pytest.mark.parametrize("via", ["extension", "local"])
+async def test_the_plugin_surface_per_via_is_what_it_was(server, mode, via):
+    first = await plugin_surface(server, mode, "on", via=via)
+    again = await plugin_surface(server, mode, "on", via=via)
+    assert render(first) == render(again), "the surface moved between two runs"
+    compare(f"plugin-{mode}-on-{via}.json", first)
 
 
 def test_the_plugin_golden_names_no_version():

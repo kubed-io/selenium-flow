@@ -1,9 +1,10 @@
 """Who is calling: the workspace, the session it pins and the bearer; and the
 middleware that carries a caller to a task and refuses a refused workspace.
 
-Whether a client reads resources is not decided here. ``X-MCP-Resources`` and
-``?resources=`` are kubed-mcp's (DLV-2), and so is VS Code's default of off, by
-its table of known clients (DLV-15).
+Whether a client reads resources is not decided here. ``Sf-Resources`` (or
+``X-MCP-Resources``) and ``?resources=`` are kubed-mcp's (DLV-2), and so is
+VS Code's default of off, by its table of known clients (DLV-15). The other
+delivery inputs, Via among them, are kubed-mcp's too.
 """
 
 from __future__ import annotations
