@@ -39,7 +39,14 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
 from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 
-from .conftest import NAMED, TOKEN, RecordingActions, calling_as, over_http
+from .conftest import (
+    NAMED,
+    TOKEN,
+    RecordingActions,
+    calling_as,
+    delivery_meta,
+    over_http,
+)
 from .fakes import FakeActions, FakeClock, FakeGrid, Vault, header, request, untabbed
 from .golden_tools import GOLDEN, compare, normalised, render
 from .test_flowrun import SECRET_STEP, SIMPLE, flow
@@ -232,6 +239,7 @@ async def plugin_surface(server, mode: str, resources: str) -> dict:
         cell["initialize"] = {
             "capabilities": {"extensions": client.server_capabilities.extensions},
             "instructions": client.instructions,
+            "_meta": {"io.kubed/delivery": await delivery_meta(client)},
         }
         cell["resources/list"] = (await request(client, "resources/list"))["resources"]
         cell["resources/templates/list"] = (

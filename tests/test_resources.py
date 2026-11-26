@@ -19,7 +19,7 @@ from mcp.types import Implementation, ResourceTemplateReference
 from kubed.selenium_flow.mcp import instructions
 from kubed.selenium_flow.mcp.resources import RESOURCE_URI, where_linked
 
-from .conftest import NAMED, RESOURCE_TOOLS, calling_as, http, over_http
+from .conftest import NAMED, RESOURCE_TOOLS, calling_as, delivery_meta, http, over_http
 
 pytestmark = pytest.mark.unit
 
@@ -36,6 +36,14 @@ async def read(server, uri):
 
 
 # ---- who reads resources -----------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_the_handshake_reports_the_default_delivery(reader, mode):
+    async with over_http(reader, mode=mode) as c:
+        assert await delivery_meta(c) == {
+            "resources": "on", "listed": ["skills"], "via": "mcp", "prefix": None,
+        }
 
 
 async def listed(client):

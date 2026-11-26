@@ -12,6 +12,7 @@ The Grid is never actually dialled. Tests here exercise wiring and coercion;
 anything that needs a live Grid is an integration test and is marked as one.
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager, contextmanager
 from urllib.parse import urlencode
@@ -156,6 +157,16 @@ async def over_http(server, headers=None, params=None, *, mode=None, client_info
         options["mode"] = mode
     async with app.router.lifespan_context(app), Client(transport, **options) as client:
         yield client
+
+
+async def delivery_meta(client) -> dict:
+    """The handshake's ``_meta["io.kubed/delivery"]``, as plain JSON.
+
+    The client keeps the handshake result it negotiated: the legacy
+    ``initialize`` result, or the ``server/discover`` result in auto mode.
+    """
+    result = client.initialize_result or client.session.discover_result
+    return json.loads(json.dumps(result.meta["io.kubed/delivery"]))
 
 
 def manager(actions=None, store=None):
