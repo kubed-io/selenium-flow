@@ -39,7 +39,7 @@ from ..core.annotations import hints
 from ..core.capabilities import ENDPOINTS, LIBRARY_ARG, capability, method_for
 from ..core.coerce import as_bool
 from ..http import answer as answer_module
-from ..mcp import clients, progress
+from ..mcp import clients, progress, timing
 from ..mcp.tools import SecretRef, Session
 from ..names import GLOBAL_WORKSPACE, valid_name
 from ..workspace import calls as calls_module
@@ -401,6 +401,7 @@ def register(
         ),
         annotations=hints("Save a flow", idempotent=True),
     )
+    @timing.timed(workspaces, SAVE_TOOL)
     async def save_flow(
         name: str,
         steps: list,
@@ -465,6 +466,7 @@ def register(
         ),
         annotations=hints("Run a saved flow", destructive=True),
     )
+    @timing.timed(workspaces, RUN_TOOL)
     async def run_flow(
         name: str,
         params: dict | None = None,
@@ -509,6 +511,7 @@ def register(
         ),
         annotations=hints("Delete a flow", destructive=True, idempotent=True),
     )
+    @timing.timed(workspaces, DELETE_TOOL)
     def delete_flow(name: str) -> dict:
         caller = clients.caller()
         return workspaces.scrubbed(

@@ -232,7 +232,11 @@ def test_a_call_says_which_browser_it_ran_on_after_a_reopen_too():
     workspaces.open_browser(Caller("ws", "query"), browser="firefox")
     workspaces.actions.grid.alive.clear()  # the Grid reaped it
     workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="extract")
-    [event] = [e for e in monitor.published if isinstance(e, CallFinished)]
+    # The open is a call of its own (`Calls.timed`): this is the extract's.
+    [event] = [
+        e for e in monitor.published
+        if isinstance(e, CallFinished) and e.tool == "extract"
+    ]
     assert event.browser == "firefox"
     assert event.session_id == workspaces.store.get("ws").session_id
 

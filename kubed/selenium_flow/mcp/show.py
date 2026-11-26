@@ -20,6 +20,7 @@ from kubed.mcp.skills import FolderNotFound
 from ..core.annotations import reads
 from ..http import files
 from ..names import SERVER_NAME, retired_uri
+from . import timing
 from .failures import nameless
 
 TOOL = "show"
@@ -270,13 +271,16 @@ async def _entry(uri: str) -> dict:
     return found
 
 
-def register(mcp, app_config) -> set[str]:
+def register(mcp, app_config, workspaces) -> set[str]:
+    """Register `show`, timed as a call on ``workspaces`` (RUN-32)."""
+
     @mcp.tool(
         name=TOOL,
         description=DESCRIPTION,
         app=app_config,
         annotations=reads("Show a resource"),
     )
+    @timing.timed(workspaces, TOOL)
     async def show(uri: str) -> ToolResult:
         view = row_for(uri)
         component = view.component

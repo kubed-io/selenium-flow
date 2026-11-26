@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65).
+- **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65, #220).
 - **Profiles and traces:** the image pushes profiles to Pyroscope when `TELEMETRY_PROFILES` names it, and runs OpenTelemetry with `TELEMETRY_OTEL=true` (#199).
 - **BREAKING:** The one skill is five, by reader and moment: `driving-a-browser` (the entry point), `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`, each at `skill://selenium-flow/<skill>/SKILL.md` (#195, #196). The old `skill://selenium-flow/SKILL.md` and `skill://selenium-flow/references/…` addresses no longer read: nothing redirects them, and hints, the instructions, the prompts and the explorer name the new ones.
 - **BREAKING:** The server's name (`serverInfo.name`) is `selenium-flow`, not `Selenium` (#196).
