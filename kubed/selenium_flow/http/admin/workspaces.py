@@ -40,9 +40,14 @@ from .. import answer, links
 log = logging.getLogger(__name__)
 
 EVENTS_PATH = "/admin/events"
-# Fast enough that a session appears to show up instantly, slow enough that the
-# Grid is asked twice a second at worst no matter how many pages are open.
+# How often the tick looks, not how often it computes: it computes only when
+# the list may have changed. Fast enough that a change shows up at once, slow
+# enough that the Grid is asked twice a second at worst however many pages are
+# open.
 POLL_SECONDS = 2.0
+# The longest a change with no signal (a session the Grid ended on its own)
+# waits to show.
+REFRESH_SECONDS = 30.0
 # Seconds of no change before a keepalive comment goes out.
 HEARTBEAT = 20.0
 # How old the last broadcast may be and still be handed out as "now": to a
@@ -310,7 +315,9 @@ class _Page:
 
 
 class Broadcast:
-    """The workspace list, computed once a tick for every connected page.
+    """The workspace list, computed for every connected page on a tick that
+    finds it stale: marked since it was last computed (a finished call),
+    invalidated or poked, or older than ``REFRESH_SECONDS``.
 
     One task, running only while somebody listens: the first page starts it
     and it ends after the last one leaves. Everything but ``compute`` runs on
@@ -328,17 +335,37 @@ class Broadcast:
         self._latest: tuple[float, dict, str] | None = None
         # Nothing computed before this may become `_latest`: see `invalidate`.
         self._floor = 0.0
+        # Signals that the list may have changed (`mark`), and how many of them
+        # the latest computation had already counted.
+        self._changes = 0
+        self._seen = 0
 
-    def _recent(self) -> tuple[float, dict, str] | None:
+    def mark(self) -> None:
+        """The list may have changed (a call finished): the next tick computes
+        it. Wakes nothing, so steady traffic costs one build a tick."""
+        self._changes += 1
+
+    def _stale(self) -> bool:
         latest = self._latest
-        if latest and time.monotonic() - latest[0] < FRESH_SECONDS:
+        return (
+            latest is None
+            or self._changes != self._seen
+            or time.monotonic() - latest[0] >= REFRESH_SECONDS
+        )
+
+    def _current(self) -> tuple[float, dict, str] | None:
+        """The last broadcast, if it is young enough to stand for now or
+        nothing has marked it since."""
+        latest = self._latest
+        young = latest and time.monotonic() - latest[0] < FRESH_SECONDS
+        if latest and (young or not self._stale()):
             return latest
         return None
 
     def fresh(self) -> dict | None:
         """The last broadcast, if it is recent enough to stand for now."""
-        recent = self._recent()
-        return recent[1] if recent else None
+        current = self._current()
+        return current[1] if current else None
 
     def invalidate(self) -> None:
         """Forget the last broadcast, and any already under way: an admin has
@@ -369,9 +396,9 @@ class Broadcast:
 
     def join(self, page: _Page) -> None:
         self._pages.add(page)
-        recent = self._recent()
-        if recent:
-            page.deliver(recent[2])
+        current = self._current()
+        if current:
+            page.deliver(current[2])
         else:
             # Too old to call "now": tick early. Mid-tick this wakes nothing:
             # the tick under way delivers to this page too.
@@ -389,18 +416,23 @@ class Broadcast:
 
     async def _run(self) -> None:
         while True:
-            started = time.monotonic()
-            try:
-                payload = await run_in_threadpool(self.compute)
-                text = json.dumps(payload, sort_keys=True)
-            except Exception as exc:  # noqa: BLE001 - the Grid can blip
-                # Every page keeps what it has.
-                log.info("event poll failed: %s", faults.message(exc))
-            else:
-                if started >= self._floor:
-                    self._latest = (started, payload, text)
-                for page in self._pages:
-                    page.deliver(text)
+            if self._stale():
+                # Read before the build: a mark that lands during it is not
+                # seen by it.
+                changes = self._changes
+                started = time.monotonic()
+                try:
+                    payload = await run_in_threadpool(self.compute)
+                    text = json.dumps(payload, sort_keys=True)
+                except Exception as exc:  # noqa: BLE001 - the Grid can blip
+                    # Every page keeps what it has, and the mark stays unseen.
+                    log.info("event poll failed: %s", faults.message(exc))
+                else:
+                    if started >= self._floor:
+                        self._latest = (started, payload, text)
+                        self._seen = changes
+                    for page in self._pages:
+                        page.deliver(text)
             if not self._pages:
                 break
             self._nudge = anyio.Event()
@@ -445,7 +477,7 @@ def mount(
     """
 
     # Whether the last read of the store failed, so an outage warns once rather
-    # than on every two-second poll of every open page.
+    # than on every build while the outage lasts.
     store_failing = [False]
 
     def workspaces_payload() -> dict:
@@ -462,7 +494,7 @@ def mount(
             records = workspaces_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
             # A warning, since the page shows this as an empty install; once,
-            # since every open page polls every two seconds.
+            # since the list is built again every tick it is stale.
             report = log.debug if store_failing[0] else log.warning
             report("could not read the workspace store: %s", exc)
             store_failing[0] = True
