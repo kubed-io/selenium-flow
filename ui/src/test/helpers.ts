@@ -58,7 +58,12 @@ export class FakeEventSource {
   onmessage: ((e: { data: string }) => void) | null = null
   onerror: (() => void) | null = null
   closed = false
+  #listeners = new Map<string, Array<() => void>>()
   constructor(public url: string) { FakeEventSource.last = this }
+  addEventListener(type: string, fn: () => void) {
+    this.#listeners.set(type, [...(this.#listeners.get(type) ?? []), fn])
+  }
+  dispatch(type: string) { for (const fn of this.#listeners.get(type) ?? []) fn() }
   close() { this.closed = true }
   emit(data: unknown) { this.onmessage?.({ data: JSON.stringify(data) }) }
 }

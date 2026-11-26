@@ -1,10 +1,9 @@
 """One broadcaster behind every open admin page.
 
-The workspace list is computed on a tick that finds it stale (marked since, or
-older than the refresh bound) however many pages are connected, and only while
-one is. What each page sees is what it saw when every page polled on
-its own: its first event on connect, one event per change, none when nothing
-changed, and a failed tick that says nothing.
+The workspace list is computed on a tick that finds it stale (marked since, or older than
+the refresh bound) however many pages are connected, and only while one is. What each page
+sees is what it saw when every page polled on its own: its first event on connect, one
+event per change, none when nothing changed, and a failed tick that says nothing.
 
 Ticks are paced by the test where a count must be exact: `grid.status` blocks on
 a semaphore, so "N entered" means the Nth tick is under way.
@@ -26,12 +25,13 @@ from .conftest import TOKEN
 pytestmark = pytest.mark.unit
 
 
-async def _listen(app, sink, stop):
+async def _listen(app, sink, stop, beats=None):
     """One `/admin/events` client, speaking raw ASGI.
 
     Not a TestClient: its portal buffers a response until the app finishes, and
     this one never does. ``sink`` collects each event's data as it is sent;
-    setting ``stop`` is the browser closing the tab.
+    setting ``stop`` is the browser closing the tab. A ``beat`` event goes to
+    ``beats`` as its lines, never to ``sink``.
     """
 
     async def receive():
@@ -40,9 +40,16 @@ async def _listen(app, sink, stop):
 
     async def send(message):
         if message["type"] == "http.response.body":
-            for line in message.get("body", b"").decode().splitlines():
-                if line.startswith("data: "):
-                    sink.append(line[len("data: "):])
+            text = message.get("body", b"").decode().replace("\r\n", "\n")
+            for frame in text.split("\n\n"):
+                lines = frame.split("\n")
+                if "event: beat" in lines:
+                    if beats is not None:
+                        beats.append(lines)
+                    continue
+                for line in lines:
+                    if line.startswith("data: "):
+                        sink.append(line[len("data: "):])
 
     await app(
         {
@@ -667,3 +674,18 @@ async def test_a_finished_call_is_never_answered_from_before_it(server, counted,
         assert len(counted) == asked + 1
     finally:
         await _close(stop, tasks)
+
+
+async def test_the_stream_beats_while_nothing_changes(server, computed, monkeypatch):
+    monkeypatch.setattr(admin, "HEARTBEAT", 0.05)
+    monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
+    app = server.mcp.server.http_app()
+    stop, sink, beats = asyncio.Event(), [], []
+    task = asyncio.create_task(_listen(app, sink, stop, beats=beats))
+    try:
+        await _until(lambda: len(beats) >= 3, "three beats")
+        assert beats[0] == ["event: beat", "data: "]
+        assert len(sink) == 1, "a beat was read as a payload"
+        assert len(computed) == 1
+    finally:
+        await _close(stop, [task])

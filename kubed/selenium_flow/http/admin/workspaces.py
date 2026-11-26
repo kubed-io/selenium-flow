@@ -14,7 +14,7 @@ import time
 from functools import wraps
 
 import anyio
-from sse_starlette import EventSourceResponse
+from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -48,10 +48,12 @@ POLL_SECONDS = 2.0
 # The longest a change with no signal (a session the Grid ended on its own)
 # waits to show.
 REFRESH_SECONDS = 30.0
-# Seconds of no change before a keepalive comment goes out.
+# Seconds between `beat` events, on a fixed timer from when the stream opens,
+# whatever else it sends (sse-starlette's ping).
 HEARTBEAT = 20.0
-# How old the last broadcast may be and still be handed out as "now": to a
-# page that has just connected, and to `GET /admin/workspaces`.
+# How old a broadcast marked since it was computed may be and still be handed
+# out as "now": to a page that has just connected, and to
+# `GET /admin/workspaces`. An unmarked one is handed out until REFRESH_SECONDS.
 FRESH_SECONDS = 1.0
 
 
@@ -363,7 +365,8 @@ class Broadcast:
         return None
 
     def fresh(self) -> dict | None:
-        """The last broadcast, if it is recent enough to stand for now."""
+        """The current broadcast: young, or nothing marked since and within the
+        refresh bound."""
         current = self._current()
         return current[1] if current else None
 
@@ -400,8 +403,9 @@ class Broadcast:
         if current:
             page.deliver(current[2])
         else:
-            # Too old to call "now": tick early. Mid-tick this wakes nothing:
-            # the tick under way delivers to this page too.
+            # Nothing current (stale and not young, or never built): tick early.
+            # Mid-tick this wakes nothing: the tick under way delivers to this
+            # page too.
             self._nudge.set()
         loop = asyncio.get_running_loop()
         task = self._task
@@ -648,13 +652,15 @@ def mount(
         # sse-starlette, for shutdown: uvicorn waits for open connections
         # before the lifespan, so a stream that never ends would hold each
         # SIGTERM for FastMCP's 2s grace. This one hears uvicorn's exit and sets
-        # `page`, within a shorter grace. Its heartbeat keeps proxies from
-        # closing an idle stream.
+        # `page`, within a shorter grace. Its beat keeps proxies from closing an
+        # idle stream and tells the page the stream is alive: `EventSource` never
+        # shows a comment.
         return _Stream(
             broadcast,
             page,
             stream(),
             ping=HEARTBEAT,
+            ping_message_factory=lambda: ServerSentEvent(event="beat", data=""),
             headers={"Cache-Control": "no-cache, no-transform"},
             shutdown_event=page,
             shutdown_grace_period=1.0,

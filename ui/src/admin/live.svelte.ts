@@ -58,8 +58,9 @@ export class Live {
     events.onopen = () => this.#beat()
     events.onmessage = (e) => {
       this.#beat()
-      try { this.#apply(JSON.parse(e.data)) } catch { /* a keepalive */ }
+      try { this.#apply(JSON.parse(e.data)) } catch { /* not a payload */ }
     }
+    events.addEventListener('beat', () => this.#beat())
     // EventSource reconnects by itself; the badge just stops claiming live.
     events.onerror = () => { this.badge = { text: 'reconnecting…', cls: '' } }
 

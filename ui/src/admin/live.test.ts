@@ -37,6 +37,32 @@ test('a silent stream falls back to polling and reopens on a fresh URL (U3)', as
   expect(FakeEventSource.last!.url).toBe('/e?sig=2')
 })
 
+test('a beating stream never falls back, for ten minutes (UI-35)', async () => {
+  const { calls } = fakeFetch({ 'GET /admin/workspaces': { body: { workspaces: [], events_url: '/e?sig=1' } } })
+  const live = new Live(api, '')
+  await live.load()
+  const stream = FakeEventSource.last!
+  stream.onopen!()
+  for (let i = 0; i < 30; i++) {
+    await vi.advanceTimersByTimeAsync(20_000)
+    stream.dispatch('beat')
+  }
+  expect(calls.filter((c) => c.path === '/admin/workspaces')).toHaveLength(1)
+  expect(FakeEventSource.last).toBe(stream)
+  expect(stream.closed).toBe(false)
+  expect(live.badge).toEqual({ text: '', cls: 'live' })
+})
+
+test('a beat after an error says live again', async () => {
+  fakeFetch({ 'GET /admin/workspaces': { body: { workspaces: [{ key: 'a' }], events_url: '/e' } } })
+  const live = new Live(api, '')
+  await live.load()
+  FakeEventSource.last!.onerror!()
+  FakeEventSource.last!.dispatch('beat')
+  expect(live.badge).toEqual({ text: '', cls: 'live' })
+  expect(live.data?.workspaces).toEqual([{ key: 'a' }])
+})
+
 test('an error shows in place of the list (L2)', async () => {
   fakeFetch({ 'GET /admin/workspaces': { status: 500, body: { error: 'grid down' } } })
   const live = new Live(api, '')
