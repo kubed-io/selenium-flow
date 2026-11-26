@@ -14,9 +14,9 @@ call with progress where it cannot.
 A task tool must be ``async``: FastMCP refuses ``task=`` on a sync function.
 
 Docket stays in memory, named in code so a stray ``FASTMCP_DOCKET_URL`` cannot
-move it, and its poll interval is pinned the same way. Its worker waits for the
-tasks it runs when it stops, so `Tasks` lets the server's waiters go first, or
-the stop would hang.
+move it, and its poll interval and scheduler tick are pinned the same way. Its
+worker waits for the tasks it runs when it stops, so `Tasks` lets the server's
+waiters go first, or the stop would hang.
 """
 
 from __future__ import annotations
@@ -41,8 +41,10 @@ T = TypeVar("T")
 # The client polls a task, nothing is pushed, and FastMCP's default is 5 s.
 TASK = TaskConfig(mode="optional", poll_interval=timedelta(seconds=1))
 MEMORY = "memory://"
-# FastMCP's default is 50 ms; a task still starts at once because the worker's
-# blocking read wakes on the write, so this only sets how often an idle worker turns.
+# The worker's poll (FastMCP's default 50 ms) and its scheduler tick (docket's
+# 250 ms). A task still starts at once because the worker's blocking read wakes
+# on the write, so this sets how often an idle worker turns, and how late a task
+# scheduled for later can start. Nothing here schedules one.
 CHECK = timedelta(seconds=1)
 
 
@@ -63,10 +65,32 @@ class Tasks(TasksExtension):
     @asynccontextmanager
     async def lifespan(self) -> AsyncGenerator[None, None]:
         async with super().lifespan():
+            _tick(self.server)
             try:
                 yield
             finally:
                 self._first()
+
+
+def _tick(server) -> None:
+    """Sets the running worker's scheduler tick to `CHECK`.
+
+    FastMCP's settings have no field for docket's ``scheduling_resolution``, so
+    it is set on the live worker, which reads it on every tick. The worker is
+    ``server._worker``, where FastMCP's own ``CurrentWorker()`` looks first;
+    that dependency itself is not in the `kubed.mcp` facade (PROT-41). Without
+    a worker or the attribute, the scheduler keeps docket's default: a warning,
+    never a failed start.
+    """
+    worker = getattr(server, "_worker", None)
+    if worker is None:
+        why = "FastMCP started no worker"
+    elif not hasattr(worker, "scheduling_resolution"):
+        why = "the worker has no scheduling_resolution"
+    else:
+        worker.scheduling_resolution = CHECK
+        return
+    log.warning("docket's scheduler keeps its default tick: %s", why)
 
 
 async def _beat(ctx, cap: float | None, message: Callable[[], str]) -> None:

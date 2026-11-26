@@ -6,14 +6,16 @@ of things about FastMCP that its documentation does not promise. Each test here
 is one of them, against a toy server, so an upgrade that changes one fails here,
 by name, rather than somewhere in await_control.
 
-Two more pin `waiting.Tasks`: the worker polls once a second, and a task still
-starts at once (the backend wakes the worker's blocking read on a write).
+The rest pin `waiting.Tasks`: the worker polls and its scheduler ticks once a
+second, a server with no worker only warns, and a task still starts at once (the
+backend wakes the worker's blocking read on a write).
 
 Over real streamable HTTP (an in-process ASGI app), because headers only exist
 there and the worker's lack of a request is the point of one test.
 """
 
 import asyncio
+import logging
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -21,6 +23,7 @@ from datetime import timedelta
 
 import httpx2
 import pytest
+from docket import Worker
 from fastmcp import Client, Context, FastMCP
 from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.server.dependencies import get_http_headers, get_http_request
@@ -28,6 +31,7 @@ from fastmcp.server.middleware import Middleware
 from fastmcp.tools.base import ToolResult
 from fastmcp.utilities.tasks import TaskConfig
 from fastmcp_tasks import TasksExtension, call_tool_task
+from fastmcp_tasks.dependencies import CurrentWorker
 from fastmcp_tasks.models import CreateTaskResult
 
 from kubed.selenium_flow.mcp import clients, waiting
@@ -236,6 +240,44 @@ def test_the_worker_polls_once_a_second():
     tasks = waiting.Tasks(first=lambda: None)
     assert tasks.docket_settings.minimum_check_interval == waiting.CHECK
     assert timedelta(seconds=1) == waiting.CHECK
+
+
+async def test_the_scheduler_ticks_once_a_second():
+    """Docket's scheduler moves due tasks every second, not at its 250 ms default.
+
+    Read through FastMCP's own `CurrentWorker()`, so this fails if the worker
+    moves or docket renames `scheduling_resolution`."""
+    mcp = FastMCP("toy")
+    mcp.add_extension(waiting.Tasks(first=lambda: None))
+
+    @mcp.tool(task=TASK)
+    async def tick(worker: Worker = CurrentWorker()) -> dict:  # noqa: B008 - docket's injection
+        return {"seconds": worker.scheduling_resolution.total_seconds()}
+
+    async with connect(mcp) as client:
+        result = await (await call_tool_task(client, "tick")).result()
+    assert result.structured_content == {"seconds": waiting.CHECK.total_seconds()}
+
+
+async def test_no_worker_to_tick_is_a_warning(caplog):
+    """With no task tool FastMCP starts no worker: the server still serves, and
+    says why its scheduler keeps docket's default."""
+    mcp = FastMCP("toy")
+    mcp.add_extension(waiting.Tasks(first=lambda: None))
+
+    @mcp.tool
+    def plain() -> dict:
+        return {}
+
+    with caplog.at_level(logging.WARNING, logger=waiting.__name__):
+        async with connect(mcp) as client:
+            await client.call_tool("plain")
+    warned = [
+        r.getMessage()
+        for r in caplog.records
+        if r.name == waiting.__name__ and r.levelno == logging.WARNING
+    ]
+    assert warned == ["docket's scheduler keeps its default tick: FastMCP started no worker"]
 
 
 async def test_a_task_starts_without_waiting_for_the_poll():
