@@ -303,6 +303,16 @@ def test_the_one_filter_serves_both_loggers_however_often_it_boots(tmp_path, lis
     assert [len(m) for m in mine] == [1, 1] and mine[0][0] is mine[1][0]
 
 
+def test_quiet_returns_the_filter_it_installs(tmp_path):
+    from starlette.applications import Starlette
+
+    app = Starlette()
+    first = access_log.quiet(app)
+    on_access = [f for f in logging.getLogger("uvicorn.access").filters if f is first]
+    assert isinstance(first, access_log.RouteTemplates) and on_access == [first]
+    assert access_log.quiet(app) is first
+
+
 SESSION_PATHS = [
     ("/admin/workspaces/s3cr3t/history", "/admin/workspaces/{key}/history"),
     ("/kept/s3cr3t/x.pdf", "/kept/{workspace}/{name}"),

@@ -420,9 +420,13 @@ class Grid:
             return
         response.raise_for_status()
 
-    def status(self) -> dict:
-        """The Grid's own readiness payload."""
-        return self._json("get", "/status")
+    def status(self, *, timeout: float = GRID_TIMEOUT, retry: bool = True) -> dict:
+        """The Grid's own readiness payload.
+
+        The telemetry gauge asks it briefly and once (`SHOWN_TIMEOUT`, no
+        retry): a slow Grid must not hold a metric collection.
+        """
+        return self._json("get", "/status", timeout=timeout, retry=retry)
 
     def session_count(self) -> int:
         """How many sessions are currently held across the Grid."""

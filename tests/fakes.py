@@ -11,10 +11,15 @@ import threading
 from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
-from typing import ClassVar
+from typing import ClassVar, NamedTuple
 
 import yaml
 from mcp_types import Request, RequestParams
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import ConfigDict, TypeAdapter
 from selenium.common.exceptions import (
     NoSuchWindowException,
@@ -27,6 +32,7 @@ from kubed.selenium_flow.core import browser as browser_module
 from kubed.selenium_flow.faults import BidiUnavailable, SocketClosed
 from kubed.selenium_flow.live.tunnel import Tunnel
 from kubed.selenium_flow.redaction import Forms
+from kubed.selenium_flow.telemetry import Telemetry
 from kubed.selenium_flow.urls import origin_of, scope_origin
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
@@ -1457,3 +1463,38 @@ class KeyDriver:
 
     def execute_script(self, *_):
         return False
+
+
+class Recorded(NamedTuple):
+    """A `Telemetry` on private providers, and what they recorded."""
+
+    telemetry: Telemetry
+    spans: InMemorySpanExporter
+    metrics: InMemoryMetricReader
+
+
+def recorded() -> Recorded:
+    """A `Telemetry` on in-memory providers; no global is set."""
+    spans = InMemorySpanExporter()
+    tracer_provider = TracerProvider()
+    tracer_provider.add_span_processor(SimpleSpanProcessor(spans))
+    metrics = InMemoryMetricReader()
+    meter_provider = MeterProvider(metric_readers=[metrics])
+    return Recorded(
+        Telemetry(tracer_provider=tracer_provider, meter_provider=meter_provider),
+        spans,
+        metrics,
+    )
+
+
+def points(reader, name):
+    """Each data point of the metric `name`, as `(attributes, point)`, from one
+    collection."""
+    data = reader.get_metrics_data()
+    found = []
+    for resource in data.resource_metrics if data else ():
+        for scope in resource.scope_metrics:
+            for metric in scope.metrics:
+                if metric.name == name:
+                    found += [(dict(p.attributes), p) for p in metric.data.data_points]
+    return found

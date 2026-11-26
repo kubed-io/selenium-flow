@@ -596,6 +596,58 @@ def test_verbose_false_over_http_does_not_turn_verbose_on(client, flow_server,
     assert "result" not in response.json()["steps"][0]
 
 
+def _traced(tmp_path, monkeypatch):
+    """A server on recording telemetry, its HTTP app wrapped in the route spans."""
+    from kubed.selenium_flow.core.actions import Actions
+    from kubed.selenium_flow.http.access_log import RouteTemplates
+    from kubed.selenium_flow.server import http_middleware
+
+    from .fakes import recorded
+
+    rec = recorded()
+    # On the class, before the server: the routes bind the action at registration.
+    monkeypatch.setattr(Actions, "navigate", lambda self, session_id, url: {"url": url, "title": "t"})
+    server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"},
+                                           auth={"token": TOKEN}, data={"dir": str(tmp_path)}),
+                                  telemetry=rec.telemetry))
+    acting_as(monkeypatch, server, NAMED)
+    monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("b", "chrome"))
+    templates = RouteTemplates(server.mcp.server.http_app().routes)
+    client = TestClient(server.mcp.server.http_app(
+        middleware=http_middleware(rec.telemetry, templates=templates, prefix=server.prefix)))
+    return rec, client
+
+
+def test_a_runs_steps_are_children_of_its_route_span(tmp_path, monkeypatch):
+    from opentelemetry.trace import SpanKind
+
+    rec, client = _traced(tmp_path, monkeypatch)
+    client.put("/flows/f", json={"steps": GOOD * 2}, headers=named("workflow"))
+    rec.spans.clear()
+    assert client.post("/flows/f/runs", headers=named("workflow")).status_code == 200
+    spans = rec.spans.get_finished_spans()
+    [route] = [s for s in spans if s.kind is SpanKind.SERVER]
+    steps = [s for s in spans if s.name == "call navigate"]
+    assert route.name.startswith("POST /flows/") and "/f/" not in route.name
+    assert len(steps) == 2
+    assert {s.parent.span_id for s in steps} == {route.context.span_id}
+    assert {s.attributes["selenium_flow.surface"] for s in steps} == {"flow"}
+
+
+def test_an_http_tool_call_is_a_child_of_its_route_span(tmp_path, monkeypatch):
+    from opentelemetry.trace import SpanKind
+
+    rec, client = _traced(tmp_path, monkeypatch)
+    response = client.post("/browser/navigate", json={"url": "https://example.test/"},
+                           headers=named("workflow"))
+    assert response.status_code == 200, response.text
+    spans = rec.spans.get_finished_spans()
+    [route] = [s for s in spans if s.kind is SpanKind.SERVER]
+    [call_span] = [s for s in spans if s.name == "call navigate"]
+    assert call_span.parent.span_id == route.context.span_id
+    assert call_span.attributes["selenium_flow.surface"] == "http"
+
+
 async def test_a_resize_step_is_written_back_to_the_workspace(flow_server, monkeypatch):
     """Otherwise the flow resizes the live browser and the workspace's browser
     comes back the old size the next time the Grid reaps it."""
