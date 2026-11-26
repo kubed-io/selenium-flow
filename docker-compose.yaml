@@ -9,6 +9,8 @@ services:
       target: runner
       args:
         PY_VERSION: ${PY_VERSION:-3.14}
+        # build-image's `fresh` lookup: a kubed-mcp release reinstalls the dependency layer
+        DEPS_FRESH: ${DEPS_FRESH:-}
       # No literal tag: image.yml's "Resolve image tag" step sets IMAGE_LATEST,
       # IMAGE_REF and IMAGE_TAG, and the build-image action sets GIT_SHA. A
       # branch build sets the first three to its branch, so it never moves
