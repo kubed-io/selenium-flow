@@ -38,11 +38,18 @@ class RouteTemplates(logging.Filter):
             regex, template, _ = compile_path(prefix + path)
             yield regex, template
 
-    def template(self, target: str) -> str:
-        path = target.split("?", 1)[0]
+    def matched(self, path: str) -> str | None:
+        """The template of the first route that matches ``path``, or None."""
         for regex, template in self.templates:
             if regex.match(path):
                 return template
+        return None
+
+    def template(self, target: str) -> str:
+        path = target.split("?", 1)[0]
+        found = self.matched(path)
+        if found is not None:
+            return found
         first, _, rest = path.lstrip("/").partition("/")
         return f"/{first}/…" if rest else f"/{first}"
 
@@ -68,10 +75,10 @@ class RouteTemplates(logging.Filter):
         return True
 
 
-def quiet(app) -> None:
+def quiet(app) -> RouteTemplates:
     """Log ``app``'s route templates in uvicorn's access log and in its
     WebSocket lines (on ``uvicorn.error``), one filter however often it boots —
-    the last app booted is the one being served."""
+    the last app booted is the one being served. Returns that filter."""
     loggers = [logging.getLogger(n) for n in ("uvicorn.access", "uvicorn.error")]
     found = next(
         (f for lg in loggers for f in lg.filters if isinstance(f, RouteTemplates)),
@@ -84,3 +91,4 @@ def quiet(app) -> None:
     for lg in loggers:
         if found not in lg.filters:
             lg.addFilter(found)
+    return found

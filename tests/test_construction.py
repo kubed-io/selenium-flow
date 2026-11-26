@@ -8,12 +8,15 @@ from kubed.mcp import Inject, QuickMCP
 from kubed.selenium_flow import main as main_module
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
+from kubed.selenium_flow.http.access_log import RouteTemplates
+from kubed.selenium_flow.http.slashes import RelativeSlashRedirects
+from kubed.selenium_flow.http.tracing import RouteSpans
 from kubed.selenium_flow.mcp import tools as tools_module
 from kubed.selenium_flow.mcp.tools import _require_injected_actions
 from kubed.selenium_flow.server import create_app, http_middleware
 
 from .conftest import NAMED, calling_as
-from .fakes import untabbed
+from .fakes import recorded, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -165,3 +168,12 @@ def test_an_action_with_injected_actions_registers_written_either_way():
 
     _require_injected_actions("navigate", typed)
     _require_injected_actions("navigate", written)
+
+
+def test_with_telemetry_the_route_spans_are_outermost():
+    rec = recorded()
+    built = http_middleware(rec.telemetry, templates=RouteTemplates(()), prefix="")
+    assert [m.cls for m in built] == [RouteSpans, RelativeSlashRedirects]
+    assert [m.cls for m in http_middleware()] == [RelativeSlashRedirects]
+    with pytest.raises(ValueError):
+        http_middleware(rec.telemetry)

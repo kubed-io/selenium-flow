@@ -26,8 +26,10 @@ from .flows import api as flowapi
 from .flows import store as flowstore
 from .http import access_log, admin, files
 from .http import auth as http_auth
+from .http.access_log import RouteTemplates
 from .http.admin import page as admin_page
 from .http.slashes import RelativeSlashRedirects
+from .http.tracing import RouteSpans
 from .live import pages as pages_module
 from .live.control import Controls
 from .live.pages import Pages
@@ -51,6 +53,7 @@ from .monitor.monitor import Monitor
 from .names import SERVER_NAME
 from .recordings import collector as recording_collector
 from .recordings import mounts
+from .telemetry import Telemetry
 from .workspace import config as workspace_config
 from .workspace import locks
 from .workspace import settings as workspace_settings
@@ -472,6 +475,29 @@ def create_app(
     return SeleniumMCP(settings, sources=sources, store=store, pointers=pointers)
 
 
-def http_middleware() -> list[Middleware]:
-    """The ASGI middleware the HTTP app is served with (`RelativeSlashRedirects`)."""
-    return [Middleware(RelativeSlashRedirects)]
+def http_middleware(
+    telemetry: Telemetry | None = None,
+    *,
+    templates: RouteTemplates | None = None,
+    prefix: str = "",
+) -> list[Middleware]:
+    """The ASGI middleware the HTTP app is served with.
+
+    `RelativeSlashRedirects` alone, or with ``telemetry`` the `RouteSpans`
+    first, so they see every answer, redirects included. ``templates`` is the
+    access log's filter, which the spans ask per request; ``prefix`` is the
+    route prefix whose probes and ``/mcp`` get no span.
+    """
+    if telemetry is None:
+        return [Middleware(RelativeSlashRedirects)]
+    if templates is None:
+        raise ValueError("route spans need the access log's RouteTemplates")
+    return [
+        Middleware(
+            RouteSpans,
+            tracer=telemetry.tracer,
+            templates=templates,
+            prefix=prefix,
+        ),
+        Middleware(RelativeSlashRedirects),
+    ]
