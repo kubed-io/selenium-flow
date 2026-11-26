@@ -169,7 +169,10 @@ CREDENTIALED = {
             "socksProxy": "proxy.example.com:1080",
             "socksVersion": 5,
             "socksUsername": "svc",
-            "socksPassword": "hunter6",
+            # A URL before an `@` in the password: the URL pass alone would
+            # run from `http://` to that `@` and take the key with it.
+            "proxyAutoconfigUrl": "http://pac.example.com",
+            "socksPassword": "Abc@hunter6",
         },
         "goog:chromeOptions": {"args": ["--proxy-server=http://au:hunter5@proxy.example.com:3128"]},
     }),

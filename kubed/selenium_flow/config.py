@@ -932,9 +932,12 @@ def _proxy_entry_without_userinfo(match: re.Match) -> str:
 
 def without_config_userinfo(text: str) -> str:
     """``text``, a line that writes settings as JSON, with the userinfo cut out
-    as the Settings tab cuts it: every URL's by `without_userinfo`, then a proxy
-    key's ``user:pass@`` and a proxy password by `_without_proxy_userinfo`'s rule."""
-    return _PROXY_ENTRY.sub(_proxy_entry_without_userinfo, without_userinfo(text))
+    as the Settings tab cuts it: a proxy key's ``user:pass@`` and a proxy
+    password by `_without_proxy_userinfo`'s rule, then every URL's by
+    `without_userinfo`. In that order: a URL's userinfo pattern runs across the
+    JSON's quotes, so from a ``scheme://`` to an ``@`` in a password it would
+    take the password's key with it and leave the rest of the password."""
+    return without_userinfo(_PROXY_ENTRY.sub(_proxy_entry_without_userinfo, text))
 
 
 # The tab's four labels for kubed-mcp's sources: code builds the server with
