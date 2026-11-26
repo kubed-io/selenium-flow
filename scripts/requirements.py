@@ -12,8 +12,10 @@ against dependencies nobody declared.
 It lives here rather than inline in a `RUN` because a script can be linted,
 imported and tested, and a heredoc can only be read.
 
-    python scripts/requirements.py runtime --extra redis   # what the image runs
-    python scripts/requirements.py build                   # what builds the wheel
+    # what the image runs
+    python scripts/requirements.py runtime --extra redis --extra telemetry
+    # what builds the wheel
+    python scripts/requirements.py build
 """
 
 from __future__ import annotations

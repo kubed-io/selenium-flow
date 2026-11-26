@@ -51,6 +51,16 @@ def configure_logging(level: str) -> None:
     logging.getLogger("fastmcp").setLevel(floor)
 
 
+def _telemetry_summary(telemetry: config.TelemetrySettings) -> str:
+    """The signals on, never the address: it may carry basic-auth userinfo."""
+    on = []
+    if telemetry.profiles and (telemetry.profile_cpu or telemetry.profile_memory):
+        on.append("profiles")
+    if telemetry.otel:
+        on.append("otel")
+    return ", ".join(on) or "off"
+
+
 def _loopback(host: str) -> bool:
     return host in ("localhost", "::1", "127.0.0.1")
 
@@ -68,7 +78,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"selenium-flow: {exc}") from None
     log.info(
         "config=%s grid=%s auth=%s oidc=%s workspaces=%s skill=%s flows=%s secrets=%s "
-        "recordings=%s",
+        "recordings=%s telemetry=%s",
         settings.config_file or "none",
         without_userinfo(settings.grid.url),
         "on" if server.auth_token else "off",
@@ -78,6 +88,7 @@ def main(argv: list[str] | None = None) -> None:
         server.flows.kind if server.flows else "off",
         _secrets_summary(server.secrets),
         "on" if server.collector else "off",
+        _telemetry_summary(settings.telemetry),
     )
     if settings.oidc.issuer and not settings.oidc.roles:
         log.warning(
