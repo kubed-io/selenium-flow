@@ -186,11 +186,20 @@ def test_the_startup_log_never_shows_a_urls_credentials(monkeypatch, caplog):
     with caplog.at_level(logging.INFO):
         main_module.main([])
     [boot] = [r.getMessage() for r in caplog.records if r.name == "kubed.mcp.config"]
-    assert 'grid.url="http://grid.invalid:4444"' in boot
-    assert "https://console.example.com/ui" in boot and "https://flow.example.com" in boot
-    assert '"httpProxy":"proxy.example.com:3128"' in boot
-    assert "--proxy-server=http://proxy.example.com:3128" in boot
-    assert "http://grid.invalid:4444" in caplog.text
+    urls = dict(re.findall(r'([\w.]+)="([^"]*)"', boot))
+    assert urls == {
+        "public_base_url": "https://flow.example.com",
+        "grid.url": "http://grid.invalid:4444",
+        "grid.console_url": "https://console.example.com/ui",
+    }
+    capabilities = json.loads(re.search(r"session\.capabilities=(\{.*\}) \(env", boot)[1])
+    assert capabilities["proxy"]["httpProxy"] == "proxy.example.com:3128"
+    assert capabilities["goog:chromeOptions"]["args"] == ["--proxy-server=http://proxy.example.com:3128"]
+    [started] = [r.getMessage() for r in caplog.records
+                 if r.name == "kubed.selenium_flow.main" and r.getMessage().startswith("config=")]
+    assert dict(word.split("=", 1) for word in started.split() if "=" in word)["grid"] == (
+        "http://grid.invalid:4444"
+    )
     assert not re.search(r"hunter\d|[gcpxa]u:", caplog.text)
 
 
