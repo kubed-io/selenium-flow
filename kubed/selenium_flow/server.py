@@ -423,7 +423,7 @@ class SeleniumMCP:
             prefix=self.prefix,
             ttl=settings.link_ttl,
         )
-        app_tools |= show.register(self.mcp, app_config)
+        app_tools |= show.register(self.mcp, app_config, self.workspaces)
         # These three are called from inside an action, which cannot see the
         # caller, so they ask `clients.caller`. Wired here, where the store,
         # the token and the public base exist; the behaviour layer never holds

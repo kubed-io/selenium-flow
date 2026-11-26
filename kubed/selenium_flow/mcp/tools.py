@@ -51,7 +51,7 @@ from ..core.probe import DEFAULT_LIMIT as OUTLINE_LIMIT
 from ..core.recipe import DIALOG_TIMEOUT, WAIT_TIMEOUT
 from ..live import control as control_module
 from ..workspace.workspaces import Workspaces
-from . import clients, waiting
+from . import clients, timing, waiting
 
 
 def _lowered(value):
@@ -305,7 +305,9 @@ def register(
 
     @own("open_session")
     @_forwarding(
-        lambda arguments: workspaces.open_browser(clients.caller(), **arguments)
+        lambda arguments: workspaces.open_browser(
+            clients.caller(), surface="mcp", **arguments
+        )
     )
     def open_session(
         url: str | None = None,
@@ -417,10 +419,11 @@ def register(
         and you did not keep go with it.
         """
         caller = clients.caller()
-        workspaces.end_browser(caller, session=session)
+        workspaces.end_browser(caller, session=session, surface="mcp")
         return {"success": True, "workspace": caller.name}
 
     @own("await_control", task=waiting.TASK)
+    @timing.timed(workspaces, "await_control")
     async def await_control(ctx: Context, session: Session = None) -> dict:
         """Wait for the person who took control of this browser to hand it back.
 

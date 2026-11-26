@@ -1,9 +1,9 @@
 """Every call, at the recipe's host: the touch, `call.finished`, and the hint.
 
-A host (`Workspaces.act` for both surfaces, the bound write
-`secrets.perform_write`, a flow step `flows.api.run_for`) calls `Calls.begin`
-as the call starts and `Calls.end` once it has its answer, and that is the whole
-of what it does here:
+A call that takes its session's turn has a host (`Workspaces.act` for both
+surfaces, the bound write `secrets.perform_write`, a flow step
+`flows.api.run_for`) that calls `Calls.begin` as the call starts and
+`Calls.end` once it has its answer, and that is the whole of what it does here:
 
 - while a person holds the browser in the live view, a call that would change
   it is refused (`faults.Controlled`) before anything else, so a refused call
@@ -33,6 +33,16 @@ another call's events cannot land inside this one's window. At the end, one
 round trip on the held connection lets the events the browser sent before it
 land first.
 
+A call that takes no turn of its own (`open_session`, `end_browser`, and the
+MCP tools `await_control`, `show`, `keep_file` and the flow tools; a
+`run_flow`'s steps take theirs, each a call of its own) runs inside
+`Calls.timed` instead, which gives it its span and its ``call.finished`` and
+nothing else: no keep-alive, touch, capture or hint, and no control check.
+`open_session` and `end_browser` make that check themselves, `run_flow`'s
+steps are each checked at their turn, and the other tools change no browser.
+A turnless call's time is the whole call, a Grid wait included, and a refused
+one is not recorded either.
+
 Nothing here fails a call. `end` never raises and never waits longer than one
 bounded flush; a monitor or a flush that fails is logged by its type alone,
 because its arguments name a Grid id.
@@ -42,14 +52,15 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from typing import Literal, NamedTuple
 
 from .. import errors
 from ..bidi import REPLY_TIMEOUT, Channel
 from ..capture import CONSOLE_URI, NETWORK_URI
 from ..capture.store import Mark
-from ..faults import PAGE_NOTE
+from ..faults import PAGE_NOTE, Controlled
 from ..monitor.events import CallFinished
 from ..redaction import Forms
 from . import sessions
@@ -142,8 +153,19 @@ def outcome(error: BaseException | None) -> Literal["ok", "4xx", "5xx"]:
     return "4xx" if errors.status_for(error) < 500 else "5xx"
 
 
+class Timing:
+    """A call `Calls.timed` is timing: whose and on which browser, as the body
+    learns them. ``workspace`` is a session's key, or the caller's workspace
+    name until the key is known."""
+
+    def __init__(self, workspace: str, browser: str = ""):
+        self.workspace = workspace
+        self.browser = browser
+
+
 class Calls:
-    """`begin` and `end` around every call; `bound` before a secret is typed."""
+    """`begin` and `end` around every call that takes a turn, `timed` around
+    one that takes none; `bound` before a secret is typed."""
 
     def __init__(
         self,
@@ -190,14 +212,7 @@ class Calls:
         told(self.monitor, "calling", session_id)
         self._resume(workspace, session_id, browser)
         mark = self._mark(workspace, session_id)
-        span = None
-        if self.telemetry is not None:
-            span = self.telemetry.start_call(
-                sessions.split(workspace)[0],
-                sub_session=sessions.is_sub(workspace),
-                tool=tool,
-                browser=browser,
-            )
+        span = self._span(workspace, tool, browser)
         return Begun(workspace, session_id, self.clock(), mark, own, span)
 
     def end(
@@ -222,10 +237,7 @@ class Calls:
         if begun.mark is not None:
             self._flush(begun.session_id)
             page = self._caused(begun)
-        bus = getattr(self.monitor, "bus", None) if self.monitor is not None else None
-        told(
-            bus,
-            "publish",
+        self._finished(
             CallFinished(
                 begun.workspace,
                 begun.session_id,
@@ -235,11 +247,91 @@ class Calls:
                 how,
                 begun.started,
                 duration,
-            ),
+            )
         )
         if error is not None and page is not None:
             error.add_note(sentence(page))
         return page
+
+    @contextmanager
+    def timed(
+        self,
+        workspace: str,
+        *,
+        tool: str,
+        surface: Literal["mcp", "http", "flow"],
+        browser: str = "",
+    ) -> Iterator[Timing]:
+        """Time a call that takes no turn, around the whole of its body: its
+        span and its ``call.finished``, and nothing else. No keep-alive, touch,
+        capture or hint, and no control check: the body does its own.
+
+        ``workspace`` is the session's key, or the caller's workspace name; the
+        body may set the `Timing`'s ``workspace`` and ``browser`` as it learns
+        them. Everything is decided when the body is over: a call a person's
+        control refused (`faults.Controlled`) records nothing, and neither does a
+        cancelled one, and any other comes out by `outcome`, its error raised
+        unchanged. The span is made then, dated from the start, so a refused
+        call never has one."""
+        timing = Timing(workspace, browser)
+        started = self.clock()
+        try:
+            yield timing
+        except Controlled:
+            raise
+        except Exception as exc:
+            self._timed(timing, tool, surface, started, exc)
+            raise
+        self._timed(timing, tool, surface, started, None)
+
+    def _timed(
+        self,
+        timing: Timing,
+        tool: str,
+        surface: str,
+        started: float,
+        error: BaseException | None,
+    ) -> None:
+        duration = max(0.0, self.clock() - started)
+        how = outcome(error)
+        if self.telemetry is not None:
+            span = self._span(
+                timing.workspace, tool, timing.browser, start_time=int(started * 1e9)
+            )
+            self.telemetry.end_call(span, surface=surface, outcome=how, error=error)
+        # No Grid id: an open may have none yet, and only telemetry reads it.
+        self._finished(
+            CallFinished(
+                timing.workspace,
+                "",
+                timing.browser,
+                tool,
+                surface,
+                how,
+                started,
+                duration,
+            )
+        )
+
+    def _span(
+        self, key: str, tool: str, browser: str, *, start_time: int | None = None
+    ):
+        """A call's span, naming its workspace and never its sub-session; None
+        without telemetry."""
+        if self.telemetry is None:
+            return None
+        return self.telemetry.start_call(
+            sessions.split(key)[0],
+            sub_session=sessions.is_sub(key),
+            tool=tool,
+            browser=browser,
+            start_time=start_time,
+        )
+
+    def _finished(self, event: CallFinished) -> None:
+        """Publish ``call.finished`` on the monitor's bus, when there is one."""
+        bus = getattr(self.monitor, "bus", None) if self.monitor is not None else None
+        told(bus, "publish", event)
 
     def bound(self, workspace: str, forms: Forms) -> None:
         """Mask ``forms`` in what this workspace captures from now on. Called

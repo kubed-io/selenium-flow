@@ -184,7 +184,8 @@ def register(
     # ---- the browser this caller holds ------------------------------------
     #
     # Opening and ending it have no path of their own and are served by the
-    # workspace manager, not `workspaces.act`, so their calls are written here.
+    # workspace manager, not `workspaces.act`. The manager times each as a call
+    # that takes no turn (`Calls.timed`).
 
     def opened(caller, body):
         """Open a session in this workspace, or pick up the one it was using."""
@@ -194,13 +195,14 @@ def register(
             fresh=body.get("fresh", False),
             restore_site_data=body.get("restore_site_data", True),
             session=body.get("session"),
+            surface="http",
             **{k: v for k, v in body.items() if k in settings.SETTINGS},
         )
 
     def ended(caller, body):
         """Quit the browser, keeping the workspace and what it was doing."""
         # The Grid id is never reported: it is how a browser is reached.
-        workspaces.end_browser(caller, session=body.get("session"))
+        workspaces.end_browser(caller, session=body.get("session"), surface="http")
         return {"success": True, "workspace": caller.name}
 
     on_the_resource = {

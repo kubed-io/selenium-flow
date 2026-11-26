@@ -51,7 +51,7 @@ from starlette.responses import JSONResponse
 
 from ..core.annotations import hints
 from ..faults import NoSession, NotFound
-from ..mcp import clients
+from ..mcp import clients, timing
 from ..names import RESERVED_IN_FILES, candidates, retired_uri, valid_file_name
 from ..workspace import sessions
 from . import answer as answer_module
@@ -875,6 +875,7 @@ def register(
         ),
         annotations=hints("Keep a file in Files", destructive=True, idempotent=False),
     )
+    @timing.timed(workspaces, KEEP_TOOL)
     def keep_file(uri: str, session: Session = None) -> dict:
         # The caller is named last, for the reason `_item_resource` gives.
         if store is None:
