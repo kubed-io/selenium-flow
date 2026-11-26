@@ -65,7 +65,7 @@ def test_an_empty_browser_is_recorded_as_given():
 
 
 def test_the_grid_counts_only_slots_that_can_take_a_session():
-    assert grid_counts(STATUS) == {("chrome", "busy"): 2, ("chrome", "free"): 2, ("firefox", "busy"): 1}
+    assert grid_counts(STATUS) == {("chrome", "busy"): 2, ("chrome", "free"): 2, ("firefox", "busy"): 1, ("firefox", "free"): 0}
 
 
 def test_an_over_full_node_has_no_free_slot():
@@ -73,7 +73,8 @@ def test_an_over_full_node_has_no_free_slot():
         {"stereotype": {"browserName": "chrome"}, "session": {"sessionId": "g1"}},
         {"stereotype": {"browserName": "chrome"}, "session": {"sessionId": "g2"}},
         {"stereotype": {"browserName": "chrome"}, "session": None}]}
-    assert grid_counts({"value": {"nodes": [node]}}) == {("chrome", "busy"): 2}
+    assert grid_counts({"value": {"nodes": [node]}}) == {
+        ("chrome", "busy"): 2, ("chrome", "free"): 0, ("firefox", "busy"): 0, ("firefox", "free"): 0}
 
 
 def test_the_gauge_reports_the_grid_by_browser_and_state():
@@ -81,7 +82,40 @@ def test_the_gauge_reports_the_grid_by_browser_and_state():
     rec.telemetry.grid_gauge(lambda: STATUS)
     slots = {(a["selenium_flow.browser"], a["selenium_flow.slot.state"]): p.value
              for a, p in points(rec.metrics, GRID_SLOTS)}
-    assert slots == {("chrome", "busy"): 2, ("chrome", "free"): 2, ("firefox", "busy"): 1}
+    assert slots == {("chrome", "busy"): 2, ("chrome", "free"): 2, ("firefox", "busy"): 1, ("firefox", "free"): 0}
+
+
+def test_a_full_grid_reports_no_free_slot_as_zero():
+    slots = [{"stereotype": {"browserName": "chrome"}, "session": {"sessionId": "g1"}}]
+    full = {"value": {"nodes": [{"availability": "UP", "maxSessions": 1, "slots": slots}]}}
+    assert grid_counts(full) == {
+        ("chrome", "busy"): 1, ("chrome", "free"): 0, ("firefox", "busy"): 0, ("firefox", "free"): 0}
+
+
+def test_an_empty_grid_reports_no_busy_slot_as_zero():
+    slots = [{"stereotype": {"browserName": "chrome"}, "session": None},
+             {"stereotype": {"browserName": "firefox"}, "session": None}]
+    idle = {"value": {"nodes": [{"availability": "UP", "maxSessions": 2, "slots": slots}]}}
+    assert grid_counts(idle) == {
+        ("chrome", "busy"): 0, ("chrome", "free"): 1, ("firefox", "busy"): 0, ("firefox", "free"): 1}
+
+
+def test_a_grid_with_no_nodes_reports_every_state_as_zero():
+    none = {"value": {"ready": False, "nodes": []}}
+    assert grid_counts(none) == {
+        ("chrome", "busy"): 0, ("chrome", "free"): 0, ("firefox", "busy"): 0, ("firefox", "free"): 0}
+    rec = recorded()
+    rec.telemetry.grid_gauge(lambda: none)
+    assert [p.value for _, p in points(rec.metrics, GRID_SLOTS)] == [0, 0, 0, 0]
+
+
+def test_a_browser_the_server_does_not_open_gets_both_states():
+    draining = {"availability": "DRAINING", "maxSessions": 1, "slots": [
+        {"stereotype": {"browserName": "MicrosoftEdge"}, "session": None},
+        {"session": None}]}
+    counts = grid_counts({"value": {"nodes": [draining]}})
+    assert counts[("MicrosoftEdge", "busy")] == counts[("MicrosoftEdge", "free")] == 0
+    assert counts[("", "busy")] == counts[("", "free")] == 0
 
 
 def test_one_collection_reads_the_grid_once():
@@ -109,6 +143,7 @@ def test_a_failed_read_observes_nothing_and_logs_its_type_once_a_streak(caplog):
         for _ in range(4):  # each `points` is one collection, one read
             rounds.append(points(rec.metrics, GRID_SLOTS))
     assert [bool(s) for s in rounds] == [False, False, True, False]
+    assert [rounds[0], rounds[1], rounds[3]] == [[], [], []]
     assert caplog.text.count("ConnectionError") == 2
     assert "hunter2" not in caplog.text and "grid.example.com" not in caplog.text
 
@@ -135,7 +170,8 @@ def test_a_null_maxsessions_is_no_cap():
     node = {"availability": "UP", "maxSessions": None, "slots": [
         {"stereotype": {"browserName": "chrome"}, "session": None},
         {"stereotype": {"browserName": "chrome"}, "session": None}]}
-    assert grid_counts({"value": {"nodes": [node]}}) == {("chrome", "free"): 2}
+    assert grid_counts({"value": {"nodes": [node]}}) == {
+        ("chrome", "busy"): 0, ("chrome", "free"): 2, ("firefox", "busy"): 0, ("firefox", "free"): 0}
 
 
 def test_the_histogram_describes_the_calls_own_time():

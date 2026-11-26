@@ -160,6 +160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Sf-Resources`, `Sf-Listed`, `Sf-Via` and `Sf-Resource-Prefix` work beside the `X-MCP-` headers, and the `Sf-` name wins when both are sent (#210).
 - `Sf-Via: local` (or `?via=`) keeps the plugin's skills, prompts and agent out of the listings, and `extension` keeps its prompts and skill rows out and leaves the skills and agent to the client's extension; the instructions name the skill the client has (#210).
 - `initialize` and `server/discover` report what the request resolved in `_meta["io.kubed/delivery"]` (#210).
+- Fixed: `selenium_flow.grid.slots` reports 0 for a state with no slots, instead of no series (#221).
 - **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65, #220).
 
 ### Changed
