@@ -68,6 +68,12 @@ def test_main_serves_http_through_run_with_the_config_s_settings(tmp_path, ran):
     ]
 
 
+def test_main_serves_the_route_spans_when_otel_is_on(tmp_path, ran):
+    main_module.main(_config(tmp_path, "telemetry:\n  otel: true\n"))
+    [(_serving, options)] = ran
+    assert [m.cls for m in options["middleware"]] == [RouteSpans, RelativeSlashRedirects]
+
+
 def test_main_serves_stdio_through_run_too(tmp_path, ran):
     main_module.main(_config(tmp_path, "transport: stdio\n"))
     [(serving, _options)] = ran

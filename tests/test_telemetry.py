@@ -22,7 +22,7 @@ from kubed.selenium_flow.telemetry import (
     grid_counts,
 )
 
-from .conftest import points, recorded
+from .fakes import points, recorded
 
 STATUS = {"value": {"ready": True, "nodes": [
     {"availability": "UP", "maxSessions": 2, "slots": [
@@ -121,6 +121,31 @@ async def test_a_collection_on_the_event_loop_reads_nothing():
     assert reads == []
 
 
+def test_after_stop_a_collection_reads_nothing():
+    reads = []
+    rec = recorded()
+    rec.telemetry.grid_gauge(lambda: reads.append(1) or STATUS)
+    assert points(rec.metrics, GRID_SLOTS) != [] and reads == [1]  # off the loop
+    rec.telemetry.stop()
+    assert points(rec.metrics, GRID_SLOTS) == []
+    assert reads == [1]
+
+
+def test_a_null_maxsessions_is_no_cap():
+    node = {"availability": "UP", "maxSessions": None, "slots": [
+        {"stereotype": {"browserName": "chrome"}, "session": None},
+        {"stereotype": {"browserName": "chrome"}, "session": None}]}
+    assert grid_counts({"value": {"nodes": [node]}}) == {("chrome", "free"): 2}
+
+
+def test_the_histogram_describes_the_calls_own_time():
+    rec = recorded()
+    rec.telemetry.call_finished(FINISHED)
+    [metric] = [m for rm in rec.metrics.get_metrics_data().resource_metrics
+                for sm in rm.scope_metrics for m in sm.metrics if m.name == CALL_DURATION]
+    assert metric.description == "A call's own time in its session's turn, not counting the wait for it."
+
+
 def test_a_span_starts_under_the_current_context_and_is_not_made_current():
     rec = recorded()
     with rec.telemetry.tracer.start_as_current_span("parent") as parent:
@@ -160,14 +185,26 @@ class Raising:
 
 
 class BrokenSpan:
+    ended = False
+
     def set_attribute(self, *_):
         raise RuntimeError("no attribute for hunter2")
 
     def set_attributes(self, *_):
         raise RuntimeError("no attribute for hunter2")
 
+    def set_status(self, *_):
+        raise RuntimeError("no status for hunter2")
+
     def end(self, *_, **__):
-        pass
+        self.ended = True
+
+
+def test_a_span_is_ended_though_its_attributes_fail():
+    span = BrokenSpan()
+    Telemetry(tracer_provider=Raising(), meter_provider=MeterProvider()).end_call(
+        span, surface="mcp", outcome="5xx", error=ValueError("x"))
+    assert span.ended
 
 
 def test_the_span_helpers_never_raise(caplog):

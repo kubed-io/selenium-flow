@@ -21,7 +21,7 @@ from .capture.store import Capture
 from .config import Settings
 from .core import pointer, tabs
 from .core.actions import Actions
-from .core.browser import Grid
+from .core.browser import SHOWN_TIMEOUT, Grid
 from .flows import api as flowapi
 from .flows import store as flowstore
 from .http import access_log, admin, files
@@ -83,6 +83,7 @@ class SeleniumMCP:
         sources: dict[str, str] | None = None,
         store: WorkspaceStore | None = None,
         pointers=None,
+        telemetry: Telemetry | None = None,
     ):
         settings = settings if settings is not None else Settings()
         self.settings = settings
@@ -242,6 +243,22 @@ class SeleniumMCP:
             configs=self.configs,
             tags=self.flows.tags_in_use if self.flows is not None else None,
         )
+        # An injected Telemetry is used whatever `otel` says, so the tests
+        # record without kubed-mcp starting an SDK.
+        self.telemetry = (
+            telemetry
+            if telemetry is not None
+            else Telemetry() if settings.telemetry.otel else None
+        )
+        if self.telemetry is not None:
+            grid = self.grid
+            self.workspaces.calls.telemetry = self.telemetry
+            self.bus.subscribe(
+                "call.finished", self.telemetry.call_finished, name="metrics"
+            )
+            self.telemetry.grid_gauge(
+                lambda: grid.status(timeout=SHOWN_TIMEOUT, retry=False)
+            )
         # Capture holds a page's events until the secrets in scope there are
         # in its masker. With secrets off it holds nothing.
         if self.secrets is not None:
@@ -266,6 +283,7 @@ class SeleniumMCP:
         collector, monitor, bus = self.collector, self.monitor, self.bus
         tunnels, controls = self.tunnels, self.controls
         scrubber = self.workspaces.scrubber
+        telemetry = self.telemetry
 
         @asynccontextmanager
         async def lifespan(_server):
@@ -277,6 +295,10 @@ class SeleniumMCP:
             try:
                 yield {}
             finally:
+                # The meter shuts down after this exits, and its last
+                # collection must not wait on the Grid.
+                if telemetry is not None:
+                    telemetry.stop()
                 # First, every waiter is let go before anything it waits on
                 # stops. `waiting.Tasks` has already done it; again here is a
                 # no-op.
@@ -456,12 +478,16 @@ class SeleniumMCP:
         `QuickMCP.run` reads the transport, host and port off the settings, and
         uses the path and the middleware only over HTTP.
         """
+        middleware = http_middleware()
         if self.settings.transport != "stdio":
             # The access log names each request by its route template, never
-            # by its path.
-            access_log.quiet(self.mcp.server.http_app(path=self.mcp_path))
+            # by its path; the route spans use the same templates.
+            templates = access_log.quiet(self.mcp.server.http_app(path=self.mcp_path))
+            middleware = http_middleware(
+                self.telemetry, templates=templates, prefix=self.prefix
+            )
         # Only the four probes also answer at the root.
-        self.mcp.run(path=self.mcp_path, middleware=http_middleware())
+        self.mcp.run(path=self.mcp_path, middleware=middleware)
 
 
 def create_app(
@@ -470,9 +496,16 @@ def create_app(
     sources: dict[str, str] | None = None,
     store: WorkspaceStore | None = None,
     pointers=None,
+    telemetry: Telemetry | None = None,
 ) -> SeleniumMCP:
     """The server for ``settings``: its `mcp` is the `QuickMCP` that serves it."""
-    return SeleniumMCP(settings, sources=sources, store=store, pointers=pointers)
+    return SeleniumMCP(
+        settings,
+        sources=sources,
+        store=store,
+        pointers=pointers,
+        telemetry=telemetry,
+    )
 
 
 def http_middleware(

@@ -113,6 +113,24 @@ def test_the_idle_timeout_is_asked_once_and_briefly(fake, monkeypatch):
     assert timeouts == [SHOWN_TIMEOUT] and SHOWN_TIMEOUT <= 5
 
 
+def test_status_can_be_asked_briefly_and_not_again(fake, monkeypatch):
+    from kubed.selenium_flow.core.browser import SHOWN_TIMEOUT
+
+    grid = Grid(fake.url)
+    get, timeouts = grid.http.get, []
+
+    def recorded(url, **kwargs):
+        timeouts.append(kwargs.get("timeout"))
+        return get(url, **kwargs)
+
+    monkeypatch.setattr(grid.http, "get", recorded)
+    fake.drop = 1
+    with pytest.raises(requests.ConnectionError):
+        grid.status(timeout=SHOWN_TIMEOUT, retry=False)
+    assert len(fake.requests) == 1
+    assert timeouts == [SHOWN_TIMEOUT]
+
+
 def test_the_pool_keeps_no_cookies(fake):
     """Each call used to be its own session; a cookie set by whatever fronts the
     Grid must not ride on every later call."""

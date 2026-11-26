@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow.http.access_log import RouteTemplates
 from kubed.selenium_flow.http.tracing import RouteSpans
 
-from .conftest import recorded
+from .fakes import recorded
 
 pytestmark = pytest.mark.unit
 

@@ -60,7 +60,8 @@ def grid_counts(status: dict) -> dict[tuple[str, str], int]:
                 counts[key] = counts.get(key, 0) + 1
         if node.get("availability", "UP") != "UP":
             continue
-        room = node["maxSessions"] - busy if "maxSessions" in node else None
+        cap = node.get("maxSessions")
+        room = cap - busy if cap is not None else None
         for slot in slots:
             if slot.get("session") or (room is not None and room <= 0):
                 continue
@@ -81,10 +82,23 @@ class Telemetry:
         self._duration = self.meter.create_histogram(
             CALL_DURATION,
             unit="s",
-            description="How long a call took, from the tool or route to its answer.",
+            description=(
+                "A call's own time in its session's turn, "
+                "not counting the wait for it."
+            ),
             explicit_bucket_boundaries_advisory=BUCKETS,
         )
         self._failing = False
+        self._stopped = False
+
+    def stop(self) -> None:
+        """The server is stopping: a collection from now on reads nothing.
+
+        kubed-mcp shuts the meter provider down after the lifespan ends, and
+        its last collection runs on the reader's thread, where a hanging Grid
+        would hold the shutdown up.
+        """
+        self._stopped = True
 
     def call_finished(self, event: CallFinished) -> None:
         """The bus handler: one point per finished call."""
@@ -122,6 +136,8 @@ class Telemetry:
     def _counts(
         self, read: Callable[[], dict]
     ) -> dict[tuple[str, str], int] | None:
+        if self._stopped:
+            return None
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -180,6 +196,10 @@ class Telemetry:
             if error is not None:
                 span.set_status(Status(StatusCode.ERROR))
                 span.set_attribute("error.type", type(error).__name__)
+        except Exception as exc:  # noqa: BLE001 - telemetry never raises
+            log.warning("telemetry: a call span failed (%s)", type(exc).__name__)
+        # Apart, so a failed attribute never leaves the span open.
+        try:
             span.end()
         except Exception as exc:  # noqa: BLE001 - telemetry never raises
             log.warning("telemetry: a call span failed (%s)", type(exc).__name__)
