@@ -13,7 +13,8 @@ def root(skill: str) -> str:
 
 
 # The entry point: the one skill the instructions name.
-ENTRY = f"{root('driving-a-browser')}/SKILL.md"
+ENTRY_SKILL = "driving-a-browser"
+ENTRY = f"{root(ENTRY_SKILL)}/SKILL.md"
 
 # The references a pointer may name, and the skill that ships each. A file name
 # is unique across the skills, so the page alone names its skill. A `skill://`

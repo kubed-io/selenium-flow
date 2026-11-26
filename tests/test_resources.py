@@ -16,10 +16,12 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from mcp.types import Implementation, ResourceTemplateReference
 
+from kubed.selenium_flow.core.guidance import ENTRY
 from kubed.selenium_flow.mcp import instructions
 from kubed.selenium_flow.mcp.resources import RESOURCE_URI, where_linked
 
 from .conftest import NAMED, RESOURCE_TOOLS, calling_as, delivery_meta, http, over_http
+from .fakes import request
 
 pytestmark = pytest.mark.unit
 
@@ -79,7 +81,12 @@ async def test_vs_code_saying_on_is_taken_at_its_word(reader, name):
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 @pytest.mark.parametrize(
-    "given", [{"headers": {"X-MCP-Resources": "off"}}, {"params": {"resources": "off"}}]
+    "given",
+    [
+        {"headers": {"X-MCP-Resources": "off"}},
+        {"headers": {"Sf-Resources": "off"}},
+        {"params": {"resources": "off"}},
+    ],
 )
 async def test_off_by_header_or_query_lists_the_tools_and_points_at_them(reader, mode, given):
     async with over_http(reader, mode=mode, **given) as c:
@@ -108,6 +115,8 @@ async def test_an_unrecognised_value_is_ignored_with_one_warning(reader, caplog)
 
 @pytest.mark.parametrize("given", [
     {}, {"headers": {"X-MCP-Resources": "off"}}, {"headers": {"X-MCP-Resources": "on"}},
+    {"headers": {"Sf-Resources": "off"}},
+    {"headers": {"Sf-Via": "local", "Sf-Resources": "off"}},
     {"headers": {"X-MCP-Resources": "bogus-190"}, "params": {"resources": "off"}},
     {"params": {"resources": "none"}},
     {"client_info": Implementation(name="Visual Studio Code", version="1")},
@@ -121,8 +130,117 @@ async def test_the_instructions_agree_with_the_listing(reader, given):  # Review
 async def test_the_instructions_carry_the_gateway_prefix(reader):  # named difference 5
     async with over_http(reader, {"X-MCP-Resource-Prefix": "sf+"}) as c:
         assert "sf+skill://selenium-flow/driving-a-browser/SKILL.md" in c.instructions
+    async with over_http(reader, {"Sf-Resource-Prefix": "sf+"}) as c:
+        assert "sf+skill://selenium-flow/driving-a-browser/SKILL.md" in c.instructions
+    both = {"Sf-Resource-Prefix": "sf+", "X-MCP-Resource-Prefix": "gw+"}
+    async with over_http(reader, both) as c:
+        assert "sf+skill://" in c.instructions and "gw+" not in c.instructions
     async with over_http(reader) as c:
         assert c.instructions == instructions.instructions(True)
+
+
+PLUGIN_PROMPTS = {"build_flow", "repair_flow"}
+
+
+async def names(client, method, key):
+    return {row["name"] for row in (await request(client, method))[key]}
+
+
+def test_the_skill_line_follows_via():
+    for reads in (True, False):
+        assert instructions.instructions(reads, via="mcp") == instructions.instructions(reads)
+        assert instructions.instructions(reads, via="bogus") == instructions.instructions(reads)
+    held = instructions.instructions(True, via="extension")
+    assert "the driving-a-browser skill, which your client already has from this server" in held
+    installed = instructions.instructions(True, via="local")
+    assert "the selenium-flow:driving-a-browser skill, installed with this server's plugin" in installed
+    assert "this version" not in installed
+    for via in ("extension", "local"):
+        assert "skill://" not in instructions.instructions(True, via=via)
+        off = instructions.instructions(False, via=via)
+        assert instructions.READING_POINTER in off and "Read it with read_resource" not in off
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_the_sf_name_beats_the_x_mcp_name(reader, mode):
+    async with over_http(reader, {"Sf-Resources": "on", "X-MCP-Resources": "off"}, mode=mode) as c:
+        assert not RESOURCE_TOOLS & await listed(c)
+        assert c.instructions == instructions.instructions(True)
+    async with over_http(reader, {"Sf-Resources": "off", "X-MCP-Resources": "on"}, mode=mode) as c:
+        assert await listed(c) >= RESOURCE_TOOLS
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+@pytest.mark.parametrize("via", ["extension", "local"])
+@pytest.mark.parametrize("sent", ["headers", "params"])
+async def test_via_fits_the_instructions_and_the_listings(reader, mode, via, sent):
+    given = {"headers": {"Sf-Via": via}} if sent == "headers" else {"params": {"via": via}}
+    async with over_http(reader, mode=mode, **given) as c:
+        assert c.instructions == instructions.instructions(True, via=via)
+        assert "skill://" not in c.instructions
+        assert PLUGIN_PROMPTS.isdisjoint(await names(c, "prompts/list", "prompts"))
+        skills = (await request(c, "skills/list"))["skills"]
+        agents = await names(c, "agents/list", "agents")
+        if via == "local":
+            assert skills == [] and agents == set()
+        else:
+            assert len(skills) == 5 and agents == {"explorer"}
+        assert await delivery_meta(c) == {
+            "resources": "on", "listed": [], "via": via, "prefix": None,
+        }
+
+
+@pytest.mark.parametrize("via", ["extension", "local"])
+async def test_what_via_hides_still_answers(reader, via):  # DLV-10
+    async with over_http(reader, {"Sf-Via": via}) as c:
+        assert (await c.read_resource(ENTRY))[0].text.startswith("---")
+        assert (await request(c, "agents/get", name="explorer"))["agent"] == "explorer"
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_local_with_resources_off_lists_the_tools(reader, mode):
+    async with over_http(reader, {"Sf-Via": "local", "Sf-Resources": "off"}, mode=mode) as c:
+        assert await listed(c) >= RESOURCE_TOOLS
+        assert c.instructions == instructions.instructions(False, via="local")
+
+
+async def test_the_handshake_reports_the_prefix_and_off(reader):
+    async with over_http(reader, {"Sf-Resources": "off", "Sf-Resource-Prefix": "sf+"}) as c:
+        assert await delivery_meta(c) == {
+            "resources": "off", "listed": ["skills"], "via": "mcp", "prefix": "sf+",
+        }
+
+
+async def test_the_sf_via_beats_the_x_mcp_via(reader):  # Review Focus 1
+    async with over_http(reader, {"Sf-Via": "local", "X-MCP-Via": "extension"}) as c:
+        assert c.instructions == instructions.instructions(True, via="local")
+        assert await names(c, "agents/list", "agents") == set()
+
+
+async def test_an_unknown_via_reads_as_mcp(reader):  # Review Focus 2
+    async with over_http(reader, {"Sf-Via": "bogus-210"}) as c:
+        assert c.instructions == instructions.instructions(True)
+        assert await names(c, "prompts/list", "prompts") >= PLUGIN_PROMPTS
+        assert (await delivery_meta(c))["via"] == "mcp"
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_vs_code_with_the_plugin_installed(reader, mode):  # Review Focus 3
+    info = Implementation(name="Visual Studio Code", version="1")
+    async with over_http(reader, {"Sf-Via": "local"}, mode=mode, client_info=info) as c:
+        assert await listed(c) >= RESOURCE_TOOLS
+        assert c.instructions == instructions.instructions(False, via="local")
+
+
+async def test_a_gateway_prefix_leaves_the_local_line_alone(reader):  # Review Focus 4
+    async with over_http(reader, {"Sf-Via": "local", "Sf-Resource-Prefix": "sf+"}) as c:
+        assert c.instructions == instructions.instructions(True, via="local")
+
+
+async def test_listing_skills_under_local_keeps_the_local_line(reader):  # Review Focus 5
+    async with over_http(reader, {"Sf-Via": "local", "Sf-Listed": "skills"}) as c:
+        assert ENTRY in {r["uri"] for r in (await request(c, "resources/list"))["resources"]}
+        assert c.instructions == instructions.instructions(True, via="local")
 
 
 async def test_the_old_per_resource_tools_are_gone(reader):

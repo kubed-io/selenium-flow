@@ -1,17 +1,18 @@
 """The server ``instructions``, chosen for each connection.
 
-What a client is told depends on whether its model reads resources, so the
-text is chosen on each handshake. kubed-mcp calls `for_delivery` on each
-``initialize`` and ``server/discover``, with the inputs that request resolved
-(DLV-11); the server is built with `instructions()`, the text kubed-mcp falls
-back to.
+What a client is told depends on whether its model reads resources and on how
+it gets the plugin's material, so the text is chosen on each handshake.
+kubed-mcp calls `for_delivery` on each ``initialize`` and ``server/discover``,
+with the inputs that request resolved (DLV-11); the server is built with
+`instructions()`, the text kubed-mcp falls back to.
 """
 
 from __future__ import annotations
 
 from kubed.mcp.delivery import Resolved
 
-from ..core.guidance import ENTRY
+from ..core.guidance import ENTRY, ENTRY_SKILL
+from ..names import SERVER_NAME
 from ..workspace.workspaces import NAME_PARAM
 
 INSTRUCTIONS = f"""\
@@ -58,6 +59,24 @@ on a good XPath usually means, how to write a flow — is at \
 call; it ships with this server, so it describes this version of it.
 """
 
+# For a client that has the plugin from this server by another way, the hook
+# plugins' shim: the skill is held, so no URI is named.
+SKILL_HELD = f"""
+How to drive this well — when to screenshot rather than extract, what a timeout \
+on a good XPath usually means, how to write a flow — is the {ENTRY_SKILL} \
+skill, which your client already has from this server. Read it before your \
+first call; it describes this version of the server.
+"""
+
+# For a client with the plugin installed, which may lag the server: no version
+# claim is made.
+SKILL_INSTALLED = f"""
+How to drive this well — when to screenshot rather than extract, what a timeout \
+on a good XPath usually means, how to write a flow — is the \
+{SERVER_NAME}:{ENTRY_SKILL} skill, installed with this server's plugin. Read it \
+before your first call.
+"""
+
 # For a client whose model cannot read resources: it is told how to read a URI.
 READING_POINTER = """
 Everything this server has to read is a URI — workspace://current, \
@@ -67,15 +86,21 @@ shows where to start.
 """
 
 
-def instructions(reads_resources: bool = True) -> str:
-    """What a client reads at connect, for what it can read."""
+def instructions(reads_resources: bool = True, via: str = "mcp") -> str:
+    """What a client reads at connect, for what it can read and how it gets the
+    plugin (DLV-9)."""
     text = INSTRUCTIONS
     if not reads_resources:
         text += READING_POINTER
+    if via == "extension":
+        return text + SKILL_HELD
+    if via == "local":
+        return text + SKILL_INSTALLED
     how = "" if reads_resources else " with read_resource"
     return text + SKILL_POINTER.format(how=how)
 
 
 def for_delivery(delivery: Resolved) -> str:
-    """The instructions for a request, by whether it resolved resources off."""
-    return instructions(delivery.resources != "off")
+    """The instructions for a request, by whether it resolved resources off and
+    by its Via."""
+    return instructions(delivery.resources != "off", via=delivery.via)
