@@ -237,11 +237,10 @@ async def test_show_on_a_folder_is_a_plain_miss_naming_the_index(server):
     assert "Resource not found" not in said
 
 
-async def test_the_method_matches_the_uri_as_sent_while_a_read_normalises(server):
+async def test_the_method_resolves_dot_segments_as_a_read_does(server):
     dotted = f"{ROOT}/x/../references"
     async with Client(server.mcp.server) as client:
-        with pytest.raises(MCPError) as caught:
-            await read_directory(client, uri=dotted)
+        listed = await read_directory(client, uri=dotted)
         index = await read_json(client, f"{dotted}/_index.json")
-    assert caught.value.error.code == INVALID_PARAMS
+    assert [r["uri"] for r in listed["resources"]] == reference_uris()
     assert [r["uri"] for r in index] == reference_uris()

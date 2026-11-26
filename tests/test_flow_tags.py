@@ -6,7 +6,6 @@ import pytest
 import yaml
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows import tags
 from kubed.selenium_flow.flows.shape import Shape
@@ -25,11 +24,11 @@ GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     monkeypatch.delenv("DATA_DIR", raising=False)
-    built = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    )))
+    built = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "data": {"dir": str(tmp_path)},
+    }))
     calling_as(monkeypatch, NAMED)
     return built
 

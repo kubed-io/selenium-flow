@@ -29,7 +29,6 @@ from selenium.common.exceptions import (
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors, faults
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows import run as flowrun
@@ -510,7 +509,7 @@ class Listing(FakeGrid):
 
 def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
     server = SeleniumMCP(
-        Settings(**SETTINGS, data={"dir": str(tmp_path)}),
+        {**SETTINGS, "data": {"dir": str(tmp_path)}},
         store=MemoryStore(),
     )
     server.actions.grid = Listing()
@@ -624,7 +623,7 @@ def test_every_error_envelope_is_what_it_was(monkeypatch):
 
     current = [None]
     monkeypatch.setattr(Actions, "navigate", lambda self, s, url: fail(s, url))
-    server = untabbed(SeleniumMCP(Settings(**SETTINGS)))
+    server = untabbed(SeleniumMCP({**SETTINGS}))
     server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))
     server.actions.grid = FakeGrid()
     server.actions.grid.alive.add("b-1")
@@ -699,7 +698,7 @@ def twin(monkeypatch):
     for name in ("navigate", "extract", "write", "interact", "screenshot",
                  "save_site_data"):
         monkeypatch.setattr(Actions, name, handed_to(double, name))
-    server = untabbed(SeleniumMCP(Settings(**SETTINGS)))
+    server = untabbed(SeleniumMCP({**SETTINGS}))
     server.actions.grid = double.grid
     calling_as(monkeypatch, NAMED)
     server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))

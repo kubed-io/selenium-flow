@@ -103,16 +103,15 @@ def test_delete_removes_the_file_and_the_workspace_expires_again(client, tmp_pat
 
 
 def test_the_answer_carries_how_long_an_unkept_workspace_lasts(tmp_path):
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            auth={"token": TOKEN},
-            data={"dir": str(tmp_path)},
-            workspace={"ttl": 3600},
-        )
+        {
+            "grid": {"url": "http://grid.invalid:4444"},
+            "auth": {"token": TOKEN},
+            "data": {"dir": str(tmp_path)},
+            "workspace": {"ttl": 3600},
+        }
     )
     client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     assert client.get(url()).json()["ttl"] == 3600
@@ -188,7 +187,6 @@ def test_a_save_or_remove_with_no_record_writes_none(client, data_server):
 
 
 def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.workspace.store import RedisStore, Workspace
 
@@ -197,11 +195,11 @@ def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
     fake = FakeRedis()
     redis = RedisStore(fake, prefix="p:", ttl=60)
     server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            auth={"token": TOKEN},
-            data={"dir": str(tmp_path)},
-        ),
+        {
+            "grid": {"url": "http://grid.invalid:4444"},
+            "auth": {"token": TOKEN},
+            "data": {"dir": str(tmp_path)},
+        },
         store=redis,
     )
     redis.set(KEY, Workspace(session_id="a"))

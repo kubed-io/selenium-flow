@@ -10,7 +10,7 @@ import shutil
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
+from kubed.selenium_flow.config import OidcSettings
 from kubed.selenium_flow.http.admin import page as admin
 from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
@@ -27,7 +27,7 @@ SHELLS = UI / "public"
 
 def _server():
     return SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     )
 
 
@@ -229,11 +229,11 @@ def test_the_placeholder_carries_the_same_headers():
 
 def test_listed_frame_ancestors_are_the_only_framers_and_a_304_says_so(built_ui):
     server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            auth={"token": TOKEN},
-            security={"frame_ancestors": ["https://cloud.example", "https://g.example"]},
-        )
+        {
+            "grid": {"url": "http://grid.invalid:4444"},
+            "auth": {"token": TOKEN},
+            "security": {"frame_ancestors": ["https://cloud.example", "https://g.example"]},
+        }
     )
     client = TestClient(server.mcp.server.http_app())
     res = client.get("/")
@@ -261,4 +261,4 @@ def test_the_page_offers_oidc_only_with_an_admin_ui_client(built_ui, issuer):
 
 
 def test_sign_in_is_empty_without_a_client():
-    assert admin.sign_in(Settings().oidc) == ""
+    assert admin.sign_in(OidcSettings()) == ""

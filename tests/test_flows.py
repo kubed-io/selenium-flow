@@ -455,23 +455,21 @@ def test_surrounding_whitespace_is_trimmed_rather_than_refused():
 
 def test_a_blank_explicit_directory_means_off_just_as_a_blank_env_does():
     """`DataSettings` normalises "   " to None (see `OptionalPath`), so a
-    caller building `Settings` by hand cannot end up with a directory named
+    config given in code cannot end up with a directory named
     three spaces."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     grid = {"url": "http://grid.invalid:4444"}
-    assert SeleniumMCP(Settings(grid=grid, data={"dir": "   "})).flows is None
-    assert SeleniumMCP(Settings(grid=grid, data={"dir": None})).flows is None
+    assert SeleniumMCP({"grid": grid, "data": {"dir": "   "}}).flows is None
+    assert SeleniumMCP({"grid": grid, "data": {"dir": None}}).flows is None
 
 
 def test_an_explicit_directory_is_used_and_trimmed(tmp_path):
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, data={"dir": f"  {tmp_path}  "}
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "data": {"dir": f"  {tmp_path}  "}
+    })
     assert server.flows is not None
     server.flows.save("bot", "login", {"steps": []})
     assert (tmp_path / "workspaces" / "bot" / "flows" / "login.yaml").is_file()
@@ -980,16 +978,15 @@ def test_a_missing_data_dir_is_no_old_layout(tmp_path):
 
 
 def test_a_recording_dir_nothing_collects_from_hides_no_old_workspace(tmp_path):
-    from kubed.selenium_flow import config
     from kubed.selenium_flow.server import SeleniumMCP
 
     (tmp_path / "bot" / "flows").mkdir(parents=True)
     with pytest.raises(ConfigError, match="bot"):
-        SeleniumMCP(config.Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            data={"dir": str(tmp_path)},
-            recording={"dir": str(tmp_path / "bot" / "inbox")},
-        ))
+        SeleniumMCP({
+            "grid": {"url": "http://grid.invalid:4444"},
+            "data": {"dir": str(tmp_path)},
+            "recording": {"dir": str(tmp_path / "bot" / "inbox")},
+        })
 
 
 def test_the_sessions_folder_becomes_the_workspaces_folder_once(tmp_path):

@@ -18,7 +18,6 @@ import time
 import anyio
 import pytest
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import cancel
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows import run as flowrun
@@ -48,12 +47,12 @@ def slow_server(tmp_path, tmp_path_factory, monkeypatch):
     (secrets_dir / "demo" / "_allowed_urls").write_text("https://example.test")
     server = untabbed(
         SeleniumMCP(
-            Settings(
-                grid={"url": "http://grid.invalid:4444"},
-                auth={"token": TOKEN},
-                data={"dir": str(tmp_path)},
-                secrets={"dirs": str(secrets_dir)},
-            )
+            {
+                "grid": {"url": "http://grid.invalid:4444"},
+                "auth": {"token": TOKEN},
+                "data": {"dir": str(tmp_path)},
+                "secrets": {"dirs": str(secrets_dir)},
+            }
         )
     )
     calling_as(monkeypatch, NAMED)
@@ -189,11 +188,11 @@ async def test_a_budget_that_is_not_seconds_is_refused_at_save(
     tmp_path, given, monkeypatch
 ):
     server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            auth={"token": TOKEN},
-            data={"dir": str(tmp_path)},
-        )
+        {
+            "grid": {"url": "http://grid.invalid:4444"},
+            "auth": {"token": TOKEN},
+            "data": {"dir": str(tmp_path)},
+        }
     )
     calling_as(monkeypatch, NAMED)
     tool = await server.mcp.get_tool(flowapi.SAVE_TOOL)

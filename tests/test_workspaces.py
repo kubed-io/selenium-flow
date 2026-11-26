@@ -1020,7 +1020,7 @@ def test_touch_slides_the_expiry_of_a_workspace_in_use():
 # ---- configuration ---------------------------------------------------------
 #
 # Whether the config derives "redis" from a bare REDIS_* setting, and whether
-# an unknown store name stops the boot, is now `config.load`'s job (see
+# an unknown store name stops the boot, is now the config load's job (see
 # test_config_load.py) — `WorkspaceSettings.store` is a `Literal`, so a bad name
 # never reaches this module at all.
 

@@ -11,6 +11,7 @@ from kubed.selenium_flow.site_data import snapshot as sd
 from kubed.selenium_flow.site_data import transfer
 from kubed.selenium_flow.workspace.store import Workspace
 
+from .fakes import configured
 from .site_data_fakes import cookie
 
 pytestmark = pytest.mark.unit
@@ -88,19 +89,17 @@ def test_the_wire_loggers_never_log_at_debug(monkeypatch):
     from types import SimpleNamespace
 
     from kubed.selenium_flow import main as entry
-    from kubed.selenium_flow.config import Settings
 
-    settings = Settings(grid={"url": "http://grid.invalid:4444"}, log_level="DEBUG")
-    monkeypatch.setattr(entry.config, "load",
-                        lambda argv: SimpleNamespace(settings=settings, sources={}))
+    settings = configured(grid={"url": "http://grid.invalid:4444"}, serving={"log_level": "DEBUG"})
 
     class Server:
         auth_token = flows = secrets = collector = None
         workspaces = SimpleNamespace(kind="memory")
         plugin = SimpleNamespace(skills=())
 
-        def __init__(self, *a, **kw):
-            pass
+        def __init__(self, *a, on_loaded, **kw):
+            self.settings, self.sources = settings, {}
+            on_loaded(settings)
 
         def run(self, **kw):
             pass

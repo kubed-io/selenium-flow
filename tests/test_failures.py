@@ -16,7 +16,6 @@ import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import calling_as
@@ -27,9 +26,9 @@ pytestmark = pytest.mark.unit
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)}
-        )
+        {
+            "grid": {"url": "http://grid.invalid:4444"}, "data": {"dir": str(tmp_path)}
+        }
     )
     calling_as(monkeypatch, "refusals")
     return server

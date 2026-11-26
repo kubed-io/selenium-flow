@@ -10,7 +10,6 @@ running by name and the tags in use all follow it. The admin still sees every
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.names import CONFIG_FILE, GLOBAL_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
@@ -30,11 +29,11 @@ def configure(server, text, name=NAMED):
 @pytest.fixture
 def server(tmp_path, monkeypatch):
     monkeypatch.delenv("DATA_DIR", raising=False)
-    built = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    ))
+    built = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "data": {"dir": str(tmp_path)},
+    })
     calling_as(monkeypatch, NAMED)
     return built
 

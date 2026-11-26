@@ -16,7 +16,6 @@ from urllib.parse import quote
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.names import GLOBAL_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
@@ -47,11 +46,11 @@ steps:
 def server(tmp_path, monkeypatch):
     monkeypatch.delenv("DATA_DIR", raising=False)
     built = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            auth={"token": TOKEN},
-            data={"dir": str(tmp_path)},
-        )
+        {
+            "grid": {"url": "http://grid.invalid:4444"},
+            "auth": {"token": TOKEN},
+            "data": {"dir": str(tmp_path)},
+        }
     )
     built.workspaces.store.set(KEY, Workspace(session_id=""))
     return built
@@ -93,7 +92,7 @@ def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypa
     that blanks the section and says a 400."""
     monkeypatch.delenv("DATA_DIR", raising=False)
     off = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     )
     off.workspaces.store.set(KEY, Workspace(session_id=""))
     body = TestClient(off.mcp.server.http_app()).get(url(), headers=AUTH)

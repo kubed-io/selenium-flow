@@ -8,7 +8,6 @@ otherwise have gone ahead.
 
 import pytest
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.http import files
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -21,9 +20,9 @@ def server_for(monkeypatch, tmp_path, *, files_on: bool) -> SeleniumMCP:
     monkeypatch.delenv("DATA_DIR", raising=False)
     data = {"dir": str(tmp_path)} if files_on else {}
     server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, data=data
-        )
+        {
+            "grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}, "data": data
+        }
     )
     calling_as(monkeypatch, None)
     return server

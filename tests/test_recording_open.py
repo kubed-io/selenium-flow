@@ -6,6 +6,7 @@ from kubed.selenium_flow import config
 from kubed.selenium_flow.workspace import workspaces as workspaces_module
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
+from .conftest import configured
 from .fakes import caller
 
 pytestmark = pytest.mark.unit
@@ -189,20 +190,22 @@ def test_describe_says_whether_the_held_browser_is_recorded():
 
 
 def test_recording_enabled_without_a_data_dir_does_not_boot():
+    from kubed.selenium_flow.server import SeleniumMCP
+
     with pytest.raises(config.ConfigError, match=r"recording\.enabled needs data\.dir"):
-        config.load([], {"RECORDING_ENABLED": "true"})
+        SeleniumMCP({"recording": {"enabled": True}})
 
 
 def test_the_inbox_defaults_inside_the_data_dir_and_can_be_set_apart():
-    s = config.Settings(data={"dir": "/d"})
+    s = configured(data={"dir": "/d"})
     assert config.recording_dir(s) == "/d/recordings"
-    s = config.Settings(data={"dir": "/d"}, recording={"dir": "/elsewhere"})
+    s = configured(data={"dir": "/d"}, recording={"dir": "/elsewhere"})
     assert config.recording_dir(s) == "/elsewhere"
-    assert config.recording_dir(config.Settings()) is None
+    assert config.recording_dir(configured()) is None
 
 
 def recording_at(data_dir, inbox=None):
-    return config.recording_problem(config.Settings(
+    return config.recording_problem(configured(
         data={"dir": str(data_dir)},
         recording={"enabled": True, "dir": inbox and str(inbox)},
     ))
@@ -235,7 +238,7 @@ def test_the_default_inbox_and_a_sibling_are_apart_from_the_workspaces(tmp_path)
 
 
 def test_a_disabled_recorder_may_name_any_inbox(tmp_path):
-    assert config.recording_problem(config.Settings(
+    assert config.recording_problem(configured(
         data={"dir": str(tmp_path)},
         recording={"dir": str(tmp_path / "workspaces")},
     )) is None

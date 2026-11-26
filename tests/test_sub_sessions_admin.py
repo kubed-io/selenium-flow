@@ -11,7 +11,6 @@ from urllib.parse import parse_qsl, urlsplit
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace import sessions
 from kubed.selenium_flow.workspace.store import Workspace
@@ -53,9 +52,9 @@ class Grid:
 
 @pytest.fixture
 def server():
-    s = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN},
-    ))
+    s = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN},
+    })
     s.actions.grid = s.workspaces.actions.grid = Grid()
     ended = []
     s.actions.end_browser = ended.append

@@ -3,10 +3,9 @@ container behind `Inject[Actions]`."""
 
 import pytest
 from fastmcp import Client
-from kubed.mcp import Inject, QuickMCP
+from kubed.mcp import Config, Inject, QuickMCP
 
 from kubed.selenium_flow import main as main_module
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.http.access_log import RouteTemplates
 from kubed.selenium_flow.http.slashes import RelativeSlashRedirects
@@ -24,13 +23,12 @@ GRID = {"url": "http://grid.invalid:4444"}
 
 
 async def test_create_app_builds_a_quickmcp_with_the_settings_as_its_config():
-    settings = Settings(grid=GRID)
-    server = create_app(settings)
+    server = create_app({"grid": GRID})
     assert isinstance(server.mcp, QuickMCP)
 
     @server.mcp.tool
-    def configured(config: Inject[Settings]) -> bool:
-        return config is settings
+    def configured(config: Inject[Config]) -> bool:
+        return config is server.settings
 
     async with Client(server.mcp.server) as client:
         called = await client.call_tool("configured", {})
@@ -40,14 +38,9 @@ async def test_create_app_builds_a_quickmcp_with_the_settings_as_its_config():
 @pytest.fixture
 def ran(monkeypatch):
     """Boot through `main` without serving: each `QuickMCP.run` call's
-    ``(serving, http_options)``."""
+    ``http_options``."""
     calls = []
-    monkeypatch.setattr(
-        QuickMCP, "run",
-        lambda self, serving=None, **options: calls.append((serving, options)),
-    )
-    for name in ("AUTH_TOKEN", "CONFIG_FILE", "PORT", "HOST", "LOG_LEVEL", "TRANSPORT"):
-        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(QuickMCP, "run", lambda self, **options: calls.append(options))
     return calls
 
 
@@ -59,9 +52,8 @@ def _config(tmp_path, text):
 
 def test_main_serves_http_through_run_with_the_config_s_settings(tmp_path, ran):
     main_module.main(_config(tmp_path, "route_prefix: /flow\n"))
-    [(serving, options)] = ran
-    # No Serving of its own: `run()` reads transport, host and port off the config.
-    assert serving is None
+    # `run()` reads transport, host and port off the config's `serving`.
+    [options] = ran
     assert options["path"] == "/flow/mcp"
     assert [m.cls for m in options["middleware"]] == [
         m.cls for m in http_middleware()
@@ -70,20 +62,20 @@ def test_main_serves_http_through_run_with_the_config_s_settings(tmp_path, ran):
 
 def test_main_serves_the_route_spans_when_otel_is_on(tmp_path, ran):
     main_module.main(_config(tmp_path, "telemetry:\n  otel: true\n"))
-    [(_serving, options)] = ran
+    [options] = ran
     assert [m.cls for m in options["middleware"]] == [RouteSpans, RelativeSlashRedirects]
 
 
 def test_main_serves_stdio_through_run_too(tmp_path, ran):
-    main_module.main(_config(tmp_path, "transport: stdio\n"))
-    [(serving, _options)] = ran
-    assert serving is None
+    main_module.main(_config(tmp_path, "serving:\n  transport: stdio\n"))
+    [options] = ran
+    assert [m.cls for m in options["middleware"]] == [RelativeSlashRedirects]
 
 
 @pytest.fixture
 def acting(monkeypatch):
     """An open server whose every act runs straight on browser ``b1``."""
-    server = untabbed(create_app(Settings(grid=GRID)))
+    server = untabbed(create_app({"grid": GRID}))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(
         server.workspaces, "act", lambda caller, call, **kw: call("b1")
@@ -161,7 +153,7 @@ def test_building_the_server_refuses_an_action_whose_actions_is_not_injected(
 
     monkeypatch.setattr(tools_module, "Inject", Bare)
     with pytest.raises(TypeError, match="an action takes actions: Inject"):
-        create_app(Settings(grid=GRID))
+        create_app({"grid": GRID})
 
 
 def test_an_action_with_injected_actions_registers_written_either_way():

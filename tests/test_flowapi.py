@@ -15,7 +15,6 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.names import GLOBAL_WORKSPACE, STDIO_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
@@ -31,11 +30,11 @@ GOOD = [{"tool": "navigate", "args": {"url": "https://example.test/"}}]
 @pytest.fixture
 def flow_server(tmp_path, monkeypatch):
     monkeypatch.delenv("DATA_DIR", raising=False)
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "data": {"dir": str(tmp_path)},
+    }))
     acting_as(monkeypatch, server, NAMED)
     return server
 
@@ -293,7 +292,7 @@ async def test_with_flows_off_an_unnamed_caller_is_told_that_not_to_rename_itsel
     off to name its workspace would point it at the wrong problem entirely — and
     a *named* caller already got the right answer, so the two disagreed."""
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     )
     acting_as(monkeypatch, server, None)
     with pytest.raises(ValueError, match="DATA_DIR"):
@@ -327,7 +326,7 @@ async def test_the_schema_is_derived_from_the_live_tools(flow_server):
 async def test_with_no_data_directory_the_tools_say_so(monkeypatch):
     """A disabled capability and a missing one look identical from outside, and
     only one of them is something an operator can fix."""
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    server = SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}})
     acting_as(monkeypatch, server, NAMED)
     assert server.flows is None
     from mcp.shared.exceptions import MCPError
@@ -350,11 +349,11 @@ def unkeyed_client(tmp_path, monkeypatch):
     """A client the server cannot identify, which is the ordinary case for an
     n8n HTTP node: no workspace name anywhere, so it reads and runs the shared
     `global` library and has no library of its own to write to."""
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "data": {"dir": str(tmp_path)},
+    }))
     acting_as(monkeypatch, server, None)
     return TestClient(server.mcp.server.http_app())
 
@@ -607,8 +606,8 @@ def _traced(tmp_path, monkeypatch):
     rec = recorded()
     # On the class, before the server: the routes bind the action at registration.
     monkeypatch.setattr(Actions, "navigate", lambda self, session_id, url: {"url": url, "title": "t"})
-    server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"},
-                                           auth={"token": TOKEN}, data={"dir": str(tmp_path)}),
+    server = untabbed(SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"},
+                                           "auth": {"token": TOKEN}, "data": {"dir": str(tmp_path)}},
                                   telemetry=rec.telemetry))
     acting_as(monkeypatch, server, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("b", "chrome"))

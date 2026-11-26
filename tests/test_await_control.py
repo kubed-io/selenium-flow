@@ -25,7 +25,6 @@ from fastmcp.server.dependencies import get_http_request
 from fastmcp_tasks import call_tool_task
 
 from kubed.selenium_flow import faults
-from kubed.selenium_flow.config import ConfigError, Settings, load
 from kubed.selenium_flow.core.capabilities import ENDPOINTS
 from kubed.selenium_flow.flows.document import InvalidFlow, step_schemas, validate
 from kubed.selenium_flow.http import answer as answer_module
@@ -43,7 +42,7 @@ from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import calling_as
-from .fakes import held, untabbed
+from .fakes import held, loaded, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -80,7 +79,7 @@ class Browser:
 
 @pytest.fixture
 def server(monkeypatch):
-    server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"})))
+    server = untabbed(SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}}))
     browser = Browser()
     monkeypatch.setattr(server.grid, "is_alive", lambda sid: sid in browser.alive)
 
@@ -737,7 +736,7 @@ async def test_it_is_not_a_flow_step(server):
 
 
 def test_the_cap_is_at_least_thirty():
-    assert load([], {}).settings.live.await_cap == 90
-    assert load([], {"LIVE_AWAIT_CAP": "30"}).settings.live.await_cap == 30
-    with pytest.raises(ConfigError, match=r"live\.await_cap"):
-        load([], {"LIVE_AWAIT_CAP": "10"})
+    assert loaded([], {})[0].live.await_cap == 90
+    assert loaded([], {"LIVE_AWAIT_CAP": "30"})[0].live.await_cap == 30
+    with pytest.raises(ValueError, match=r"live\.await_cap"):
+        loaded([], {"LIVE_AWAIT_CAP": "10"})

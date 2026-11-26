@@ -1,9 +1,14 @@
 """The `oidc` section: a JWT issuer beside the token, never instead of it."""
 
+import re
+
 import pytest
+from kubed.mcp import Source
 
 from kubed.selenium_flow import config
-from kubed.selenium_flow.config import ConfigError, Settings, load
+from kubed.selenium_flow.config import OidcSettings
+
+from .conftest import configured, loaded
 
 pytestmark = pytest.mark.unit
 
@@ -19,7 +24,7 @@ ADMIN_UI = {"OIDC_CLIENT_ID": "selenium-flow-admin", "OIDC_ADMIN_ROLES": "admin,
 
 
 def test_off_by_default():
-    oidc = Settings().oidc
+    oidc = OidcSettings()
     assert (oidc.issuer, oidc.audience, oidc.jwks_uri, oidc.roles) == (
         None,
         None,
@@ -28,7 +33,7 @@ def test_off_by_default():
     )
     assert oidc.roles_claim == "roles"
     assert (oidc.client_id, oidc.admin_roles) == (None, [])
-    assert config.oidc_problem(Settings()) is None
+    assert config.oidc_problem(configured()) is None
 
 
 def test_the_env_names_follow_the_rule():
@@ -45,53 +50,51 @@ def test_the_env_names_follow_the_rule():
 
 
 def test_roles_are_a_comma_list_from_env():
-    loaded = load([], ON | {"OIDC_ROLES": "mcp, admin,"})
-    assert loaded.settings.oidc.roles == ["mcp", "admin"]
+    assert loaded(environ=ON | {"OIDC_ROLES": "mcp, admin,"})[0].oidc.roles == ["mcp", "admin"]
 
 
 def test_all_three_load_with_a_token():
-    oidc = load([], ON).settings.oidc
+    oidc = loaded(environ=ON)[0].oidc
     assert (oidc.issuer, oidc.jwks_uri) == (ISSUER, JWKS)
 
 
 @pytest.mark.parametrize("missing", ["OIDC_AUDIENCE", "OIDC_JWKS_URI", "OIDC_ISSUER"])
 def test_issuer_audience_and_jwks_are_all_or_nothing(missing):
     env = {k: v for k, v in ON.items() if k != missing}
-    with pytest.raises(ConfigError, match="together"):
-        load([], env)
+    assert re.search("together", config.oidc_problem(loaded(environ=env)[0]))
 
 
 def test_oidc_needs_the_token():
     env = {k: v for k, v in ON.items() if k != "AUTH_TOKEN"}
-    with pytest.raises(ConfigError, match=r"auth\.token"):
-        load([], env)
+    assert re.search(r"auth\.token", config.oidc_problem(loaded(environ=env)[0]))
 
 
 def test_oidc_in_the_file_and_the_token_in_env_loads(tmp_path):
-    """The cluster's shape: `load()` validates the file alone first."""
+    """The cluster's shape: oidc in the file, the token in env."""
     path = tmp_path / "config.yaml"
     path.write_text(
         f"oidc:\n  issuer: {ISSUER}\n  audience: https://mcp.example.com\n"
         f"  jwks_uri: {JWKS}\n  roles: [mcp]\n"
     )
-    loaded = load(["--config-file", str(path)], {"AUTH_TOKEN": "t0ken"})
-    assert loaded.settings.oidc.roles == ["mcp"]
-    assert loaded.sources["oidc.issuer"] == "config"
+    cfg, sources = loaded(["--config-file", str(path)], {"AUTH_TOKEN": "t0ken"})
+    assert cfg.oidc.roles == ["mcp"]
+    assert sources["oidc.issuer"] == Source("file", str(path))
+    assert config.oidc_problem(cfg) is None
 
 
 @pytest.mark.parametrize("key", ["OIDC_ISSUER", "OIDC_JWKS_URI"])
 def test_the_urls_are_http(key):
-    with pytest.raises(ConfigError, match="http"):
-        load([], ON | {key: "ftp://auth.example.com/x"})
+    with pytest.raises(ValueError, match="http"):
+        loaded(environ=ON | {key: "ftp://auth.example.com/x"})
 
 
 def test_oidc_problem_is_the_same_rule_for_settings_built_in_code():
-    built = Settings(oidc={"issuer": ISSUER, "audience": "a", "jwks_uri": JWKS})
+    built = configured(oidc={"issuer": ISSUER, "audience": "a", "jwks_uri": JWKS})
     assert "auth.token" in config.oidc_problem(built)
 
 
 def test_the_admin_ui_settings_load_beside_the_issuer():
-    oidc = load([], ON | ADMIN_UI).settings.oidc
+    oidc = loaded(environ=ON | ADMIN_UI)[0].oidc
     assert oidc.client_id == "selenium-flow-admin"
     assert oidc.admin_roles == ["admin", "ops"]
 
@@ -99,23 +102,21 @@ def test_the_admin_ui_settings_load_beside_the_issuer():
 @pytest.mark.parametrize("missing", ["OIDC_CLIENT_ID", "OIDC_ADMIN_ROLES"])
 def test_client_id_and_admin_roles_come_together(missing):
     env = {k: v for k, v in (ON | ADMIN_UI).items() if k != missing}
-    with pytest.raises(
-        ConfigError,
-        match=r"oidc\.client_id and oidc\.admin_roles are set together or not at all",
-    ):
-        load([], env)
+    assert re.search(
+        r"oidc\.client_id and oidc\.admin_roles are set together or not at all",
+        config.oidc_problem(loaded(environ=env)[0]),
+    )
 
 
 def test_the_admin_ui_needs_the_issuer():
-    with pytest.raises(ConfigError, match=r"oidc\.client_id needs oidc\.issuer"):
-        load([], ADMIN_UI | {"AUTH_TOKEN": "t0ken"})
+    problem = config.oidc_problem(loaded(environ=ADMIN_UI | {"AUTH_TOKEN": "t0ken"})[0])
+    assert re.search(r"oidc\.client_id needs oidc\.issuer", problem)
 
 
 def test_the_admin_ui_settings_show_on_the_settings_tab():
-    loaded = load([], ON | ADMIN_UI)
     rows = {
         row["key"]: row
-        for section in config.describe(loaded.settings, loaded.sources)["sections"]
+        for section in config.describe(*loaded(environ=ON | ADMIN_UI))["sections"]
         for row in section["settings"]
     }
     assert rows["oidc.client_id"]["value"] == "selenium-flow-admin"

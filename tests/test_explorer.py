@@ -11,7 +11,6 @@ import pytest
 from fastmcp import Client
 from kubed.mcp.agents import META_KEY, Agent, parse_agent
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import skill
 from kubed.selenium_flow.server import create_app
 
@@ -83,7 +82,7 @@ def front() -> dict:
 def test_it_loads_strictly(caplog):  # spec test 1
     caplog.set_level(logging.WARNING)
     files = sorted(AGENTS.glob("*.md"))
-    server = create_app(Settings(grid={"url": "http://grid.invalid:4444"}))
+    server = create_app({"grid": {"url": "http://grid.invalid:4444"}})
     assert "explorer.md" in [p.name for p in files]
     assert len(server.plugin.agents) == len(files)
     assert "explorer" in server.plugin.agents

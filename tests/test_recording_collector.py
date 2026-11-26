@@ -169,15 +169,14 @@ def test_the_watch_looks_again_within_a_settle(tmp_path, tick, settle, look):
 
 
 def test_the_server_passes_the_settle_to_the_collector(tmp_path):
-    from kubed.selenium_flow import config
     from kubed.selenium_flow.server import SeleniumMCP
 
     (tmp_path / "recordings").mkdir()
-    server = SeleniumMCP(config.Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        data={"dir": str(tmp_path)},
-        recording={"enabled": True, "settle": 3},
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "data": {"dir": str(tmp_path)},
+        "recording": {"enabled": True, "settle": 3},
+    })
     assert server.collector.settle == 3
 
 
@@ -339,11 +338,11 @@ def test_a_server_with_recording_on_needs_a_usable_inbox(tmp_path):
     from kubed.selenium_flow import config
     from kubed.selenium_flow.server import SeleniumMCP
 
-    settings = config.Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        data={"dir": str(tmp_path)},
-        recording={"enabled": True},
-    )
+    settings = {
+        "grid": {"url": "http://grid.invalid:4444"},
+        "data": {"dir": str(tmp_path)},
+        "recording": {"enabled": True},
+    }
     with pytest.raises(config.ConfigError, match=r"recording\.dir"):
         SeleniumMCP(settings)
     (tmp_path / "recordings").mkdir()
@@ -511,16 +510,15 @@ async def test_a_poke_forgets_the_last_broadcast_and_ticks_now():
 
 
 def test_a_filed_recording_pokes_the_admin_broadcast(tmp_path):
-    from kubed.selenium_flow import config
     from kubed.selenium_flow.http.admin.workspaces import Broadcast
     from kubed.selenium_flow.server import SeleniumMCP
 
     (tmp_path / "recordings").mkdir()
-    server = SeleniumMCP(config.Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        data={"dir": str(tmp_path)},
-        recording={"enabled": True},
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "data": {"dir": str(tmp_path)},
+        "recording": {"enabled": True},
+    })
     poke = server.collector.on_filed
     assert isinstance(poke.__self__, Broadcast) and poke.__func__ is Broadcast.poke
 
@@ -1228,16 +1226,15 @@ async def test_start_watches_what_the_notes_still_owe(store, inbox):
 
 
 def test_an_end_on_the_bus_reaches_the_collector(tmp_path):
-    from kubed.selenium_flow import config
     from kubed.selenium_flow.monitor.events import SessionEnded
     from kubed.selenium_flow.server import SeleniumMCP
 
     (tmp_path / "recordings").mkdir()
-    server = SeleniumMCP(config.Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        data={"dir": str(tmp_path)},
-        recording={"enabled": True},
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "data": {"dir": str(tmp_path)},
+        "recording": {"enabled": True},
+    })
     server.collector.expect("bot", GID, "chrome")
     assert server.monitor.watching(GID) == {"recording"}
     server.bus.publish(SessionEnded("bot", GID, "gone", 1.0))

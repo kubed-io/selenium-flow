@@ -27,7 +27,6 @@ from fastmcp import Client
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import redaction
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.capabilities import CAPABILITIES
 from kubed.selenium_flow.http import files as files_module
@@ -185,12 +184,12 @@ def server(tmp_path, leaky, monkeypatch):
     secret.mkdir(parents=True)
     (secret / "password").write_text(VALUE)
     (secret / "_allowed_urls").write_text(f"{A}\n")
-    made = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path / "data")},
-        secrets={"dirs": str(tmp_path / "secrets")},
-    )))
+    made = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "data": {"dir": str(tmp_path / "data")},
+        "secrets": {"dirs": str(tmp_path / "secrets")},
+    }))
     made.actions.grid = leaky.grid
     monkeypatch.setattr(made.actions.grid, "session_timeout", lambda _s: None, raising=False)
     yield made

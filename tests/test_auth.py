@@ -18,11 +18,11 @@ import pytest
 from fastmcp.server.auth.providers.jwt import RSAKeyPair
 from starlette.requests import Request
 
-from kubed.selenium_flow.config import ConfigError, Settings
+from kubed.selenium_flow.config import AuthSettings, ConfigError
 from kubed.selenium_flow.http import auth
 from kubed.selenium_flow.principal import ADMIN
 
-from .conftest import TOKEN
+from .conftest import TOKEN, configured
 from .jwks import AUDIENCE
 
 pytestmark = pytest.mark.unit
@@ -302,8 +302,8 @@ async def test_a_failed_fetch_holds_the_floor_too(issuer):
 
 
 def test_the_provider_per_configuration(issuer):
-    assert auth.provider(Settings()) is None
-    assert isinstance(auth.provider(Settings(auth={"token": TOKEN})), auth.ServerTokenVerifier)
+    assert auth.provider(configured()) is None
+    assert isinstance(auth.provider(configured(auth={"token": TOKEN})), auth.ServerTokenVerifier)
     both = auth.provider(issuer.settings(TOKEN))
     assert [type(v) for v in both.verifiers] == [auth.ServerTokenVerifier, auth.OidcVerifier]
     # No OAuth routes: the gateway and the issuer own discovery.
@@ -311,7 +311,7 @@ def test_the_provider_per_configuration(issuer):
 
 
 def test_the_provider_refuses_oidc_without_the_token(issuer):
-    settings = issuer.settings(TOKEN).model_copy(update={"auth": Settings().auth})
+    settings = issuer.settings(TOKEN).model_copy(update={"auth": AuthSettings()})
     with pytest.raises(ConfigError, match=r"auth\.token"):
         auth.provider(settings)
 
@@ -428,7 +428,7 @@ def test_both_doors_share_one_verifier(issuer):
 
 
 def test_the_doors_per_configuration():
-    assert auth.doors(Settings()).mcp is None
-    token_only = auth.doors(Settings(auth={"token": TOKEN}))
+    assert auth.doors(configured()).mcp is None
+    token_only = auth.doors(configured(auth={"token": TOKEN}))
     assert isinstance(token_only.mcp, auth.ServerTokenVerifier)
     assert token_only.admin._jwt is None

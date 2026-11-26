@@ -19,7 +19,7 @@ from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
 from kubed.selenium_flow.core.session_caps import build
 
-from .conftest import calling_as
+from .conftest import calling_as, configured, loaded
 from .fakes import untabbed
 
 pytestmark = pytest.mark.unit
@@ -214,15 +214,14 @@ def test_a_print_that_cannot_be_kept_does_not_quote_the_disk(acting):
 
 @pytest.fixture
 def keeping_server(tmp_path):
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    return untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": "tok"},
-        public_base_url="https://selenium.example.com",
-        data={"dir": str(tmp_path)},
-    )))
+    return untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": "tok"},
+        "public_base_url": "https://selenium.example.com",
+        "data": {"dir": str(tmp_path)},
+    }))
 
 
 def test_the_server_keeps_it_on_disk_with_a_signed_link(keeping_server, tmp_path):
@@ -265,11 +264,10 @@ def test_two_saves_racing_for_one_name_do_not_overwrite_each_other(
 
 
 def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "tok"})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": "tok"}}
     )
     with pytest.raises(ValueError, match="DATA_DIR"):
         server.actions.keep("shot.png", b"png", "files")
@@ -286,16 +284,15 @@ def test_a_server_with_no_data_dir_refuses_to_keep_with_the_reason():
 def test_a_mounted_server_hands_out_links_it_serves(tmp_path, public, expected):
     """The route is at `/flow/kept`, so the link must be too — whether or not a
     public base is set, and once only when that base already names the mount."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": "tok"},
-        public_base_url=public,
-        route_prefix="/flow",
-        data={"dir": str(tmp_path)},
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": "tok"},
+        "public_base_url": public,
+        "route_prefix": "/flow",
+        "data": {"dir": str(tmp_path)},
+    })
     described = server.actions.keep("shot.png", b"png", "files")
     assert described["url"].startswith(expected)
 
@@ -372,17 +369,16 @@ async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
     from fastmcp import Client
     from starlette.testclient import TestClient
 
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.http import links
     from kubed.selenium_flow.server import SeleniumMCP
 
     day = 86400
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": "tok"},
-        link_ttl=day,
-        data={"dir": str(tmp_path)},
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": "tok"},
+        "link_ttl": day,
+        "data": {"dir": str(tmp_path)},
+    })
 
     def lasts(url: str) -> float:
         return int(url.split("exp=")[1].split("&")[0]) - time.time()
@@ -403,10 +399,8 @@ async def test_link_ttl_is_how_long_a_link_opens(tmp_path):
 
 
 def test_a_link_opens_for_at_least_a_minute():
-    from kubed.selenium_flow.config import Settings
-
     with pytest.raises(ValueError, match="link_ttl"):
-        Settings(link_ttl=30)
+        configured(link_ttl=30)
 
 
 async def test_print_is_a_tool_that_keeps_the_file(keeping_server, monkeypatch):
@@ -551,7 +545,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
 
     from fastmcp import Client
 
-    from kubed.selenium_flow.config import SessionSettings, Settings, load
+    from kubed.selenium_flow.config import SessionSettings
     from kubed.selenium_flow.workspace import settings
 
     # Pinned at both ends: the config schema has no field for it at
@@ -560,7 +554,7 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
     # ...and naming it in the environment is naming nothing: SESSION_INSECURE
     # is not a leaf `config.py` knows, so `load` ignores it rather than
     # inventing somewhere to put it.
-    assert load([], {"SESSION_INSECURE": "true"}).settings == Settings()
+    assert loaded([], {"SESSION_INSECURE": "true"})[0].model_dump() == configured().model_dump()
     assert "insecure" not in settings.from_client({"insecure": "true"}, {"x-insecure": "true"})
 
     asked = []

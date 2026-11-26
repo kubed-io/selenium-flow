@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import sys
 
+from kubed.mcp import TelemetrySettings
 from kubed.mcp.plugins import PluginError
 
 from . import config
@@ -51,10 +53,11 @@ def configure_logging(level: str) -> None:
     logging.getLogger("fastmcp").setLevel(floor)
 
 
-def _telemetry_summary(telemetry: config.TelemetrySettings) -> str:
+def _telemetry_summary(telemetry: TelemetrySettings) -> str:
     """The signals on, never the address: it may carry basic-auth userinfo."""
     on = []
-    if telemetry.profiles and (telemetry.profile_cpu or telemetry.profile_memory):
+    profiles = telemetry.profiles and telemetry.profiles.get_secret_value().strip()
+    if profiles and (telemetry.profile_cpu or telemetry.profile_memory):
         on.append("profiles")
     if telemetry.otel:
         on.append("otel")
@@ -67,19 +70,26 @@ def _loopback(host: str) -> bool:
 
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``selenium-flow`` console script."""
+    argv = sys.argv[1:] if argv is None else argv
+    if "-h" in argv or "--help" in argv:
+        sys.stdout.write(config.help_text())
+        raise SystemExit(0)
     try:
-        loaded = config.load(argv)
-        settings = loaded.settings
-        configure_logging(settings.log_level)
-        server = create_app(settings, sources=loaded.sources)
+        # Logging is configured once the config loads and before the rest is
+        # built, so the build's own lines reach the log.
+        server = create_app(
+            argv=argv,
+            on_loaded=lambda loaded: configure_logging(loaded.serving.log_level),
+        )
     except (config.ConfigError, StoreUnavailable, PluginError) as exc:
         # Restarted until fixed beats started on something misread. A PluginError is
         # a plugin/ folder kubed-mcp refuses: missing package data, a broken manifest.
         raise SystemExit(f"selenium-flow: {exc}") from None
+    settings = server.settings
     log.info(
         "config=%s grid=%s auth=%s oidc=%s workspaces=%s skill=%s flows=%s secrets=%s "
         "recordings=%s telemetry=%s",
-        settings.config_file or "none",
+        config.config_file(server.sources) or "none",
         without_userinfo(settings.grid.url),
         "on" if server.auth_token else "off",
         settings.oidc.issuer or "off",
@@ -96,15 +106,16 @@ def main(argv: list[str] | None = None) -> None:
             settings.oidc.issuer,
             settings.oidc.audience,
         )
+    serving = settings.serving
     if (
         not server.auth_token
-        and settings.transport == "http"
-        and not _loopback(settings.host)
+        and serving.transport == "http"
+        and not _loopback(serving.host)
     ):
         log.warning(
             "AUTH_TOKEN is not set: anyone who can reach %s:%s can drive every browser",
-            settings.host,
-            settings.port,
+            serving.host,
+            serving.port,
         )
     server.run()
 

@@ -257,7 +257,7 @@ class TestTheSettingsCascade:
         }
 
     # `BROWSER` not being read, and an unusable `SESSION_BROWSER` refusing the
-    # boot rather than being ignored, are `config.load`'s concerns now — see
+    # boot rather than being ignored, are the config load's concerns now — see
     # test_config_load.py.
 
     def test_a_client_default_comes_from_the_url_or_a_header(self):

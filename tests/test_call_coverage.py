@@ -18,7 +18,6 @@ from opentelemetry.trace import StatusCode
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import faults
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.capabilities import capability
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.telemetry import CALL_DURATION
@@ -88,7 +87,7 @@ def timed(tmp_path, monkeypatch):
     rec = recorded()
     server = untabbed(
         SeleniumMCP(
-            Settings(grid=GRID, data={"dir": str(tmp_path)}), telemetry=rec.telemetry
+            {"grid": GRID, "data": {"dir": str(tmp_path)}}, telemetry=rec.telemetry
         )
     )
     calling_as(monkeypatch, NAMED)
