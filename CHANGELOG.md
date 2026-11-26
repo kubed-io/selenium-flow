@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65, #220).
+- **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65).
 - **Profiles and traces:** the image pushes profiles to Pyroscope when `TELEMETRY_PROFILES` names it, and runs OpenTelemetry with `TELEMETRY_OTEL=true` (#199).
 - **BREAKING:** The one skill is five, by reader and moment: `driving-a-browser` (the entry point), `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`, each at `skill://selenium-flow/<skill>/SKILL.md` (#195, #196). The old `skill://selenium-flow/SKILL.md` and `skill://selenium-flow/references/…` addresses no longer read: nothing redirects them, and hints, the instructions, the prompts and the explorer name the new ones.
 - **BREAKING:** The server's name (`serverInfo.name`) is `selenium-flow`, not `Selenium` (#196).
@@ -160,10 +160,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Sf-Resources`, `Sf-Listed`, `Sf-Via` and `Sf-Resource-Prefix` work beside the `X-MCP-` headers, and the `Sf-` name wins when both are sent (#210).
 - `Sf-Via: local` (or `?via=`) keeps the plugin's skills, prompts and agent out of the listings, and `extension` keeps its prompts and skill rows out and leaves the skills and agent to the client's extension; the instructions name the skill the client has (#210).
 - `initialize` and `server/discover` report what the request resolved in `_meta["io.kubed/delivery"]` (#210).
+- **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65, #220).
 
 ### Changed
 
 - The server needs kubed-mcp 0.3.0 (#201, #190, #209).
+
+### Fixed
+
+- An idle server uses less CPU: the background-task worker checks for work once a second, not 20 times (#219).
 
 ## [0.3.0] - 2026-09-26
 

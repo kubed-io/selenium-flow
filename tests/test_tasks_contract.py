@@ -6,11 +6,15 @@ of things about FastMCP that its documentation does not promise. Each test here
 is one of them, against a toy server, so an upgrade that changes one fails here,
 by name, rather than somewhere in await_control.
 
+Two more pin `waiting.Tasks`: the worker polls once a second, and a task still
+starts at once (the backend wakes the worker's blocking read on a write).
+
 Over real streamable HTTP (an in-process ASGI app), because headers only exist
 there and the worker's lack of a request is the point of one test.
 """
 
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -26,7 +30,7 @@ from fastmcp.utilities.tasks import TaskConfig
 from fastmcp_tasks import TasksExtension, call_tool_task
 from fastmcp_tasks.models import CreateTaskResult
 
-from kubed.selenium_flow.mcp import clients
+from kubed.selenium_flow.mcp import clients, waiting
 
 pytestmark = pytest.mark.unit
 
@@ -225,3 +229,30 @@ async def test_cancel_cancels_the_wait():
         await task.cancel()
         await seen.cancelled.wait()
         assert (await task.status()).status == "cancelled"
+
+
+def test_the_worker_polls_once_a_second():
+    """An idle worker turns once a second, not at FastMCP's 50 ms default."""
+    tasks = waiting.Tasks(first=lambda: None)
+    assert tasks.docket_settings.minimum_check_interval == waiting.CHECK
+    assert timedelta(seconds=1) == waiting.CHECK
+
+
+async def test_a_task_starts_without_waiting_for_the_poll():
+    """Fails if the backend stops waking the worker's blocking read on a write,
+    so every task would wait out the poll."""
+    mcp = FastMCP("toy")
+    mcp.add_extension(waiting.Tasks(first=lambda: None))
+    entered: list[float] = []
+
+    @mcp.tool(task=TASK)
+    async def stamp() -> dict:
+        entered.append(time.monotonic())
+        return {}
+
+    async with connect(mcp) as client:
+        await (await call_tool_task(client, "stamp")).result()  # warm-up
+        entered.clear()
+        submitted = time.monotonic()
+        await (await call_tool_task(client, "stamp")).result()
+    assert entered[0] - submitted < waiting.CHECK.total_seconds() / 2
