@@ -161,7 +161,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Sf-Via: local` (or `?via=`) keeps the plugin's skills, prompts and agent out of the listings, and `extension` keeps its prompts and skill rows out and leaves the skills and agent to the client's extension; the instructions name the skill the client has (#210).
 - `initialize` and `server/discover` report what the request resolved in `_meta["io.kubed/delivery"]` (#210).
 - Fixed: `selenium_flow.grid.slots` reports 0 for a state with no slots, instead of no series (#221).
-- **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65).
 - **BREAKING:** Config loads through kubed-mcp 0.4: in the config file, `transport`, `host`, `port` and `log_level` move under `serving:`, and a file that still sets them at the top is refused. Their env names and flags are unchanged, and the Settings tab shows them as `serving.*` (#214).
 - **BREAKING:** The old names `FLOW_DATA_DIR`, `SESSION_STORE` and `SESSION_TTL` are ignored, and `flow:`, `session.store` and `session.ttl` in the file are refused as unknown keys (#214).
 - `DELIVERY_RESOURCES`, `DELIVERY_LISTED` and `DELIVERY_VIA` (`delivery:` in the file) set the delivery inputs' defaults (#214).
