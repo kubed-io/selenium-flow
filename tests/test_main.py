@@ -15,6 +15,7 @@ import sys
 import pytest
 import uvicorn
 
+from kubed.selenium_flow import config as config_module
 from kubed.selenium_flow import main as main_module
 from kubed.selenium_flow import server as server_module
 from kubed.selenium_flow.http import access_log
@@ -454,3 +455,16 @@ def test_an_unreachable_redis_stops_the_boot_with_the_reason(tmp_path, monkeypat
     with pytest.raises(SystemExit) as caught:
         main_module.main(["--config-file", str(path)])
     assert str(caught.value.code).startswith("selenium-flow: ")
+
+
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_help_prints_every_setting_and_builds_nothing(flag, capsys, listened, monkeypatch):
+    monkeypatch.setattr(main_module, "create_app", lambda **kw: pytest.fail("built"))
+    with pytest.raises(SystemExit) as caught:
+        main_module.main(["--port", "1", flag])
+    assert caught.value.code == 0
+    out = capsys.readouterr().out
+    assert out.startswith("usage: selenium-flow")
+    for leaf in config_module.leaves():
+        assert leaf.flag in out and leaf.env in out, leaf.path
+    assert listened == []

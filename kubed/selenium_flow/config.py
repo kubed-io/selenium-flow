@@ -9,6 +9,7 @@ this server's own: each section's names, written out (`redis.host` is
 
 from __future__ import annotations
 
+import argparse
 import functools
 import json
 import os
@@ -769,6 +770,30 @@ def leaves() -> list[Leaf]:
             if "env" in prop:
                 found.append(_leaf(f"{key}.{name}", prop))
     return found
+
+
+def help_text() -> str:
+    """What `--help` prints: one line per setting, its three spellings and default.
+
+    The parser only formats. kubed-mcp parses the flags.
+    """
+    built = argparse.ArgumentParser(
+        prog="selenium-flow",
+        description="Drive a Selenium Grid browser over MCP and HTTP.",
+        allow_abbrev=False,
+    )
+    for leaf in leaves():
+        shown = "unset" if leaf.default in (None, "", [], {}) else leaf.default
+        text = (
+            f"{leaf.description} (env: {leaf.env} · config: {leaf.path}"
+            f" · default: {shown})"
+        )
+        built.add_argument(
+            leaf.flag,
+            metavar=leaf.path.rsplit(".", 1)[-1].upper(),
+            help=text.replace("%", "%%"),
+        )
+    return built.format_help()
 
 
 def value_of(settings: Config, path: str) -> Any:

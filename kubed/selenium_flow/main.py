@@ -71,6 +71,9 @@ def _loopback(host: str) -> bool:
 def main(argv: list[str] | None = None) -> None:
     """Entry point for the ``selenium-flow`` console script."""
     argv = sys.argv[1:] if argv is None else argv
+    if "-h" in argv or "--help" in argv:
+        sys.stdout.write(config.help_text())
+        raise SystemExit(0)
     try:
         # Logging is configured once the config loads and before the rest is
         # built, so the build's own lines reach the log.
