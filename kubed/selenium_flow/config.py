@@ -894,15 +894,20 @@ URL_LEAVES = {
 
 
 PROXY_KEYS = {"httpProxy", "sslProxy", "socksProxy", "ftpProxy"}
+# Selenium's `Proxy` sends SOCKS credentials in a key of their own.
+PROXY_SECRETS = {"socksPassword"}
 
 
 def _without_proxy_userinfo(value):
     """``value`` with ``user:pass@`` dropped from the W3C proxy keys, which are
-    ``host:port`` with no scheme for `without_userinfo` to anchor on."""
+    ``host:port`` with no scheme for `without_userinfo` to anchor on, and a
+    non-empty proxy password written as ``***``."""
     if isinstance(value, dict):
         return {
             key: re.sub(r"^[^/@\s]*@", "", item)
             if key in PROXY_KEYS and isinstance(item, str)
+            else "***"
+            if key in PROXY_SECRETS and isinstance(item, str) and item
             else _without_proxy_userinfo(item)
             for key, item in value.items()
         }
@@ -911,9 +916,10 @@ def _without_proxy_userinfo(value):
     return value
 
 
-# A W3C proxy key and its JSON string value, as a line of compact JSON writes it.
+# A proxy key or password and its JSON string value, as compact JSON writes it.
 _PROXY_ENTRY = re.compile(
-    r'"(?P<key>' + "|".join(sorted(PROXY_KEYS)) + r')":"(?P<value>(?:[^"\\]|\\.)*)"'
+    r'"(?P<key>' + "|".join(sorted(PROXY_KEYS | PROXY_SECRETS)) + r')":'
+    r'"(?P<value>(?:[^"\\]|\\.)*)"'
 )
 
 
@@ -927,7 +933,7 @@ def _proxy_entry_without_userinfo(match: re.Match) -> str:
 def without_config_userinfo(text: str) -> str:
     """``text``, a line that writes settings as JSON, with the userinfo cut out
     as the Settings tab cuts it: every URL's by `without_userinfo`, then a proxy
-    key's ``user:pass@`` by `_without_proxy_userinfo`'s rule."""
+    key's ``user:pass@`` and a proxy password by `_without_proxy_userinfo`'s rule."""
     return _PROXY_ENTRY.sub(_proxy_entry_without_userinfo, without_userinfo(text))
 
 

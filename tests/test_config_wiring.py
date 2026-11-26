@@ -163,7 +163,14 @@ CREDENTIALED = {
     "GRID_CONSOLE_URL": "https://cu:hunter2@console.example.com/ui",
     "PUBLIC_BASE_URL": "https://pu:hunter3@flow.example.com",
     "SESSION_CAPABILITIES": json.dumps({
-        "proxy": {"proxyType": "manual", "httpProxy": "xu:hunter4@proxy.example.com:3128"},
+        "proxy": {
+            "proxyType": "manual",
+            "httpProxy": "xu:hunter4@proxy.example.com:3128",
+            "socksProxy": "proxy.example.com:1080",
+            "socksVersion": 5,
+            "socksUsername": "svc",
+            "socksPassword": "hunter6",
+        },
         "goog:chromeOptions": {"args": ["--proxy-server=http://au:hunter5@proxy.example.com:3128"]},
     }),
 }
@@ -194,6 +201,8 @@ def test_the_startup_log_never_shows_a_urls_credentials(monkeypatch, caplog):
     }
     capabilities = json.loads(re.search(r"session\.capabilities=(\{.*\}) \(env", boot)[1])
     assert capabilities["proxy"]["httpProxy"] == "proxy.example.com:3128"
+    assert capabilities["proxy"]["socksPassword"] == "***"
+    assert capabilities["proxy"]["socksUsername"] == "svc"
     assert capabilities["goog:chromeOptions"]["args"] == ["--proxy-server=http://proxy.example.com:3128"]
     [started] = [r.getMessage() for r in caplog.records
                  if r.name == "kubed.selenium_flow.main" and r.getMessage().startswith("config=")]

@@ -253,6 +253,20 @@ def test_the_settings_tab_masks_a_proxy_with_no_scheme_and_keeps_an_email():
     assert "drk@example.com" in shown
 
 
+def test_the_settings_tab_masks_a_socks_password_and_keeps_an_empty_one():
+    def shown(password):
+        proxy = {"proxyType": "manual", "socksProxy": "proxy:1080", "socksVersion": 5,
+                 "socksUsername": "svc", "socksPassword": password}
+        payload = describe(configured(session={"capabilities": {"proxy": proxy}}), {})
+        [row] = [r for s in payload["sections"] for r in s["settings"]
+                 if r["key"] == "session.capabilities"]
+        return row["value"]["proxy"]
+
+    assert shown("hunter2") == {"proxyType": "manual", "socksProxy": "proxy:1080",
+                                "socksVersion": 5, "socksUsername": "svc", "socksPassword": "***"}
+    assert shown("")["socksPassword"] == ""
+
+
 def test_the_telemetry_section_is_kubed_mcps_and_strict_like_every_section():
     assert isinstance(configured().telemetry, kubed.mcp.TelemetrySettings)
     with pytest.raises(ValueError, match=r"telemetry\.bogus"):
