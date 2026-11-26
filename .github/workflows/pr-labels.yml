@@ -1,10 +1,10 @@
 name: 🏷️ PR Labels
 
-# A label change re-runs PR Tasks' changelog gate with a fresh payload, so applying the
-# `no changelog` label passes it. It is its own workflow, not a label event of pr.yml: the
-# merge box reads only the latest run of each workflow, and a label run of pr.yml, its checks
-# skipped, hid their passes and left them Expected for good (quick-mcp #65). Every label
-# runs the gate: a skipped PR Tasks here would stand in for a failed one.
+# A label change re-runs pr.yml's own PR Tasks job, which reads the labels as they are now, so
+# applying `no changelog` passes the gate. It runs no gate of its own: the merge box reads the
+# latest run of EACH workflow, so a PR Tasks here could never replace a failed one in pr.yml
+# (quick-mcp #73), and a label run of pr.yml itself, its checks skipped, hid their passes
+# (quick-mcp #65). Re-running the job also re-runs `Checks`, which hands the PR to the review.
 
 on:
   pull_request:
@@ -18,23 +18,32 @@ concurrency:
 permissions: {}
 
 jobs:
-  pr-tasks:
-    name: PR Tasks
+  rerun:
+    name: Re-run PR Tasks
     # a draft's gate is ready_for_review's, in pr.yml
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     permissions:
-      contents: read
+      actions: write
     steps:
-    - name: Checkout
-      uses: actions/checkout@v7
-      with:
-        persist-credentials: false
-
-    # `pull_request.user.login`, not `github.actor`: the actor is whoever applied the label,
-    # so a human touching a Dependabot PR would put the gate back
-    - name: Make sure Changelog is updated
-      if: github.event.pull_request.user.login != 'dependabot[bot]'
-      uses: tarides/changelog-check-action@v4
-      with:
-        changelog: CHANGELOG.md
+    - name: Re-run PR Tasks
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/pr.yml/runs?head_sha=${SHA}&event=pull_request&per_page=1" \
+          --jq '.workflow_runs[0].id // empty')
+        if [ -z "$run" ]; then
+          echo "No pr.yml run on ${SHA} yet: when it runs, it reads the labels itself."
+          exit 0
+        fi
+        # a run still going reads the labels when its PR Tasks starts; re-run it once it's done
+        gh run watch "$run" -R "$GITHUB_REPOSITORY" > /dev/null || true
+        job=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run}/jobs" --jq '.jobs[] | select(.name == "PR Tasks") | .id')
+        if [ -z "$job" ]; then
+          echo "::warning::pr.yml run ${run} has no PR Tasks job to re-run"
+          exit 0
+        fi
+        gh run rerun --job "$job" -R "$GITHUB_REPOSITORY"
+        echo "Re-ran PR Tasks (job ${job}) of pr.yml run ${run} on ${SHA}." >> "$GITHUB_STEP_SUMMARY"

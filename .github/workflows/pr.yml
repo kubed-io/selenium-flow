@@ -68,11 +68,24 @@ jobs:
       with:
         configuration-path: .github/assign.yml
 
+    # The labels as they are now, not as the event carried them: pr-labels.yml re-runs this
+    # job when a label changes, and a re-run replays the original payload
+    - name: Labels Now
+      id: labels
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        names=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/labels" --jq '[.[].name] | join(",")')
+        echo "names=,${names}," >> "$GITHUB_OUTPUT"
+
     # `pull_request.user.login`, not `github.actor`: on a `labeled` event the
     # actor is whoever applied the label, so a human touching a Dependabot PR
     # would put the gate back. The author is what actually identifies the PR.
     - name: Make sure Changelog is updated
-      if: github.event.pull_request.user.login != 'dependabot[bot]'
+      if: >-
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !contains(steps.labels.outputs.names, ',no changelog,')
       uses: tarides/changelog-check-action@v4
       with:
         changelog: CHANGELOG.md
