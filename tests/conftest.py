@@ -23,7 +23,6 @@ from fastmcp import Client
 from fastmcp.client.transports import StreamableHttpTransport
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import pointer
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.core.browser import Grid
@@ -39,13 +38,16 @@ from .bidi_fakes import (
     FakeBrowser,
     browser_in_thread,  # noqa: F401 - a fixture, offered here
 )
-from .fakes import (  # noqa: F401 - FakePeer, RecordingActions, recorded, points are offered here
+from .fakes import (  # noqa: F401 - FakePeer, RecordingActions, recorded, points, quick, configured, loaded are offered here
     FakeConnection,
     FakeGrid,
     FakePeer,
     RecordingActions,
     ScriptedDriver,
+    configured,
+    loaded,
     points,
+    quick,
     recorded,
     untabbed,
 )
@@ -84,25 +86,25 @@ def actions(grid):
 def server():
     """An authenticated server, since that is how it is deployed."""
     return untabbed(SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     ))
 
 
 @pytest.fixture
 def open_server():
     """A server with auth disabled, as `docker compose up` runs it."""
-    return untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"})))
+    return untabbed(SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}}))
 
 
 @pytest.fixture
 def data_server(tmp_path):
     """An authenticated server with a data directory in ``tmp_path``, so flows
     and kept files have somewhere to go."""
-    return untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path)},
-    )))
+    return untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "data": {"dir": str(tmp_path)},
+    }))
 
 
 @pytest.fixture

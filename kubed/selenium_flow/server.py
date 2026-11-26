@@ -18,7 +18,6 @@ from . import capture as capture_module
 from . import config, routes, secrets
 from .bidi import Channels
 from .capture.store import Capture
-from .config import Settings
 from .core import pointer, tabs
 from .core.actions import Actions
 from .core.browser import SHOWN_TIMEOUT, Grid
@@ -78,14 +77,14 @@ class SeleniumMCP:
 
     def __init__(
         self,
-        settings: Settings | None = None,
+        settings: config.Settings | None = None,
         *,
         sources: dict[str, str] | None = None,
         store: WorkspaceStore | None = None,
         pointers=None,
         telemetry: Telemetry | None = None,
     ):
-        settings = settings if settings is not None else Settings()
+        settings = settings if settings is not None else config.Settings()
         self.settings = settings
         # Where each value came from, for the Settings tab.
         self.sources = (
@@ -491,7 +490,7 @@ class SeleniumMCP:
 
 
 def create_app(
-    settings: Settings | None = None,
+    settings: config.Settings | None = None,
     *,
     sources: dict[str, str] | None = None,
     store: WorkspaceStore | None = None,
