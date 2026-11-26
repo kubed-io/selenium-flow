@@ -14,8 +14,9 @@ call with progress where it cannot.
 A task tool must be ``async``: FastMCP refuses ``task=`` on a sync function.
 
 Docket stays in memory, named in code so a stray ``FASTMCP_DOCKET_URL`` cannot
-move it. Its worker waits for the tasks it runs when it stops, so `Tasks` lets
-the server's waiters go first, or the stop would hang.
+move it, and its poll interval is pinned the same way. Its worker waits for the
+tasks it runs when it stops, so `Tasks` lets the server's waiters go first, or
+the stop would hang.
 """
 
 from __future__ import annotations
@@ -40,6 +41,9 @@ T = TypeVar("T")
 # The client polls a task, nothing is pushed, and FastMCP's default is 5 s.
 TASK = TaskConfig(mode="optional", poll_interval=timedelta(seconds=1))
 MEMORY = "memory://"
+# FastMCP's default is 50 ms; a task still starts at once because the worker's
+# blocking read wakes on the write, so this only sets how often an idle worker turns.
+CHECK = timedelta(seconds=1)
 
 
 class Tasks(TasksExtension):
@@ -53,7 +57,7 @@ class Tasks(TasksExtension):
     """
 
     def __init__(self, *, first: Callable[[], None]):
-        super().__init__(url=MEMORY)
+        super().__init__(url=MEMORY, minimum_check_interval=CHECK)
         self._first = first
 
     @asynccontextmanager
