@@ -167,17 +167,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** An object from the environment or a flag, such as `SESSION_CAPABILITIES` or `TELEMETRY_TAGS`, merges into the file's instead of replacing it (#214).
 - **BREAKING:** Environment names match exactly, in upper case: `redis_host` no longer sets `redis.host` (#214).
 - The Settings tab shows `telemetry.profiles` only as set or not set, and a store derived from `REDIS_HOST` or `REDIS_URL` as a default (#214).
-- The server needs kubed-mcp 0.4.1. `resources/directory/read` and `skills/get` resolve `.` and `..` in a `skill://` address as a read does. With `TELEMETRY_OTEL=true`, a log line written inside a span ends with its `trace_id` and `span_id`, and resource reads are in the call metrics (#214).
-- Fixed: a refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
-- Fixed: a `socksPassword` in `session.capabilities` shows as `***` on the Settings tab and in the startup log (#214).
+- `resources/directory/read` and `skills/get` resolve `.` and `..` in a `skill://` address as a read does. With `TELEMETRY_OTEL=true`, a log line written inside a span ends with its `trace_id` and `span_id`, and resource reads are in the call metrics (#214).
 
 ### Changed
 
-- The server needs kubed-mcp 0.3.0 (#201, #190, #209).
+- The server needs kubed-mcp 0.4.1 (#201, #190, #209, #214).
 
 ### Fixed
 
 - An idle server uses less CPU: the background-task worker checks for work once a second, not 20 times (#219).
+- A refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
+- A `socksPassword` in `session.capabilities` shows as `***` on the Settings tab and in the startup log (#214).
 
 ## [0.3.0] - 2026-09-26
 
