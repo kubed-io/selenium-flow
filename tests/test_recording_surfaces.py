@@ -10,7 +10,6 @@ import pytest
 from fastmcp import Client
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.http.admin import signed
@@ -108,7 +107,7 @@ def test_a_missing_recording_is_404(store):
 
 @pytest.fixture
 def srv(tmp_path):
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)}))
+    server = SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}, "data": {"dir": str(tmp_path)}})
     server.flows.write_file(STDIO_NAME, "rec-20261008-1403.mp4", b"\x00" * 64, RECORDINGS_DIR)
     return server
 

@@ -152,10 +152,9 @@ async def test_a_client_that_cannot_read_resources_is_told_how_to_read_one(mode)
     from fastmcp import Client
     from mcp.types import Implementation
 
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    server = SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}})
 
     async def told(name):
         info = Implementation(name=name, version="1")
@@ -198,15 +197,14 @@ async def test_nothing_an_agent_reads_names_what_was_removed():
     from fastmcp import Client
     from mcp.types import Implementation
 
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     server = SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            data={"dir": tempfile.mkdtemp()},
-            secrets={"dirs": tempfile.mkdtemp()},
-        )
+        {
+            "grid": {"url": "http://grid.invalid:4444"},
+            "data": {"dir": tempfile.mkdtemp()},
+            "secrets": {"dirs": tempfile.mkdtemp()},
+        }
     )
     texts = {}
     for client in ("Claude Code", "Visual Studio Code"):

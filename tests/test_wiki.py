@@ -27,14 +27,13 @@ def _spec() -> dict:
     """The live spec, built the way the generator builds it."""
     import asyncio
 
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.core.capabilities import ENDPOINTS
     from kubed.selenium_flow.server import SeleniumMCP
     from kubed.selenium_flow.spec import build_spec
 
     async def go():
         server = SeleniumMCP(
-            Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": "x"})
+            {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": "x"}}
         )
         return await build_spec(server.mcp, ENDPOINTS, "", authenticated=True)
 

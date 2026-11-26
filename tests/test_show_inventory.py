@@ -15,7 +15,6 @@ from pathlib import Path
 import pytest
 from fastmcp import Client
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.mcp import show, skill
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -82,13 +81,13 @@ def every_section(tmp_path) -> SeleniumMCP:
     secret = tmp_path / "secrets" / "demo"
     secret.mkdir(parents=True)
     (secret / "username").write_text("u")
-    return SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        data={"dir": str(tmp_path / "data")},
-        secrets={"dirs": str(tmp_path / "secrets")},
-        recording={"enabled": True, "dir": str(inbox)},
-    ))
+    return SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "data": {"dir": str(tmp_path / "data")},
+        "secrets": {"dirs": str(tmp_path / "secrets")},
+        "recording": {"enabled": True, "dir": str(inbox)},
+    })
 
 
 async def served(server) -> list[str]:

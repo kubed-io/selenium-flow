@@ -15,7 +15,6 @@ from starlette.routing import WebSocketRoute
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.http import links
 from kubed.selenium_flow.http.admin import live as live_module
 from kubed.selenium_flow.live.rfb import RFB_38
@@ -33,12 +32,12 @@ SOCKET = "/admin/workspaces/w1/live/socket"
 
 
 def build(prefix="", token=TOKEN, **live):
-    settings = Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": token} if token else {},
-        route_prefix=prefix,
-        live=live,
-    )
+    settings = {
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": token} if token else {},
+        "route_prefix": prefix,
+        "live": live,
+    }
     server = SeleniumMCP(settings)
     server.actions.grid.vnc_url = lambda sid: f"ws://hub.invalid/{sid}"
     # The Grid still lists the browser, so a tunnel's close asks nothing real.

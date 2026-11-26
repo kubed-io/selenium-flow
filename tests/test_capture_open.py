@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from kubed.selenium_flow import config
 from kubed.selenium_flow.capture.store import Capture
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.faults import BidiUnavailable
@@ -14,7 +13,7 @@ from kubed.selenium_flow.workspace import settings
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .capture_events import log
-from .fakes import caller
+from .fakes import caller, loaded
 
 pytestmark = pytest.mark.unit
 
@@ -450,8 +449,8 @@ def test_a_bad_level_is_refused_even_on_an_empty_buffer(ws):
 
 
 def test_the_ttl_is_a_setting_in_its_own_section():
-    assert config.load([], {}).settings.capture.ttl == 10_800
-    assert config.load([], {"CAPTURE_TTL": "600"}).settings.capture.ttl == 600
-    assert config.load(["--capture-ttl", "900"], {}).settings.capture.ttl == 900
-    with pytest.raises(config.ConfigError):
-        config.load([], {"CAPTURE_TTL": "59"})
+    assert loaded([], {})[0].capture.ttl == 10_800
+    assert loaded([], {"CAPTURE_TTL": "600"})[0].capture.ttl == 600
+    assert loaded(["--capture-ttl", "900"], {})[0].capture.ttl == 900
+    with pytest.raises(ValueError):
+        loaded([], {"CAPTURE_TTL": "59"})

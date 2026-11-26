@@ -13,7 +13,6 @@ from selenium.common.exceptions import InsecureCertificateException
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors, faults
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -68,7 +67,7 @@ def test_an_open_whose_first_page_is_untrusted_leaves_no_browser(actions, monkey
 
 def test_over_http_open_session_is_a_400_with_the_sentence(tmp_path, monkeypatch):
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)})
+        {"grid": {"url": "http://grid.invalid:4444"}, "data": {"dir": str(tmp_path)}}
     )
     driver = Untrusted()
     monkeypatch.setattr(server.actions.grid, "open", lambda *a, **k: driver)

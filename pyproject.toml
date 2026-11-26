@@ -30,7 +30,7 @@ dependencies = [
   # The platform this server shares with mcp-kb (kubed.mcp, a namespace package
   # beside kubed.selenium_flow). Every FastMCP name comes through its facade, and
   # it owns the FastMCP pin (>=4.2,<5).
-  "kubed-mcp[tasks]>=0.3.0,<0.4",
+  "kubed-mcp[tasks]>=0.4.1,<0.5",
   "selenium>=4.48.0,<5",
   "requests>=2.32.0",
   "pyyaml>=6.0",
@@ -51,10 +51,6 @@ dependencies = [
   "starlette>=0.48",
   "anyio>=4.9",
   "pydantic>=2.12",
-  # The environment layer of the config (config.py). It already arrives with
-  # fastmcp; declared because config.py imports it. 2.8 is the first release
-  # with env_nested_max_split, which maps REDIS_HOST to redis.host.
-  "pydantic-settings>=2.8,<3",
   # The recordings collector watches the inbox with it: native events on a local
   # disk, polling on a network filesystem where events cannot see the other
   # side's writes. abi3 wheels from cp310 cover every Python CI runs.
@@ -81,7 +77,7 @@ redis = [
 # and a signal switched on without it logs a warning and the server still serves.
 # Its range is the kubed-mcp dependency's (test_packaging holds them equal).
 telemetry = [
-  "kubed-mcp[telemetry]>=0.3.0,<0.4",
+  "kubed-mcp[telemetry]>=0.4.1,<0.5",
 ]
 build = [
   "setuptools_scm",

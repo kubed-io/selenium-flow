@@ -1384,13 +1384,12 @@ def test_a_closed_scrubber_reads_again_when_asked(make):
 
 
 def test_the_server_forgets_a_browser_the_bus_says_ended(tmp_path, monkeypatch):
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.monitor.events import SessionEnded
     from kubed.selenium_flow.server import SeleniumMCP
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
     monkeypatch.delenv("DATA_DIR", raising=False)
-    server = SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"}))
+    server = SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}})
     try:
         ws = server.workspaces
         ws.origins.opened("w", "g1")
@@ -1405,7 +1404,6 @@ def test_the_server_forgets_a_browser_the_bus_says_ended(tmp_path, monkeypatch):
 
 
 def test_the_server_hands_its_catalogue_to_the_workspaces(tmp_path, monkeypatch):
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     monkeypatch.delenv("SECRETS_DIRS", raising=False)
@@ -1413,9 +1411,9 @@ def test_the_server_hands_its_catalogue_to_the_workspaces(tmp_path, monkeypatch)
     (tmp_path / "a").mkdir()
     (tmp_path / "a" / "password").write_text("alpha-11")
     (tmp_path / "a" / "_allowed_urls").write_text(f"{A}\n")
-    server = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, secrets={"dirs": str(tmp_path)},
-    ))
+    server = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "secrets": {"dirs": str(tmp_path)},
+    })
     try:
         assert server.workspaces.scrubber._catalogue is server.secrets
         assert server.workspaces.scrubber.resource("w", "alpha-11") == "[secret:a/password]"

@@ -8,12 +8,14 @@ import asyncio
 import inspect
 import json
 import threading
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import ClassVar, NamedTuple
 
 import yaml
+from kubed.mcp import Config, QuickMCP, Source
 from mcp_types import Request, RequestParams
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
@@ -26,6 +28,7 @@ from selenium.common.exceptions import (
     UnexpectedAlertPresentException,
 )
 
+from kubed.selenium_flow import config
 from kubed.selenium_flow.bidi import CHANNEL_DOWN, BidiError
 from kubed.selenium_flow.core import actions as actions_module
 from kubed.selenium_flow.core import browser as browser_module
@@ -37,6 +40,25 @@ from kubed.selenium_flow.urls import origin_of, scope_origin
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 MAIN = "main-1"
+
+
+def quick(**kwargs) -> QuickMCP:
+    """A bare `QuickMCP` on this server's sections, which loads its config."""
+    return QuickMCP("test", sections=config.SECTIONS, **kwargs)
+
+
+def configured(**data) -> Config:
+    """The config given in code, as a server built with it holds it."""
+    return quick(config=data).config
+
+
+def loaded(
+    argv: Sequence[str] = (), environ: Mapping[str, str] | None = None
+) -> tuple[Config, Mapping[str, Source]]:
+    """The config read from ``argv`` and ``environ``, never the process's, and
+    where each value came from."""
+    mcp = quick(argv=list(argv), environ={} if environ is None else environ)
+    return mcp.config, mcp.config_sources
 
 
 class FakeGrid:

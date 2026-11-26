@@ -11,7 +11,6 @@ import json
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
@@ -51,9 +50,9 @@ def visited():
 
 @pytest.fixture
 def server():
-    s = SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, secrets=SECRETS,
-    ))
+    s = SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}, "secrets": SECRETS,
+    })
     s.workspaces.store.set(KEY, visited().with_site_data(DATA))
     return s
 

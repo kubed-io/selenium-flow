@@ -2,7 +2,6 @@
 
 import pytest
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 
 from . import golden_tools
@@ -17,7 +16,7 @@ ALSO = {"file", "kept_file", "screenshot_file"}
 
 def test_the_route_table_is_unchanged():
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     )
     table = sorted(
         [method, route.path, route.name]

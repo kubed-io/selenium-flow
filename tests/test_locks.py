@@ -308,13 +308,12 @@ def end_once_polling(workspaces, polling):
 @pytest.fixture
 def ended_server(monkeypatch):
     """A real server whose workspace `NAMED` holds a browser that never says true."""
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     from .conftest import TOKEN, calling_as
 
     server = untabbed(SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN})
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     ))
     driver, polling = polling_driver()
     server.actions.grid = Grid(abc=driver)

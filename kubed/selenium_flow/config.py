@@ -1,16 +1,16 @@
-"""Every setting this server reads: one schema, three places to set it.
+"""Every setting this server reads, as sections registered with kubed-mcp.
 
-A setting's path is its name, and the other two spellings are derived from it:
-`redis.host` is `REDIS_HOST` in the environment and `--redis-host` on the
-command line. Precedence is default < config < env < args.
-
-The models read nothing: `Settings()` is the defaults. `load()` reads the
-file, the environment and the command line.
+kubed-mcp reads the file, the environment and the flags, in that order of
+precedence, and says where each value came from. This module holds what is
+this server's own: each section's names, written out (`redis.host` is
+`REDIS_HOST` and `--redis-host`; `serving`'s drop the section, so
+`serving.port` is `PORT`), the rules a section keeps, and the Settings tab.
 """
 
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -20,29 +20,23 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import kubed.mcp
-import yaml
+from kubed.mcp import Config, Field, NoDecode, Source, config, config_schema
 from pydantic import (
     AfterValidator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
-    Field,
     JsonValue,
     SecretStr,
     StrictBool,
-    ValidationError,
     field_validator,
+    model_validator,
 )
-from pydantic.fields import FieldInfo
-from pydantic_settings import EnvSettingsSource, NoDecode
 
 from .core.defaults import DEFAULT_GRID_URL, normalize_browser
 from .core.session_caps import check as check_capabilities
 from .names import INBOX_DIR, WORKSPACES_DIR, valid_name
 from .urls import without_userinfo
-
-# Marks a field that only the config file may set: structure, not a value.
-FILE_ONLY = "file_only"
 
 
 def _parts(value, sep: str):
@@ -60,8 +54,8 @@ def _parts(value, sep: str):
     ]
 
 
-# NoDecode: pydantic-settings would otherwise JSON-decode a list read from env,
-# and `SECRETS_DIRS=/a:/b` is not JSON.
+# NoDecode: kubed-mcp would otherwise JSON-decode a list read from env, and
+# `SECRETS_DIRS=/a:/b` is not JSON.
 CommaList = Annotated[list[str], NoDecode, BeforeValidator(lambda v: _parts(v, ","))]
 # A blank entry is dropped, so `dirs: [""]` is no dirs and never
 # FilesystemSource("") on the cwd.
@@ -143,39 +137,62 @@ class SecretEntry(Section):
         return keys
 
 
+@config("auth")
 class AuthSettings(Section):
     token: SecretStr | None = Field(
-        None, description="Bearer token for every request. Unset is open."
+        None,
+        doc="Bearer token for every request. Unset is open.",
+        env="AUTH_TOKEN",
+        arg="--auth-token",
     )
 
 
+@config("oidc")
 class OidcSettings(Section):
-    # Every cross-field rule lives in oidc_problem(), not a model validator:
-    # load() validates the config file on its own before env and args merge in,
-    # and the cluster sets `oidc` in the file with the token in env.
+    # Every cross-field rule lives in oidc_problem(), not a model validator: it
+    # is checked when the server is built, so its message is its own, where a
+    # root validator's would name whichever layer was highest.
     issuer: str | None = Field(
-        None, description="The issuer a JWT must name; setting it turns OIDC on."
+        None,
+        doc="The issuer a JWT must name; setting it turns OIDC on.",
+        env="OIDC_ISSUER",
+        arg="--oidc-issuer",
     )
-    audience: str | None = Field(None, description="The audience a JWT must include.")
+    audience: str | None = Field(
+        None,
+        doc="The audience a JWT must include.",
+        env="OIDC_AUDIENCE",
+        arg="--oidc-audience",
+    )
     jwks_uri: str | None = Field(
-        None, description="Where the issuer publishes its signing keys."
+        None,
+        doc="Where the issuer publishes its signing keys.",
+        env="OIDC_JWKS_URI",
+        arg="--oidc-jwks-uri",
     )
     roles: CommaList = Field(
         default_factory=list,
-        description="A JWT must hold one of these roles; empty checks none.",
+        doc="A JWT must hold one of these roles; empty checks none.",
+        env="OIDC_ROLES",
+        arg="--oidc-roles",
     )
     roles_claim: str = Field(
-        "roles", description="The claim holding the roles; dots walk into objects."
+        "roles",
+        doc="The claim holding the roles; dots walk into objects.",
+        env="OIDC_ROLES_CLAIM",
+        arg="--oidc-roles-claim",
     )
     client_id: str | None = Field(
         None,
-        description=(
-            "The admin UI's public client; setting it offers Sign in with OIDC."
-        ),
+        doc="The admin UI's public client; setting it offers Sign in with OIDC.",
+        env="OIDC_CLIENT_ID",
+        arg="--oidc-client-id",
     )
     admin_roles: CommaList = Field(
         default_factory=list,
-        description="A JWT from the admin UI holding one of these is the admin.",
+        doc="A JWT from the admin UI holding one of these is the admin.",
+        env="OIDC_ADMIN_ROLES",
+        arg="--oidc-admin-roles",
     )
 
     @field_validator("issuer", "jwks_uri")
@@ -186,25 +203,40 @@ class OidcSettings(Section):
         return value
 
 
+@config("grid")
 class GridSettings(Section):
-    url: str = Field(DEFAULT_GRID_URL, description="The Selenium Grid hub.")
+    url: str = Field(
+        DEFAULT_GRID_URL,
+        doc="The Selenium Grid hub.",
+        env="GRID_URL",
+        arg="--grid-url",
+    )
     console_url: str = Field(
-        "/", description="Where the Grid console tab is framed from."
+        "/",
+        doc="Where the Grid console tab is framed from.",
+        env="GRID_CONSOLE_URL",
+        arg="--grid-console-url",
     )
 
 
+@config("workspace")
 class WorkspaceSettings(Section):
     store: Literal["memory", "redis"] = Field(
         "memory",
-        description="memory; redis.host or redis.url switches it to redis.",
+        doc="memory; redis.host or redis.url switches it to redis.",
+        env="WORKSPACE_STORE",
+        arg="--workspace-store",
     )
     ttl: int = Field(
-        86400, description="Seconds a workspace is kept after its last use."
+        86400,
+        doc="Seconds a workspace is kept after its last use.",
+        env="WORKSPACE_TTL",
+        arg="--workspace-ttl",
     )
 
 
 def _json_object(value):
-    """A mapping setting: a JSON object in env and flags, a mapping in the file."""
+    """A mapping setting given as a string: a JSON object."""
     if isinstance(value, str):
         try:
             value = json.loads(value)
@@ -215,39 +247,70 @@ def _json_object(value):
     return value
 
 
+@config("session")
 class SessionSettings(Section):
     browser: Literal["chrome", "firefox"] | None = Field(
-        None, description="chrome or firefox, for new sessions."
+        None,
+        doc="chrome or firefox, for new sessions.",
+        env="SESSION_BROWSER",
+        arg="--session-browser",
     )
-    width: int | None = Field(None, description="Window width for new sessions.")
-    height: int | None = Field(None, description="Window height for new sessions.")
+    width: int | None = Field(
+        None,
+        doc="Window width for new sessions.",
+        env="SESSION_WIDTH",
+        arg="--session-width",
+    )
+    height: int | None = Field(
+        None,
+        doc="Window height for new sessions.",
+        env="SESSION_HEIGHT",
+        arg="--session-height",
+    )
     page_load_timeout: int | None = Field(
-        None, description="Seconds a page may take to load."
+        None,
+        doc="Seconds a page may take to load.",
+        env="SESSION_PAGE_LOAD_TIMEOUT",
+        arg="--session-page-load-timeout",
     )
-    script_timeout: int | None = Field(None, description="Seconds a script may run.")
+    script_timeout: int | None = Field(
+        None,
+        doc="Seconds a script may run.",
+        env="SESSION_SCRIPT_TIMEOUT",
+        arg="--session-script-timeout",
+    )
     # Not an open's default: `FROM_CONFIG` does not list it, so no session
     # remembers it.
     keep_alive: int = Field(
         900,
         ge=0,
         le=3600,
-        description="Seconds a browser is kept alive after its last call, "
+        doc="Seconds a browser is kept alive after its last call, "
         "0 for off; each holds a Grid slot.",
+        env="SESSION_KEEP_ALIVE",
+        arg="--session-keep-alive",
     )
     sub_ttl: int = Field(
         3600,
         gt=0,
-        description="Seconds a sub-session's record is kept after its last use.",
+        doc="Seconds a sub-session's record is kept after its last use.",
+        env="SESSION_SUB_TTL",
+        arg="--session-sub-ttl",
     )
     version: str | None = Field(
-        None, description="The browser version new sessions ask for, such as 152."
+        None,
+        doc="The browser version new sessions ask for, such as 152.",
+        env="SESSION_VERSION",
+        arg="--session-version",
     )
-    # NoDecode: the string from env or a flag is parsed below, so a bad one is
-    # refused naming this setting.
-    capabilities: Annotated[dict[str, JsonValue], NoDecode] = Field(
+    # kubed-mcp decodes the JSON from env or a flag; a string in the file is
+    # parsed below, so a bad one is refused naming this setting.
+    capabilities: dict[str, JsonValue] = Field(
         default_factory=dict,
-        description="W3C capabilities every new session sends, under the "
+        doc="W3C capabilities every new session sends, under the "
         "caller's, as a JSON object.",
+        env="SESSION_CAPABILITIES",
+        arg="--session-capabilities",
     )
 
     @field_validator("browser", mode="before")
@@ -275,105 +338,154 @@ class SessionSettings(Section):
         return value
 
 
+@config("redis")
 class RedisSettings(Section):
     url: SecretStr | None = Field(
-        None, description="A full Redis URL, instead of host and port."
+        None,
+        doc="A full Redis URL, instead of host and port.",
+        env="REDIS_URL",
+        arg="--redis-url",
     )
-    host: str = Field("localhost", description="Redis host.")
-    port: int = Field(6379, description="Redis port.")
-    db: int = Field(0, description="Redis database number.")
-    username: str | None = Field(None, description="Redis username.")
-    password: SecretStr | None = Field(None, description="Redis password.")
-    ssl: bool = Field(False, description="Connect to Redis over TLS.")
+    host: str = Field(
+        "localhost", doc="Redis host.", env="REDIS_HOST", arg="--redis-host"
+    )
+    port: int = Field(6379, doc="Redis port.", env="REDIS_PORT", arg="--redis-port")
+    db: int = Field(0, doc="Redis database number.", env="REDIS_DB", arg="--redis-db")
+    username: str | None = Field(
+        None, doc="Redis username.", env="REDIS_USERNAME", arg="--redis-username"
+    )
+    password: SecretStr | None = Field(
+        None, doc="Redis password.", env="REDIS_PASSWORD", arg="--redis-password"
+    )
+    ssl: bool = Field(
+        False, doc="Connect to Redis over TLS.", env="REDIS_SSL", arg="--redis-ssl"
+    )
     prefix: str = Field(
         "selenium-flow:workspace:",
-        description="Prefix on every key, so a shared database is safe.",
+        doc="Prefix on every key, so a shared database is safe.",
+        env="REDIS_PREFIX",
+        arg="--redis-prefix",
     )
 
 
+@config("data")
 class DataSettings(Section):
     dir: OptionalPath = Field(
         None,
-        description=(
+        doc=(
             "Where workspaces and recordings live. Unset turns flows, kept files "
             "and recordings off."
         ),
+        env="DATA_DIR",
+        arg="--data-dir",
     )
 
 
+@config("capture")
 class CaptureSettings(Section):
     ttl: int = Field(
         10_800,
         ge=60,
-        description="Seconds captured console and network entries are kept after "
+        doc="Seconds captured console and network entries are kept after "
         "the last one arrived.",
+        env="CAPTURE_TTL",
+        arg="--capture-ttl",
     )
 
 
+@config("live")
 class LiveSettings(Section):
     """The admin UI's live view: selenium-flow proxies a session's VNC stream
     and answers its password itself."""
 
     enabled: bool = Field(
-        True, description="Offer the admin UI's live view of a browser."
+        True,
+        doc="Offer the admin UI's live view of a browser.",
+        env="LIVE_ENABLED",
+        arg="--live-enabled",
     )
     password_file: OptionalPath = Field(
         None,
-        description="The file holding the Grid's VNC password, read at every connect.",
+        doc="The file holding the Grid's VNC password, read at every connect.",
+        env="LIVE_PASSWORD_FILE",
+        arg="--live-password-file",
     )
     # At least 15: the page's heartbeat is fixed at 10 s, so a shorter grace
     # would drop a viewer whose tab is in plain sight.
     grace: int = Field(
         30,
         ge=15,
-        description="Seconds a live viewer may send no presence before it is dropped.",
+        doc="Seconds a live viewer may send no presence before it is dropped.",
+        env="LIVE_GRACE",
+        arg="--live-grace",
     )
     # At least 30: two of the progress heartbeat's 15 s (`mcp/progress.py`), and
     # under Claude Code's two-minute move of a slow call to the background.
     await_cap: int = Field(
         90,
         ge=30,
-        description=(
-            'Seconds a blocking await_control waits before it answers "call again".'
-        ),
+        doc='Seconds a blocking await_control waits before it answers "call again".',
+        env="LIVE_AWAIT_CAP",
+        arg="--live-await-cap",
     )
 
 
+@config("recording")
 class RecordingSettings(Section):
     enabled: bool = Field(
-        False, description="The Grid's recordings reach recording.dir."
+        False,
+        doc="The Grid's recordings reach recording.dir.",
+        env="RECORDING_ENABLED",
+        arg="--recording-enabled",
     )
     dir: OptionalPath = Field(
         None,
-        description="Where the Grid's recordings arrive. Unset is data.dir/recordings.",
+        doc="Where the Grid's recordings arrive. Unset is data.dir/recordings.",
+        env="RECORDING_DIR",
+        arg="--recording-dir",
     )
     wait: int = Field(
         600,
         ge=30,
-        description="Seconds after a browser ends to wait for its recording.",
+        doc="Seconds after a browser ends to wait for its recording.",
+        env="RECORDING_WAIT",
+        arg="--recording-wait",
     )
     watch: Literal["auto", "events", "poll"] = Field(
-        "auto", description="auto, events or poll: how recording.dir is watched."
+        "auto",
+        doc="auto, events or poll: how recording.dir is watched.",
+        env="RECORDING_WATCH",
+        arg="--recording-watch",
     )
     poll: int = Field(
-        1000, ge=200, description="Milliseconds between looks, when polling."
+        1000,
+        ge=200,
+        doc="Milliseconds between looks, when polling.",
+        env="RECORDING_POLL",
+        arg="--recording-poll",
     )
     settle: int = Field(
         10,
         ge=0,
-        description="Seconds a finished recording sits unchanged before it is "
+        doc="Seconds a finished recording sits unchanged before it is "
         "filed, so its transport is done with it.",
+        env="RECORDING_SETTLE",
+        arg="--recording-settle",
     )
 
 
+@config("secrets")
 class SecretsSettings(Section):
     dirs: PathList = Field(
-        default_factory=list, description="Directories of secrets. First match wins."
+        default_factory=list,
+        doc="Directories of secrets. First match wins.",
+        env="SECRETS_DIRS",
+        arg="--secrets-dirs",
     )
-    entries: Annotated[dict[str, SecretEntry], NoDecode] = Field(
-        default_factory=dict,
-        description="Secrets defined in the config file.",
-        json_schema_extra={FILE_ONLY: True},
+    # Structure, not a value: only the file sets it, so it has no env name and
+    # no flag.
+    entries: dict[str, SecretEntry] = Field(
+        default_factory=dict, doc="Secrets defined in the config file."
     )
 
     @field_validator("entries")
@@ -384,17 +496,23 @@ class SecretsSettings(Section):
         return entries
 
 
+@config("mcp")
 class McpSettings(Section):
-    apps: bool = Field(True, description="Offer MCP Apps views.")
+    apps: bool = Field(
+        True, doc="Offer MCP Apps views.", env="MCP_APPS", arg="--mcp-apps"
+    )
 
 
+@config("security")
 class SecuritySettings(Section):
     frame_ancestors: CommaList = Field(
         default_factory=list,
-        description=(
+        doc=(
             "Origins allowed to frame the admin page, e.g. a Nextcloud or "
             "Grafana host; empty forbids framing."
         ),
+        env="SECURITY_FRAME_ANCESTORS",
+        arg="--security-frame-ancestors",
     )
 
     @field_validator("frame_ancestors")
@@ -403,6 +521,7 @@ class SecuritySettings(Section):
         # Each entry is pasted into a Content-Security-Policy header, so one
         # that carries a `;`, a space or a non-ASCII character would add a
         # directive or crash the response, and `*` or `none` would defeat it.
+        # A refused entry is quoted without its userinfo: it may be a credential.
         for origin in origins:
             if origin in ("*", "none", "'none'"):
                 raise ValueError(
@@ -412,27 +531,11 @@ class SecuritySettings(Section):
                 )
             if not _ORIGIN.fullmatch(origin):
                 raise ValueError(
-                    f"{origin!r} is not an origin: write scheme://host[:port], "
-                    "or scheme://*.host for every subdomain, in printable ASCII"
+                    f"{without_userinfo(origin)!r} is not an origin: write "
+                    "scheme://host[:port], or scheme://*.host for every "
+                    "subdomain, in printable ASCII"
                 )
         return origins
-
-
-class TelemetrySettings(kubed.mcp.TelemetrySettings, Section):
-    """kubed-mcp's telemetry settings, made a `Section` so `leaves()` reads its
-    keys and its errors hide their input; `QuickMCP` reads it as `config.telemetry`."""
-
-    # NoDecode keeps a bad env value a ConfigError: pydantic-settings' own JSON
-    # decode would raise a SettingsError outside it.
-    tags: Annotated[dict[str, str], NoDecode] = Field(
-        default_factory=dict,
-        description=kubed.mcp.TelemetrySettings.model_fields["tags"].description,
-    )
-
-    @field_validator("tags", mode="before")
-    @classmethod
-    def _tags_json(cls, value):
-        return _json_object(value)
 
 
 _ORIGIN = re.compile(
@@ -441,163 +544,265 @@ _ORIGIN = re.compile(
 )
 
 
-class Settings(Section):
-    config_file: str | None = Field(None, description="The YAML file read at start.")
+@config("serving")
+class ServingSettings(kubed.mcp.ServingSettings):
+    """kubed-mcp's serving section with this server's defaults: it listens on
+    every address over HTTP, and offers only `http` and `stdio`."""
+
     transport: Literal["http", "stdio"] = Field(
-        "http", description="http, or stdio for one local client."
+        "http",
+        doc="http, or stdio for one local client.",
+        env="TRANSPORT",
+        arg="--transport",
     )
-    host: str = Field("0.0.0.0", description="Address to listen on.")
-    port: int = Field(8000, ge=1, le=65535, description="Port to listen on.")
+    host: str = Field(
+        "0.0.0.0", doc="Address to listen on.", env="HOST", arg="--host"
+    )
+    port: int = Field(
+        8000, ge=1, le=65535, doc="Port to listen on.", env="PORT", arg="--port"
+    )
+    # Case-folded by the built-in's own validator, before the Literal check.
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
-        "INFO", description="DEBUG, INFO, WARNING or ERROR."
+        "INFO",
+        doc="DEBUG, INFO, WARNING or ERROR.",
+        env="LOG_LEVEL",
+        arg="--log-level",
     )
 
-    @field_validator("log_level", mode="before")
-    @classmethod
-    def _upper(cls, value):
-        # Case-folded before the Literal check: `logging` is case-sensitive,
-        # and a typo is then a ConfigError at boot.
-        return value.upper() if isinstance(value, str) else value
+
+def _held(section: Any, name: str) -> Any:
+    """What a section given as a mapping holds under ``name``, or what an
+    instance's field holds when it was set, else None."""
+    if isinstance(section, Mapping):
+        return section.get(name)
+    if isinstance(section, BaseModel) and name in section.model_fields_set:
+        return getattr(section, name)
+    return None
+
+
+def _named(value: Any) -> bool:
+    """Whether a Redis address is there: None and blank are not. kubed-mcp drops
+    blanks from the file, env and flags, but not from values given in code."""
+    if isinstance(value, SecretStr):
+        value = value.get_secret_value()
+    return value is not None and not (isinstance(value, str) and not value.strip())
+
+
+def derive_store(data: Any) -> Any:
+    """``data`` asking for the Redis store when it names Redis and sets no store.
+
+    Naming Redis is a `url` or `host` under `redis`; an explicit
+    `workspace.store`, `memory` included, wins. A section instance is copied,
+    never changed. The result adds no key but `workspace`, and a second call
+    returns it as it is. Anything else is returned as it came.
+    """
+    if not isinstance(data, Mapping):
+        return data
+    redis = data.get("redis")
+    if not any(_named(_held(redis, name)) for name in ("url", "host")):
+        return data
+    workspace = data.get("workspace", {})
+    if isinstance(workspace, Mapping):
+        if "store" in workspace:
+            return data
+        derived: Any = {**workspace, "store": "redis"}
+    elif isinstance(workspace, BaseModel):
+        if "store" in workspace.model_fields_set:
+            return data
+        derived = workspace.model_copy(update={"store": "redis"})
+    else:
+        # Not a section: the validation names it.
+        return data
+    return {**data, "workspace": derived}
+
+
+@config()
+class ServerSettings(Section):
+    """The root: the keys at the top of the config."""
 
     # Moves the WHOLE server, so the default is "no prefix" rather than a name
     # for one tree. `/` means the same thing and is what an operator types when
     # they mean it.
     route_prefix: str = Field(
-        "/", description="Path the whole server is mounted under."
+        "/",
+        doc="Path the whole server is mounted under.",
+        env="ROUTE_PREFIX",
+        arg="--route-prefix",
     )
     public_base_url: str | None = Field(
-        None, description="Where browsers reach this server, for links."
+        None,
+        doc="Where browsers reach this server, for links.",
+        env="PUBLIC_BASE_URL",
+        arg="--public-base-url",
     )
     link_ttl: int = Field(
-        3600, ge=60, description="Seconds a file link opens for, at least 60."
-    )
-    auth: AuthSettings = Field(
-        default_factory=AuthSettings,
-        description="The bearer token every request needs.",
-    )
-    oidc: OidcSettings = Field(
-        default_factory=OidcSettings,
-        description=(
-            "Accept a JWT from an OIDC issuer beside the token, "
-            "on /mcp and in the admin UI."
-        ),
-    )
-    grid: GridSettings = Field(
-        default_factory=GridSettings, description="The Selenium Grid it drives."
-    )
-    workspace: WorkspaceSettings = Field(
-        default_factory=WorkspaceSettings,
-        description="How workspaces are kept.",
-    )
-    session: SessionSettings = Field(
-        default_factory=SessionSettings,
-        description="How a session opens a browser, and how long it is kept alive.",
-    )
-    redis: RedisSettings = Field(
-        default_factory=RedisSettings,
-        description="The workspace store\u2019s connection.",
-    )
-    data: DataSettings = Field(
-        default_factory=DataSettings,
-        description="Where workspaces, their flows and files, and recordings live.",
-    )
-    recording: RecordingSettings = Field(
-        default_factory=RecordingSettings,
-        description="Video of a browser's whole life, from the Grid's recorder.",
-    )
-    capture: CaptureSettings = Field(
-        default_factory=CaptureSettings,
-        description="Console and network capture, for open_session(capture=true).",
-    )
-    live: LiveSettings = Field(
-        default_factory=LiveSettings,
-        description="The admin UI's live view of a browser.",
-    )
-    secrets: SecretsSettings = Field(
-        default_factory=SecretsSettings, description="Where secrets are read from."
-    )
-    mcp: McpSettings = Field(
-        default_factory=McpSettings,
-        description="What MCP clients are offered beyond tools.",
-    )
-    security: SecuritySettings = Field(
-        default_factory=SecuritySettings,
-        description="Who may frame the admin page.",
-    )
-    telemetry: TelemetrySettings = Field(
-        default_factory=TelemetrySettings,
-        description=(
-            "Profiles, traces and metrics, run by kubed-mcp; all off unless set."
-        ),
+        3600,
+        ge=60,
+        doc="Seconds a file link opens for, at least 60.",
+        env="LINK_TTL",
+        arg="--link-ttl",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _store(cls, data: Any) -> Any:
+        return derive_store(data)
 
-def _is_section(info: FieldInfo) -> bool:
-    return isinstance(info.annotation, type) and issubclass(info.annotation, Section)
 
+# Each key and its section, in the Settings tab's order. kubed-mcp composes
+# its own telemetry and delivery.
+SECTION_CLASSES: dict[str, type[BaseModel]] = {
+    "auth": AuthSettings,
+    "oidc": OidcSettings,
+    "grid": GridSettings,
+    "workspace": WorkspaceSettings,
+    "session": SessionSettings,
+    "redis": RedisSettings,
+    "data": DataSettings,
+    "recording": RecordingSettings,
+    "capture": CaptureSettings,
+    "live": LiveSettings,
+    "secrets": SecretsSettings,
+    "mcp": McpSettings,
+    "security": SecuritySettings,
+    "serving": ServingSettings,
+    "telemetry": kubed.mcp.TelemetrySettings,
+    "delivery": kubed.mcp.DeliverySettings,
+}
 
-SECTION_ORDER = ["server"] + [
-    n for n, i in Settings.model_fields.items() if _is_section(i)
-]
-SECTION_DESCRIPTIONS = {"server": "Where it listens, and where it lives."} | {
-    n: i.description for n, i in Settings.model_fields.items() if _is_section(i)
+# What `QuickMCP(sections=)` registers: the root, then this server's own.
+SECTIONS: tuple[type[BaseModel], ...] = (
+    ServerSettings,
+    *(
+        cls
+        for key, cls in SECTION_CLASSES.items()
+        if key not in ("telemetry", "delivery")
+    ),
+)
+
+SECTION_ORDER = ["server", *SECTION_CLASSES]
+SECTION_DESCRIPTIONS = {
+    "server": "Where it is mounted, and the file it read.",
+    "auth": "The bearer token every request needs.",
+    "oidc": (
+        "Accept a JWT from an OIDC issuer beside the token, "
+        "on /mcp and in the admin UI."
+    ),
+    "grid": "The Selenium Grid it drives.",
+    "workspace": "How workspaces are kept.",
+    "session": "How a session opens a browser, and how long it is kept alive.",
+    "redis": "The workspace store\u2019s connection.",
+    "data": "Where workspaces, their flows and files, and recordings live.",
+    "recording": "Video of a browser's whole life, from the Grid's recorder.",
+    "capture": "Console and network capture, for open_session(capture=true).",
+    "live": "The admin UI's live view of a browser.",
+    "secrets": "Where secrets are read from.",
+    "mcp": "What MCP clients are offered beyond tools.",
+    "security": "Who may frame the admin page.",
+    "serving": "Where it listens, and what it logs.",
+    "telemetry": "Profiles, traces and metrics, run by kubed-mcp; all off unless set.",
+    "delivery": "What a request gets when it sends no delivery header.",
 }
 
 
 @dataclass(frozen=True)
 class Leaf:
-    """One setting: its path, and everything derived from it."""
+    """One setting: its path, its two names, and what the schema says of it."""
 
     path: str
-    info: FieldInfo
-
-    @property
-    def env(self) -> str:
-        return self.path.replace(".", "_").upper()
-
-    @property
-    def flag(self) -> str:
-        return "--" + self.path.replace(".", "-").replace("_", "-")
+    env: str
+    flag: str
+    description: str
+    default: Any
+    sensitive: bool
 
     @property
     def section(self) -> str:
         return self.path.split(".", 1)[0] if "." in self.path else "server"
 
-    @property
-    def description(self) -> str:
-        return self.info.description or ""
 
-    @property
-    def sensitive(self) -> bool:
-        return "SecretStr" in repr(self.info.annotation)
+@functools.cache
+def _schema() -> dict:
+    return config_schema(*SECTIONS)
 
-    @property
-    def default(self) -> Any:
-        return self.info.get_default(call_default_factory=True)
+
+def _leaf(path: str, prop: dict) -> Leaf:
+    return Leaf(
+        path=path,
+        env=prop["env"],
+        flag=prop["arg"],
+        description=prop.get("description") or "",
+        default=prop.get("default"),
+        sensitive=prop.get("sensitive") is True,
+    )
+
+
+def _section_properties(schema: dict, key: str) -> dict:
+    """The properties of the section under ``key``, through its ``$ref``."""
+    prop = schema["properties"][key]
+    ref = prop.get("$ref") or next(
+        part["$ref"] for part in prop.get("allOf", ()) if "$ref" in part
+    )
+    return schema["$defs"][ref.rsplit("/", 1)[-1]]["properties"]
 
 
 def leaves() -> list[Leaf]:
-    """Every setting that has an env name and a flag, in schema order."""
-    found = []
-    for name, info in Settings.model_fields.items():
-        if not _is_section(info):
-            found.append(Leaf(name, info))
-            continue
-        for sub, subinfo in info.annotation.model_fields.items():
-            if (subinfo.json_schema_extra or {}).get(FILE_ONLY):
-                continue
-            found.append(Leaf(f"{name}.{sub}", subinfo))
+    """Every setting that has an env name and a flag, in schema order.
+
+    Read from kubed-mcp's schema of the sections, so the names, the docs, the
+    defaults it writes and what is sensitive are kubed-mcp's own reading.
+    `config_file` comes first: kubed-mcp reserves its names, so it has no field.
+    """
+    schema = _schema()
+    found = [
+        Leaf(
+            "config_file",
+            "CONFIG_FILE",
+            "--config-file",
+            "The YAML file read at start.",
+            None,
+            False,
+        )
+    ]
+    for name, prop in schema["properties"].items():
+        if name not in SECTION_CLASSES and "env" in prop:
+            found.append(_leaf(name, prop))
+    for key in SECTION_CLASSES:
+        for name, prop in _section_properties(schema, key).items():
+            if "env" in prop:
+                found.append(_leaf(f"{key}.{name}", prop))
     return found
 
 
-def value_of(settings: Settings, path: str) -> Any:
+def help_text() -> str:
+    """What `--help` prints: one line per setting, its three spellings and default.
+
+    The parser only formats. kubed-mcp parses the flags.
+    """
+    built = argparse.ArgumentParser(
+        prog="selenium-flow",
+        description="Drive a Selenium Grid browser over MCP and HTTP.",
+        allow_abbrev=False,
+    )
+    for leaf in leaves():
+        shown = "unset" if leaf.default in (None, "", [], {}) else leaf.default
+        text = (
+            f"{leaf.description} (env: {leaf.env} · config: {leaf.path}"
+            f" · default: {shown})"
+        )
+        built.add_argument(
+            leaf.flag,
+            metavar=leaf.path.rsplit(".", 1)[-1].upper(),
+            help=text.replace("%", "%%"),
+        )
+    return built.format_help()
+
+
+def value_of(settings: Config, path: str) -> Any:
     value: Any = settings
     for part in path.split("."):
         value = getattr(value, part)
     return value
-
-
-SOURCES = ("default", "config", "env", "args")
 
 
 class ConfigError(ValueError):
@@ -607,205 +812,15 @@ class ConfigError(ValueError):
     """
 
 
-@dataclass(frozen=True)
-class Loaded:
-    settings: Settings
-    sources: dict[str, str]
-
-
-def parser() -> argparse.ArgumentParser:
-    """One flag per setting, generated, so the rule cannot be broken by hand.
-
-    `SUPPRESS` as the default: the namespace then holds only what was typed,
-    which is what makes "args" a true answer about where a value came from.
-    """
-    built = argparse.ArgumentParser(
-        prog="selenium-flow",
-        description="Drive a Selenium Grid browser over MCP and HTTP.",
-        argument_default=argparse.SUPPRESS,
-        # Prefix matching would let `--redis-h` mean `--redis-host`, until a
-        # second flag starts the same way.
-        allow_abbrev=False,
+def config_file(sources: Mapping[str, Source]) -> str | None:
+    """The file the config was read from: the first value from a file names it.
+    A file that set nothing reads as none."""
+    return next(
+        (source.name for source in sources.values() if source.kind == "file"), None
     )
-    for leaf in leaves():
-        shown = "unset" if leaf.default in (None, "", [], {}) else leaf.default
-        help_text = (
-            f"{leaf.description} (env: {leaf.env} · config: {leaf.path}"
-            f" · default: {shown})"
-        )
-        built.add_argument(
-            leaf.flag,
-            dest=leaf.path,
-            metavar=leaf.path.rsplit(".", 1)[-1].upper(),
-            help=help_text.replace("%", "%%"),
-        )
-    return built
 
 
-def _is_blank(value: Any) -> bool:
-    """Whether every layer reads ``value`` as not set: `${VAR:-}`'s empty
-    string from env, `--flag ""`, or a quoted blank in the file. Empty is "not
-    set" everywhere, so a blank AUTH_TOKEN is no auth, never an empty
-    credential."""
-    return isinstance(value, str) and not value.strip()
-
-
-class _Environment(EnvSettingsSource):
-    """pydantic-settings' env reader, over a mapping we hand it.
-
-    `_load_env_vars` is its one hook for where variables come from, so a test's
-    environment is a plain dict.
-    """
-
-    def __init__(self, environ: Mapping[str, str]):
-        self._environ = environ
-        super().__init__(
-            Settings,
-            case_sensitive=False,
-            env_nested_delimiter="_",
-            env_nested_max_split=1,
-            env_ignore_empty=True,
-        )
-
-    def _load_env_vars(self):
-        # A bare section name (SESSION, REDIS) would reach pydantic-settings as
-        # that whole section's value, which it JSON-decodes and fails on before
-        # `_known()` can drop it. Blanks go here too: `env_ignore_empty` only
-        # applies inside the base `_load_env_vars`, which this replaces.
-        # `REDIS_URL=""` is what `${REDIS_URL:-}` sends when compose leaves it
-        # unset, not a value of its own.
-        sections = set(SECTION_ORDER) - {"server"}
-        return {
-            key.lower(): value
-            for key, value in self._environ.items()
-            if key.lower() not in sections and not _is_blank(value)
-        }
-
-
-def _known(raw: dict) -> dict:
-    """Only the leaves the schema has.
-
-    The environment is shared with Kubernetes and the shell. A Service called
-    `flow-ui` injects `FLOW_UI_PORT`, which reads as `flow.ui_port`, and a strict
-    model would refuse to boot over it. So env is lenient about names and the
-    file is not.
-    """
-    allowed = {leaf.path for leaf in leaves()}
-    kept: dict = {}
-    for key, value in raw.items():
-        if isinstance(value, dict):
-            for sub, inner in value.items():
-                if f"{key}.{sub}" in allowed:
-                    kept.setdefault(key, {})[sub] = inner
-        elif key in allowed:
-            kept[key] = value
-    return kept
-
-
-def _read_file(path: str) -> dict:
-    file = Path(path)
-    if not file.is_file():
-        reason = "is not a file" if file.exists() else "does not exist"
-        raise ConfigError(f"config file {path} {reason}")
-    try:
-        data = yaml.safe_load(file.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        mark = getattr(exc, "problem_mark", None)
-        where = f" at line {mark.line + 1}, column {mark.column + 1}" if mark else ""
-        # Never the parser's message: it quotes the offending line, which may
-        # be an inline secret value.
-        raise ConfigError(f"config file {path} is not valid YAML{where}") from None
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ConfigError(
-            f"config file {path} cannot be read: {type(exc).__name__}"
-        ) from None
-    if data is None:
-        return {}
-    if not isinstance(data, dict):
-        raise ConfigError(
-            f"config file {path} must be a mapping of sections, "
-            f"not a {type(data).__name__}"
-        )
-    if "config_file" in data:
-        raise ConfigError(
-            f"config_file cannot be set inside the config file it names ({path})"
-        )
-    return data
-
-
-def _nest(flat: Mapping[str, Any]) -> dict:
-    tree: dict = {}
-    for path, value in flat.items():
-        head, _, tail = path.partition(".")
-        if tail:
-            tree.setdefault(head, {})[tail] = value
-        else:
-            tree[head] = value
-    return tree
-
-
-def _has(tree: dict, path: str) -> bool:
-    head, _, tail = path.partition(".")
-    if not tail:
-        return head in tree
-    section = tree.get(head)
-    return isinstance(section, dict) and tail in section
-
-
-def _drop_blank_leaves(data: dict) -> dict:
-    """``data`` without its blank leaf values, which read as unset, as in env
-    and args. `secrets.entries` is not a leaf, and a blank inside the
-    `secrets.dirs` list is that field's validator's to drop."""
-    out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in data.items()}
-    for leaf in leaves():
-        head, _, tail = leaf.path.partition(".")
-        if tail:
-            section = out.get(head)
-            if isinstance(section, dict) and _is_blank(section.get(tail)):
-                del section[tail]
-        elif _is_blank(out.get(head)):
-            del out[head]
-    return out
-
-
-def _merge(*layers: dict) -> dict:
-    """Later layers win, one section deep, which is as deep as the schema goes."""
-    merged: dict = {}
-    for layer in layers:
-        for key, value in layer.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                merged[key] = {**merged[key], **value}
-            else:
-                merged[key] = dict(value) if isinstance(value, dict) else value
-    return merged
-
-
-def _explain(exc: ValidationError, sources: dict[str, str], path: str | None) -> str:
-    """Where each problem is, and what it is. Never the input: it may be secret."""
-    lines = []
-    by_path = {leaf.path: leaf for leaf in leaves()}
-    for error in exc.errors(include_input=False, include_url=False):
-        loc = [str(part) for part in error["loc"]]
-        if loc and loc[0] in SECTION_ORDER:
-            leaf = ".".join(loc[:2])
-        else:
-            leaf = loc[0] if loc else ""
-        source = sources.get(leaf, "config")
-        where = {
-            "config": f"in {path}",
-            "env": f"from env {by_path[leaf].env}" if leaf in by_path else "from env",
-            "args": (
-                f"from {by_path[leaf].flag}"
-                if leaf in by_path
-                else "on the command line"
-            ),
-            "default": "as a default",
-        }[source]
-        lines.append(f"{'.'.join(loc)}: {error['msg']} ({where})")
-    return "; ".join(lines)
-
-
-def oidc_problem(settings: Settings) -> str | None:
+def oidc_problem(settings: Config) -> str | None:
     """Why this server's OIDC cannot run, or None. Checked after every layer merges."""
     oidc = settings.oidc
     if bool(oidc.client_id) != bool(oidc.admin_roles):
@@ -832,115 +847,7 @@ def oidc_problem(settings: Settings) -> str | None:
     return None
 
 
-RETIRED_FLOW = (
-    "FLOW_DATA_DIR is now DATA_DIR, and workspace folders live under "
-    "DATA_DIR/workspaces/ — move them there once, then set DATA_DIR"
-)
-
-
-RETIRED_SESSION_KEYS = (
-    "the config file's `session.store` and `session.ttl` are now "
-    "`workspace.store` and `workspace.ttl`"
-)
-
-
-def _retired_session(environ: Mapping[str, str], file: dict) -> None:
-    """Refuses the `session` section's two moved names. Only a moved setting's
-    own name counts: SESSION_PORT from a Service called session is not one."""
-    prefix = "session_"
-    moved = ("store", "ttl")
-    old = sorted(
-        key.upper()
-        for key, value in environ.items()
-        if key.lower().startswith(prefix)
-        and key.lower()[len(prefix):] in moved
-        and not _is_blank(value)
-    )
-    if old:
-        new = ["WORKSPACE_" + key[len(prefix):] for key in old]
-        verb = "is" if len(old) == 1 else "are"
-        raise ConfigError(
-            f"{', '.join(old)} {verb} now {', '.join(new)}: "
-            "workspace settings moved out of session"
-        )
-    section = file.get("session")
-    if isinstance(section, dict) and any(key in section for key in moved):
-        raise ConfigError(RETIRED_SESSION_KEYS)
-
-
-def _retired(environ: Mapping[str, str], file: dict) -> None:
-    """A name this server used to read, refused rather than ignored.
-
-    The env layer drops unknown names on purpose (Kubernetes injects plenty),
-    so a deployment still setting FLOW_DATA_DIR would boot with flows quietly
-    off. One retired name is worth naming; the rule stays lenient for the rest.
-    """
-    if any(
-        k.lower() == "flow_data_dir" and not _is_blank(v) for k, v in environ.items()
-    ):
-        raise ConfigError(RETIRED_FLOW)
-    if "flow" in file:
-        raise ConfigError(RETIRED_FLOW)
-    _retired_session(environ, file)
-
-
-def load(
-    argv: list[str] | None = None, environ: Mapping[str, str] | None = None
-) -> Loaded:
-    """The settings this process should run with, and where each one came from."""
-    environ = os.environ if environ is None else environ
-    raw_args = vars(parser().parse_args(argv))
-    args = _nest({k: v for k, v in raw_args.items() if not _is_blank(v)})
-    env = _known(_Environment(environ)())
-    named = args.get("config_file") or env.get("config_file")
-    path = str(named).strip() if named else None
-    file = _drop_blank_leaves(_read_file(path)) if path else {}
-    _retired(environ, file)
-    # The file alone first: `_merge` replaces a whole section when a later
-    # layer sets a key in it, so a malformed `redis: broken` would pass once
-    # REDIS_HOST supplied a dict. Every field has a default, so a partial file
-    # validates on its own.
-    try:
-        Settings.model_validate(file)
-    except ValidationError as exc:
-        file_sources = {leaf.path: "config" for leaf in leaves()}
-        raise ConfigError(_explain(exc, file_sources, path)) from None
-
-    layers = {"args": args, "env": env, "config": file}
-    # Highest first; "default" is the fallback.
-    precedence = tuple(reversed(SOURCES[1:]))
-    sources = {
-        leaf.path: next(
-            (name for name in precedence if _has(layers[name], leaf.path)),
-            "default",
-        )
-        for leaf in leaves()
-    }
-    merged = _merge(file, env, args)
-    if sources["workspace.store"] == "default":
-        # Naming Redis asks for the Redis store; an explicit `memory` wins.
-        redis_sources = (sources["redis.url"], sources["redis.host"])
-        wanted = any(name != "default" for name in redis_sources)
-        merged.setdefault("workspace", {})["store"] = "redis" if wanted else "memory"
-        if wanted:
-            # Its source is the highest layer that set redis.url or redis.host.
-            sources["workspace.store"] = next(
-                name for name in precedence if name in redis_sources
-            )
-    try:
-        settings = Settings.model_validate(merged)
-    except ValidationError as exc:
-        raise ConfigError(_explain(exc, sources, path)) from None
-    problem = oidc_problem(settings)
-    if problem:
-        raise ConfigError(problem)
-    problem = recording_problem(settings)
-    if problem:
-        raise ConfigError(problem)
-    return Loaded(settings, sources)
-
-
-def recording_problem(settings: Settings) -> str | None:
+def recording_problem(settings: Config) -> str | None:
     """Why recording cannot run, or None. Checked after every layer merges."""
     if settings.recording.enabled and not settings.data.dir:
         return (
@@ -964,27 +871,13 @@ def recording_problem(settings: Settings) -> str | None:
     return None
 
 
-def recording_dir(settings: Settings) -> str | None:
+def recording_dir(settings: Config) -> str | None:
     """The inbox: recording.dir, else data.dir/recordings, else None."""
     if settings.recording.dir:
         return settings.recording.dir
     if settings.data.dir:
         return str(Path(settings.data.dir) / INBOX_DIR)
     return None
-
-
-def sources_for(settings: Settings) -> dict[str, str]:
-    """Where each value came from, for Settings built in code (tests, embedding).
-
-    A value equal to its default reads as `default`, anything else as `args`:
-    code that builds Settings is passing arguments.
-    """
-    return {
-        leaf.path: (
-            "default" if value_of(settings, leaf.path) == leaf.default else "args"
-        )
-        for leaf in leaves()
-    }
 
 
 # Settings shown in full that are URLs, and so may carry userinfo
@@ -997,21 +890,24 @@ URL_LEAVES = {
     "public_base_url",
     "oidc.issuer",
     "oidc.jwks_uri",
-    # A Pyroscope address may carry basic auth (`http://user:pass@host:4040`).
-    "telemetry.profiles",
 }
 
 
 PROXY_KEYS = {"httpProxy", "sslProxy", "socksProxy", "ftpProxy"}
+# Selenium's `Proxy` sends SOCKS credentials in a key of their own.
+PROXY_SECRETS = {"socksPassword"}
 
 
 def _without_proxy_userinfo(value):
     """``value`` with ``user:pass@`` dropped from the W3C proxy keys, which are
-    ``host:port`` with no scheme for `without_userinfo` to anchor on."""
+    ``host:port`` with no scheme for `without_userinfo` to anchor on, and a
+    non-empty proxy password written as ``***``."""
     if isinstance(value, dict):
         return {
             key: re.sub(r"^[^/@\s]*@", "", item)
             if key in PROXY_KEYS and isinstance(item, str)
+            else "***"
+            if key in PROXY_SECRETS and isinstance(item, str) and item
             else _without_proxy_userinfo(item)
             for key, item in value.items()
         }
@@ -1020,7 +916,43 @@ def _without_proxy_userinfo(value):
     return value
 
 
-def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
+# A proxy key or password and its JSON string value, as compact JSON writes it.
+_PROXY_ENTRY = re.compile(
+    r'"(?P<key>' + "|".join(sorted(PROXY_KEYS | PROXY_SECRETS)) + r')":'
+    r'"(?P<value>(?:[^"\\]|\\.)*)"'
+)
+
+
+def _proxy_entry_without_userinfo(match: re.Match) -> str:
+    key = match["key"]
+    value = json.loads(f'"{match["value"]}"')
+    value = _without_proxy_userinfo({key: value})[key]
+    return f"{json.dumps(key)}:{json.dumps(value, ensure_ascii=False)}"
+
+
+def without_config_userinfo(text: str) -> str:
+    """``text``, a line that writes settings as JSON, with the userinfo cut out
+    as the Settings tab cuts it: a proxy key's ``user:pass@`` and a proxy
+    password by `_without_proxy_userinfo`'s rule, then every URL's by
+    `without_userinfo`. In that order: a URL's userinfo pattern runs across the
+    JSON's quotes, so from a ``scheme://`` to an ``@`` in a password it would
+    take the password's key with it and leave the rest of the password."""
+    return without_userinfo(_PROXY_ENTRY.sub(_proxy_entry_without_userinfo, text))
+
+
+# The tab's four labels for kubed-mcp's sources: code builds the server with
+# arguments, and so does a hook.
+SOURCE_LABELS = {
+    "default": "default",
+    "file": "config",
+    "env": "env",
+    "arg": "args",
+    "code": "args",
+    "hook": "args",
+}
+
+
+def describe(settings: Config, sources: Mapping[str, Source]) -> dict:
     """The Settings tab's payload. Never a sensitive value, and no secret entries.
 
     A row from the config file has the source `config`: the file's path is the
@@ -1028,7 +960,16 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
     """
     rows: dict[str, list[dict]] = {name: [] for name in SECTION_ORDER}
     for leaf in leaves():
-        value = value_of(settings, leaf.path)
+        if leaf.path == "config_file":
+            value = config_file(sources)
+            source = "config" if value else "default"
+        else:
+            value = value_of(settings, leaf.path)
+            source = (
+                SOURCE_LABELS[sources[leaf.path].kind]
+                if leaf.path in sources
+                else "default"
+            )
         if leaf.path in URL_LEAVES and value:
             value = without_userinfo(str(value))
         elif leaf.path == "session.capabilities":
@@ -1042,7 +983,7 @@ def describe(settings: Settings, sources: Mapping[str, str]) -> dict:
             "name": leaf.path.rsplit(".", 1)[-1],
             "description": leaf.description,
             "value": None if leaf.sensitive else value,
-            "source": sources.get(leaf.path, "default"),
+            "source": source,
         }
         if leaf.sensitive:
             # A blank value is not a credential either.

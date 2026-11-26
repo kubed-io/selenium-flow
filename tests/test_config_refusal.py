@@ -14,7 +14,6 @@ from fastmcp.exceptions import ToolError
 from mcp.shared.exceptions import MCPError
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.names import CONFIG_FILE
 from kubed.selenium_flow.server import SeleniumMCP
 
@@ -29,12 +28,12 @@ REFUSED = "this workspace's config is invalid"
 
 def built(tmp_path, **settings) -> SeleniumMCP:
     return SeleniumMCP(
-        Settings(
-            grid={"url": "http://grid.invalid:4444"},
-            auth={"token": TOKEN},
-            data={"dir": str(tmp_path)},
+        {
+            "grid": {"url": "http://grid.invalid:4444"},
+            "auth": {"token": TOKEN},
+            "data": {"dir": str(tmp_path)},
             **settings,
-        )
+        }
     )
 
 

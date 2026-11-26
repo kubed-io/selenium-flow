@@ -17,7 +17,6 @@ from fastmcp.exceptions import ToolError
 from selenium.common.exceptions import WebDriverException
 
 from kubed.selenium_flow import errors, faults
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import calling_as
@@ -131,7 +130,7 @@ async def test_over_mcp_the_caller_and_the_log_read_the_sentence_only(
     tmp_path, monkeypatch, mcp_log
 ):
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, data={"dir": str(tmp_path)})
+        {"grid": {"url": "http://grid.invalid:4444"}, "data": {"dir": str(tmp_path)}}
     )
     driver = Dying()
     monkeypatch.setattr(server.actions.grid, "open", lambda *a, **k: driver)

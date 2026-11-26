@@ -14,7 +14,6 @@ from fastmcp.exceptions import ToolError
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow import faults
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows import store as flow_store
@@ -58,7 +57,7 @@ def flows(monkeypatch, tmp_path):
     for name in ("navigate", "extract"):
         monkeypatch.setattr(Actions, name, handed_to(double, name))
     app = untabbed(
-        SeleniumMCP(Settings(**SETTINGS, data={"dir": str(tmp_path)}))
+        SeleniumMCP({**SETTINGS, "data": {"dir": str(tmp_path)}})
     )
     app.actions.grid = double.grid
     calling_as(monkeypatch, NAMED)

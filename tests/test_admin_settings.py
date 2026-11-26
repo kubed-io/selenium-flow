@@ -3,7 +3,6 @@
 import pytest
 from starlette.testclient import TestClient
 
-from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
@@ -13,10 +12,13 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
+    # auth.token from env, redis.password from the file, serving.port from args.
+    path = tmp_path / "config.yaml"
+    path.write_text("redis:\n  password: pw!\n", encoding="utf-8")
     server = SeleniumMCP(
-        Settings(grid={"url": "http://grid.invalid:4444"}, auth={"token": TOKEN}, redis={"password": "pw!"}),
-        sources={"auth.token": "env", "redis.password": "config", "port": "args"},
+        argv=["--config-file", str(path), "--port", "8000"],
+        environ={"GRID_URL": "http://grid.invalid:4444", "AUTH_TOKEN": TOKEN},
     )
     return TestClient(server.mcp.server.http_app())
 

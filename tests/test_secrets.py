@@ -21,7 +21,6 @@ from kubed.selenium_flow.config import (
     KeySettings,
     SecretEntry,
     SecretsSettings,
-    Settings,
 )
 from kubed.selenium_flow.secrets import (
     ALLOWED_URLS,
@@ -328,7 +327,6 @@ def test_naming_directories_turns_them_on(tmp_path):
 
 @pytest.fixture
 def secret_server(tmp_path, monkeypatch):
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
     from .conftest import NAMED, TOKEN, calling_as
@@ -338,12 +336,12 @@ def secret_server(tmp_path, monkeypatch):
         password="hunter2",
         **{DESCRIPTION: "Homelab Nextcloud", ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        secrets={"dirs": str(tmp_path / "secrets-src")},
-        data={"dir": str(tmp_path / "flows")},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "secrets": {"dirs": str(tmp_path / "secrets-src")},
+        "data": {"dir": str(tmp_path / "flows")},
+    }))
     calling_as(monkeypatch, NAMED)
     return server
 
@@ -409,10 +407,9 @@ async def test_nothing_readable_on_this_server_returns_a_secret_value(
 async def test_with_no_directories_the_catalogue_says_so():
     from mcp.shared.exceptions import MCPError
 
-    from kubed.selenium_flow.config import Settings
     from kubed.selenium_flow.server import SeleniumMCP
 
-    server = untabbed(SeleniumMCP(Settings(grid={"url": "http://grid.invalid:4444"})))
+    server = untabbed(SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}}))
     assert server.secrets is None
     with pytest.raises(MCPError, match=r"secrets\.dirs"):
         await server.mcp.server.read_resource(secrets.LIST_URI)
@@ -840,11 +837,11 @@ def bound_http(tmp_path, monkeypatch):
         Actions, "page",
         lambda self, sid: {"url": "https://nc.example.com/login", "title": "Log in"},
     )
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        secrets={"dirs": str(tmp_path)},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "secrets": {"dirs": str(tmp_path)},
+    }))
     # A named workspace holding a browser: this surface addresses one by naming
     # itself now, so there is no id to put in the body.
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("b1", "chrome"))
@@ -1002,11 +999,11 @@ async def test_a_direct_bound_write_never_stores_the_page_it_typed_on(
         tmp_path, "nextcloud", password="[secret:nextcloud/password]",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        secrets={"dirs": str(tmp_path)},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "secrets": {"dirs": str(tmp_path)},
+    }))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
@@ -1056,11 +1053,11 @@ async def test_a_direct_bound_write_still_remembers_an_untouched_page(
         tmp_path, "nextcloud", password="hunter2",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        secrets={"dirs": str(tmp_path)},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "secrets": {"dirs": str(tmp_path)},
+    }))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
@@ -1099,11 +1096,11 @@ def _direct(tmp_path, monkeypatch, write):
         tmp_path, "nextcloud", password=VALUE,
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        secrets={"dirs": str(tmp_path)},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "secrets": {"dirs": str(tmp_path)},
+    }))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(
@@ -1175,11 +1172,11 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
         tmp_path, "nextcloud", password="hunter2",
         **{ALLOWED_URLS: "https://nc.example.com"},
     )
-    server = untabbed(SeleniumMCP(Settings(
-        grid={"url": "http://grid.invalid:4444"},
-        auth={"token": TOKEN},
-        secrets={"dirs": str(tmp_path)},
-    )))
+    server = untabbed(SeleniumMCP({
+        "grid": {"url": "http://grid.invalid:4444"},
+        "auth": {"token": TOKEN},
+        "secrets": {"dirs": str(tmp_path)},
+    }))
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
     monkeypatch.setattr(

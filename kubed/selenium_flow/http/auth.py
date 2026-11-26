@@ -21,6 +21,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from kubed.mcp import Config
 from kubed.mcp.auth import (
     AccessToken,
     AuthProvider,
@@ -272,7 +273,7 @@ class Doors:
     admin: AdminDoor
 
 
-def doors(settings: config.Settings, *, http_client=None) -> Doors:
+def doors(settings: Config, *, http_client=None) -> Doors:
     """`/mcp`'s verifiers and the admin door, sharing one `OidcVerifier`."""
     problem = config.oidc_problem(settings)
     if problem:
@@ -295,6 +296,6 @@ def doors(settings: config.Settings, *, http_client=None) -> Doors:
     return Doors(MultiAuth(verifiers=[server_token, jwt]), admin)
 
 
-def provider(settings: config.Settings, *, http_client=None) -> AuthProvider | None:
+def provider(settings: Config, *, http_client=None) -> AuthProvider | None:
     """What `/mcp` checks a bearer with: nothing, the token, or the token then a JWT."""
     return doors(settings, http_client=http_client).mcp

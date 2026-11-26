@@ -30,7 +30,8 @@ UI's Live tab.
 
 A setting can be in a YAML config file, the environment or the command line, and
 a later one wins: `default < config < env < args`. The file path is the name:
-`redis.host` is `REDIS_HOST` and `--redis-host`. Point at the file with
+`redis.host` is `REDIS_HOST` and `--redis-host`. The `serving` keys drop their
+section: `serving.port` is `PORT` and `--port`. Point at the file with
 `--config-file` or `CONFIG_FILE`; there is no default location, and an unknown
 key in it stops the server.
 
