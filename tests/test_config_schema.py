@@ -1,5 +1,8 @@
 """The schema: one setting, three spellings, and nothing read from the environment."""
 
+import json
+
+import kubed.mcp
 import pytest
 from pydantic import ValidationError
 
@@ -7,6 +10,8 @@ from kubed.selenium_flow import config
 from kubed.selenium_flow.config import Settings
 
 pytestmark = pytest.mark.unit
+
+TELEMETRY = "http://pyroscope.example.com:4040"
 
 SECTION_NAMES = [name for name in config.SECTION_ORDER if name != "server"]
 
@@ -222,3 +227,40 @@ def test_the_settings_tab_masks_a_proxy_with_no_scheme_and_keeps_an_email():
     shown = json.dumps(describe(Settings(session={"capabilities": capabilities}), {}))
     assert "hunter2" not in shown
     assert "drk@example.com" in shown
+
+
+def test_the_telemetry_section_is_kubed_mcps_and_strict_like_every_section():
+    cls = config.TelemetrySettings
+    assert issubclass(cls, kubed.mcp.TelemetrySettings) and issubclass(cls, config.Section)
+    assert cls.model_config["extra"] == "forbid"
+    assert cls.model_config["hide_input_in_errors"] is True
+    assert config.SECTION_ORDER[-1] == "telemetry"
+
+
+def test_telemetry_defaults_are_all_off():
+    t = Settings().telemetry
+    assert (t.profiles, t.otel, t.tags) == (None, False, {})
+    assert (t.profile_cpu, t.profile_memory) == (True, True)
+
+
+def test_the_telemetry_settings_and_their_spellings():
+    found = {(x.path, x.env, x.flag) for x in config.leaves() if x.section == "telemetry"}
+    assert found == {
+        ("telemetry.profiles", "TELEMETRY_PROFILES", "--telemetry-profiles"),
+        ("telemetry.profile_cpu", "TELEMETRY_PROFILE_CPU", "--telemetry-profile-cpu"),
+        ("telemetry.profile_memory", "TELEMETRY_PROFILE_MEMORY", "--telemetry-profile-memory"),
+        ("telemetry.otel", "TELEMETRY_OTEL", "--telemetry-otel"),
+        ("telemetry.tags", "TELEMETRY_TAGS", "--telemetry-tags"),
+    }
+
+
+def test_telemetry_tags_keeps_kubed_mcps_description():
+    upstream = kubed.mcp.TelemetrySettings.model_fields["tags"].description
+    assert config.TelemetrySettings.model_fields["tags"].description == upstream
+
+
+def test_the_settings_tab_strips_userinfo_from_telemetry_profiles():
+    s = Settings(telemetry={"profiles": "http://u:hunter2@pyroscope.example.com:4040"})
+    shown = json.dumps(config.describe(s, {}))
+    assert "hunter2" not in shown
+    assert TELEMETRY in shown

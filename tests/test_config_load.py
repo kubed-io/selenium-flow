@@ -569,3 +569,57 @@ def test_the_live_section_reads_from_the_file(tmp_path):
     path = _file(tmp_path, "live:\n  password_file: /run/vnc/password\n  grace: 20\n")
     s = load([], {"CONFIG_FILE": path}).settings
     assert (s.live.password_file, s.live.grace) == ("/run/vnc/password", 20)
+
+
+# ---- telemetry ----
+
+TELEMETRY = "http://pyroscope.example.com:4040"
+
+
+def test_telemetry_comes_from_env():
+    loaded = load([], {
+        "TELEMETRY_PROFILES": TELEMETRY,
+        "TELEMETRY_PROFILE_MEMORY": "false",
+        "TELEMETRY_OTEL": "true",
+        "TELEMETRY_TAGS": '{"cluster": "example"}',
+    })
+    t = loaded.settings.telemetry
+    assert (t.profiles, t.profile_cpu, t.profile_memory, t.otel) == (TELEMETRY, True, False, True)
+    assert t.tags == {"cluster": "example"}
+    assert loaded.sources["telemetry.tags"] == "env"
+
+
+def test_telemetry_comes_from_flags_and_the_file(tmp_path):
+    loaded = load(["--telemetry-profiles", TELEMETRY, "--telemetry-tags", '{"a": "b"}'], {})
+    assert loaded.settings.telemetry.profiles == TELEMETRY
+    assert loaded.settings.telemetry.tags == {"a": "b"}
+    path = _file(tmp_path, f"telemetry:\n  profiles: {TELEMETRY}\n  tags:\n    cluster: example\n")
+    t = load(["--config-file", path], {}).settings.telemetry
+    assert (t.profiles, t.tags) == (TELEMETRY, {"cluster": "example"})
+
+
+def test_a_blank_telemetry_profiles_is_off():
+    assert load([], {"TELEMETRY_PROFILES": "  "}).settings.telemetry.profiles is None
+
+
+@pytest.mark.parametrize("value", ["not json", "[1, 2]", '"a string"'])
+def test_telemetry_tags_that_are_not_an_object_stop_the_boot(value):
+    with pytest.raises(ConfigError) as refused:
+        load([], {"TELEMETRY_TAGS": value})
+    message = str(refused.value)
+    assert "telemetry.tags" in message and "must be a JSON object" in message
+    assert "TELEMETRY_TAGS" in message
+
+
+def test_telemetry_tags_that_are_not_strings_stop_the_boot(tmp_path):
+    with pytest.raises(ConfigError, match=r"telemetry\.tags"):
+        load([], {"TELEMETRY_TAGS": '{"tier": 1}'})
+    path = _file(tmp_path, "telemetry:\n  tags:\n    tier: 1\n")
+    with pytest.raises(ConfigError, match=r"telemetry\.tags"):
+        load(["--config-file", path], {})
+
+
+def test_a_typo_under_telemetry_in_the_file_stops_the_boot(tmp_path):
+    path = _file(tmp_path, f"telemetry:\n  profile: {TELEMETRY}\n")
+    with pytest.raises(ConfigError, match=r"telemetry\.profile\b"):
+        load(["--config-file", path], {})

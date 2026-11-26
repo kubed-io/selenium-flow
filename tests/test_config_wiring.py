@@ -3,13 +3,17 @@
 import logging
 import pathlib
 import re
+import sys
 
 import pytest
 
 import kubed.selenium_flow as package
+from kubed.selenium_flow import config
 from kubed.selenium_flow import main as main_module
 from kubed.selenium_flow.config import Settings
 from kubed.selenium_flow.server import SeleniumMCP
+
+from .conftest import TOKEN, over_http
 
 pytestmark = pytest.mark.unit
 GRID = {"url": "http://grid.invalid:4444"}
@@ -101,3 +105,36 @@ def test_the_startup_log_never_shows_the_grid_urls_credentials(monkeypatch, capl
         main_module.main([])
     assert "hunter2" not in caplog.text
     assert "http://hub:4444" in caplog.text
+
+
+def test_the_startup_log_says_telemetry_off_by_default(monkeypatch, caplog):
+    monkeypatch.setattr(SeleniumMCP, "run", lambda self, **kw: None)
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main([])
+    assert "telemetry=off" in caplog.text
+
+
+def test_the_startup_log_never_shows_the_profiles_address(monkeypatch, caplog):
+    monkeypatch.setattr(SeleniumMCP, "run", lambda self, **kw: None)
+    monkeypatch.setenv("TELEMETRY_PROFILES", "http://u:hunter2@pyroscope.example.com:4040")
+    monkeypatch.setenv("TELEMETRY_OTEL", "true")
+    with caplog.at_level(logging.INFO, logger="kubed.selenium_flow.main"):
+        main_module.main([])
+    assert "telemetry=profiles, otel" in caplog.text
+    assert "pyroscope.example.com" not in caplog.text and "hunter2" not in caplog.text
+
+
+def test_profiles_without_a_sampler_are_off_in_the_log():
+    t = config.TelemetrySettings(profiles="http://pyroscope.example.com:4040",
+                                 profile_cpu=False, profile_memory=False)
+    assert main_module._telemetry_summary(t) == "off"
+
+
+async def test_profiles_on_without_the_extra_still_serve(monkeypatch, caplog):
+    monkeypatch.setitem(sys.modules, "pyroscope", None)  # import fails as on a plain install
+    server = SeleniumMCP(Settings(grid=GRID, auth={"token": TOKEN},
+                                  telemetry={"profiles": "http://pyroscope.example.com:4040"}))
+    with caplog.at_level(logging.WARNING):
+        async with over_http(server) as client:
+            assert await client.list_tools()
+    assert "kubed-mcp[telemetry]" in caplog.text

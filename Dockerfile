@@ -76,8 +76,10 @@ set -eu
 # second thing to keep in step, and the way that fails is an image built
 # against dependencies nobody declared. [redis] is baked in so that turning on
 # workspaces that survive a restart is a matter of setting REDIS_URL, not a different image.
+# [telemetry] likewise, so profiles and traces are TELEMETRY_PROFILES and
+# TELEMETRY_OTEL away.
 pip install --no-cache-dir --upgrade pip
-python scripts/requirements.py runtime --extra redis > /tmp/requirements.txt
+python scripts/requirements.py runtime --extra redis --extra telemetry > /tmp/requirements.txt
 pip install --no-cache-dir -r /tmp/requirements.txt
 SHELL
 
@@ -94,8 +96,8 @@ git config --global --add safe.directory /app
 # An ordinary install, extra and all: pip reports every dependency already
 # satisfied by the layer above and installs only this project. It self-heals if
 # the two ever drift, which `--no-deps` would instead ship as an ImportError —
-# and `--no-deps` silently ignores [redis] as well.
-pip install --no-cache-dir .[redis]
+# and `--no-deps` silently ignores the extras as well.
+pip install --no-cache-dir .[redis,telemetry]
 # pip is a build tool, and /opt/venv is copied into the runner WHOLE — so
 # leaving it here ships it, at whatever version happened to be latest on the
 # day, into a production image that has no use for it. Removing it is also what
@@ -121,8 +123,9 @@ ENV PATH=/opt/venv/bin:$PATH
 # pyvenv.cfg still resolve. That is an assumption worth failing the BUILD over
 # rather than a running pod, so it is checked here — this imports the whole
 # dependency tree, which is what would break if a wheel needed a shared library
-# that only the fat image has.
-RUN python -c "from kubed.selenium_flow.server import SeleniumMCP"
+# that only the fat image has; pyroscope, which ships a native library, is the
+# likeliest.
+RUN python -c "from kubed.selenium_flow.server import SeleniumMCP; import pyroscope, opentelemetry.sdk"
 
 # No TRANSPORT/HOST/PORT here: precedence is file < env, so a baked env var
 # would always beat a config.yaml's `transport`, `host` or `port` — silently,
