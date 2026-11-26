@@ -172,13 +172,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The server needs kubed-mcp 0.4.1 (#201, #190, #209, #214).
+- The server needs kubed-mcp 0.4.4 (#201, #190, #209, #214, #229).
 
 ### Fixed
 
 - An idle server uses less CPU: the background-task worker checks for work once a second, not 20 times (#219).
 - A refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
 - A `socksPassword` in `session.capabilities` shows as `***` on the Settings tab and in the startup log (#214).
+- A `subscriptions/listen` stream no longer shows as a minutes-long span, and the telemetry start line names each OTLP exporter's endpoint (#229).
 
 ## [0.3.0] - 2026-09-26
 
