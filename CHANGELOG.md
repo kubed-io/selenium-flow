@@ -166,6 +166,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The server needs kubed-mcp 0.3.0 (#201, #190, #209).
 
+### Fixed
+
+- An idle server uses less CPU: the background-task worker checks for work once a second, not 20 times (#219).
+
 ## [0.3.0] - 2026-09-26
 
 ### Added
