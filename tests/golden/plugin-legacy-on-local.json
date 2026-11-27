@@ -78,7 +78,8 @@
           "name": "explorer",
           "uri": "agents://selenium-flow/explorer.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "prompts://selenium-flow": {
       "resources": [
@@ -140,7 +141,8 @@
           "name": "repair_flow",
           "uri": "prompts://selenium-flow/repair_flow.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     }
   },
   "resources/list": [

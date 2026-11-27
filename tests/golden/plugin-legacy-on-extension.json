@@ -134,7 +134,8 @@
           "name": "explorer",
           "uri": "agents://selenium-flow/explorer.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "prompts://selenium-flow": {
       "resources": [
@@ -196,7 +197,8 @@
           "name": "repair_flow",
           "uri": "prompts://selenium-flow/repair_flow.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/building-flows": {
       "resources": [
@@ -217,7 +219,8 @@
           "name": "selenium-flow/building-flows/references",
           "uri": "skill://selenium-flow/building-flows/references"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/building-flows/references": {
       "resources": [
@@ -232,7 +235,8 @@
           "name": "selenium-flow/building-flows/references/FLOWS.md",
           "uri": "skill://selenium-flow/building-flows/references/FLOWS.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/deploying-the-server": {
       "resources": [
@@ -253,7 +257,8 @@
           "name": "selenium-flow/deploying-the-server/references",
           "uri": "skill://selenium-flow/deploying-the-server/references"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/deploying-the-server/references": {
       "resources": [
@@ -268,7 +273,8 @@
           "name": "selenium-flow/deploying-the-server/references/CONFIGURATION.md",
           "uri": "skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/driving-a-browser": {
       "resources": [
@@ -289,7 +295,8 @@
           "name": "selenium-flow/driving-a-browser/references",
           "uri": "skill://selenium-flow/driving-a-browser/references"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/driving-a-browser/references": {
       "resources": [
@@ -370,7 +377,8 @@
           "name": "selenium-flow/driving-a-browser/references/WORKSPACES.md",
           "uri": "skill://selenium-flow/driving-a-browser/references/WORKSPACES.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/signing-in": {
       "resources": [
@@ -391,7 +399,8 @@
           "name": "selenium-flow/signing-in/references",
           "uri": "skill://selenium-flow/signing-in/references"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/signing-in/references": {
       "resources": [
@@ -417,7 +426,8 @@
           "name": "selenium-flow/signing-in/references/SITE_DATA.md",
           "uri": "skill://selenium-flow/signing-in/references/SITE_DATA.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/using-the-admin-ui": {
       "resources": [
@@ -438,7 +448,8 @@
           "name": "selenium-flow/using-the-admin-ui/references",
           "uri": "skill://selenium-flow/using-the-admin-ui/references"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "skill://selenium-flow/using-the-admin-ui/references": {
       "resources": [
@@ -497,7 +508,8 @@
           "name": "selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md",
           "uri": "skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     }
   },
   "resources/list": [
