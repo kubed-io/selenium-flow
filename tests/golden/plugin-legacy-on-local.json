@@ -44,7 +44,8 @@
                 "name": "explorer",
                 "skills": [
                   "driving-a-browser",
-                  "building-flows"
+                  "building-flows",
+                  "signing-in"
                 ],
                 "tools": [
                   "open_session",
@@ -69,7 +70,8 @@
               "name": "explorer",
               "skills": {
                 "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
-                "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md"
+                "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md",
+                "signing-in": "skill://selenium-flow/signing-in/SKILL.md"
               }
             }
           },
@@ -281,7 +283,8 @@
                   "name": "explorer",
                   "skills": [
                     "driving-a-browser",
-                    "building-flows"
+                    "building-flows",
+                    "signing-in"
                   ],
                   "tools": [
                     "open_session",
@@ -306,7 +309,8 @@
                 "name": "explorer",
                 "skills": {
                   "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
-                  "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md"
+                  "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md",
+                  "signing-in": "skill://selenium-flow/signing-in/SKILL.md"
                 }
               }
             },
