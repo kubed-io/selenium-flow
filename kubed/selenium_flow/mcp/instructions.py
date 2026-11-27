@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from kubed.mcp.delivery import Resolved
 
-from ..core.guidance import ENTRY, ENTRY_SKILL
+from ..core.guidance import ENTRY, ENTRY_SKILL, pointer, root
 from ..names import SERVER_NAME
 from ..workspace.workspaces import NAME_PARAM
 
@@ -56,7 +56,10 @@ SKILL_POINTER = f"""
 How to drive this well — when to screenshot rather than extract, what a timeout \
 on a good XPath usually means, how to write a flow — is at \
 {ENTRY}. Read it{{how}} before your first \
-call; it ships with this server, so it describes this version of it.
+call; it ships with this server, so it describes this version of it. Every \
+skill this server has reads at {root('<name>')}/SKILL.md, and a path a skill \
+names is from that folder: references/FLOWS.md in building-flows is \
+{pointer('FLOWS.md')}.
 """
 
 # For a client that has the plugin from this server by another way, the hook
