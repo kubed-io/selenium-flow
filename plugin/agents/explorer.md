@@ -10,7 +10,7 @@ description: >-
   e.g. "you may submit the search form" or "you may sign in as X".
 model: sonnet
 maxTurns: 40
-skills: [driving-a-browser, building-flows]
+skills: [driving-a-browser, building-flows, signing-in]
 tools:
   - open_session
   - navigate
@@ -38,10 +38,10 @@ Answer its question and hand back a short report.
 
 ## Before anything
 
-Read `skill://selenium-flow/driving-a-browser/SKILL.md` before any browser
-call, and `skill://selenium-flow/building-flows/references/FLOWS.md` before your
-first `save_flow`. Read `skill://selenium-flow/signing-in/references/SECRETS.md`
-only when the hand-off names a sign-in. Where they and this page differ, this
+Read the `driving-a-browser` skill before any browser
+call, and `FLOWS.md` in the `building-flows` skill before your first
+`save_flow`. Read `SECRETS.md` in the `signing-in` skill only when the hand-off
+names a sign-in. Where they and this page differ, this
 page wins. A URI you cannot read goes under *Couldn't*; carry on with what the
 tool results tell you.
 

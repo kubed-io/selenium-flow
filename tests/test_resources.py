@@ -127,11 +127,25 @@ async def test_the_instructions_agree_with_the_listing(reader, given):  # Review
         assert ("read_resource(uri)" in c.instructions) is tools_shown
 
 
+PATTERN = "skill://selenium-flow/<name>/SKILL.md"
+EXAMPLE = "skill://selenium-flow/building-flows/references/FLOWS.md"
+
+
+def test_the_mcp_pointer_gives_every_skill_its_address():  # PLG-58, PROT-29
+    for reads in (True, False):
+        text = instructions.instructions(reads)
+        assert PATTERN in text and "references/FLOWS.md in building-flows is " + EXAMPLE in text
+    for via in ("extension", "local"):
+        assert PATTERN not in instructions.instructions(True, via=via)
+
+
 async def test_the_instructions_carry_the_gateway_prefix(reader):  # named difference 5
     async with over_http(reader, {"X-MCP-Resource-Prefix": "sf+"}) as c:
         assert "sf+skill://selenium-flow/driving-a-browser/SKILL.md" in c.instructions
+        assert "sf+" + PATTERN in c.instructions and "sf+" + EXAMPLE in c.instructions
     async with over_http(reader, {"Sf-Resource-Prefix": "sf+"}) as c:
         assert "sf+skill://selenium-flow/driving-a-browser/SKILL.md" in c.instructions
+        assert "sf+" + PATTERN in c.instructions and "sf+" + EXAMPLE in c.instructions
     both = {"Sf-Resource-Prefix": "sf+", "X-MCP-Resource-Prefix": "gw+"}
     async with over_http(reader, both) as c:
         assert "sf+skill://" in c.instructions and "gw+" not in c.instructions

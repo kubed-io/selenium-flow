@@ -48,7 +48,7 @@ There is no fallback from one to the other. An XPath that keeps working matches
 a stable attribute (`//input[@name='q']`, not `//div[3]/input`) or visible text,
 uses `//` freely, and scopes to a region when the page repeats a pattern:
 `//table[@id='results']//tr[2]/td[1]`. When one fails, suspect the page before
-the expression (TROUBLESHOOTING.md).
+the expression (`references/TROUBLESHOOTING.md`).
 
 ## `extract`
 
@@ -86,6 +86,6 @@ resize the window first and leave it that size. Prefer one element to a full
 page.
 
 The screenshot is kept in the workspace's files, and the result's `file` has its
-link; FILES.md says which link to give a person. A
+link; `references/FILES.md` says which link to give a person. A
 second `screenshot.png` is kept as `screenshot (1).png`, so use the name the
 result gives. Over HTTP, a `bytes` value near zero means a blank capture.

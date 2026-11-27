@@ -15,7 +15,7 @@ its `required`. Read its `uri` first when the description is unclear, a value is
 one you cannot fill, or the flow would change something you were not asked to
 change. A flow that fits the page may not fit the task.
 
-| When | Read, in `skill://selenium-flow/building-flows/references/FLOWS.md` |
+| When | Read, in `references/FLOWS.md` |
 |---|---|
 | Running a flow, reading its result | *Running one* |
 | A run's `status` is `failed`, or its `hint` names a section | *When a flow fails*, and the section the hint names |
@@ -31,7 +31,7 @@ Where the selenium-flow plugin is installed they are also commands,
 yourself. A failed run's `hint` names the one that helps: run it if you can,
 otherwise tell the person.
 
-Crossing over: a password in a flow is a secret,
-`skill://selenium-flow/signing-in/references/SECRETS.md`. Moving a flow into the
-shared library is admin work, `skill://selenium-flow/using-the-admin-ui/SKILL.md`.
-The tools a step calls are `skill://selenium-flow/driving-a-browser/SKILL.md`'s.
+Crossing over: a password in a flow is a secret, the `signing-in` skill, row
+"A password, token or key to type". Moving a flow into the shared library is
+admin work, the `using-the-admin-ui` skill. The tools a step calls are the
+`driving-a-browser` skill's.
