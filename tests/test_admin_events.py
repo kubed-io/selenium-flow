@@ -13,6 +13,7 @@ import asyncio
 import json
 import threading
 import time
+import types
 
 import pytest
 
@@ -471,9 +472,11 @@ def _finished(workspace="one"):
 
 
 @pytest.fixture
-def computed(monkeypatch):
+def computed(server, monkeypatch):
     """Every `workspaces_payload` run through `run_in_threadpool`: the tick's, and an inline
-    `GET /admin/workspaces`."""
+    `GET /admin/workspaces`. The Grid lists nothing, rather than failing: a build it fails is
+    partial, and built again on every tick."""
+    monkeypatch.setattr(server.actions.grid, "sessions", list)
     runs = []
     real = admin.run_in_threadpool
 
@@ -635,6 +638,36 @@ async def test_a_mark_during_a_computation_is_not_seen_by_it(server, gated, monk
         await _close(stop, tasks, gate)
 
 
+async def test_an_invalidation_is_never_seen_by_a_build_it_raced(monkeypatch):
+    """A build that began at the very instant of an invalidation passes the floor, so only
+    the change count can tell it from one that began after."""
+    monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
+    monkeypatch.setattr(admin, "REFRESH_SECONDS", 60.0)
+    monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
+    monkeypatch.setattr(admin, "time", types.SimpleNamespace(monotonic=lambda: 100.0))
+    entered = threading.Event()
+    gate = threading.Event()
+
+    def compute():
+        entered.set()
+        gate.wait(5)
+        return {"workspaces": []}
+
+    b = admin.Broadcast(compute)
+    page = admin._Page()
+    b.join(page)
+    try:
+        await _until(entered.is_set, "the build under way")
+        b.invalidate()
+        gate.set()
+        await _until(lambda: b._latest is not None, "the build taken")
+        assert b._stale() and b.fresh() is None
+    finally:
+        gate.set()
+        b.leave(page)
+        await asyncio.sleep(0.05)
+
+
 async def test_a_failed_computation_leaves_the_mark_unseen(server, computed, monkeypatch):
     server.workspaces.store.set("one", Workspace(session_id=""))
     failing = []
@@ -656,6 +689,57 @@ async def test_a_failed_computation_leaves_the_mark_unseen(server, computed, mon
         await _until(lambda: len(sink) == 2, "the change, after the blip")
         await asyncio.sleep(0.2)
         assert len(computed) == 3  # the first, the blip, the retry
+    finally:
+        await _close(stop, tasks)
+
+
+def _blips_once(real):
+    """``real``, but raising once each time the returned list is appended to."""
+    blips = []
+
+    def call(*args, **kwargs):
+        if blips:
+            blips.pop()
+            raise RuntimeError("blip")
+        return real(*args, **kwargs)
+
+    return call, blips
+
+
+async def test_a_build_the_grid_failed_is_built_again_on_the_next_tick(
+    server, computed, monkeypatch
+):
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    sessions, blips = _blips_once(list)
+    monkeypatch.setattr(server.actions.grid, "sessions", sessions)
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        blips.append(True)
+        server.bus.publish(_finished())
+        await _until(lambda: len(computed) >= 3, "the build after the blip", seconds=0.5)
+        await asyncio.sleep(0.2)
+        assert len(computed) == 3  # the first, the partial one, the retry
+        assert json.loads(sink[-1])["workspaces"][0]["grid_listed"] is True
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_a_build_the_store_failed_is_built_again_on_the_next_tick(
+    server, computed, monkeypatch
+):
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    records, blips = _blips_once(server.workspaces.store.records)
+    monkeypatch.setattr(server.workspaces.store, "records", records)
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        blips.append(True)
+        server.bus.publish(_finished())
+        await _until(lambda: len(computed) >= 3, "the build after the blip", seconds=0.5)
+        await asyncio.sleep(0.2)
+        assert len(computed) == 3  # the first, the empty one, the retry
+        assert [r["key"] for r in json.loads(sink[-1])["workspaces"]] == ["one"]
     finally:
         await _close(stop, tasks)
 
@@ -683,6 +767,7 @@ async def test_the_stream_beats_while_nothing_changes(server, computed, monkeypa
     stop, sink, beats = asyncio.Event(), [], []
     task = asyncio.create_task(_listen(app, sink, stop, beats=beats))
     try:
+        await _until(lambda: len(sink) == 1, "the first event")
         await _until(lambda: len(beats) >= 3, "three beats")
         assert beats[0] == ["event: beat", "data: "]
         assert len(sink) == 1, "a beat was read as a payload"

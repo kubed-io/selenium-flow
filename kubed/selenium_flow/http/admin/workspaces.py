@@ -41,15 +41,17 @@ log = logging.getLogger(__name__)
 
 EVENTS_PATH = "/admin/events"
 # How often the tick looks, not how often it computes: it computes only when
-# the list may have changed. Fast enough that a change shows up at once, slow
-# enough that the Grid is asked twice a second at worst however many pages are
-# open.
+# the list may have changed. Fast enough that a change shows up at once; the
+# tick asks the Grid at most once a tick, however many pages are open. (A
+# `GET /admin/workspaces` that finds nothing fresh builds the list itself, and
+# asks the Grid on its own.)
 POLL_SECONDS = 2.0
 # The longest a change with no signal (a session the Grid ended on its own)
 # waits to show.
 REFRESH_SECONDS = 30.0
-# Seconds between `beat` events, on a fixed timer from when the stream opens,
-# whatever else it sends (sse-starlette's ping).
+# The admin streams' ping interval (sse-starlette's ping), on a fixed timer
+# from when a stream opens, whatever else it sends: `/admin/events` sends it as
+# a `beat` event, and the capture tail (`capture.py`) as a comment.
 HEARTBEAT = 20.0
 # How old a broadcast marked since it was computed may be and still be handed
 # out as "now": to a page that has just connected, and to
@@ -319,7 +321,8 @@ class _Page:
 class Broadcast:
     """The workspace list, computed for every connected page on a tick that
     finds it stale: marked since it was last computed (a finished call),
-    invalidated or poked, or older than ``REFRESH_SECONDS``.
+    invalidated or poked, older than ``REFRESH_SECONDS``, or partial (the Grid
+    or the store could not be read for it).
 
     One task, running only while somebody listens: the first page starts it
     and it ends after the last one leaves. Everything but ``compute`` runs on
@@ -327,9 +330,13 @@ class Broadcast:
     ``compute`` runs in a worker thread and touches none of it.
     """
 
-    def __init__(self, compute):
+    def __init__(self, compute, partial=None):
         # `workspaces_payload`, for a caller that wants the list computed now.
         self.compute = compute
+        # Whether the build that just finished was partial; by default none is.
+        self._partial_of = partial or (lambda: False)
+        # The latest build was partial, so the next tick builds it again.
+        self._partial = False
         self._pages: set[_Page] = set()
         self._task: asyncio.Task | None = None
         self._nudge = anyio.Event()
@@ -337,8 +344,8 @@ class Broadcast:
         self._latest: tuple[float, dict, str] | None = None
         # Nothing computed before this may become `_latest`: see `invalidate`.
         self._floor = 0.0
-        # Signals that the list may have changed (`mark`), and how many of them
-        # the latest computation had already counted.
+        # Signals that the list may have changed (`mark`, `invalidate`), and how
+        # many of them the latest computation had already counted.
         self._changes = 0
         self._seen = 0
 
@@ -351,13 +358,14 @@ class Broadcast:
         latest = self._latest
         return (
             latest is None
+            or self._partial
             or self._changes != self._seen
             or time.monotonic() - latest[0] >= REFRESH_SECONDS
         )
 
     def _current(self) -> tuple[float, dict, str] | None:
         """The last broadcast, if it is young enough to stand for now or
-        nothing has marked it since."""
+        nothing has marked it since and it is within the refresh bound."""
         latest = self._latest
         young = latest and time.monotonic() - latest[0] < FRESH_SECONDS
         if latest and (young or not self._stale()):
@@ -375,6 +383,9 @@ class Broadcast:
         just changed what it would say."""
         self._latest = None
         self._floor = time.monotonic()
+        # A build under way that began at this very instant passes the floor;
+        # the count is what keeps it from being taken as current.
+        self._changes += 1
 
     def poke(self) -> None:
         """Something an open page should see changed (a recording was filed):
@@ -427,6 +438,7 @@ class Broadcast:
                 started = time.monotonic()
                 try:
                     payload = await run_in_threadpool(self.compute)
+                    partial = self._partial_of()
                     text = json.dumps(payload, sort_keys=True)
                 except Exception as exc:  # noqa: BLE001 - the Grid can blip
                     # Every page keeps what it has, and the mark stays unseen.
@@ -435,6 +447,9 @@ class Broadcast:
                     if started >= self._floor:
                         self._latest = (started, payload, text)
                         self._seen = changes
+                        self._partial = partial
+                    # A partial build is delivered too: its rows are worth
+                    # showing, and the next tick builds it again.
                     for page in self._pages:
                         page.deliver(text)
             if not self._pages:
@@ -483,6 +498,11 @@ def mount(
     # Whether the last read of the store failed, so an outage warns once rather
     # than on every build while the outage lasts.
     store_failing = [False]
+    # Whether the last build was partial (the store or the Grid unreadable), so
+    # the broadcast builds it again on its next tick. Shared with an inline
+    # `GET /admin/workspaces` and the files tab's header: a race between them
+    # costs at most one extra build, or one retry that comes a tick late.
+    last_partial = [False]
 
     def workspaces_payload() -> dict:
         """Every workspace, and the browser each one holds.
@@ -493,15 +513,17 @@ def mount(
         workspaces_store = getattr(workspaces, "store", None)
         if workspaces_store is None or not hasattr(workspaces_store, "records"):
             # A store that cannot enumerate has no list to show.
+            last_partial[0] = False
             return {"workspaces": [], "live_enabled": live_enabled}
         try:
             records = workspaces_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
             # A warning, since the page shows this as an empty install; once,
-            # since the list is built again every tick it is stale.
+            # since the list is built again on every tick while the outage lasts.
             report = log.debug if store_failing[0] else log.warning
             report("could not read the workspace store: %s", exc)
             store_failing[0] = True
+            last_partial[0] = True
             return {"workspaces": [], "live_enabled": live_enabled}
         if store_failing[0]:
             log.info("the workspace store is readable again")
@@ -609,9 +631,10 @@ def mount(
                     ),
                 }
             )
+        last_partial[0] = not grid_listed
         return {"workspaces": rows, "live_enabled": live_enabled}
 
-    broadcast = Broadcast(workspaces_payload)
+    broadcast = Broadcast(workspaces_payload, partial=lambda: last_partial[0])
 
     @mcp.custom_route(
         f"{prefix}/admin/workspaces", methods=["GET"], name="admin_workspaces")
