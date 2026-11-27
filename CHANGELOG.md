@@ -25,9 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Skills link their own pages by relative path and name other skills by name, so they read behind a gateway that rewrites `skill://` addresses and in a local install; the explorer also loads `signing-in` (#232).
 - **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65, #220).
 - **Profiles and traces:** the image pushes profiles to Pyroscope when `TELEMETRY_PROFILES` names it, and runs OpenTelemetry with `TELEMETRY_OTEL=true` (#199).
-- **BREAKING:** The one skill is five, by reader and moment: `driving-a-browser` (the entry point), `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`, each at `skill://selenium-flow/<skill>/SKILL.md` (#195, #196). The old `skill://selenium-flow/SKILL.md` and `skill://selenium-flow/references/…` addresses no longer read: nothing redirects them, and hints, the instructions, the prompts and the explorer name the new ones.
+- **BREAKING:** The one skill is five, by reader and moment: `driving-a-browser` (the entry point), `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`, each at `skill://selenium-flow/<skill>/SKILL.md` (#195, #196). The old `skill://selenium-flow/SKILL.md` and `skill://selenium-flow/references/…` addresses no longer read: nothing redirects them, and hints and the instructions name the new ones.
 - **BREAKING:** The server's name (`serverInfo.name`) is `selenium-flow`, not `Selenium` (#196).
 - Skill resources are named with the namespace, such as `selenium-flow/driving-a-browser/SKILL.md`, in listings and in `_index.json` (#196).
 - A `plugin/` folder the server cannot load stops it at boot with a one-line message, not a traceback (#196).
