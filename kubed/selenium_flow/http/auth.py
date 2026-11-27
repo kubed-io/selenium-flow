@@ -186,10 +186,12 @@ class OidcVerifier(JWTVerifier):
         ):
             _log_refusal("nbf not numeric or in the future", claims)
             return None
-        return PrincipalToken(
-            **verified.model_dump(),
-            principal=Principal.from_claims(claims, self._roles_claim),
-        )
+        principal = Principal.from_claims(claims, self._roles_claim)
+        if principal.subject is None:
+            # A session is held by its subject: a token with none is nobody's.
+            _log_refusal("no sub or preferred_username", claims)
+            return None
+        return PrincipalToken(**verified.model_dump(), principal=principal)
 
     async def verify_token(self, token: str) -> AccessToken | None:
         verified = await self.verify_jwt(token)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from kubed.selenium_flow.principal import ADMIN, Principal
 from kubed.selenium_flow.workspace import sessions
 from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, Workspace
 
@@ -180,3 +181,25 @@ def test_seated_is_read_back_by_record_of():
     assert record_of(store, "shop", "tester").session_id == "b-2"
     assert shared_of(store, "shop").page("default") == "https://example.com/a"
     assert shared_of(store, "shop").subs == ["tester"]
+
+
+def test_own_name_is_the_username_when_valid():
+    who = Principal("oidc", subject="3f2a-77", username="sam")
+    assert sessions.own_name(who) == "sam"
+
+
+@pytest.mark.parametrize("username", ["current", "a b", None])
+def test_own_name_falls_back_to_the_subject(username):
+    who = Principal("oidc", subject="3f2a-77", username=username)
+    assert sessions.own_name(who) == "3f2a-77"
+
+
+def test_an_own_name_nothing_valid_names_is_refused():
+    with pytest.raises(ValueError) as refused:
+        sessions.own_name(Principal("oidc", subject="auth0|1"))
+    assert str(refused.value) == sessions.OWN_UNNAMED
+
+
+def test_the_token_and_no_principal_are_admin_and_default():
+    assert sessions.own_name(ADMIN) == "admin"
+    assert sessions.own_name(None) == "default"

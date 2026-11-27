@@ -11,9 +11,15 @@ from __future__ import annotations
 import re
 
 from ..names import valid_name
+from ..principal import ADMIN_SUBJECT, Principal, subject_of
 
 # The session every workspace has, and the one a caller that names none uses.
 DEFAULT = "default"
+# What `own_name` says when a JWT gives no name a session can have.
+OWN_UNNAMED = (
+    "your token gives no name a session can have: pass session=<name>, or pin "
+    "one with Sf-Session or ?session="
+)
 # What a sub-session's key joins its workspace and name with.
 SEP = "/"
 # Names that read a resource (`workspace://current`, `session://downloads`) or
@@ -103,3 +109,21 @@ def repointed(uri, acted: str, own: str):
         if path.partition("/")[0].partition("?")[0] in roots:
             return pointer(acted, own, path)
     return uri
+
+
+def own_name(principal: Principal | None) -> str:
+    """The name a caller's own session has when the call names none.
+
+    `DEFAULT` for no principal and ``admin`` for the token. A JWT's is the
+    first of its username and its subject that can name a session, else
+    ``ValueError(OWN_UNNAMED)``."""
+    if principal is None:
+        return DEFAULT
+    if principal.admin:
+        return ADMIN_SUBJECT
+    for candidate in (principal.username, subject_of(principal)):
+        try:
+            return valid_session_name(candidate)
+        except ValueError:
+            continue
+    raise ValueError(OWN_UNNAMED)

@@ -614,6 +614,7 @@ def raised():
     out["NodeRefused(not blamed)"] = faults.NodeRefused("it went wrong", blamed=False)
     out["NotFound"] = faults.NotFound("no such thing")
     out["Controlled"] = faults.Controlled("alex has control")
+    out["Held"] = faults.Held()
     out["requests.HTTPError(no response)"] = http
     out["requests.HTTPError(404)"] = http_404
     out["requests.HTTPError(403)"] = http_403
