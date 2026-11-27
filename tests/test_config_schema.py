@@ -60,6 +60,15 @@ def test_every_leaf_has_a_one_sentence_description():
         assert leaf.description.endswith("."), leaf.path
 
 
+def test_the_redeclared_graceful_timeout_is_kubed_mcp_s_but_for_its_description():
+    def schema(cls):
+        found = dict(cls.model_json_schema()["properties"]["graceful_timeout"])
+        found.pop("description")
+        return found
+
+    assert schema(config.ServingSettings) == schema(kubed.mcp.ServingSettings)
+
+
 def test_every_section_has_a_description_and_an_order():
     assert config.SECTION_ORDER[0] == "server"
     assert set(config.SECTION_ORDER) == set(config.SECTION_DESCRIPTIONS)

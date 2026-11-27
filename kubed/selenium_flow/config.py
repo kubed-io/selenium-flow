@@ -568,6 +568,17 @@ class ServingSettings(kubed.mcp.ServingSettings):
         env="LOG_LEVEL",
         arg="--log-level",
     )
+    # kubed-mcp's own leaf and bounds; redeclared only for a one-line description.
+    graceful_timeout: float = Field(
+        15,
+        ge=0,
+        doc=(
+            "Seconds a stop gives the calls in flight; a signal ends listen streams"
+            " at once."
+        ),
+        env="GRACEFUL_TIMEOUT",
+        arg="--graceful-timeout",
+    )
 
 
 def _held(section: Any, name: str) -> Any:
