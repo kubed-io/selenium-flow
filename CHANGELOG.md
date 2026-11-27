@@ -172,7 +172,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The server needs kubed-mcp 0.4.4 (#201, #190, #209, #214, #229).
+- The server needs kubed-mcp 0.6 (#201, #190, #209, #214, #229, #237).
 - An open admin page costs next to nothing while nothing changes and no longer refetches the list every minute; a change a tool makes shows at once, any other within 30 s (#226).
 
 ### Fixed
@@ -181,6 +181,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
 - A `socksPassword` in `session.capabilities` shows as `***` on the Settings tab and in the startup log (#214).
 - A `subscriptions/listen` stream no longer shows as a minutes-long span, and the telemetry start line names each OTLP exporter's endpoint (#229).
+- A restart with clients connected no longer logs ERROR tracebacks; in-flight calls get `GRACEFUL_TIMEOUT` seconds (15) to finish (#216, #237).
 
 ## [0.3.0] - 2026-09-26
 
