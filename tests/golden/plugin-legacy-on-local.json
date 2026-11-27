@@ -10,6 +10,7 @@
     "_meta": {
       "io.kubed/delivery": {
         "listed": [],
+        "max": 100,
         "prefix": null,
         "resources": "on",
         "via": "local"
@@ -78,7 +79,8 @@
           "name": "explorer",
           "uri": "agents://selenium-flow/explorer.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     },
     "prompts://selenium-flow": {
       "resources": [
@@ -140,7 +142,8 @@
           "name": "repair_flow",
           "uri": "prompts://selenium-flow/repair_flow.md"
         }
-      ]
+      ],
+      "resultType": "complete"
     }
   },
   "resources/list": [

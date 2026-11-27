@@ -164,6 +164,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** Config loads through kubed-mcp 0.4: in the config file, `transport`, `host`, `port` and `log_level` move under `serving:`, and a file that still sets them at the top is refused. Their env names and flags are unchanged, and the Settings tab shows them as `serving.*` (#214).
 - **BREAKING:** The old names `FLOW_DATA_DIR`, `SESSION_STORE` and `SESSION_TTL` are ignored, and `flow:`, `session.store` and `session.ttl` in the file are refused as unknown keys (#214).
 - `DELIVERY_RESOURCES`, `DELIVERY_LISTED` and `DELIVERY_VIA` (`delivery:` in the file) set the delivery inputs' defaults (#214).
+- `Sf-Max` (or `X-MCP-Max`, `?max=`, `DELIVERY_MAX`) caps how many skills a listing shows, 100 by default, and `_meta["io.kubed/delivery"]` reports it as `max` (#237).
 - Config errors list one problem a line, each naming the setting and where it came from, such as `serving.port (env PORT)`. An unknown flag is one of them and exits 1, not 2; a `config_file` key inside the file is refused as an unknown key; and a file that isn't a mapping says `must be a mapping, not a <type>` (#214).
 - **BREAKING:** An object from the environment or a flag, such as `SESSION_CAPABILITIES` or `TELEMETRY_TAGS`, merges into the file's instead of replacing it (#214).
 - **BREAKING:** Environment names match exactly, in upper case: `redis_host` no longer sets `redis.host` (#214).
@@ -172,7 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The server needs kubed-mcp 0.4.4 (#201, #190, #209, #214, #229).
+- The server needs kubed-mcp 0.6 (#201, #190, #209, #214, #229, #237).
 - An open admin page costs next to nothing while nothing changes and no longer refetches the list every minute; a change a tool makes shows at once, any other within 30 s (#226).
 
 ### Fixed
@@ -181,6 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
 - A `socksPassword` in `session.capabilities` shows as `***` on the Settings tab and in the startup log (#214).
 - A `subscriptions/listen` stream no longer shows as a minutes-long span, and the telemetry start line names each OTLP exporter's endpoint (#229).
+- A restart with clients connected no longer logs ERROR tracebacks; in-flight calls get `GRACEFUL_TIMEOUT` seconds (15) to finish (#216, #237).
 
 ## [0.3.0] - 2026-09-26
 
