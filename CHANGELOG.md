@@ -177,7 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- An idle server uses less CPU: the background-task worker checks for work once a second, not 20 times (#219).
+- An idle server uses less CPU: the background-task worker checks for new work and for work scheduled for later once a second each, not 20 and 4 times a second (#219, #227).
 - A refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
 - A `socksPassword` in `session.capabilities` shows as `***` on the Settings tab and in the startup log (#214).
 
