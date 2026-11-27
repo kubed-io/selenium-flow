@@ -526,14 +526,17 @@ class SeleniumMCP:
             tunnels=self.tunnels,
             monitor=self.monitor,
         )
-        # Open admin pages refresh at once on a filed recording, an opened or
-        # an ended session; their poll covers the rest.
+        # A finished call marks the list for the next tick. Open admin pages
+        # refresh at once on a filed recording, an opened or an ended session.
         if self.collector is not None:
             self.collector.on_filed = broadcast.poke
         self.bus.subscribe(
             ("session.opened", "session.ended"),
             lambda _event: broadcast.poke(),
             name="admin",
+        )
+        self.bus.subscribe(
+            "call.finished", lambda _event: broadcast.mark(), name="admin-calls"
         )
 
     def run(self) -> None:

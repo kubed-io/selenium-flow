@@ -173,6 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - The server needs kubed-mcp 0.4.4 (#201, #190, #209, #214, #229).
+- An open admin page costs next to nothing while nothing changes and no longer refetches the list every minute; a change a tool makes shows at once, any other within 30 s (#226).
 
 ### Fixed
 

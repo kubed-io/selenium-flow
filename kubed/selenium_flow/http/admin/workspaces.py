@@ -14,7 +14,7 @@ import time
 from functools import wraps
 
 import anyio
-from sse_starlette import EventSourceResponse
+from sse_starlette import EventSourceResponse, ServerSentEvent
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -40,13 +40,22 @@ from .. import answer, links
 log = logging.getLogger(__name__)
 
 EVENTS_PATH = "/admin/events"
-# Fast enough that a session appears to show up instantly, slow enough that the
-# Grid is asked twice a second at worst no matter how many pages are open.
+# How often the tick looks, not how often it computes: it computes only when
+# the list may have changed. Fast enough that a change shows up at once; the
+# tick asks the Grid at most once a tick, however many pages are open. (A
+# `GET /admin/workspaces` that finds nothing fresh builds the list itself, and
+# asks the Grid on its own.)
 POLL_SECONDS = 2.0
-# Seconds of no change before a keepalive comment goes out.
+# The longest a change with no signal (a session the Grid ended on its own)
+# waits to show.
+REFRESH_SECONDS = 30.0
+# The admin streams' ping interval (sse-starlette's ping), on a fixed timer
+# from when a stream opens, whatever else it sends: `/admin/events` sends it as
+# a `beat` event, and the capture tail (`capture.py`) as a comment.
 HEARTBEAT = 20.0
-# How old the last broadcast may be and still be handed out as "now": to a
-# page that has just connected, and to `GET /admin/workspaces`.
+# How old a broadcast marked since it was computed may be and still be handed
+# out as "now": to a page that has just connected, and to
+# `GET /admin/workspaces`. An unmarked one is handed out until REFRESH_SECONDS.
 FRESH_SECONDS = 1.0
 
 
@@ -310,7 +319,10 @@ class _Page:
 
 
 class Broadcast:
-    """The workspace list, computed once a tick for every connected page.
+    """The workspace list, computed for every connected page on a tick that
+    finds it stale: marked since it was last computed (a finished call),
+    invalidated or poked, older than ``REFRESH_SECONDS``, or partial (the Grid
+    or the store could not be read for it).
 
     One task, running only while somebody listens: the first page starts it
     and it ends after the last one leaves. Everything but ``compute`` runs on
@@ -318,9 +330,13 @@ class Broadcast:
     ``compute`` runs in a worker thread and touches none of it.
     """
 
-    def __init__(self, compute):
+    def __init__(self, compute, partial=None):
         # `workspaces_payload`, for a caller that wants the list computed now.
         self.compute = compute
+        # Whether the build that just finished was partial; by default none is.
+        self._partial_of = partial or (lambda: False)
+        # The latest build was partial, so the next tick builds it again.
+        self._partial = False
         self._pages: set[_Page] = set()
         self._task: asyncio.Task | None = None
         self._nudge = anyio.Event()
@@ -328,23 +344,48 @@ class Broadcast:
         self._latest: tuple[float, dict, str] | None = None
         # Nothing computed before this may become `_latest`: see `invalidate`.
         self._floor = 0.0
+        # Signals that the list may have changed (`mark`, `invalidate`), and how
+        # many of them the latest computation had already counted.
+        self._changes = 0
+        self._seen = 0
 
-    def _recent(self) -> tuple[float, dict, str] | None:
+    def mark(self) -> None:
+        """The list may have changed (a call finished): the next tick computes
+        it. Wakes nothing, so steady traffic costs one build a tick."""
+        self._changes += 1
+
+    def _stale(self) -> bool:
         latest = self._latest
-        if latest and time.monotonic() - latest[0] < FRESH_SECONDS:
+        return (
+            latest is None
+            or self._partial
+            or self._changes != self._seen
+            or time.monotonic() - latest[0] >= REFRESH_SECONDS
+        )
+
+    def _current(self) -> tuple[float, dict, str] | None:
+        """The last broadcast, if it is young enough to stand for now or
+        nothing has marked it since and it is within the refresh bound."""
+        latest = self._latest
+        young = latest and time.monotonic() - latest[0] < FRESH_SECONDS
+        if latest and (young or not self._stale()):
             return latest
         return None
 
     def fresh(self) -> dict | None:
-        """The last broadcast, if it is recent enough to stand for now."""
-        recent = self._recent()
-        return recent[1] if recent else None
+        """The current broadcast: young, or nothing marked since and within the
+        refresh bound."""
+        current = self._current()
+        return current[1] if current else None
 
     def invalidate(self) -> None:
         """Forget the last broadcast, and any already under way: an admin has
         just changed what it would say."""
         self._latest = None
         self._floor = time.monotonic()
+        # A build under way that began at this very instant passes the floor;
+        # the count is what keeps it from being taken as current.
+        self._changes += 1
 
     def poke(self) -> None:
         """Something an open page should see changed (a recording was filed):
@@ -369,12 +410,13 @@ class Broadcast:
 
     def join(self, page: _Page) -> None:
         self._pages.add(page)
-        recent = self._recent()
-        if recent:
-            page.deliver(recent[2])
+        current = self._current()
+        if current:
+            page.deliver(current[2])
         else:
-            # Too old to call "now": tick early. Mid-tick this wakes nothing:
-            # the tick under way delivers to this page too.
+            # Nothing current (stale and not young, or never built): tick early.
+            # Mid-tick this wakes nothing: the tick under way delivers to this
+            # page too.
             self._nudge.set()
         loop = asyncio.get_running_loop()
         task = self._task
@@ -389,18 +431,27 @@ class Broadcast:
 
     async def _run(self) -> None:
         while True:
-            started = time.monotonic()
-            try:
-                payload = await run_in_threadpool(self.compute)
-                text = json.dumps(payload, sort_keys=True)
-            except Exception as exc:  # noqa: BLE001 - the Grid can blip
-                # Every page keeps what it has.
-                log.info("event poll failed: %s", faults.message(exc))
-            else:
-                if started >= self._floor:
-                    self._latest = (started, payload, text)
-                for page in self._pages:
-                    page.deliver(text)
+            if self._stale():
+                # Read before the build: a mark that lands during it is not
+                # seen by it.
+                changes = self._changes
+                started = time.monotonic()
+                try:
+                    payload = await run_in_threadpool(self.compute)
+                    partial = self._partial_of()
+                    text = json.dumps(payload, sort_keys=True)
+                except Exception as exc:  # noqa: BLE001 - the Grid can blip
+                    # Every page keeps what it has, and the mark stays unseen.
+                    log.info("event poll failed: %s", faults.message(exc))
+                else:
+                    if started >= self._floor:
+                        self._latest = (started, payload, text)
+                        self._seen = changes
+                        self._partial = partial
+                    # A partial build is delivered too: its rows are worth
+                    # showing, and the next tick builds it again.
+                    for page in self._pages:
+                        page.deliver(text)
             if not self._pages:
                 break
             self._nudge = anyio.Event()
@@ -445,8 +496,13 @@ def mount(
     """
 
     # Whether the last read of the store failed, so an outage warns once rather
-    # than on every two-second poll of every open page.
+    # than on every build while the outage lasts.
     store_failing = [False]
+    # Whether the last build was partial (the store or the Grid unreadable), so
+    # the broadcast builds it again on its next tick. Shared with an inline
+    # `GET /admin/workspaces` and the files tab's header: a race between them
+    # costs at most one extra build, or one retry that comes a tick late.
+    last_partial = [False]
 
     def workspaces_payload() -> dict:
         """Every workspace, and the browser each one holds.
@@ -457,15 +513,17 @@ def mount(
         workspaces_store = getattr(workspaces, "store", None)
         if workspaces_store is None or not hasattr(workspaces_store, "records"):
             # A store that cannot enumerate has no list to show.
+            last_partial[0] = False
             return {"workspaces": [], "live_enabled": live_enabled}
         try:
             records = workspaces_store.records()
         except Exception as exc:  # noqa: BLE001 - a Redis blip is not an outage
             # A warning, since the page shows this as an empty install; once,
-            # since every open page polls every two seconds.
+            # since the list is built again on every tick while the outage lasts.
             report = log.debug if store_failing[0] else log.warning
             report("could not read the workspace store: %s", exc)
             store_failing[0] = True
+            last_partial[0] = True
             return {"workspaces": [], "live_enabled": live_enabled}
         if store_failing[0]:
             log.info("the workspace store is readable again")
@@ -573,9 +631,10 @@ def mount(
                     ),
                 }
             )
+        last_partial[0] = not grid_listed
         return {"workspaces": rows, "live_enabled": live_enabled}
 
-    broadcast = Broadcast(workspaces_payload)
+    broadcast = Broadcast(workspaces_payload, partial=lambda: last_partial[0])
 
     @mcp.custom_route(
         f"{prefix}/admin/workspaces", methods=["GET"], name="admin_workspaces")
@@ -616,13 +675,15 @@ def mount(
         # sse-starlette, for shutdown: uvicorn waits for open connections
         # before the lifespan, so a stream that never ends would hold each
         # SIGTERM for FastMCP's 2s grace. This one hears uvicorn's exit and sets
-        # `page`, within a shorter grace. Its heartbeat keeps proxies from
-        # closing an idle stream.
+        # `page`, within a shorter grace. Its beat keeps proxies from closing an
+        # idle stream and tells the page the stream is alive: `EventSource` never
+        # shows a comment.
         return _Stream(
             broadcast,
             page,
             stream(),
             ping=HEARTBEAT,
+            ping_message_factory=lambda: ServerSentEvent(event="beat", data=""),
             headers={"Cache-Control": "no-cache, no-transform"},
             shutdown_event=page,
             shutdown_grace_period=1.0,

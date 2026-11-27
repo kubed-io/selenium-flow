@@ -1,9 +1,9 @@
 """One broadcaster behind every open admin page.
 
-The workspace list is computed once a tick however many pages are connected, and
-only while one is. What each page sees is what it saw when every page polled on
-its own: its first event on connect, one event per change, none when nothing
-changed, and a failed tick that says nothing.
+The workspace list is computed on a tick that finds it stale (marked since, or older than
+the refresh bound) however many pages are connected, and only while one is. What each page
+sees is what it saw when every page polled on its own: its first event on connect, one
+event per change, none when nothing changed, and a failed tick that says nothing.
 
 Ticks are paced by the test where a count must be exact: `grid.status` blocks on
 a semaphore, so "N entered" means the Nth tick is under way.
@@ -13,10 +13,12 @@ import asyncio
 import json
 import threading
 import time
+import types
 
 import pytest
 
 from kubed.selenium_flow.http.admin import workspaces as admin
+from kubed.selenium_flow.monitor.events import CallFinished
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
@@ -24,12 +26,13 @@ from .conftest import TOKEN
 pytestmark = pytest.mark.unit
 
 
-async def _listen(app, sink, stop):
+async def _listen(app, sink, stop, beats=None):
     """One `/admin/events` client, speaking raw ASGI.
 
     Not a TestClient: its portal buffers a response until the app finishes, and
     this one never does. ``sink`` collects each event's data as it is sent;
-    setting ``stop`` is the browser closing the tab.
+    setting ``stop`` is the browser closing the tab. A ``beat`` event goes to
+    ``beats`` as its lines, never to ``sink``.
     """
 
     async def receive():
@@ -38,9 +41,16 @@ async def _listen(app, sink, stop):
 
     async def send(message):
         if message["type"] == "http.response.body":
-            for line in message.get("body", b"").decode().splitlines():
-                if line.startswith("data: "):
-                    sink.append(line[len("data: "):])
+            text = message.get("body", b"").decode().replace("\r\n", "\n")
+            for frame in text.split("\n\n"):
+                lines = frame.split("\n")
+                if "event: beat" in lines:
+                    if beats is not None:
+                        beats.append(lines)
+                    continue
+                for line in lines:
+                    if line.startswith("data: "):
+                        sink.append(line[len("data: "):])
 
     await app(
         {
@@ -105,6 +115,7 @@ async def _request(app, method, path):
 def gated(server, monkeypatch):
     """`grid.status` that blocks until the test lets it through, and counts."""
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.05)
+    monkeypatch.setattr(admin, "REFRESH_SECONDS", 0.0)  # every tick builds
     gate = threading.Semaphore(0)
     entered = []
 
@@ -172,6 +183,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
     are exact on any runner. A tick reads the store *before* it asks the
     Grid, so a change made while a tick is blocked is seen by the one after."""
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.05)
+    monkeypatch.setattr(admin, "REFRESH_SECONDS", 0.0)  # every tick builds
     gate = threading.Semaphore(0)
     entered = []
 
@@ -228,6 +240,7 @@ async def test_nothing_polls_once_the_last_page_has_gone(
     server, counted, under_way, monkeypatch
 ):
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
+    monkeypatch.setattr(admin, "REFRESH_SECONDS", 0.0)  # every tick builds
     app = server.mcp.server.http_app()
     stop = asyncio.Event()
     sinks = [[], []]
@@ -324,8 +337,9 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
         assert len(counted) == asked + 1
         assert listing["workspaces"][0]["attached"] is False
 
-        # And a stale one is never served.
+        # And a stale one is never served: past the bound, or marked since.
         monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
+        monkeypatch.setattr(admin, "REFRESH_SECONDS", 0.0)
         await _request(app, "GET", "/admin/workspaces")
         assert len(counted) == asked + 2
     finally:
@@ -368,6 +382,7 @@ async def test_a_page_that_drops_mid_send_leaves_at_once(
     import gc
 
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
+    monkeypatch.setattr(admin, "REFRESH_SECONDS", 0.0)  # every tick builds
     app = server.mcp.server.http_app()
     gone = asyncio.Event()
     never = asyncio.Event()
@@ -440,10 +455,322 @@ def test_a_session_opening_or_ending_pokes_the_admin_broadcast(monkeypatch):
     from kubed.selenium_flow.monitor.events import SessionEnded, SessionOpened
     from kubed.selenium_flow.server import SeleniumMCP
 
-    pokes = []
+    pokes, marks = [], []
     monkeypatch.setattr(Broadcast, "poke", lambda self: pokes.append(self))
+    monkeypatch.setattr(Broadcast, "mark", lambda self: marks.append(self))
     server = SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}})
     gid = "8f3d6dc2a1b04e6f9c1d2e3f4a5b6c7d"
     server.bus.publish(SessionOpened("bot", gid, "chrome", 300, False, 1.0))
     server.bus.publish(SessionEnded("bot", gid, "ended", 2.0))
+    server.bus.publish(_finished())
     assert len(pokes) == 2 and isinstance(pokes[0], Broadcast)
+    assert len(marks) == 1 and marks[0] is pokes[0]
+
+
+def _finished(workspace="one"):
+    return CallFinished(workspace, "", "chrome", "navigate", "mcp", "ok", 1.0, 0.1)
+
+
+@pytest.fixture
+def computed(server, monkeypatch):
+    """Every `workspaces_payload` run through `run_in_threadpool`: the tick's, and an inline
+    `GET /admin/workspaces`. The Grid lists nothing, rather than failing: a build it fails is
+    partial, and built again on every tick."""
+    monkeypatch.setattr(server.actions.grid, "sessions", list)
+    runs = []
+    real = admin.run_in_threadpool
+
+    async def counting(fn, *args, **kwargs):
+        if getattr(fn, "__name__", "") == "workspaces_payload":
+            runs.append(1)
+        return await real(fn, *args, **kwargs)
+
+    monkeypatch.setattr(admin, "run_in_threadpool", counting)
+    return runs
+
+
+def test_an_unchanged_broadcast_is_current_until_the_refresh_bound(monkeypatch):
+    monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
+    b = admin.Broadcast(compute=dict)
+    b._latest = (time.monotonic(), {"workspaces": []}, "{}")
+    assert b.fresh() == {"workspaces": []} and not b._stale()
+    b._latest = (time.monotonic() - admin.REFRESH_SECONDS, {"workspaces": []}, "{}")
+    assert b.fresh() is None and b._stale()
+
+
+def test_a_mark_makes_the_broadcast_stale_without_a_nudge(monkeypatch):
+    monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
+    b = admin.Broadcast(compute=dict)
+    b._latest = (time.monotonic(), {"workspaces": []}, "{}")
+    b.mark()
+    assert b._stale() and b.fresh() is None
+    assert not b._nudge.is_set()
+
+
+def test_a_marked_broadcast_is_still_handed_out_while_fresh():
+    b = admin.Broadcast(compute=dict)
+    b._latest = (time.monotonic(), {"workspaces": []}, "{}")
+    b.mark()
+    assert b._stale() and b.fresh() == {"workspaces": []}  # under FRESH_SECONDS
+
+
+async def _open(server, monkeypatch, poll=0.02, refresh=60.0, pages=1):
+    """Start `pages` listeners; returns (app, stop, sinks, tasks)."""
+    monkeypatch.setattr(admin, "POLL_SECONDS", poll)
+    monkeypatch.setattr(admin, "REFRESH_SECONDS", refresh)
+    app = server.mcp.server.http_app()
+    stop = asyncio.Event()
+    sinks = [[] for _ in range(pages)]
+    tasks = [asyncio.create_task(_listen(app, sink, stop)) for sink in sinks]
+    return app, stop, sinks, tasks
+
+
+async def test_a_quiet_list_is_computed_once(server, computed, monkeypatch):
+    # 10 ticks with nothing marked: one build, the first.
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        await asyncio.sleep(0.2)
+        assert len(computed) == 1
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_a_changing_route_is_computed_on_the_next_tick(server, computed, monkeypatch):
+    jar = {
+        "cookies": [{"name": "a", "value": "1", "domain": "app.example.com",
+                     "path": "/"}],
+        "origins": {}, "session": {}, "saved_at": 1.0,
+    }
+    server.workspaces.store.set(
+        "one",
+        Workspace(session_id="").visited("https://app.example.com/").with_site_data(jar),
+    )
+    app, stop, (sink,), tasks = await _open(server, monkeypatch)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        await asyncio.sleep(0.1)
+        await _request(app, "DELETE", "/admin/workspaces/one/site-data/app.example.com")
+        await _until(lambda: len(sink) == 2, "the change")
+        await asyncio.sleep(0.2)
+        assert len(computed) == 2
+        assert json.loads(sink[1])["workspaces"][0]["site_data_count"] == 0
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_a_finished_call_is_computed_on_the_next_tick(server, computed, monkeypatch):
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        server.workspaces.store.set("two", Workspace(session_id=""))
+        server.bus.publish(_finished())
+        await _until(lambda: len(sink) == 2, "the change")
+        await asyncio.sleep(0.2)
+        assert len(computed) == 2
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_many_finished_calls_are_one_computation(server, computed, monkeypatch):
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch, poll=0.4)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        for _ in range(50):
+            server.bus.publish(_finished())
+        await asyncio.sleep(0.1)
+        assert len(computed) == 1, "a mark nudged the tick"
+        await _until(lambda: len(computed) == 2, "the next tick")
+        await asyncio.sleep(0.6)
+        assert len(computed) == 2
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_an_unchanged_list_is_computed_again_past_the_refresh_bound(
+    server, computed, monkeypatch
+):
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch, refresh=0.1)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        await asyncio.sleep(0.35)  # about 17 ticks, about 3 bounds
+        assert 2 <= len(computed) <= 5
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_a_page_joining_a_quiet_list_is_sent_it_at_once(server, computed, monkeypatch):
+    # FRESH_SECONDS stays 1.0: the first build is older than that when the second page joins.
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    app, stop, (first,), tasks = await _open(server, monkeypatch)
+    second = []
+    try:
+        await _until(lambda: len(first) == 1, "the first event")
+        await asyncio.sleep(1.2)
+        tasks.append(asyncio.create_task(_listen(app, second, stop)))
+        await _until(lambda: len(second) == 1, "the joiner's first event", seconds=0.5)
+        assert second == first and len(computed) == 1
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_a_mark_during_a_computation_is_not_seen_by_it(server, gated, monkeypatch):
+    monkeypatch.setattr(admin, "REFRESH_SECONDS", 60.0)  # over the fixture's 0.0
+    gate, entered = gated
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    app = server.mcp.server.http_app()
+    stop = asyncio.Event()
+    sink = []
+    tasks = [asyncio.create_task(_listen(app, sink, stop))]
+    try:
+        await _until(lambda: len(entered) >= 1, "build 1 under way")
+        server.bus.publish(_finished())
+        gate.release(1)
+        await _until(lambda: len(entered) >= 2, "build 2, for the mark")
+        gate.release(1)
+        await asyncio.sleep(0.3)
+        assert len(entered) == 2
+    finally:
+        await _close(stop, tasks, gate)
+
+
+async def test_an_invalidation_is_never_seen_by_a_build_it_raced(monkeypatch):
+    """A build that began at the very instant of an invalidation passes the floor, so only
+    the change count can tell it from one that began after."""
+    monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
+    monkeypatch.setattr(admin, "REFRESH_SECONDS", 60.0)
+    monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
+    monkeypatch.setattr(admin, "time", types.SimpleNamespace(monotonic=lambda: 100.0))
+    entered = threading.Event()
+    gate = threading.Event()
+
+    def compute():
+        entered.set()
+        gate.wait(5)
+        return {"workspaces": []}
+
+    b = admin.Broadcast(compute)
+    page = admin._Page()
+    b.join(page)
+    try:
+        await _until(entered.is_set, "the build under way")
+        b.invalidate()
+        gate.set()
+        await _until(lambda: b._latest is not None, "the build taken")
+        assert b._stale() and b.fresh() is None
+    finally:
+        gate.set()
+        b.leave(page)
+        await asyncio.sleep(0.05)
+
+
+async def test_a_failed_computation_leaves_the_mark_unseen(server, computed, monkeypatch):
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    failing = []
+    real = admin.owner_label
+
+    def owner_label(key):
+        if failing:
+            failing.pop()
+            raise RuntimeError("blip")
+        return real(key)
+
+    monkeypatch.setattr(admin, "owner_label", owner_label)
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        failing.append(True)
+        server.workspaces.store.set("two", Workspace(session_id=""))
+        server.bus.publish(_finished())
+        await _until(lambda: len(sink) == 2, "the change, after the blip")
+        await asyncio.sleep(0.2)
+        assert len(computed) == 3  # the first, the blip, the retry
+    finally:
+        await _close(stop, tasks)
+
+
+def _blips_once(real):
+    """``real``, but raising once each time the returned list is appended to."""
+    blips = []
+
+    def call(*args, **kwargs):
+        if blips:
+            blips.pop()
+            raise RuntimeError("blip")
+        return real(*args, **kwargs)
+
+    return call, blips
+
+
+async def test_a_build_the_grid_failed_is_built_again_on_the_next_tick(
+    server, computed, monkeypatch
+):
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    sessions, blips = _blips_once(list)
+    monkeypatch.setattr(server.actions.grid, "sessions", sessions)
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        blips.append(True)
+        server.bus.publish(_finished())
+        await _until(lambda: len(computed) >= 3, "the build after the blip", seconds=0.5)
+        await asyncio.sleep(0.2)
+        assert len(computed) == 3  # the first, the partial one, the retry
+        assert json.loads(sink[-1])["workspaces"][0]["grid_listed"] is True
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_a_build_the_store_failed_is_built_again_on_the_next_tick(
+    server, computed, monkeypatch
+):
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    records, blips = _blips_once(server.workspaces.store.records)
+    monkeypatch.setattr(server.workspaces.store, "records", records)
+    _app, stop, (sink,), tasks = await _open(server, monkeypatch)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        blips.append(True)
+        server.bus.publish(_finished())
+        await _until(lambda: len(computed) >= 3, "the build after the blip", seconds=0.5)
+        await asyncio.sleep(0.2)
+        assert len(computed) == 3  # the first, the empty one, the retry
+        assert [r["key"] for r in json.loads(sink[-1])["workspaces"]] == ["one"]
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_a_finished_call_is_never_answered_from_before_it(server, counted, monkeypatch):
+    monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
+    server.workspaces.store.set("one", Workspace(session_id=""))
+    app, stop, (sink,), tasks = await _open(server, monkeypatch, poll=60.0)
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        asked = len(counted)
+        await _request(app, "GET", "/admin/workspaces")
+        assert len(counted) == asked, "an unchanged list within the bound was computed again"
+        server.bus.publish(_finished())
+        await _request(app, "GET", "/admin/workspaces")
+        assert len(counted) == asked + 1
+    finally:
+        await _close(stop, tasks)
+
+
+async def test_the_stream_beats_while_nothing_changes(server, computed, monkeypatch):
+    monkeypatch.setattr(admin, "HEARTBEAT", 0.05)
+    monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
+    app = server.mcp.server.http_app()
+    stop, sink, beats = asyncio.Event(), [], []
+    task = asyncio.create_task(_listen(app, sink, stop, beats=beats))
+    try:
+        await _until(lambda: len(sink) == 1, "the first event")
+        await _until(lambda: len(beats) >= 3, "three beats")
+        assert beats[0] == ["event: beat", "data: "]
+        assert len(sink) == 1, "a beat was read as a payload"
+        assert len(computed) == 1
+    finally:
+        await _close(stop, [task])
