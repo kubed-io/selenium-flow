@@ -1,5 +1,5 @@
-"""Which session a call reaches: the default, a named sub-session, or the one a
-token's subject gets when the default is another subject's (WS-48 to WS-50, WS-78)."""
+"""Which session a call reaches: the default or a named sub-session, by its pin
+or its argument, and the refusal when they differ (WS-48, WS-49, WS-78, WS-82)."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from kubed.selenium_flow.core.capabilities import CAPABILITIES
 from kubed.selenium_flow.flows.document import step_schemas
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import waiting
-from kubed.selenium_flow.principal import ADMIN, Principal
+from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import (
     MemoryStore,
@@ -74,7 +74,7 @@ def test_no_name_reaches_the_default():
 
 def test_a_name_reaches_its_sub_session():
     workspaces, store = built(Workspace(subs=["tester"]))
-    seated(store, "shop", "tester", label="tester")
+    seated(store, "shop", "tester")
     assert workspaces.session_of(as_(), "tester") == "shop/tester"
 
 
@@ -87,7 +87,7 @@ def test_default_by_name_is_the_default():
 
 def test_a_pin_wins_and_a_different_argument_is_refused():
     workspaces, store = built(Workspace(subs=["tester"]))
-    seated(store, "shop", "tester", label="tester")
+    seated(store, "shop", "tester")
     caller = pinned("tester")
     assert caller.pinned == "tester"
     assert workspaces.session_of(caller) == "shop/tester"
@@ -138,7 +138,7 @@ def test_open_session_makes_a_named_sub_session():
     actions = RecordingActions()
     workspaces, store = built(Workspace(), actions)
     assert workspaces.session_of(as_(), "tester", opening=True) == "shop/tester"
-    assert record_of(store, "shop", "tester").label == "tester"
+    assert record_of(store, "shop", "tester").holder == "default"
     assert shared_of(store, "shop").subs == ["tester"]
     # Again: the same record, listed once.
     assert workspaces.session_of(as_(), "tester", opening=True) == "shop/tester"
@@ -150,12 +150,12 @@ def test_opening_a_sub_session_in_a_workspace_with_no_record_lists_it():
     workspaces, store = built()
     assert workspaces.session_of(as_(), "tester", opening=True) == "shop/tester"
     assert shared_of(store, "shop").subs == ["tester"]
-    assert shared_of(store, "shop").owner is None
+    assert shared_of(store, "shop").holder == ""
 
 
 def test_a_dead_sub_session_name_is_pruned_on_the_next_listing():  # WS-60, WS-77
     workspaces, store = built(Workspace(subs=["gone", "tester"]))
-    seated(store, "shop", "tester", label="tester")
+    seated(store, "shop", "tester")
     assert [s["name"] for s in workspaces.listed_sessions("shop")] == [
         "default", "tester",
     ]
@@ -167,7 +167,7 @@ def test_a_listing_reads_every_sub_session_in_one_round_trip():
     store = RedisStore(fake, prefix="p:")
     seated(store, "shop", subs=["a", "b", "c"])
     for name in "abc":
-        seated(store, "shop", name, label=name)
+        seated(store, "shop", name)
     workspaces = manager(RecordingActions(), store)
     fake.calls.clear()
     listed = workspaces.listed_sessions("shop")
@@ -192,7 +192,7 @@ class HidingStore(MemoryStore):
 def test_a_name_whose_record_was_made_since_the_read_is_not_pruned():
     store = HidingStore()
     seated(store, "shop", subs=["tester"])
-    seated(store, "shop", "tester", label="tester")
+    seated(store, "shop", "tester")
     store.hidden = "shop/tester"
     manager(RecordingActions(), store).listed_sessions("shop")
     assert shared_of(store, "shop").subs == ["tester"]
@@ -238,99 +238,15 @@ def test_a_refused_open_makes_and_lists_no_sub_session(wanted):  # WS-78
     assert actions.opened == 0
 
 
-def test_an_unowned_default_is_claimed_by_the_first_subject():
-    # claudecode's record today: written before sub-sessions, no owner.
-    workspaces, store = built(Workspace(session_id="g1"))
-    assert workspaces.session_of(as_(FIRST)) == "shop"
-    assert shared_of(store, "shop").owner == "sub-a"
-    assert record_of(store, "shop").session_id == "g1"
-    assert workspaces.session_of(as_(FIRST)) == "shop", "the owner stays on it"
-
-
-def test_a_call_makes_no_workspace_record_to_claim():
-    workspaces, store = built()
-    assert workspaces.session_of(as_(FIRST)) == "shop"
-    assert record_of(store, "shop") is None
-
-
-def test_a_second_subject_gets_its_own_sub_session():
-    workspaces, store = built(Workspace(owner="sub-a"))
-    assert workspaces.session_of(as_(SECOND)) == "shop/sub-b"
-    assert record_of(store, "shop", "sub-b").label == "second"
-    assert shared_of(store, "shop").subs == ["sub-b"]
-    assert shared_of(store, "shop").owner == "sub-a"
-    assert workspaces.session_of(as_(SECOND)) == "shop/sub-b"
-    assert shared_of(store, "shop").subs == ["sub-b"]
-
-
-def test_a_subject_with_no_username_is_labelled_by_its_subject():
-    workspaces, store = built(Workspace(owner="sub-a"))
-    assert workspaces.session_of(as_(Principal("oidc", subject="sub-c"))) == "shop/sub-c"
-    assert record_of(store, "shop", "sub-c").label == "sub-c"
-
-
-@pytest.mark.parametrize("principal", [ADMIN, Principal("oidc"), None])
-def test_a_caller_with_no_subject_never_claims_the_default(principal):
-    workspaces, store = built(Workspace())
-    assert workspaces.session_of(as_(principal)) == "shop"
-    assert shared_of(store, "shop").owner is None
-    workspaces.claim("shop", principal)
-    assert shared_of(store, "shop").owner is None
-    # Nor is it sent away from one a subject owns.
-    seated(store, "shop", owner="sub-a")
-    assert workspaces.session_of(as_(principal)) == "shop"
-
-
 def test_the_stdio_caller_reaches_the_default():
     workspaces, store = built()
     stdio = Caller.stdio()
-    seated(store, stdio.name, owner="sub-a")
+    seated(store, stdio.name)
     assert workspaces.session_of(stdio) == stdio.name
 
 
-def test_the_owner_survives_end_browser_and_a_reopen_naming_default():
-    actions = RecordingActions()
-    workspaces, store = built(Workspace(), actions)
-    assert workspaces.session_of(as_(FIRST)) == "shop"
-    workspaces.open_browser(as_(FIRST))
-    workspaces.end_browser(as_(FIRST))
-    assert shared_of(store, "shop").owner == "sub-a"
-    assert workspaces.session_of(as_(SECOND), "default", opening=True) == "shop"
-    workspaces.open_browser(as_(SECOND), session="default")
-    workspaces.claim("shop", SECOND)
-    assert shared_of(store, "shop").owner == "sub-a"
-    assert actions.opened == 2
-    assert record_of(store, "shop", "sub-b") is None
-
-
-def test_the_first_subject_to_open_a_new_workspace_owns_its_default():
-    workspaces, store = built()
-    workspaces.open_browser(as_(FIRST))
-    assert shared_of(store, "shop").owner == "sub-a"
-    assert workspaces.session_of(as_(SECOND)) == "shop/sub-b"
-
-
-def test_a_second_subject_naming_default_shares_it():
-    workspaces, store = built(Workspace(owner="sub-a"))
-    assert workspaces.session_of(as_(SECOND), "default") == "shop"
-    assert workspaces.session_of(pinned("default", principal=SECOND)) == "shop"
-    assert shared_of(store, "shop").owner == "sub-a"
-    assert record_of(store, "shop", "sub-b") is None
-
-
-def test_a_claim_is_written_once():
-    workspaces, store = built(Workspace())
-    workspaces.claim("shop", FIRST)
-    workspaces.claim("shop", SECOND)
-    assert shared_of(store, "shop").owner == "sub-a"
-    # A sub-session's record holds no owner.
-    seated(store, "shop", "tester")
-    workspaces.claim("shop/tester", SECOND)
-    assert record_of(store, "shop", "tester").owner is None
-
-
 def test_a_subject_that_cannot_name_a_session_is_refused():
-    workspaces, store = built(Workspace(owner="sub-a"))
+    workspaces, store = built(Workspace())
     with pytest.raises(ValueError, match="session"):
         workspaces.session_of(as_(Principal("oidc", subject="idp|42")))
     assert shared_of(store, "shop").subs == []
@@ -386,7 +302,7 @@ async def test_the_pin_from_the_query_reaches_a_tasks_worker(open_server):
             await call_tool_task(client, "pinned_to")
 
 
-# ---- a call acts in its session (WS-51 to WS-53, WS-59, WS-74, SURF-46) -----
+# ---- a call acts in its session (WS-51, WS-52, WS-59, WS-74, WS-84, SURF-46) -
 
 A_SITE = "https://a.example.test/"
 B_SITE = "https://b.example.test/"
@@ -437,7 +353,7 @@ def test_two_sessions_act_at_once():
     assert [outcome[0]["acted_on"] for _, outcome in runs] == list(ids(store))
 
 
-def test_two_callers_naming_one_session_take_turns():  # WS-53
+def test_two_callers_of_one_subject_take_turns_in_its_session():  # WS-84
     workspaces, store = two_open()
     order, entered, release = [], threading.Event(), threading.Event()
 
@@ -452,9 +368,9 @@ def test_two_callers_naming_one_session_take_turns():  # WS-53
         order.append("second")
         return {}
 
-    one = in_thread(lambda: workspaces.act(as_(FIRST), first, session="tester"))
+    one = in_thread(lambda: workspaces.act(as_(), first, session="tester"))
     assert entered.wait(5)
-    two = in_thread(lambda: workspaces.act(as_(SECOND), second, session="tester"))
+    two = in_thread(lambda: workspaces.act(pinned("tester"), second, session="tester"))
     # Until the second holds a ticket behind the first's (internals: the one
     # deterministic sign that it waits on the session's turn).
     turns = locks._holds[ids(store)[1]].lock
@@ -614,16 +530,7 @@ def test_open_session_answers_session_default_and_others():  # WS-48, WS-72
     ]
 
 
-def test_a_subjects_own_sub_session_is_labelled_by_its_username():
-    workspaces, _ = built(Workspace(owner="sub-a"))
-    workspaces.open_browser(as_(FIRST), url=A_SITE)
-    told = workspaces.open_browser(as_(SECOND), url=B_SITE)
-    assert (told["session"], told["default"]) == ("sub-b", False)
-    assert [o["name"] for o in told["others"]] == ["default"]
-    assert workspaces.open_browser(as_(FIRST))["others"][0]["label"] == "second"
-
-
-def test_listing_sessions_sends_no_browser_a_command():  # WS-53, WS-72
+def test_listing_sessions_sends_no_browser_a_command():  # WS-39, WS-72
     actions = RecordingActions()
     workspaces, store = two_open(actions)
     default, tester = ids(store)
@@ -714,7 +621,7 @@ async def test_a_tool_and_a_route_naming_a_session_act_in_it(twin):  # noqa: F81
     server, double = twin
     store = server.workspaces.store
     store.update(NAMED, lambda r: replace(r, subs=["tester"]))
-    seated(store, NAMED, "tester", session_id="b-2", label="tester")
+    seated(store, NAMED, "tester", session_id="b-2")
     double.grid.alive.add("b-2")
     args = {"url": "https://example.test/a", "session": "tester"}
     async with Client(server.mcp.server) as client:
@@ -752,9 +659,9 @@ def test_a_subjects_own_sub_session_is_never_named_in_a_log_line(caplog):
 
     caplog.set_level(logging.DEBUG, logger="kubed.selenium_flow")
     subject = "opaque-subject-123"
-    caller = as_(Principal("oidc", subject=subject, username="tester"))
+    caller = as_(Principal("oidc", subject=subject))
     actions = RecordingActions()
-    workspaces, store = built(Workspace(owner="sub-a"), actions)
+    workspaces, store = built(Workspace(), actions)
     workspaces.open_browser(caller, url=A_SITE)
     workspaces.act(caller, lambda s: {"url": A_SITE}, tool="navigate")
     actions.grid.alive.discard(record_of(store, "shop", subject).session_id)

@@ -9,6 +9,7 @@ delivery inputs, Via among them, are kubed-mcp's too.
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from urllib.parse import urlsplit
 
@@ -39,6 +40,11 @@ CARRIED = "sf-carried-workspace"
 # The session a connection pins, carried the same way: ``?session=`` never
 # reaches the worker either.
 CARRIED_SESSION = "sf-carried-session"
+# Who the caller is, as JSON {"kind", "subject", "username"}: the worker's
+# access token is rebuilt as a plain one, which drops the principal, and the
+# principal decides the caller's own session and who holds a session (WS-82,
+# WS-84). Roles are not carried: nothing past the door reads them (AUTH-21).
+CARRIED_PRINCIPAL = "sf-carried-principal"
 
 
 def request_values() -> tuple[Values, Values] | None:
@@ -60,6 +66,7 @@ def snapshot(values: Values) -> Values:
     values = dict(values)
     carried = values.pop(CARRIED, None)
     pin = values.pop(CARRIED_SESSION, None)
+    values.pop(CARRIED_PRINCIPAL, None)
     values.pop(WORKSPACE_HEADER, None)
     values.pop(WORKSPACE_ALIAS, None)
     values.pop(SESSION_HEADER, None)
@@ -79,25 +86,74 @@ def principal() -> Principal | None:
     return getattr(token, "principal", None)
 
 
+def carried_principal() -> Principal | None:
+    """The principal `Carry` wrote for a background task's worker, or None.
+
+    Read only off a live request: on one, the header is a client's, and
+    `Carry` drops it from every tool call anyway. Anything that is not a
+    principal `Carry` would write reads as none.
+    """
+    try:
+        mcp_request.get_http_request()
+    except RuntimeError:
+        pass
+    else:
+        return None
+    try:
+        headers = mcp_request.get_http_headers(include_all=True)
+    except Exception:  # noqa: BLE001 - off any request there is nothing carried
+        return None
+    raw = {k.lower(): v for k, v in (headers or {}).items()}.get(CARRIED_PRINCIPAL)
+    return _principal_of(raw) if raw else None
+
+
+def _principal_of(raw: str) -> Principal | None:
+    """The principal ``raw`` (`_carried`'s JSON) describes, or None."""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    subject, username = data.get("subject"), data.get("username")
+    username = username if isinstance(username, str) else None
+    if data.get("kind") == "admin":
+        return Principal("admin")
+    if data.get("kind") == "oidc" and isinstance(subject, str) and subject:
+        return Principal("oidc", subject=subject, username=username)
+    return None
+
+
+def _carried(found: Principal) -> bytes:
+    """``found`` as `CARRIED_PRINCIPAL` holds it."""
+    return json.dumps(
+        {"kind": found.kind, "subject": found.subject, "username": found.username}
+    ).encode()
+
+
 def caller() -> Caller:
     """Who is calling this MCP request: read once, here, and handed in.
 
-    Off HTTP it is the stdio caller.
+    Off HTTP it is the stdio caller. A background task's worker has the
+    principal `Carry` carried, since its access token comes back without one.
     """
     values = request_values()
     if values is None:
         return Caller.stdio()
-    return replace(Caller.from_request(*values), principal=principal())
+    return replace(
+        Caller.from_request(*values), principal=principal() or carried_principal()
+    )
 
 
 class Carry(Middleware):
-    """Carry the caller's workspace, and the session it pins, to a background
-    task's worker.
+    """Carry the caller's workspace, the session it pins and its principal to
+    a background task's worker.
 
-    On every call over HTTP, a ``CARRIED`` or ``CARRIED_SESSION`` header the
-    client sent is dropped. For a tool that may run as a task (by its own task
-    config), the caller's name and pin are read from the request now and
-    written into its headers, which the task's snapshot is taken from later.
+    On every call over HTTP, a ``CARRIED``, ``CARRIED_SESSION`` or
+    ``CARRIED_PRINCIPAL`` header the client sent is dropped. For a tool that
+    may run as a task (by its own task config), the caller's name, pin and
+    principal are read from the request now and written into its headers,
+    which the task's snapshot is taken from later.
     In place, in ``scope["headers"]``: Starlette's `Request` reads that list,
     and a `MutableHeaders` over it is a copy the snapshot never sees.
 
@@ -114,7 +170,9 @@ class Carry(Middleware):
         if request is not None:
             headers = request.scope["headers"]
             key, pin_key = CARRIED.encode(), CARRIED_SESSION.encode()
-            headers[:] = [h for h in headers if h[0].lower() not in (key, pin_key)]
+            who_key = CARRIED_PRINCIPAL.encode()
+            dropped = (key, pin_key, who_key)
+            headers[:] = [h for h in headers if h[0].lower() not in dropped]
             name = context.message.name
             if await _tasked(context, name):
                 caller = Caller.from_request(*values_of(request))
@@ -127,6 +185,8 @@ class Carry(Middleware):
                 headers.append((key, named.encode()))
                 if pinned:
                     headers.append((pin_key, pinned.encode()))
+                if (found := principal()) is not None:
+                    headers.append((who_key, _carried(found)))
         return await call_next(context)
 
 

@@ -37,10 +37,11 @@ from kubed.selenium_flow.live.control import (
 )
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import waiting
+from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace import locks
 
-from .conftest import calling_as
+from .conftest import TOKEN, calling_as
 from .fakes import held, loaded, record_of, seated, shared_of, untabbed
 
 pytestmark = pytest.mark.unit
@@ -78,7 +79,20 @@ class Browser:
 
 @pytest.fixture
 def server(monkeypatch):
-    server = untabbed(SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}}))
+    return built(monkeypatch, {"grid": {"url": "http://grid.invalid:4444"}})
+
+
+@pytest.fixture
+def token_server(monkeypatch):
+    """`server`, behind the server token."""
+    return built(
+        monkeypatch,
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}},
+    )
+
+
+def built(monkeypatch, settings):
+    server = untabbed(SeleniumMCP(settings))
     browser = Browser()
     monkeypatch.setattr(server.grid, "is_alive", lambda sid: sid in browser.alive)
 
@@ -661,6 +675,90 @@ async def test_every_task_tool_is_carried_and_no_tool_hears_a_client_s_header(se
         plain = await client.call_tool("heard")
     assert tasked.structured_content == {"workspace": "w1"}
     assert plain.structured_content == {"carried": None}
+
+
+# ---- the principal reaches the worker (WS-82, WS-84) ---------------------------
+
+BEARER = {"Authorization": f"Bearer {TOKEN}"}
+SPOOFED = '{"kind": "oidc", "subject": "sub-x", "username": "spoofed"}'
+FIRST = Principal("oidc", subject="sub-a", username="first")
+
+
+async def held_in(server, name, who="alex"):
+    """Control held on ``w1``'s session ``name``, its browser live."""
+    key = seated(server.store, "w1", name, session_id=GRID)
+    return await asyncio.to_thread(held, server.tunnels, key, who, "control", GRID)
+
+
+async def test_the_tokens_task_waits_on_its_own_session(token_server):
+    """The worker's token comes back without its principal: `Carry` carries
+    it, so an unnamed task waits on `w1/admin`, and a copy the client sent is
+    dropped."""
+    hand_back(await held_in(token_server, "admin"))
+    async with over_http(
+        token_server,
+        "http://test/mcp?workspace=w1",
+        headers={**BEARER, clients_module.CARRIED_PRINCIPAL: SPOOFED},
+    ) as client:
+        result = await (await call_tool_task(client, "await_control")).result()
+    assert result.structured_content["handed_back"] is True
+    assert result.structured_content["control"]["who"] == ["alex"]
+
+
+async def test_a_jwts_task_waits_on_its_own_session_and_may_name_it(
+    token_server, monkeypatch
+):
+    """As a JWT's verifier would give it: its own name and its subject reach
+    the worker, so it waits on `w1/first`, and naming that session is not
+    refused as another subject's."""
+    real = clients_module.principal
+
+    def verified():
+        try:
+            get_http_request()
+        except RuntimeError:
+            return real()
+        return FIRST
+
+    monkeypatch.setattr(clients_module, "principal", verified)
+    hand_back(await held_in(token_server, "first"))
+    token_server.store.update("w1/first", lambda r: replace(r, holder="sub-a"))
+    async with over_http(
+        token_server, "http://test/mcp?workspace=w1", headers=BEARER
+    ) as client:
+        unnamed = await (await call_tool_task(client, "await_control")).result()
+        hand_back(await held_in(token_server, "first", who="drk"))
+        named = await (
+            await call_tool_task(client, "await_control", {"session": "first"})
+        ).result()
+    assert unnamed.structured_content["control"]["who"] == ["alex"]
+    assert named.structured_content["handed_back"] is True
+    assert named.structured_content["control"]["who"] == ["drk"]
+
+
+async def test_a_carried_principal_the_client_sent_is_ignored(server):
+    """On an open server nothing is carried: a worker given a client's copy
+    would take another's subject."""
+
+    @server.mcp.tool(task=waiting.TASK)
+    async def who() -> dict:
+        principal = clients_module.caller().principal
+        return {"principal": principal.status() if principal else None}
+
+    @server.mcp.tool
+    def plain() -> dict:
+        principal = clients_module.caller().principal
+        return {"principal": principal.status() if principal else None}
+
+    async with over_http(
+        server,
+        "http://test/mcp?workspace=w1",
+        headers={clients_module.CARRIED_PRINCIPAL: SPOOFED},
+    ) as client:
+        tasked = await (await call_tool_task(client, "who")).result()
+        inline = await client.call_tool("plain")
+    assert tasked.structured_content == {"principal": None}
+    assert inline.structured_content == {"principal": None}
 
 
 # ---- the long poll -------------------------------------------------------------

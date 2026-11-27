@@ -71,12 +71,12 @@ def server():
             "origins": {}, "session": {}, "saved_at": NOW,
         },
     )
-    seated(store, WS, "tester", session_id="g2", opened_at=NOW, label="tester", site_data=TESTER_DATA,
+    seated(store, WS, "tester", session_id="g2", opened_at=NOW, site_data=TESTER_DATA,
         settings={"capture": True, "browser": "chrome"},
     )
     # A workspace that exists only because a sub-session was opened in it.
     seated(store, "fresh", subs=["only"])
-    seated(store, "fresh", "only", label="only")
+    seated(store, "fresh", "only")
     return s
 
 

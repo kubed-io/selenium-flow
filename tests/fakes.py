@@ -382,18 +382,27 @@ class FakeClock:
         return self.now
 
 
-# The session a server-token caller reaches when it names none.
-TOKEN_SESSION = "default"
+# The session a server-token caller reaches when it names none: its own (WS-82).
+TOKEN_SESSION = "admin"
 
 
 def seated(
-    store, workspace, name=sessions.DEFAULT, *, record=None, history=None, **fields
+    store,
+    workspace,
+    name=sessions.DEFAULT,
+    *,
+    record=None,
+    history=None,
+    holder: str | None = None,
+    **fields,
 ):
     """Seat a session in ``workspace``: write its record, list it, put the
     history on the workspace's record. Returns the session key.
 
     The record is ``record`` as it is, or a ``Workspace`` made of ``fields``
-    (both is a ``TypeError``). ``history`` is what the workspace's record
+    (both is a ``TypeError``). ``holder`` is the subject that holds it
+    (WS-84), set on ``record`` too when given; by default none, which any
+    subject may use. ``history`` is what the workspace's record
     holds; when None (omitted), a ``record``'s own history supplies it (even if
     empty, for the default), and with ``fields`` the default keeps its existing
     history; a sub's record moves only a history it has. A sub's own
@@ -404,6 +413,8 @@ def seated(
         raise TypeError("seated takes a record or fields, not both")
     given = record is not None
     record = record if given else Workspace(**fields)
+    if holder is not None:
+        record = replace(record, holder=holder)
     key = sessions.key_of(workspace, name)
     held = store.get(workspace)
     if name == sessions.DEFAULT:

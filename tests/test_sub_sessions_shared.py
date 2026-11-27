@@ -160,7 +160,7 @@ def test_the_admins_clear_keeps_every_live_sessions_current_page(server):
         .visited(B_SITE, session="tester"),
     )
     # `gone`'s record expired: it cannot reopen, so its page is cleared too.
-    seated(store, NAMED, "tester", label="tester")
+    seated(store, NAMED, "tester")
     client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     url = f"/admin/workspaces/{NAMED}/history"
     assert client.get(url).json()["clears"] == [
@@ -228,7 +228,7 @@ def test_a_sub_sessions_save_site_data_reads_its_own_sites(server, monkeypatch):
         .visited(B_SITE, session="tester")
         .visited(C_SITE),
     )
-    seated(store, NAMED, "tester", label="tester")
+    seated(store, NAMED, "tester")
     monkeypatch.setattr(
         clients_module, "request_values", lambda: http({"workspace": NAMED})
     )
@@ -246,7 +246,7 @@ def test_a_sub_sessions_save_site_data_reads_its_own_sites(server, monkeypatch):
 def test_flows_files_and_config_are_the_same_from_every_session(data_server):
     store = data_server.workspaces.store
     seated(store, NAMED, subs=["tester"])
-    seated(store, NAMED, "tester", label="tester")
+    seated(store, NAMED, "tester")
     seated(store, NAMED, TOKEN_SESSION)  # the token's unnamed reads are its own session's
     data_server.flows.write_file(NAMED, "report.pdf", b"PDF")
     data_server.flows.save(NAMED, "mine", {"steps": [], "description": "mine"})
@@ -280,7 +280,7 @@ def test_flows_files_and_config_are_the_same_from_every_session(data_server):
 def _two_browsers(server):
     store = server.workspaces.store
     seated(store, NAMED, session_id="g-default", subs=["tester"])
-    seated(store, NAMED, "tester", session_id="g-tester", label="tester")
+    seated(store, NAMED, "tester", session_id="g-tester")
 
 
 def _listing(session_id):

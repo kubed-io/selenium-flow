@@ -73,7 +73,7 @@ def flows(monkeypatch, tmp_path):
     calling_as(monkeypatch, NAMED)
     store = app.workspaces.store
     seated(store, NAMED, session_id="b-1", subs=["tester"])
-    seated(store, NAMED, "tester", session_id="b-2", label="tester")
+    seated(store, NAMED, "tester", session_id="b-2")
     double.grid.alive.update({"b-1", "b-2"})
     app.flows.save(NAMED, "trip", {"steps": STEPS})
     return app, double
@@ -112,11 +112,11 @@ async def test_run_flow_runs_every_step_in_its_session(flows):
 
 async def test_a_flow_failing_in_a_sub_session_logs_no_name(flows, monkeypatch, caplog):
     """A step's failure is logged at INFO with its error, and a run in a session
-    that is not there is refused: neither line names the session (WS-49)."""
+    that is not there is refused: neither line names the session (WS-79)."""
     app, double = flows
     subject = "subject-7f3a"
     store = app.workspaces.store
-    seated(store, NAMED, subject, session_id="b-3", label=subject)
+    seated(store, NAMED, subject, session_id="b-3")
     double.grid.alive.add("b-3")
 
     def refuse(self, session_id, url):
@@ -240,7 +240,7 @@ def test_control_of_one_session_leaves_another_acting():
 
 async def test_await_control_waits_for_its_own_session(server, named, monkeypatch):  # noqa: F811
     store = server.store
-    seated(store, "w1", "tester", session_id="g2", label="tester")
+    seated(store, "w1", "tester", session_id="g2")
     server.browser.alive.add("g2")
     tunnel = await asyncio.to_thread(
         held, server.tunnels, "w1/tester", "alex", "control", "g2"
@@ -288,7 +288,7 @@ def live_build():
 
     app = build()
     app.workspaces.store.update("w1", lambda r: replace(r, subs=["tester"]))
-    seated(app.workspaces.store, "w1", "tester", session_id="g-tester", label="tester", ran={"live_view": True},
+    seated(app.workspaces.store, "w1", "tester", session_id="g-tester", ran={"live_view": True},
     )
     return app
 

@@ -184,7 +184,7 @@ def listed_sessions(workspaces, workspace: str, record, running: dict) -> list[d
     return [
         {
             "name": name,
-            "label": r.label or name,
+            "label": name,
             "default": name == sessions.DEFAULT,
             "live": bool(r.session_id) and r.session_id in running,
             "browser": (r.settings or {}).get("browser") or DEFAULT_BROWSER,
@@ -708,7 +708,7 @@ def mount(
             return {
                 "key": workspace,
                 "session": name,
-                "label": record.label or name,
+                "label": name,
                 "default": name == sessions.DEFAULT,
                 **session_facts(workspaces, key, record, running, listed),
                 "url": top.page(name) or None,
@@ -743,7 +743,8 @@ def mount(
                     {"success": True, "key": workspace, "session_id": None}
                 )
             # The tool's own command. `admin=True`: a person's control never
-            # refuses the End, and ending releases it.
+            # refuses the End, ending releases it, and whoever holds the
+            # session does not bind the admin (WS-84).
             # The default's End is the one it always was.
             picked = {} if name == sessions.DEFAULT else {"session": name}
             await run_in_threadpool(

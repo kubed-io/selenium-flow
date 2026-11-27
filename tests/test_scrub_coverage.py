@@ -32,6 +32,7 @@ from kubed.selenium_flow.core.capabilities import CAPABILITIES
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp.scrubbed import EXEMPT
+from kubed.selenium_flow.principal import ADMIN_SUBJECT
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace import sessions
 
@@ -217,7 +218,7 @@ def seed(server):
     own = record_of(store, NAMED)
     if sessions.key_of(NAMED, TOKEN_SESSION) != NAMED:
         own = replace(own, session_id=f"{own.session_id}-token")
-    seated(store, NAMED, TOKEN_SESSION, record=own)
+    seated(store, NAMED, TOKEN_SESSION, record=own, holder=ADMIN_SUBJECT)
     server.flows.write_file(NAMED, "notes.txt", ALL.encode(), files_module.FILES)
     # A plain image: pixels pass unscrubbed (ruling 16), so it holds no value.
     server.flows.write_file(

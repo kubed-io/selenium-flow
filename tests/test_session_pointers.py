@@ -44,7 +44,6 @@ from .fakes import (
     ScriptedDriver,
     record_of,
     seated,
-    shared_of,
 )
 from .test_site_data_workspaces import SiteActions
 
@@ -181,10 +180,10 @@ def test_own_is_the_session_reading_would_reach(two):
 
 
 def test_a_caller_with_no_own_session_is_pointed_at_the_one_it_named(two):
-    """A subject that cannot name a session, where another owns the default,
-    has no own session to read: what it named is never taken for it."""
+    """A subject that cannot name a session has no own session to read: what
+    it named is never taken for it, a session it holds included."""
     workspaces, capture = two
-    workspaces.store.update(WS, lambda r: replace(r, owner="sub-a"))
+    workspaces.store.update(SUB, lambda r: replace(r, holder="current"))
     caller = replace(unnamed(), principal=Principal("oidc", subject="current"))
     assert workspaces.own(caller, "tester", SUB) == ""
     result = workspaces.act(caller, erring(capture), session="tester", tool="interact")
@@ -341,7 +340,7 @@ def server(data_server, monkeypatch):
     store = data_server.workspaces.store
     seated(store, NAMED, session_id="g-default", settings={"capture": True}, subs=["tester"],
     )
-    seated(store, NAMED, "tester", session_id="g-tester", settings={"capture": True}, label="tester",
+    seated(store, NAMED, "tester", session_id="g-tester", settings={"capture": True},
     )
     store.update(TESTER, lambda r: r.with_site_data(JAR))
     capture = data_server.capture
@@ -480,7 +479,7 @@ def test_a_rest_keep_says_whose_download_it_kept(server):
     assert theirs.json()["from"] == "session://tester/downloads/report.pdf"
     mine = client.put(path, json={})
     assert mine.json()["from"] == "session://downloads/report.pdf"
-    own = client.put(path, json={"session": "default"})
+    own = client.put(path, json={"session": TOKEN_SESSION})
     assert own.json()["from"] == "session://downloads/report.pdf"
 
 
@@ -497,16 +496,6 @@ async def test_a_hand_back_names_the_session_it_restored(server, monkeypatch):
     async with Client(server.mcp.server) as c:
         back = await c.call_tool("await_control", {"session": "tester"})
     assert back.structured_content["site_data"]["uri"] == "session://tester/site-data"
-
-
-async def test_reading_your_downloads_claims_nothing(server, monkeypatch):
-    first = Principal("oidc", subject="sub-a", username="first")
-    monkeypatch.setattr(clients_module, "principal", lambda: first)
-    store = server.workspaces.store
-    assert shared_of(store, NAMED).owner is None
-    listing = await read(server, "session://downloads")
-    assert listing["files"][0]["name"] == "g-default.pdf"
-    assert shared_of(store, NAMED).owner is None, "reading is not claiming"
 
 
 async def test_mcp_tools_point_at_the_session_they_named(server, monkeypatch):
@@ -625,7 +614,7 @@ def wired(tmp_path, monkeypatch):
     store = server.workspaces.store
     seated(store, NAMED, session_id="g-default", settings={"capture": True}, subs=["tester"],
     )
-    seated(store, NAMED, "tester", session_id="g-tester", settings={"capture": True}, label="tester",
+    seated(store, NAMED, "tester", session_id="g-tester", settings={"capture": True},
     )
     for sid, key in SIDS.items():
         server.capture.attached(key, sid, "chrome", "top-1", again=False)
@@ -680,7 +669,7 @@ async def test_upload_file_types_another_sessions_download(server, monkeypatch):
     whichever that is (ACT-40)."""
     store = server.workspaces.store
     store.update(NAMED, lambda r: replace(r, subs=[*r.subs, "zed"]))
-    seated(store, NAMED, "zed", session_id="g-zed", label="zed")
+    seated(store, NAMED, "zed", session_id="g-zed")
     typed = []
 
     def reconnect(session_id):
@@ -703,7 +692,7 @@ async def test_upload_file_types_another_sessions_download(server, monkeypatch):
             assert typed[-1] == (into, b"PDF of g-tester"), session
 
 
-# ---- no log line names a sub-session (WS-49 (3), ERR-35) -----------------------
+# ---- no log line names a sub-session (WS-82, ERR-35) ---------------------------
 
 SUBJECT = "subject-7f3a"
 GONE = "gone-7f3a"
@@ -726,7 +715,7 @@ def named_anywhere(caplog):
 
 async def test_no_log_line_names_a_sub_session(server, caplog, monkeypatch):
     store = server.workspaces.store
-    key = seated(store, NAMED, SUBJECT, session_id="g-subject", settings={"capture": True}, label=SUBJECT)
+    key = seated(store, NAMED, SUBJECT, session_id="g-subject", settings={"capture": True})
     server.capture.attached(key, "g-subject", "chrome", "top-1", again=False)
     caplog.set_level(logging.DEBUG)
     async with Client(server.mcp.server) as c:
@@ -830,7 +819,7 @@ def _with_session(server, monkeypatch, name, sid):
     """``name`` open in `NAMED` on ``sid``, capturing, its page throwing as
     `wired`'s do."""
     store = server.workspaces.store
-    key = seated(store, NAMED, name, session_id=sid, settings={"capture": True}, label=name)
+    key = seated(store, NAMED, name, session_id=sid, settings={"capture": True})
     monkeypatch.setitem(SIDS, sid, key)
     server.capture.attached(key, sid, "chrome", "top-1", again=False)
     return key

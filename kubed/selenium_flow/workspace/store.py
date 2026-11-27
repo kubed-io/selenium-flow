@@ -156,16 +156,13 @@ class Workspace:
     # How the last session ended, {"at", "by": "admin" | "caller"}, or None:
     # set by `end_browser`, cleared by the next open. A reap writes nothing.
     ended: dict | None = None
-    # The subject that owns this workspace's default session, or None while no
-    # one has claimed it. Written on a workspace's record only.
-    owner: str | None = None
     # The names of this workspace's sub-sessions, kept on its record so a listing
     # needs no scan. Written on a workspace's record only.
     subs: list = field(default_factory=list)
-    # What a sub-session is shown as: its name, or the token's
-    # `preferred_username` for a subject's own (WS-50). Written on a
-    # sub-session's record only.
-    label: str = ""
+    # The subject that holds this session (`principal.subject_of`), set by the
+    # `open_session` that made it, or "" for a record no subject holds yet,
+    # which the next subject to open it takes (WS-84).
+    holder: str = ""
 
     @property
     def url(self) -> str:
@@ -259,9 +256,8 @@ class Workspace:
                 sent=_sent(data.get("sent")),
                 ran=_ran(data.get("ran")),
                 ended=_ended(data.get("ended")),
-                owner=_owner(data.get("owner")),
                 subs=_subs(data.get("subs")),
-                label=_label(data.get("label")),
+                holder=_holder(data.get("holder")),
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
@@ -432,11 +428,7 @@ def _ended(raw) -> dict | None:
     return {"at": float(at), "by": raw["by"]}
 
 
-def _owner(raw) -> str | None:
-    return raw if isinstance(raw, str) and raw else None
-
-
-def _label(raw) -> str:
+def _holder(raw) -> str:
     return raw if isinstance(raw, str) else ""
 
 

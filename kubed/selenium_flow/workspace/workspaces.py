@@ -62,7 +62,7 @@ from ..core.coerce import as_bool
 from ..core.defaults import DEFAULT_BROWSER, normalize_browser
 from ..monitor.monitor import ATTACH_FAILED, DEFAULT_TIMEOUT, KEEPALIVE
 from ..names import GLOBAL_WORKSPACE, valid_workspace_name
-from ..principal import Principal
+from ..principal import Principal, subject_of
 from ..redaction import Forms
 from ..site_data import snapshot as site_data_module
 from ..urls import (
@@ -219,7 +219,7 @@ BOTH = (
     "one you control and drop the other."
 )
 
-# The pin: a connection that sends one reaches that session and no other (WS-49).
+# The pin: a connection that sends one reaches that session and no other (WS-82).
 SESSION_PARAM = "session"
 SESSION_HEADER = "sf-session"
 
@@ -229,8 +229,8 @@ BOTH_SESSIONS = (
     "you control and drop the other."
 )
 
-# Neither text quotes a session's name, the pin's or the call's: a subject's own
-# is named by its subject, and a refusal's text is logged (WS-49).
+# Neither text quotes a session's name, the pin's or the call's: a caller's own
+# is named by its username or subject, and a refusal's text is logged (WS-82).
 PIN_DIFFERS = (
     "this connection is pinned to a session and the call names another: drop "
     "the session argument, or name the one the connection is pinned to"
@@ -242,17 +242,11 @@ NO_SUB = (
     "starts no browser."
 )
 
-# Never quotes the session's name: a subject's own is named by its subject,
-# and a refusal's text is logged.
+# Never quotes the session's name: a caller's own is named by its username or
+# subject, and a refusal's text is logged (WS-82).
 NO_BROWSER = (
     "no browser is open in this session of workspace {workspace!r}: call "
     "open_session for the same session first. Only open_session opens one."
-)
-
-SUBJECT_UNNAMED = (
-    "your token's subject cannot name a session, and this workspace's default "
-    "session is another subject's: pass session=<name>, or pin one with "
-    "Sf-Session or ?session="
 )
 
 # The names a client's setting defaults arrive under.
@@ -773,60 +767,63 @@ class Workspaces:
         """The key of ``caller``'s own session, for a call that named
         ``named`` and acts in ``acted``: what its pointers are read against
         (`sessions.pointer`). An unnamed call acts in its own. One whose own
-        cannot be read has none: ``""``, which no session's key equals."""
+        cannot be read, because its own name is refused or its own session is
+        another subject's, has none: ``""``, which no session's key equals."""
         if not named:
             return acted
         try:
             return self.reading(caller)
-        except ValueError:
+        except (ValueError, faults.Held):
             return ""
 
     def session_of(
-        self, caller: Caller, named: str | None = None, *, opening: bool = False
+        self,
+        caller: Caller,
+        named: str | None = None,
+        *,
+        opening: bool = False,
+        admin: bool = False,
     ) -> str:
-        """The key of the session ``caller`` reaches (WS-49), first match wins:
-        its pin, the session ``named``, its subject's own sub-session when
-        another subject owns the default, and the default.
+        """The key of the session ``caller`` reaches (WS-82, WS-83): its pin,
+        else the session ``named``, else its own (`sessions.own_name`).
 
-        A named sub-session with no record is refused with `faults.NoSession`
-        and nothing is made, so a mistyped name opens nothing (WS-78), unless
-        ``opening``, which `open_session` passes: then its record is made and
-        listed on the workspace's. A subject's own sub-session gets its record
-        on any call. A subject reaching the default claims it if no one owns
-        it (WS-50); a caller with no subject always reaches it.
+        A session whose record another subject holds is refused with
+        `faults.Held`, a 403, unless ``admin``, which only the admin's End and
+        End all pass (WS-84). A named sub-session with no record is refused
+        with `faults.NoSession` and nothing is made, so a mistyped name opens
+        nothing (WS-78), unless ``opening``, which `open_session` passes: then
+        it is seated (`_seat`). The caller's own session with no record is its
+        key, and nothing is made: what needs a browser is refused by
+        `resolved` (WS-12).
         """
         workspace = caller.name
         chosen = self._chosen(caller, named)
-        if chosen and chosen != sessions.DEFAULT:
-            return self._sub(workspace, chosen, chosen, made=opening)
-        principal = caller.principal
-        subject = principal.subject if principal is not None else None
-        if not subject:
-            return workspace
-        owner = self._claimed(workspace, subject)
-        if chosen or owner in (None, subject):
-            return workspace
-        own = self._own_name(subject)
-        return self._sub(workspace, own, principal.username or subject, made=True)
+        name = chosen or sessions.own_name(caller.principal)
+        key = sessions.key_of(workspace, name)
+        subject = subject_of(caller.principal)
+        if not admin:
+            self._holds(key, subject)
+        if opening:
+            return self._seat(workspace, name, subject)
+        if chosen:
+            self._recorded_sub(key)
+        return key
 
     def reading(self, caller: Caller, named: str | None = None) -> str:
-        """The key of the session ``caller`` reads (WS-49), as `session_of`
-        resolves it but never writing: no record is made, no default claimed.
-        A named sub-session with no record is refused with `faults.NoSession`;
-        a subject's own that does not exist yet is the key it will be made
-        under, which reads as a session with nothing in it."""
+        """The key of the session ``caller`` reads, as `session_of` resolves
+        it but never writing: no record is made. Another subject's session is
+        `faults.Held`, and a named sub-session with no record
+        `faults.NoSession`; the caller's own that does not exist yet is the
+        key it will be made under, which reads as a session with nothing in
+        it (WS-43)."""
         workspace = caller.name
         chosen = self._chosen(caller, named)
-        if chosen and chosen != sessions.DEFAULT:
-            return self._sub(workspace, chosen, chosen, made=False)
-        principal = caller.principal
-        subject = principal.subject if principal is not None else None
-        if not subject or chosen:
-            return workspace
-        record = self.store.get(workspace)
-        if record is None or record.owner in (None, subject):
-            return workspace
-        return sessions.key_of(workspace, self._own_name(subject))
+        name = chosen or sessions.own_name(caller.principal)
+        key = sessions.key_of(workspace, name)
+        self._holds(key, subject_of(caller.principal))
+        if chosen:
+            self._recorded_sub(key)
+        return key
 
     @staticmethod
     def _chosen(caller: Caller, named: str | None) -> str:
@@ -838,48 +835,36 @@ class Workspaces:
             raise ValueError(PIN_DIFFERS)
         return pin or name
 
-    @staticmethod
-    def _own_name(subject: str) -> str:
-        """The name of the sub-session ``subject`` gets when the default is
-        another's: its own name, or a refusal when that cannot name one."""
-        try:
-            own = sessions.valid_session_name(subject)
-        except ValueError:
-            own = sessions.DEFAULT
-        if own == sessions.DEFAULT:
-            raise ValueError(SUBJECT_UNNAMED)
-        return own
+    def _recorded_sub(self, key: str) -> None:
+        """Refuse the named sub-session ``key`` with `faults.NoSession` when
+        it has no record (WS-78). The default by name always resolves."""
+        if not sessions.is_sub(key) or self.store.get(key) is not None:
+            return
+        if self.capture is not None:
+            # Its record is gone, and its capture goes with it (CAP-81).
+            self.capture.discard(key)
+        raise faults.NoSession(NO_SUB.format(workspace=sessions.split(key)[0]))
 
-    def claim(self, key: str, principal: Principal | None) -> None:
-        """Make ``principal``'s subject the owner of the default session ``key``
-        if no one owns it yet (WS-50). A sub-session, a key with no record and
-        a caller with no subject are left as they are."""
-        subject = principal.subject if principal is not None else None
-        if subject and not sessions.is_sub(key):
-            self._claimed(key, subject)
+    def _holds(self, key: str, subject: str) -> None:
+        """Refuse with `faults.Held` when the session ``key`` has a record
+        held by a subject other than ``subject`` (WS-84). No record, and a
+        record no one holds yet, pass."""
+        record = self.store.get(key)
+        if record is not None and record.holder not in ("", subject):
+            raise faults.Held()
 
-    def _claimed(self, workspace: str, subject: str) -> str | None:
-        """The default's owner once ``subject`` has claimed it if it could, or
-        None with no record. Inside the record's compare-and-set, so two first
-        subjects cannot both own it."""
-        record = self.store.update(
-            workspace, lambda r: None if r.owner else replace(r, owner=subject)
-        )
-        return record.owner if record is not None else None
+    def _seat(self, workspace: str, name: str, subject: str) -> str:
+        """The key of ``workspace``'s session ``name``, seated for an
+        `open_session` by ``subject``: listed on the workspace's record (made
+        too if absent), and its record made held by ``subject`` if absent, or
+        taken when no one holds it. Inside the record's compare-and-set, so
+        of two subjects opening one new name, one holds it and the other is
+        refused with `faults.Held` (WS-84).
 
-    def _sub(self, workspace: str, name: str, label: str, *, made: bool) -> str:
-        """The key of ``workspace``'s sub-session ``name``. When ``made``, its
-        record is made if absent, shown as ``label``, and listed on the
-        workspace's record (made too if absent); otherwise one with no record
-        is refused."""
+        The default is not listed: its record is the workspace's.
+        """
         key = sessions.key_of(workspace, name)
-        if not made:
-            if self.store.get(key) is None:
-                if self.capture is not None:
-                    # Its record is gone, and its capture goes with it (CAP-81).
-                    self.capture.discard(key)
-                raise faults.NoSession(NO_SUB.format(workspace=workspace))
-            return key
+        sub = sessions.is_sub(key)
 
         def listed(r: Workspace | None) -> Workspace | None:
             if r is not None and name in r.subs:
@@ -887,24 +872,30 @@ class Workspaces:
             r = r or Workspace()
             return replace(r, subs=[*r.subs, name])
 
-        created = []
-
-        def make(r: Workspace | None) -> Workspace | None:
-            if r is not None:
-                return None
-            created.append(key)
-            return Workspace(label=label)
+        def seat(r: Workspace | None) -> tuple[Workspace | None, str | None]:
+            if r is None:
+                return Workspace(holder=subject), "made"
+            if not r.holder:
+                # Only an old pod writing during a rollout leaves one.
+                return replace(r, holder=subject), None
+            if r.holder == subject:
+                return None, None
+            return None, "held"
 
         # The name first, so a record whose write fails is never one no
         # listing shows: the name with no record is what a listing prunes
         # (`sub_sessions`). Listed again after, in case a listing pruned it in
         # between.
-        self.store.upsert(workspace, listed)
-        self.store.upsert(key, make)
-        if created and self.capture is not None:
+        if sub:
+            self.store.upsert(workspace, listed)
+        _, note = self.store.change(key, seat, create=True)
+        if note == "held":
+            raise faults.Held()
+        if note == "made" and self.capture is not None:
             # What an expired record of this name captured is not this one's.
             self.capture.discard(key)
-        self.store.upsert(workspace, listed)
+        if sub:
+            self.store.upsert(workspace, listed)
         return key
 
     def browser(self, name: str) -> str:
@@ -1405,7 +1396,7 @@ class Workspaces:
         cannot disagree about sliding a TTL or reopening a reaped browser.
 
         ``session`` is the call's own argument; which session it reaches is
-        `session_of`'s answer (WS-49), and everything below is keyed by that
+        `session_of`'s answer (WS-82), and everything below is keyed by that
         session's key. A sub-session with no record, or a session with no
         browser, is `faults.NoSession`, and nothing is opened (WS-78).
 
@@ -1786,8 +1777,9 @@ class Workspaces:
         **wanted,
     ) -> dict:
         """Open a browser in the caller's session, or pick up the one it was
-        using. ``session`` names it (WS-49); a sub-session it names is made
-        here, the one place that may (WS-78).
+        using. ``session`` names it, else the caller's own (WS-82); the
+        session is seated here, the one place that may (WS-78), unless another
+        subject holds it (WS-84).
 
         Its answer is scrubbed (`_open_browser`), and so is its failure, with
         every leashed secret: a first page that failed may quote where it
@@ -1802,16 +1794,18 @@ class Workspaces:
             surface=surface,
             browser=_wanted_kind(wanted.get("browser")),
         ) as timing:
-            chosen = self._chosen(caller, session)
-            if chosen and chosen != sessions.DEFAULT:
-                # Checked before its record is made, so a refused open makes and
-                # lists nothing (WS-78). `_open_browser` checks again, as it must
-                # for every other session.
-                planned = sessions.key_of(caller.name, chosen)
-                timing.workspace = planned
-                self._scrubbing(
-                    planned, lambda: self._resolve_open(caller, planned, url, wanted)
-                )
+            name = self._chosen(caller, session) or sessions.own_name(
+                caller.principal
+            )
+            # Checked before its record is made, so a refused open makes and
+            # lists nothing (WS-78, WS-84). `_open_browser` checks the settings
+            # again, against the record as it is then.
+            planned = sessions.key_of(caller.name, name)
+            timing.workspace = planned
+            self._holds(planned, subject_of(caller.principal))
+            self._scrubbing(
+                planned, lambda: self._resolve_open(caller, planned, url, wanted)
+            )
             key = self.session_of(caller, session, opening=True)
             timing.workspace = key
             # Read before the open, as `act` reads it.
@@ -1902,8 +1896,6 @@ class Workspaces:
             sent=opened.get("sent"),
             ran=opened.get("ran"),
         )
-        # The first subject to open a new workspace owns its default (WS-50).
-        self.claim(key, caller.principal)
         if kept != opened["session_id"]:
             # A concurrent open bound first and this browser was quit: describe
             # the one the workspace holds. This one's provisional note stays, so
@@ -2031,7 +2023,7 @@ class Workspaces:
         The session ``own`` (the reader's) has its page whole; every other
         has its origin, path and route only (`page_of`), as a pruned history
         entry does: a query or fragment carries OAuth codes and reset tokens,
-        and the other session may be another token subject's (WS-49, 3)."""
+        and the other session may be another subject's (WS-84)."""
         self.sweep_captures()
         record = self.store.get(workspace)
         if record is None:
@@ -2054,7 +2046,7 @@ class Workspaces:
         return [
             {
                 "name": name,
-                "label": r.label or name,
+                "label": name,
                 "default": name == sessions.DEFAULT,
                 "live": live(r),
                 "url": page(name),
@@ -2104,7 +2096,7 @@ class Workspaces:
         an attached browser as alive, as `Grid.is_alive` does.
 
         Never a command to a browser: one is activity that keeps it past its
-        keep-alive, and one to a session mid-call would wait on it (WS-53).
+        keep-alive, and one to a session mid-call would wait on it (WS-39).
         """
         if not any(r.attached for r in records):
             return set()
@@ -2455,13 +2447,15 @@ class Workspaces:
         surface: str = "mcp",
     ) -> str | None:
         """End the browser of the caller's session (``session`` names it,
-        WS-49), keeping its record: every other session's browser is left
+        WS-82), keeping its record: every other session's browser is left
         open (WS-74). See `_end_browser`.
 
         It takes no turn, so the end is one `Calls.timed` call on
         ``surface``, unless it is the admin's End, which is no call."""
         if admin:
-            return self._end_browser(self.session_of(caller, session), admin=True)
+            # The admin's End is not bound by who holds the session (WS-84).
+            key = self.session_of(caller, session, admin=True)
+            return self._end_browser(key, admin=True)
         with self.calls.timed(
             _named_by(caller), tool="end_browser", surface=surface
         ) as timing:

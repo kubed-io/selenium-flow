@@ -1936,7 +1936,7 @@ def test_open_session_records_who_opened_the_browser():
     workspaces = manager()
     drk = Principal("oidc", subject="6b0f", username="drk")
     workspaces.open_browser(Caller(NAMED, "header", principal=drk))
-    assert record_of(workspaces.store, NAMED).opened_by == DRK
+    assert record_of(workspaces.store, NAMED, "drk").opened_by == DRK
 
 
 def test_an_open_server_records_nobody():

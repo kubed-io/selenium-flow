@@ -94,12 +94,12 @@ def test_forgetting_a_workspace_forgets_its_sub_sessions():
     assert store.get("shopper/a") is not None
 
 
-def test_a_record_round_trips_its_owner_and_subs():
-    record = Workspace(owner="alice", subs=["a", "b"])
+def test_a_record_round_trips_its_holder_and_subs():
+    record = Workspace(holder="sub-a", subs=["a", "b"])
     again = Workspace.from_json(record.to_json())
-    assert (again.owner, again.subs) == ("alice", ["a", "b"])
+    assert (again.holder, again.subs) == ("sub-a", ["a", "b"])
     old = Workspace.from_json('{"session_id": ""}')
-    assert (old.owner, old.subs) == (None, [])
+    assert (old.holder, old.subs) == ("", [])
 
 
 def test_a_redis_sub_record_expires_after_sub_ttl():
@@ -152,10 +152,10 @@ def test_redis_forgetting_a_workspace_forgets_its_sub_sessions():
 def test_get_many_reads_each_key_in_order(backend):
     clock = Clock()
     store = _memory(clock) if backend == "memory" else _redis()[0]
-    store.set("shop/a", Workspace(label="a"))
-    store.set("shop/c", Workspace(label="c"))
+    store.set("shop/a", Workspace(holder="a"))
+    store.set("shop/c", Workspace(holder="c"))
     found = store.get_many(["shop/c", "shop/b", "shop/a"])
-    assert [r.label if r else None for r in found] == ["c", None, "a"]
+    assert [r.holder if r else None for r in found] == ["c", None, "a"]
     assert store.get_many([]) == []
 
 

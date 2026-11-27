@@ -49,7 +49,7 @@ def is_sub(key: str) -> bool:
 def logged(key: str) -> str:
     """How a log line names the session ``key``: its workspace, and whether it
     is a sub-session, never the sub-session's name, which may be a token's
-    subject (WS-49, 3)."""
+    subject (WS-82)."""
     workspace, name = split(key)
     return workspace if name == DEFAULT else f"{workspace} (a sub-session)"
 

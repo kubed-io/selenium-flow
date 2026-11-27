@@ -10,7 +10,6 @@ import pytest
 from fastmcp import Client
 from mcp.shared.exceptions import MCPError
 
-from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.workspace import sessions
 from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 from kubed.selenium_flow.workspace.workspaces import CONTEXT_KEYS
@@ -60,7 +59,7 @@ def server(data_server, monkeypatch):
     seated(store, NAMED, session_id="s1", settings={"capture": True}, subs=["tester"],
         history=[visit(B_SITE, "tester"), visit(A_SITE, "default")],
     )
-    seated(store, NAMED, "tester", session_id="s2", settings={"capture": True}, label="tester",
+    seated(store, NAMED, "tester", session_id="s2", settings={"capture": True},
     )
     calling_as(monkeypatch, NAMED)
     return data_server
@@ -108,32 +107,6 @@ def test_reading_the_context_makes_no_record_and_refuses_an_unopened_session(ser
     with pytest.raises(ValueError, match="no such session"):
         server.workspaces.describe(_caller("typo"))
     assert stored(store) == before
-
-
-def test_reading_as_a_subject_claims_nothing_and_makes_nothing(server):
-    from dataclasses import replace
-
-    store = server.workspaces.store
-    first = Principal("oidc", subject="sub-a", username="first")
-    second = Principal("oidc", subject="sub-b", username="second")
-    # An unowned default: reading is not claiming it.
-    assert shared_of(store, NAMED).owner is None
-    before = stored(store)
-    context = server.workspaces.describe(replace(_caller(), principal=first))
-    assert context["session"] == "default"
-    assert stored(store) == before and shared_of(store, NAMED).owner is None
-    # Another subject owns it: a subject with no sub-session yet reads an
-    # empty one under its own name, and none is made or listed.
-    store.update(NAMED, lambda r: replace(r, owner="sub-a"))
-    before = stored(store)
-    context = server.workspaces.describe(replace(_caller(), principal=second))
-    assert (context["session"], context["default"], context["live"]) == (
-        "sub-b", False, False,
-    )
-    assert context["url"] is None
-    assert stored(store) == before
-    assert shared_of(store, NAMED).subs == ["tester"]
-    assert record_of(store, NAMED, "sub-b") is None
 
 
 async def test_reading_a_named_session_leaves_the_records_as_they_were(server):

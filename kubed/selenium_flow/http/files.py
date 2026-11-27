@@ -125,7 +125,7 @@ OFF = (
 
 NOTHING = "nothing to list: this server keeps no files and holds no browser for you"
 
-# Never quotes either name: a refusal's text is logged (WS-49, 3).
+# Never quotes either name: a refusal's text is logged (WS-82).
 SESSION_DIFFERS = (
     "the uri names one session's download and session names another: drop "
     "session, since session://{name}/downloads/<file> already says whose it is"
@@ -188,7 +188,7 @@ def named_in(uri) -> str | None:
 
 def _quoted(text: str) -> str:
     """An address as a refusal quotes it: nameless (`sessions.nameless`), since
-    a refusal's text is logged (WS-49, 3)."""
+    a refusal's text is logged (WS-82)."""
     return sessions.nameless(repr(text))
 
 
@@ -204,7 +204,7 @@ def parse_uri(uri) -> tuple[str, str]:
         leaf = text.rpartition("/")[2]
         if leaf:
             return DOWNLOADS, valid_file_name(unquote(leaf))
-        # Nameless: a refusal's text is logged (WS-49, 3).
+        # Nameless: a refusal's text is logged (WS-82).
         raise ValueError(f"session://{{name}}/downloads/ names no file: use {SHAPES}")
     downloads = FOLDER_URI[DOWNLOADS] + "/"
     if text.startswith(downloads):
@@ -718,8 +718,8 @@ def register(
         )
 
     def _session(caller, which: str, named: str | None = None) -> str | None:
-        """The key of the session whose downloads ``caller`` reads, made and
-        claimed by no read (`Workspaces.reading`); None for the other
+        """The key of the session whose downloads ``caller`` reads, made by no
+        read (`Workspaces.reading`); None for the other
         sections, which are the workspace's."""
         if which != DOWNLOADS and not named:
             return None

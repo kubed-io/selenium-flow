@@ -71,7 +71,7 @@ log = logging.getLogger(__name__)
 # requests that failed.
 SEE_ERRORS = f"{CONSOLE_URI}?level=error"
 SEE_FAILED = f"{NETWORK_URI}?filter=failed"
-# The note's stand-in for a session's name: a note is logged (WS-49, 3).
+# The note's stand-in for a session's name: a note is logged (WS-82).
 NAMED = "session://{name}/"
 
 
