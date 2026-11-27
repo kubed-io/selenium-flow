@@ -41,5 +41,4 @@ the person, the card shows with no message. Sign out ends the page's sign-in,
 not the person's session at the issuer.
 
 Setting up the issuer, its client and the redirect URI is the operator's:
-`skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md`,
-*OIDC*.
+the `deploying-the-server` skill, *OIDC*.

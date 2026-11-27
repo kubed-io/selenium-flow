@@ -89,4 +89,4 @@ page history is kept.
 - Site data is stored on the workspace and expires with it.
 - A token typed from a secret that the page keeps in localStorage or
   sessionStorage is saved, and shows in `workspace://site-data/{site}`
-  (`session://<name>/site-data/{site}` in a named session; SECRETS.md).
+  (`session://<name>/site-data/{site}` in a named session; `references/SECRETS.md`).

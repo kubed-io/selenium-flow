@@ -1,0 +1,10 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "packageRules": [
+    {
+      "description": "Hold typescript below 7 until typescript-eslint and svelte-check both accept 7 (typescript-eslint 8.74.0: >=4.8.4 <6.1.0; svelte-check 4.7.8: ^5 || ^6). #243",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
+    }
+  ]
+}

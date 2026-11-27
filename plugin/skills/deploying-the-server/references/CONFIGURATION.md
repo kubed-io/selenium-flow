@@ -81,7 +81,8 @@ when `ROUTE_PREFIX` is set: `/flow/mcp` for `ROUTE_PREFIX=/flow`.
 the bare token as the header value, for clients that cannot send a scheme.
 
 A caller with no workspace name is refused with a message saying how to set one.
-`skill://selenium-flow/driving-a-browser/references/WORKSPACES.md` has the naming rules. Two per-client switches follow. The first says whether the
+The `driving-a-browser` skill, row "Naming or sharing a workspace", has the naming
+rules. Two per-client switches follow. The first says whether the
 client's model can read MCP resources: `Sf-Resources: off` or `on` (or its alias
 `X-MCP-Resources`), or `?resources=off` or `on`, and the `Sf-` name wins. A client that is off is given the
 tools `list_resources` and `read_resource` instead. With neither sent, Visual
@@ -205,9 +206,9 @@ A bad line in a config entry's `allowed_urls` stops the boot instead.
 ## The admin token as a secret
 
 An agent can do admin work in its own browser when the server's token is a
-secret it can type (`skill://selenium-flow/using-the-admin-ui/references/AGENT_AS_ADMIN.md`).
-Allow it on the exact origin the Grid's browsers load the admin page from, which
-may be the Service's address rather than the public one. With the token in
+secret it can type (the `using-the-admin-ui` skill, row "Being asked to do the admin
+work yourself"). Allow it on the exact origin the Grid's browsers load the admin page
+from, which may be the Service's address rather than the public one. With the token in
 `AUTH_TOKEN`, the key can read it from there:
 
 ```yaml

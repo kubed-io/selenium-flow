@@ -36,7 +36,7 @@ interact(action="scroll_to", selector={"xpath": "//tr[last()]"})
   displayed, or the first if none is. `matched` and `index` (from 0) in the
   result say which; for `drag` they describe the source.
 - A click returns `received_by` and, when the click may have gone to something
-  else, a `warning` (TROUBLESHOOTING.md, *A click that appears to do nothing*).
+  else, a `warning` (`references/TROUBLESHOOTING.md`, *A click that appears to do nothing*).
 - `glide=true` moves the pointer in small steps, for interfaces that watch
   movement. The first move in a browser has no known start, so it is a jump, and
   `glide_note` says so.
@@ -85,7 +85,7 @@ write(selector={"css": "#q"}, text="")    # empty the field
 `write` returns `value` read back before any submit. A password field, and a
 field typed from a secret, are never read back: `value` is null there. A real
 password goes in a `secret`, never `text`
-(`skill://selenium-flow/signing-in/references/SECRETS.md`).
+(the `signing-in` skill, row "A password, token or key to type").
 
 ## Keys
 

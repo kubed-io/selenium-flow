@@ -19,7 +19,7 @@ jobs:
   renovate:
     name: Renovate
     uses: kubed-io/actions/.github/workflows/renovate.yml@main
-    secrets: inherit
+    # no secrets: the shared workflow reads only vars and signs in to GCP by OIDC
     permissions:
       contents: read
       id-token: write

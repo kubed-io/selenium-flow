@@ -66,6 +66,7 @@ rules:
     - agent-issue.yml
     - agent-pr.yml
     - agent-review.yml
+    - agent-renovate.yml
 
   # `gh release create` in a script step would work, but softprops/action-gh-release
   # is the house standard across every kubed-io repo's publish.yml, and a release

@@ -17,7 +17,7 @@ If the page is right, in order of likelihood:
 
 1. The element is inside an iframe, or you are inside one and it is not. Check
    `in_frame` on `workspace://current` (`session://<name>` in a named session);
-   a `frame` switch sticks until something switches back (INTERACTION.md,
+   a `frame` switch sticks until something switches back (`references/INTERACTION.md`,
    *Iframes*).
 2. It has not rendered yet: raise `wait_timeout`.
 3. It is off-screen in a virtualised list: scroll it into view first.
@@ -50,7 +50,7 @@ before you reopen.
 ## "name your workspace"
 
 The call named no workspace. Add `?workspace=<name>` to the server URL or send
-an `Sf-Workspace` header (WORKSPACES.md). "name your workspace once" means the
+an `Sf-Workspace` header (`references/WORKSPACES.md`). "name your workspace once" means the
 request carried both: drop one. Retrying unchanged does not help.
 
 ## "no session is open in workspace …"
@@ -61,20 +61,19 @@ Call `open_session` once, then carry on.
 
 Every call that names the workspace is refused, `workspace://current` included,
 until an admin fixes its `workspace.yaml`. Do not retry. Tell the person the
-reason and the link the refusal gives, and offer the corrected YAML:
-`skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md`,
-*Managing a workspace*.
+reason and the link the refusal gives, and offer the corrected YAML, as
+the `using-the-admin-ui` skill, row "an invalid config", shows.
 
 ## A result says `reopened`
 
 The Grid replaced the browser. It is back on the same page with the same settings
 and saved site data, and anything only the old page held is gone. Check the page
-and redo any unsaved step (WORKSPACES.md).
+and redo any unsaved step (`references/WORKSPACES.md`).
 
 ## "unexpected alert open", or a null url and title
 
 A native dialog is open. The session is fine and nothing needs reopening. Answer
-it with `dialog` (INTERACTION.md, *Native dialogs*); nothing else works until
+it with `dialog` (`references/INTERACTION.md`, *Native dialogs*); nothing else works until
 you do.
 
 ## A blank or single-colour screenshot

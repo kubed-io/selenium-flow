@@ -26,10 +26,9 @@ was not written for. Find out which before editing anything.
 3. `run_flow(name="{{ flow }}", verbose=true)`, passing its required
    parameters as `params`; ask me for any value you do not have. The failing
    step's `error` is the diagnosis: for an element that is there but cannot be
-   used, it says why and what to do. *When a flow fails* in
-   `skill://selenium-flow/building-flows/references/FLOWS.md` reads a failed
-   run; an error that is not about a locator is in
-   `skill://selenium-flow/driving-a-browser/references/TROUBLESHOOTING.md`.
+   used, it says why and what to do. *When a flow fails* in `FLOWS.md` in the
+   `building-flows` skill reads a failed run; an error that is not about a
+   locator is in `TROUBLESHOOTING.md` in the `driving-a-browser` skill.
 4. Go to the page that step acts on, with `navigate` or by running the steps
    before it by hand.
 5. `outline` that page, scoped with a `selector` or filtered with `text`, to see
