@@ -183,6 +183,13 @@ def test_a_live_link_signed_61_seconds_ago_is_refused(client, hub, clock):
     assert (gone.code, gone.reason) == (4401, live_module.EXPIRED)
 
 
+def test_a_live_link_signed_60_seconds_ago_still_opens_the_view(client, hub, clock):
+    url = minted(client, clock)
+    clock.now += 60
+    with client.websocket_connect(url) as ws:
+        assert ws.receive_json() == {"type": "mode", "mode": "watch"}
+
+
 def test_a_live_link_signed_59_seconds_ago_opens_the_view(client, hub, clock):
     url = minted(client, clock)
     clock.now += 59
