@@ -23,16 +23,16 @@ they did before.
 
 - Creating, changing or rotating a secret. An operator does that on the server.
 - Changing a server setting: Settings is read-only.
-  `skill://selenium-flow/deploying-the-server/SKILL.md` covers both.
+  The `deploying-the-server` skill covers both.
 - Anything at all on a server reached over stdio, which has no admin page.
 
 ## Signing in with the token
 
 The operator stores the server's token as a secret, for example `admin` with
 the key `token`, allowed on the exact origin your Grid browser loads the admin
-page from (`skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md`,
-*The admin token as a secret*). Check `secret://secrets` for it first: without
-it, tell the person, and guide them instead (ADMIN_UI.md).
+page from (the `deploying-the-server` skill, *The admin token as a secret*). Check
+`secret://secrets` for it first: without it, tell the person, and guide them instead
+(`references/ADMIN_UI.md`).
 
 ```
 open_session(session="admin")
@@ -45,7 +45,7 @@ navigate(url="https://flows.example.com/#/workspaces/research-bot/flows/sign-up"
 - A sub-session of its own keeps your task's browser as it was.
 - `navigate` comes first, in its own call: a `write` that types a secret takes
   no `url`.
-- Go to a view by its hash route (ADMIN_UI.md, *Routes*). `config_url` on
+- Go to a view by its hash route (`references/ADMIN_UI.md`, *Routes*). `config_url` on
   `workspace://current` is the Config tab's.
 - A box's confirm is a button naming the verb, such as **Move**. End browser
   asks with the browser's own dialog: answer it with `dialog(action="accept")`.

@@ -39,4 +39,7 @@ and `ToolSearch`. A client that cannot read resources gets the tools
 | `flow://flows` | the flows you can run |
 | `flow://flows/{name}` | one flow's parameters and steps |
 | `flow://schema` | what a flow and its steps may contain |
-| `skill://selenium-flow/<skill>/SKILL.md` | a skill: `driving-a-browser`, `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`; each one's references are beside it |
+
+The five skills, `driving-a-browser`, `building-flows`, `signing-in`, `using-the-admin-ui` and
+`deploying-the-server`, are resources too: each a `SKILL.md` with its references beside it, at
+the address the server's instructions give.

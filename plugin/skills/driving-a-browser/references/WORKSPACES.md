@@ -52,7 +52,7 @@ is none: your own.
 
 A flow runs in one session: the one its `run_flow` names. A person's control
 covers one session, so `await_control` takes the `session` a refused call
-named (CONTROL.md).
+named (`references/CONTROL.md`).
 
 ## What `workspace://current` says
 
@@ -72,7 +72,7 @@ named (CONTROL.md).
 | `grid_timeout` | how long the session may sit idle before the Grid ends it; any call restarts the clock |
 | `capture`, `capturing`, `captured` | opened with `capture=true`; recording now (false means paused until the next call); how many console entries and requests are kept |
 | `flows_here` | the saved flows that apply to this page |
-| `config`, `config_url` | the workspace's own settings, each with its `value` and `source` (`default` or `workspace`); the admin UI's page for them; changing them is `skill://selenium-flow/using-the-admin-ui/references/WORKSPACE_CONFIG.md` |
+| `config`, `config_url` | the workspace's own settings, each with its `value` and `source` (`default` or `workspace`); the admin UI's page for them; changing them is in the `using-the-admin-ui` skill, row "A workspace's config" |
 
 The server keeps a browser alive for 15 minutes after your last call by default,
 so a pause of a few minutes costs nothing.
@@ -81,14 +81,14 @@ so a pause of a few minutes costs nothing.
 
 `open_session(browser="firefox")` switches browser and ends the one you hold. To
 hold Chrome and Firefox at once, use two sessions, or two workspace names. Downloads go with an
-ended browser, so `keep_file` one first (FILES.md).
+ended browser, so `keep_file` one first (`references/FILES.md`).
 
 `open_session`'s description lists its options and which ones it remembers.
 These are the traps:
 
 - `version="152"` matches any 152 build the Grid offers, `"152.0.7977.82"` only
   that one. The result's `version` is the one that ran. If no node offers it,
-  the open fails after the Grid's own wait (TROUBLESHOOTING.md, *No Grid node
+  the open fails after the Grid's own wait (`references/TROUBLESHOOTING.md`, *No Grid node
   took this browser*).
 - Switching browser forgets a remembered version, and so does
   `version="latest"`. Pass a version in the same call as the switch to keep
@@ -98,14 +98,14 @@ These are the traps:
 - `insecure=true` is remembered for the workspace, and an insecure browser gets
   no saved site data. Use it only for a site with a self-signed certificate.
 - For anything no option covers there is `capabilities`, the last resort
-  (TROUBLESHOOTING.md, *Sending a capability no option covers*).
+  (`references/TROUBLESHOOTING.md`, *Sending a capability no option covers*).
 
 ## A result says `reopened`
 
 The Grid ends a browser idle too long, and a node can go away under one. The next
 call opens a new browser with the same settings, navigates back to the last URL
 it recorded, and restores saved site data
-(`skill://selenium-flow/signing-in/references/SITE_DATA.md`). Its result says so
+(the `signing-in` skill, row "Staying signed in across browsers"). Its result says so
 once, in `reopened`: `cause` is `reaped` (idle past the keep-alive) or `lost`
 (ended while you were working), and `message` says what did not survive. If that
 call fails, its error says it instead.

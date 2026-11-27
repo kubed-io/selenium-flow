@@ -8,7 +8,7 @@ description: Use when deploying or configuring the selenium-flow server, connect
 The operator's side of selenium-flow: what the server needs, the settings, how
 a client connects, and what only the server's own configuration can change.
 
-| When | Read, in `skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md` |
+| When | Read, in `references/CONFIGURATION.md` |
 |---|---|
 | What it needs, a Grid, health checks | *What it needs* |
 | A setting, its env var, where a value came from | *Settings and where they come from* |
@@ -22,4 +22,4 @@ a client connects, and what only the server's own configuration can change.
 Every setting, in all three spellings, is on the wiki's
 [Configuration](https://github.com/kubed-io/selenium-flow/wiki/Configuration)
 page. Crossing over: what a person does on the running server's admin page is
-`skill://selenium-flow/using-the-admin-ui/SKILL.md`.
+the `using-the-admin-ui` skill.

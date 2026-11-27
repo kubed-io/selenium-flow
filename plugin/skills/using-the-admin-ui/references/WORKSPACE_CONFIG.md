@@ -42,7 +42,7 @@ it changed, write the new YAML for them and guide them, in this order:
    secret (an operator names it, for example `admin` with the key `token`), you
    can drive the admin UI in your own browser: open the admin page, `write` the
    secret into the token field (`#token`), open `config_url`, and paste the
-   YAML into the editor (AGENT_AS_ADMIN.md has the steps). Ask the person before
+   YAML into the editor (`references/AGENT_AS_ADMIN.md` has the steps). Ask the person before
    you do, and show them this YAML first:
 
    ```yaml

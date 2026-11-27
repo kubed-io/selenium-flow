@@ -1,8 +1,8 @@
 # A person in control
 
 What to do while a person holds your browser. The person's side, the admin
-page's Live tab, is
-`skill://selenium-flow/using-the-admin-ui/references/LIVE_VIEW.md`.
+page's Live tab, is in the `using-the-admin-ui` skill, row "A person watching or taking
+over a browser in Live".
 
 ## When a person takes control
 

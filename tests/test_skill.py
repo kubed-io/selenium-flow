@@ -53,6 +53,15 @@ REPO = pathlib.Path(__file__).parent.parent
 PYPROJECT = REPO / "pyproject.toml"
 # A skill:// address any text names: up to the closing backtick, quote or space.
 ADDRESS = re.compile(r"skill://selenium-flow/[A-Za-z0-9_./-]*[A-Za-z0-9_]")
+PLUGIN = skill_module.plugin_path()
+# A skill's own file, by its path from the root, in backticks.
+OWN = re.compile(r"`(references/[A-Za-z0-9_.-]+\.md)`")
+# A backticked name; read only for the names in SKILLS.
+NAMED = re.compile(r"`([a-z][a-z-]*)`")
+# Any file name a text gives, with whatever path is in front of it.
+FILE_NAME = re.compile(r"(?<![\w/.])((?:[\w.:-]+/)*[A-Z][A-Z0-9_]*\.md)")
+# The three cross-skill forms (design §1), on whitespace-collapsed text.
+CROSS = re.compile(r"[Tt]he `([a-z-]+)` skill(?:'s)?(?:, row \"([^\"]+)\"|, \*([^*]+)\*)?")
 
 
 def root(name: str) -> str:
@@ -65,6 +74,41 @@ def frontmatter(name: str) -> dict:
 
 def body(name: str) -> str:
     return (SKILLS_DIR / name / ENTRY).read_text()
+
+
+def unfenced(text: str) -> str:
+    """The text without its fenced code blocks, fence lines included."""
+    kept, fenced = [], False
+    for line in text.splitlines(keepends=True):
+        if line.strip().startswith("```"):
+            fenced = not fenced
+        elif not fenced:
+            kept.append(line)
+    assert not fenced, "an unclosed code fence"
+    return "".join(kept)
+
+
+def skill_files() -> list[tuple[str, pathlib.Path]]:
+    """(skill, path) for every markdown file under each skill."""
+    return [(name, path) for name in SKILLS for path in sorted((SKILLS_DIR / name).rglob("*.md"))]
+
+
+def rows(name: str) -> list[str]:
+    """The first cell of each body row of the tables in a skill's SKILL.md."""
+    lines = body(name).splitlines()
+    cells = []
+    for at, line in enumerate(lines):
+        if not line.startswith("|") or re.fullmatch(r"\|[\s|:-]+\|?", line):
+            continue
+        if at + 1 < len(lines) and re.fullmatch(r"\|[\s|:-]+\|?", lines[at + 1]):
+            continue  # a header row
+        cells.append(" ".join(line.strip().strip("|").split("|")[0].split()))
+    return cells
+
+
+def ruled_files() -> list[pathlib.Path]:
+    """The files the address rule reads: here, the skill files."""
+    return [path for _, path in skill_files()]
 
 
 # ---- the set of skills -----------------------------------------------------
@@ -148,17 +192,17 @@ def test_the_packaged_skill_is_a_valid_agent_skill(name):
 
 
 def linked(name: str) -> set[tuple[str, str]]:
-    """Every (skill, path) a SKILL.md points at by address."""
-    found = set()
-    for address in ADDRESS.findall(body(name)):
-        skill, _, path = address.removeprefix(NAMESPACE + "/").partition("/")
-        found.add((skill, path))
-    return found
+    """Every (skill, path) a SKILL.md points at: its own files by their path,
+    and the other skills by name."""
+    text = body(name)
+    return {(name, path) for path in OWN.findall(text)} | {
+        (named, ENTRY) for named in NAMED.findall(text) if named in SKILLS
+    }
 
 
 @pytest.mark.parametrize("name", SKILLS)
-def test_the_index_points_at_references_by_their_exact_address(name):
-    """The agent knows the exact link for whatever it needs right away."""
+def test_the_index_points_at_references_by_their_path(name):
+    """The agent knows the exact path for whatever it needs right away."""
     assert any(skill == name and path.startswith("references/") for skill, path in linked(name))
 
 
@@ -223,13 +267,51 @@ def test_the_admin_skill_states_its_rules():
         assert rule in rules, rule
 
 
+def test_an_unclosed_fence_is_refused():
+    assert unfenced("a\n```json\n{}\n```\nb\n") == "a\nb\n"
+    with pytest.raises(AssertionError):
+        unfenced("a\n```\nb\n")
+
+
+@pytest.mark.parametrize("path", ruled_files(), ids=lambda p: p.relative_to(PLUGIN).as_posix())
+def test_no_skill_address_outside_fenced_code(path):
+    """Where a skill lives is the client's to know (PLG-76)."""
+    assert "skill://" not in unfenced(path.read_text())
+
+
+@pytest.mark.parametrize("name, path", skill_files(), ids=lambda v: getattr(v, "name", v))
+def test_a_skill_names_its_own_files_from_its_root(name, path):
+    """SEP-2640 resolves a path against the skill's root, from any file."""
+    text = unfenced(path.read_text())
+    own = set(OWN.findall(text))
+    for named in FILE_NAME.findall(text):
+        assert named == "SKILL.md" or named in own, f"{path.name} names {named}"
+    for rel in own:
+        assert (SKILLS_DIR / name / rel).is_file(), f"{path.name} names missing {rel}"
+
+
+def test_every_cross_reference_names_what_is_there():
+    found = 0
+    for path in ruled_files():
+        text = " ".join(unfenced(path.read_text()).split())
+        for skill, row, section in CROSS.findall(text):
+            found += 1
+            assert skill in SKILLS, f"{path.name} names no skill `{skill}`"
+            if row:
+                assert any(row in cell for cell in rows(skill)), f"{path.name}: {skill} has no row {row!r}"
+            if section:
+                assert f"*{section}*" in body(skill), f"{path.name}: {skill} names no *{section}*"
+    assert found >= 25
+
+
 # ---- every address a reader is given reads ---------------------------------
 
 
 def addresses() -> list[tuple[str, str]]:
     """Every `skill://selenium-flow/…` address the server computes (the entry
-    point and every page a pointer can name), and every one named literally in
-    the plugin, the docs an agent reads and the golden files, with where it was
+    point and every page a pointer can name), every one named literally in
+    the plugin, the docs an agent reads and the golden files, and each skill's
+    own path (`references/…`) resolved against its root, with where it was
     found."""
     from kubed.selenium_flow.core import guidance
 
@@ -249,6 +331,9 @@ def addresses() -> list[tuple[str, str]]:
             # A template (`<skill>`, `{skill}`) or a bare prefix names no file.
             if address.endswith((".md", MANIFEST)) and "<" not in address and "{" not in address:
                 found.add((path.relative_to(REPO).as_posix(), address))
+    for name, path in skill_files():
+        for rel in OWN.findall(unfenced(path.read_text())):
+            found.add((path.relative_to(REPO).as_posix(), f"{root(name)}/{rel}"))
     return sorted(found | computed)
 
 

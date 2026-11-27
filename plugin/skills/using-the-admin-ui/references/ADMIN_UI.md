@@ -6,8 +6,8 @@ data, and edit its config. It is at the server's root, under `ROUTE_PREFIX`
 when one is set, such as `https://flows.example.com/`; `/admin` redirects there.
 Only a server reached over HTTP has one: a server on stdio has no admin page.
 
-Signing in is ADMIN_SIGN_IN.md. An agent doing any of this in its own browser
-reads AGENT_AS_ADMIN.md first.
+Signing in is `references/ADMIN_SIGN_IN.md`. An agent doing any of this in its own browser
+reads `references/AGENT_AS_ADMIN.md` first.
 
 ## The top tabs
 
@@ -27,13 +27,13 @@ picked.
 | Tab | For | Scope |
 |---|---|---|
 | Session | what the session asked for, what the Grid gave, every capability the last open sent | session |
-| Live | the browser's screen, to watch or take over (LIVE_VIEW.md) | session |
+| Live | the browser's screen, to watch or take over (`references/LIVE_VIEW.md`) | session |
 | Console, Network | the page's console and requests; disabled unless the browser was opened with capture | session |
 | Site data | what is saved per host, to forget one or clear it all | session |
 | Files | Downloads, Screenshots, Recordings and Files, to keep, delete or clear | workspace |
 | Flows | the workspace's flows and the shared ones, to edit, tag, move or delete | workspace |
 | History | where the workspace has been, to clear | workspace |
-| Config | the workspace's `workspace.yaml` (WORKSPACE_CONFIG.md) | workspace |
+| Config | the workspace's `workspace.yaml` (`references/WORKSPACE_CONFIG.md`) | workspace |
 
 ## What changes something, and what it asks
 
@@ -56,7 +56,7 @@ failed action leaves the box open with the error in an alert.
 | Edit (✏️) | Flows, an open flow | an editor holding the file as written | Save writes the YAML, comments kept |
 | Move to global (🌐), Move to this workspace (🏠) | Flows, an open flow | a box naming the library it moves to | below |
 | Delete | Flows, an open flow | a box; a global flow goes for every workspace | deletes the flow file |
-| Edit YAML, Remove config | Config | Remove asks | WORKSPACE_CONFIG.md |
+| Edit YAML, Remove config | Config | Remove asks | `references/WORKSPACE_CONFIG.md` |
 
 Saved site data that is forgotten or cleared leaves the live browser as it is:
 only the next browser comes back without it.
@@ -80,7 +80,7 @@ A workspace whose config filters the shared library may not be offered the
 flow it just moved: the list shows it dimmed, `not offered here`.
 
 An agent asked to move a flow tells the person these steps, or, once they agree,
-takes them in its own browser by AGENT_AS_ADMIN.md.
+takes them in its own browser by `references/AGENT_AS_ADMIN.md`.
 
 ## Routes
 
@@ -112,4 +112,4 @@ A person holding the server's token can do the same over HTTP, with
 | `DELETE /admin/workspaces/{key}/files/{name}` | delete one file; `screenshots`, `recordings` or `downloads` as the name clears that folder |
 
 An agent never calls these routes. Asked to do the work itself, it uses the page in its own
-browser, by AGENT_AS_ADMIN.md.
+browser, by `references/AGENT_AS_ADMIN.md`.

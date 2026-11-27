@@ -56,7 +56,7 @@ goes in the step's `args`:
 ```
 
 The `assert` proves the sign-in worked, and `save_site_data` keeps it
-(SITE_DATA.md). The report shows the typing steps as
+(`references/SITE_DATA.md`). The report shows the typing steps as
 `text=[secret:nextcloud/password]`. Any later read shows that marker,
 `[secret:name/key]`, where a secret's value was, and `write` with that name and
 key types it again. A key set `masked: false` is never shown as a marker.
@@ -77,9 +77,8 @@ does not match, and neither does `http://`. A refusal names the page it was on
 and the origins it accepts, so check where the browser is first.
 Only an operator sets or changes a secret's `allowed_urls`, on the server: no
 tool and no admin page can
-(`skill://selenium-flow/deploying-the-server/references/CONFIGURATION.md`,
-*Secrets on the server*). When the page is right and the origin is not allowed,
-tell the person the origin it needs.
+(the `deploying-the-server` skill, *Secrets on the server*). When the page is right
+and the origin is not allowed, tell the person the origin it needs.
 
 Inside a frame, both the page's and the frame's origin must be allowed. A `write`
 into an element that hosts another document (`iframe`, `frame`, `object`,
