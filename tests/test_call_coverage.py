@@ -23,7 +23,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.telemetry import CALL_DURATION
 from kubed.selenium_flow.workspace.workspaces import Caller
 
-from .conftest import NAMED, calling_as
+from .conftest import NAMED, NAMED_KEY, calling_as
 from .fakes import points, recorded, untabbed
 
 pytestmark = pytest.mark.unit
@@ -192,7 +192,7 @@ class Shut:
 
 
 def held(server) -> None:
-    server.workspaces.remember(NAMED, "grid-1", "", {"browser": "chrome"})
+    server.workspaces.remember(NAMED_KEY, "grid-1", "", {"browser": "chrome"})
     server.workspaces.calls.control = Shut()
 
 
@@ -220,7 +220,7 @@ def test_an_end_with_no_browser_open_is_ok(timed):
 
 def test_an_end_names_the_browser_it_ends(timed, monkeypatch):
     server, rec = timed
-    server.workspaces.remember(NAMED, "grid-1", "", {"browser": "firefox"})
+    server.workspaces.remember(NAMED_KEY, "grid-1", "", {"browser": "firefox"})
     monkeypatch.setattr(server.actions, "end_browser", lambda session_id: {})
     server.workspaces.end_browser(Caller(NAMED), surface="http")
     [span] = spans_of(rec, "end_browser")

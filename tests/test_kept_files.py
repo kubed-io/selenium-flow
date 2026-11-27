@@ -28,10 +28,10 @@ from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.http.admin import signed as admin
 from kubed.selenium_flow.names import FILES_DIR, GLOBAL_WORKSPACE, InvalidName
 from kubed.selenium_flow.spec import build_spec
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 
 from .conftest import TOKEN
-from .fakes import TOKEN_SESSION, FakeActions, FakeGrid, FakeWorkspaces, seated
+from .fakes import TOKEN_SESSION, FakeActions, FakeGrid, FakeWorkspaces, seated, visits
 
 pytestmark = pytest.mark.unit
 
@@ -64,7 +64,7 @@ def client(data_server):
 def live(data_server):
     """A workspace holding a browser, which is what the admin API addresses."""
     store = data_server.workspaces.store
-    seated(store, KEY, record=Workspace(session_id="abc").visited("https://x/"))
+    seated(store, KEY, record=Session(session_id="abc"), history=visits("https://x/"))
     # The token's own calls (`/files`, `/browser/...`) reach the same browser.
     seated(store, KEY, TOKEN_SESSION, session_id="abc")
     return data_server

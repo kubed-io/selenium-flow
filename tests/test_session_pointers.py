@@ -35,7 +35,7 @@ from kubed.selenium_flow.workspace.workspaces import (
 )
 
 from .capture_events import done, log, nav_started, req
-from .conftest import NAMED, TOKEN, calling_as, http, manager
+from .conftest import NAMED, NAMED_KEY, TOKEN, calling_as, http, manager
 from .fakes import (
     TOKEN_SESSION,
     Anywhere,
@@ -50,6 +50,8 @@ from .test_site_data_workspaces import SiteActions
 pytestmark = pytest.mark.unit
 
 WS = "ws"
+# The key of the session an unnamed caller of `ws` reaches: its own, `default`.
+OWN = sessions.key_of(WS, sessions.DEFAULT)
 SUB = sessions.key_of(WS, "tester")
 TESTER = sessions.key_of(NAMED, "tester")
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -74,7 +76,7 @@ def two():
     workspaces = Workspaces(PageActions(), monitor=FakeMonitor(), capture=capture)
     workspaces.open_browser(unnamed())
     workspaces.open_browser(unnamed(), session="tester")
-    for key in (WS, SUB):
+    for key in (OWN, SUB):
         sid = record_of(workspaces.store, *sessions.split(key)).session_id
         capture.attached(key, sid, "chrome", "top-1", again=False)
     return workspaces, capture
@@ -166,7 +168,7 @@ def test_a_bound_writes_hint_points_at_the_session_it_typed_in(two):
 
     workspaces.actions.write = typed
     kwargs = {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}}
-    shown = perform_write(Anywhere(), workspaces.actions, workspaces, SUB, dict(kwargs), own=WS)
+    shown = perform_write(Anywhere(), workspaces.actions, workspaces, SUB, dict(kwargs), own=OWN)
     assert shown["page"]["see"] == "session://tester/console?level=error"
     shown = perform_write(Anywhere(), workspaces.actions, workspaces, SUB, dict(kwargs))
     assert shown["page"]["see"] == "workspace://console?level=error"
@@ -175,7 +177,7 @@ def test_a_bound_writes_hint_points_at_the_session_it_typed_in(two):
 def test_own_is_the_session_reading_would_reach(two):
     workspaces, _ = two
     assert workspaces.own(unnamed(), None, SUB) == SUB, "an unnamed call acts in its own"
-    assert workspaces.own(unnamed(), "tester", SUB) == WS
+    assert workspaces.own(unnamed(), "tester", SUB) == OWN
     assert workspaces.own(pinned("tester"), "tester", SUB) == SUB
 
 
@@ -232,7 +234,7 @@ def flow(tmp_path):
     workspaces = Workspaces(actions, monitor=FakeMonitor(), capture=capture)
     workspaces.open_browser(unnamed())
     workspaces.open_browser(unnamed(), session="tester")
-    for key in (WS, SUB):
+    for key in (OWN, SUB):
         sid = record_of(workspaces.store, *sessions.split(key)).session_id
         capture.attached(key, sid, "chrome", "top-1", again=False)
     store = flow_store.LocalFlowStore(tmp_path)
@@ -248,7 +250,7 @@ def flow(tmp_path):
 
 
 def test_a_runs_hint_points_at_the_session_it_ran_in(flow):
-    assert flow(key=SUB, own=WS)["page"]["see"] == "session://tester/console?level=error"
+    assert flow(key=SUB, own=OWN)["page"]["see"] == "session://tester/console?level=error"
     assert flow(key=SUB, own=SUB)["page"]["see"] == "workspace://console?level=error"
     assert flow()["page"]["see"] == "workspace://console?level=error"
 
@@ -256,7 +258,7 @@ def test_a_runs_hint_points_at_the_session_it_ran_in(flow):
 def test_a_failed_steps_error_never_names_the_session(flow, caplog):
     flow.actions.fails = True
     with caplog.at_level("INFO"):
-        report = flow(key=SUB, own=WS)
+        report = flow(key=SUB, own=OWN)
     [step] = report["steps"]
     assert step["error"].endswith(
         f"read session://{{name}}/console?level=error, {NAMELESS}."
@@ -338,13 +340,13 @@ def server(data_server, monkeypatch):
     capturing, `tester` with saved site data and a request of its own."""
     data_server.workspaces.actions.grid = AliveGrid()
     store = data_server.workspaces.store
-    seated(store, NAMED, session_id="g-default", settings={"capture": True}, subs=["tester"],
+    seated(store, NAMED, session_id="g-default", settings={"capture": True},
     )
     seated(store, NAMED, "tester", session_id="g-tester", settings={"capture": True},
     )
     store.update(TESTER, lambda r: r.with_site_data(JAR))
     capture = data_server.capture
-    for key, sid in ((NAMED, "g-default"), (TESTER, "g-tester")):
+    for key, sid in ((NAMED_KEY, "g-default"), (TESTER, "g-tester")):
         capture.attached(key, sid, "chrome", "top-1", again=False)
         for method, params in (
             nav_started("https://b.example.test/"),
@@ -451,7 +453,7 @@ def test_upload_file_reads_the_download_the_uri_names(server):
     its address names, and typed into the browser the call acts in."""
     read = server.actions.read_file
     uri = "session://tester/downloads/report.pdf"
-    for acting_in in (TESTER, NAMED, sessions.key_of(NAMED, "zed")):
+    for acting_in in (TESTER, NAMED_KEY, sessions.key_of(NAMED, "zed")):
         with _acting_in(acting_in):
             assert read(uri) == ("report.pdf", b"PDF of g-tester"), acting_in
     with _acting_in(TESTER):
@@ -557,7 +559,7 @@ async def test_show_draws_what_a_named_session_points_at(server, built_ui):
 # ---- every surface's wiring of `own` -------------------------------------------
 
 B_SITE = "https://b.example.test/"
-SIDS = {"g-default": NAMED, "g-tester": TESTER}
+SIDS = {"g-default": NAMED_KEY, "g-tester": TESTER}
 SEE = "session://tester/console?level=error"
 OWN_SEE = "workspace://console?level=error"
 
@@ -612,7 +614,7 @@ def wired(tmp_path, monkeypatch):
     }))
     server.workspaces.actions.grid = AliveGrid()
     store = server.workspaces.store
-    seated(store, NAMED, session_id="g-default", settings={"capture": True}, subs=["tester"],
+    seated(store, NAMED, session_id="g-default", settings={"capture": True},
     )
     seated(store, NAMED, "tester", session_id="g-tester", settings={"capture": True},
     )
@@ -642,12 +644,12 @@ def test_rest_runs_writes_and_actions_point_at_the_session_they_named(wired, mon
     # default's: on the default's browser while that is the same session, on a
     # browser of its own once it is not.
     own_key = sessions.key_of(NAMED, TOKEN_SESSION)
-    own_sid = "g-default" if own_key == NAMED else "g-token"
+    own_sid = "g-default" if own_key == NAMED_KEY else "g-token"
     seated(
         wired.workspaces.store, NAMED, TOKEN_SESSION,
         session_id=own_sid, settings={"capture": True},
     )
-    if own_key != NAMED:
+    if own_key != NAMED_KEY:
         monkeypatch.setitem(SIDS, own_sid, own_key)
         wired.capture.attached(own_key, own_sid, "chrome", "top-1", again=False)
     client = TestClient(wired.mcp.server.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
@@ -668,7 +670,6 @@ async def test_upload_file_types_another_sessions_download(server, monkeypatch):
     that session, and typed into the page of the session the call acts in,
     whichever that is (ACT-40)."""
     store = server.workspaces.store
-    store.update(NAMED, lambda r: replace(r, subs=[*r.subs, "zed"]))
     seated(store, NAMED, "zed", session_id="g-zed")
     typed = []
 
@@ -914,7 +915,7 @@ async def test_a_named_sessions_capture_off_says_how_for_that_session(server):
     """M5: a named session's capture is turned on by naming it."""
     store = server.workspaces.store
     store.update(TESTER, lambda r: replace(r, settings={"capture": False}))
-    store.update(NAMED, lambda r: replace(r, settings={"capture": False}))
+    store.update(NAMED_KEY, lambda r: replace(r, settings={"capture": False}))
     for uri in ("session://tester/console", "session://tester/network",
                 "session://tester/network?filter=failed", "session://default/console"):
         off = await read(server, uri)

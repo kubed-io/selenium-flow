@@ -33,7 +33,7 @@ from ...names import (
 from ...site_data import snapshot as site_data
 from ...workspace import sessions
 from ...workspace.calls import told
-from ...workspace.store import Workspace
+from ...workspace.store import Session, Workspace
 from ...workspace.workspaces import Caller
 from .. import answer, links
 
@@ -67,8 +67,9 @@ def owner_label(key: str) -> dict:
 
 
 def _recency(item) -> float:
-    """Newest first, so the workspace someone just used is at the top."""
-    return getattr(item[1], "opened_at", 0.0) or 0.0
+    """Newest first, so the workspace someone just used is at the top: by its
+    head's ``opened_at``."""
+    return getattr(item[2], "opened_at", 0.0) or 0.0
 
 
 def capture_facts(workspaces, key: str, record, live: bool) -> dict:
@@ -100,22 +101,26 @@ def _grid_facts(session: dict) -> dict:
     return {"version": session.get("version"), "node": session.get("node")}
 
 
-def session_key(key: str, request: Request) -> tuple[str, str]:
+def session_key(workspaces, key: str, request: Request) -> tuple[str, str]:
     """The session ``?session=`` names in the workspace ``key``, as ``(its
-    key, its name)``: the default when absent, a ValueError (a 400) for a name
-    that cannot be one."""
-    named = request.query_params.get("session") or sessions.DEFAULT
-    if named != sessions.DEFAULT:
+    key, its name)``: when absent, the head of its list, or ``default`` when
+    the list is empty; a ValueError (a 400) for a name that cannot be one.
+    Blocking: with no ``?session=`` it reads the store."""
+    named = request.query_params.get("session")
+    if named:
         named = sessions.valid_session_name(named)
+    else:
+        named = workspaces.head_of(key) or sessions.DEFAULT
     return sessions.key_of(key, named), named
 
 
 def known_session(workspaces, key: str, request: Request) -> tuple[str, str]:
     """`session_key`, for a route that reads or ends a session that must exist:
-    a NotFound (a 404) for a sub-session with no record. The default always
-    exists, a workspace with no record included."""
-    skey, named = session_key(key, request)
-    if named != sessions.DEFAULT and workspaces.store.get(skey) is None:
+    a NotFound (a 404) for a session ``?session=`` names that has no record.
+    With none named, the head (or ``default``) answers, a workspace with no
+    record included."""
+    skey, named = session_key(workspaces, key, request)
+    if request.query_params.get("session") and workspaces.store.get(skey) is None:
         # Not the name: the log line that refuses it must carry none.
         raise NotFound(f"workspace {key!r} has no session of that name")
     return skey, named
@@ -173,22 +178,23 @@ def site_data_stamp(data: dict, entries) -> tuple[dict, str]:
     return listed, rev
 
 
-def listed_sessions(workspaces, workspace: str, record, running: dict) -> list[dict]:
-    """The sessions of ``workspace`` for its row, the default first: ``{name,
-    label, default, live, browser, site_data_rev}``, each rev its own record's
-    snapshot's, so a picked sub-session's Site data reloads on its own save.
-    A sub-session whose record expired is
-    left out (and its name pruned), and one made only by opening a sub-session
-    in a new workspace lists with no browser."""
-    found = [(sessions.DEFAULT, record), *workspaces.sub_sessions(workspace, record)]
+def listed_sessions(workspaces, workspace: str, shared, running: dict) -> list[dict]:
+    """The sessions of ``workspace`` for its row, in list order: ``{name,
+    label, default, live, browser, site_data_rev}``, ``default`` true on the
+    head, each rev its own record's snapshot's, so a picked session's Site
+    data reloads on its own save. A session whose record expired is left out
+    (and its name pruned); ``shared`` is the workspace's record, whose
+    history orders each snapshot's hosts."""
+    found = workspaces.listed(workspace) if shared is not None else []
+    head = found[0][0] if found else None
     return [
         {
             "name": name,
             "label": name,
-            "default": name == sessions.DEFAULT,
+            "default": name == head,
             "live": bool(r.session_id) and r.session_id in running,
             "browser": (r.settings or {}).get("browser") or DEFAULT_BROWSER,
-            "site_data_rev": site_data_stamp(r.site_data, record.entries(name))[1],
+            "site_data_rev": site_data_stamp(r.site_data, shared.entries(name))[1],
         }
         for name, r in found
     ]
@@ -258,9 +264,10 @@ def library(key: str) -> str:
 
 
 def attached_id(workspaces, key: str) -> str:
-    """The Grid id of the session a workspace holds open, or "" if none."""
+    """The Grid id of the browser the session ``key`` holds open, or "" if
+    none. A workspace's own key holds none."""
     store = getattr(workspaces, "store", None)
-    if store is None:
+    if store is None or not sessions.split(key)[1]:
         return ""
     record = store.get(key)
     return record.session_id if record and record.attached else ""
@@ -537,16 +544,35 @@ def mount(
             revision(flow_store, GLOBAL_WORKSPACE) if flow_store is not None else ""
         )
         configs = workspaces.configs
+        # A row's browser facts are its head's (WS-81), read in one round trip.
+        heads = [(key, shared, shared.head) for key, shared in records.items()]
+        found = workspaces_store.get_many(
+            [sessions.key_of(key, head) for key, _, head in heads if head]
+        )
+        read = iter(found)
+        rows_of = [
+            (key, shared, (next(read) if head else None) or Session())
+            for key, shared, head in heads
+        ]
         # A workspace kept by its config is listed with no record, as one that
         # has never opened a browser.
-        entries = sorted(records.items(), key=_recency, reverse=True) + [
-            (name, Workspace()) for name in configs.kept_names() if name not in records
+        entries = sorted(rows_of, key=_recency, reverse=True) + [
+            (name, Workspace(), Session())
+            for name in configs.kept_names()
+            if name not in records
         ]
 
         rows = []
-        for key, record in entries:
+        for key, shared, record in entries:
             sid = record.session_id
-            facts = session_facts(workspaces, key, record, running, grid_listed)
+            head = shared.head
+            facts = session_facts(
+                workspaces,
+                sessions.key_of(key, head or sessions.DEFAULT),
+                record,
+                running,
+                grid_listed,
+            )
             live = facts["live"]
             downloads = None
             if live:
@@ -590,11 +616,11 @@ def mount(
                     for name in names
                 )
             )
-            # The default's: another session's is on its `sessions` entry.
+            # The head's: another session's is on its `sessions` entry.
             listed, site_data_rev = site_data_stamp(
-                record.site_data, record.entries(sessions.DEFAULT)
+                record.site_data, shared.entries(head)
             )
-            visited = site_data.history_hosts(record.history)
+            visited = site_data.history_hosts(shared.history)
             config_rev = configs.revision(workspace) if workspace else ""
             rows.append(
                 {
@@ -604,8 +630,8 @@ def mount(
                     # A hand edit too: the Config tab and its banner reload.
                     "config_rev": config_rev,
                     **facts,
-                    "sessions": listed_sessions(workspaces, key, record, running),
-                    "url": record.url or None,
+                    "sessions": listed_sessions(workspaces, key, shared, running),
+                    "url": shared.page(head) or None,
                     "files_count": files_count,
                     "files_rev": files_rev,
                     "site_data_count": len(listed["sites"]),
@@ -614,7 +640,7 @@ def mount(
                     # Origins and pages in order, without times, so only a
                     # visit repaints History.
                     "history_rev": json.dumps(
-                        [[v["origin"], v["url"]] for v in record.history]
+                        [[v["origin"], v["url"]] for v in shared.history]
                     ),
                     "counts": counts,
                     # None when flows are off, which is not zero.
@@ -697,19 +723,19 @@ def mount(
     @guarded
     async def admin_session(request: Request) -> JSONResponse:
         """One session's row, as the Session tab shows it: ``?session=`` names
-        it, the default when absent. A sub-session with no record is a 404."""
+        it, the head when absent. A session named with no record is a 404."""
         workspace = request.path_params["key"]
 
         def read() -> dict:
             key, name = known_session(workspaces, workspace, request)
-            record = workspaces.store.get(key) or Workspace()
+            record = workspaces.store.get(key) or Session()
             top = workspaces.store.get(workspace) or Workspace()
             running, listed = grid_running(actions)
             return {
                 "key": workspace,
                 "session": name,
                 "label": name,
-                "default": name == sessions.DEFAULT,
+                "default": name == top.head,
                 **session_facts(workspaces, key, record, running, listed),
                 "url": top.page(name) or None,
             }
@@ -728,7 +754,7 @@ def mount(
     @broadcast.changes
     async def admin_end_session(request: Request) -> JSONResponse:
         """End the browser a session holds, keeping its record and every other
-        session's browser: ``?session=`` names it, the default when absent.
+        session's browser: ``?session=`` names it, the head when absent.
 
         The record stays (the browser choice, the page it was on), so the next
         ``open_session`` carries on where it left off. Nothing attached is
@@ -736,7 +762,9 @@ def mount(
         """
         workspace = request.path_params["key"]
         try:
-            key, name = known_session(workspaces, workspace, request)
+            key, name = await run_in_threadpool(
+                known_session, workspaces, workspace, request
+            )
             session_id = await run_in_threadpool(attached_id, workspaces, key)
             if not session_id:
                 return JSONResponse(
@@ -745,11 +773,9 @@ def mount(
             # The tool's own command. `admin=True`: a person's control never
             # refuses the End, ending releases it, and whoever holds the
             # session does not bind the admin (WS-84).
-            # The default's End is the one it always was.
-            picked = {} if name == sessions.DEFAULT else {"session": name}
             await run_in_threadpool(
                 lambda: workspaces.end_browser(
-                    Caller(workspace, "admin"), admin=True, **picked
+                    Caller(workspace, "admin"), admin=True, session=name
                 )
             )
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
@@ -771,10 +797,8 @@ def mount(
         workspace = request.path_params["key"]
 
         def end_all() -> int:
-            store = workspaces.store
-            top = store.get(workspace)
-            names = [sessions.DEFAULT] if top is not None else []
-            names += list(store.sub_records(workspace))
+            top = workspaces.store.get(workspace)
+            names = list(top.sessions) if top is not None else []
             ended, failure = 0, None
             for name in names:
                 if not attached_id(workspaces, sessions.key_of(workspace, name)):

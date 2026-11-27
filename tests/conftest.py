@@ -32,6 +32,7 @@ from kubed.selenium_flow.http.admin import page as _admin_page
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp.failures import FASTMCP_LOGGER
 from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.workspace import sessions
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
@@ -61,10 +62,12 @@ TOKEN = "test-token-abc123"
 
 # Two workspaces that are stable and distinct, which is the whole premise: the
 # same name must always resolve to the same browser, and two different names
-# must never see each other's. A name is the store key, so a test can read and
-# write `store[NAMED]` directly.
+# must never see each other's. A name is the key of the workspace's record; the
+# session a caller with no principal reaches in it is keyed `<name>/default`.
 NAMED = "desktop"
 OTHER = "laptop"
+NAMED_KEY = sessions.key_of(NAMED, sessions.DEFAULT)
+OTHER_KEY = sessions.key_of(OTHER, sessions.DEFAULT)
 
 # kubed-mcp's two reading tools (DLV-6): listed only when a request turns resources off.
 RESOURCE_TOOLS = frozenset({"list_resources", "read_resource"})

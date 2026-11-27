@@ -701,21 +701,21 @@ def test_a_store_that_kept_losing_to_other_writers_is_a_500(open_server, open_cl
     """S12: `StoreConflict` is a RuntimeError nothing classifies, so the caller
     is told it is our fault and to retry — which is true. Pinned so that moving
     the classification is a visible choice."""
-    from kubed.selenium_flow.workspace.store import RedisStore, Workspace
+    from kubed.selenium_flow.workspace.store import RedisStore, Session
 
     from .fakes import FakeRedis
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    seated(store, WORKSPACE, session_id="abc")
+    key = seated(store, WORKSPACE, session_id="abc")
     n = [0]
 
     def always():
         n[0] += 1
         # Still this browser, so the detach has work to do, but never the same
         # bytes, so the transaction never lands.
-        record = Workspace(session_id="abc", opened_at=float(n[0]))
-        fake.set(f"p:{WORKSPACE}", record.to_json())
+        record = Session(session_id="abc", opened_at=float(n[0]))
+        fake.set(f"p:{key}", record.to_json())
 
     fake.interfere = always
     monkeypatch.setattr(open_server.workspaces, "store", store)
@@ -735,7 +735,8 @@ def test_a_record_with_a_non_numeric_opened_at_is_a_workspace_with_no_history(
     from .fakes import FakeRedis
 
     fake = FakeRedis()
-    fake.set(f"p:{WORKSPACE}", '{"session_id": "abc", "opened_at": "yesterday"}')
+    fake.set(f"p:{WORKSPACE}", '{"sessions": ["default"], "history": []}')
+    fake.set(f"p:{WORKSPACE}/default", '{"session_id": "abc", "opened_at": "yesterday"}')
     monkeypatch.setattr(open_server.workspaces, "store", RedisStore(fake, prefix="p:"))
     response = open_client.get("/browser")
     assert response.status_code == 200

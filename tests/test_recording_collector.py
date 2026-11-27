@@ -1168,7 +1168,7 @@ def test_a_first_expect_that_cannot_be_written_owes_nothing(parts):
 async def test_an_expected_browser_is_watched_and_released_once_filed(parts):
     c, _store, inbox, monitor, filed, _clock = parts
     c.expect("bot", GID, "chrome")
-    assert monitor.watched == [(GID, "bot", "recording", "chrome")]
+    assert monitor.watched == [(GID, "bot/default", "recording", "chrome")]
     (inbox / f"bot_{GID}.mp4").write_bytes(BODY + mp4.trailer())
     await c.sweep()
     assert filed == [1] and monitor.released == [(GID, "recording")]
@@ -1178,7 +1178,7 @@ async def test_a_provisional_discard_is_watched_too(parts):
     """Its deadline needs an end as much as a kept one's does."""
     c, _store, _inbox, monitor, _filed, _clock = parts
     c.expect("bot", GID, "chrome", discard=True)
-    assert monitor.watched == [(GID, "bot", "recording", "chrome")]
+    assert monitor.watched == [(GID, "bot/default", "recording", "chrome")]
 
 
 async def test_a_sub_sessions_browser_is_watched_by_its_key_and_filed_with_its_workspace(
@@ -1199,7 +1199,7 @@ async def test_a_sub_sessions_browser_is_watched_by_its_key_and_filed_with_its_w
 
 
 @pytest.mark.parametrize("written", ["other/tester", "bot", 7])
-async def test_a_note_naming_no_sub_session_of_its_workspace_is_watched_by_it(
+async def test_a_note_naming_no_session_of_its_workspace_is_watched_by_its_default(
     store, inbox, written
 ):
     store.write_note(
@@ -1208,7 +1208,7 @@ async def test_a_note_naming_no_sub_session_of_its_workspace_is_watched_by_it(
     monitor = Watcher()
     c = collector(store, inbox, Clock(), monitor=monitor)
     await c.start()
-    assert monitor.watched == [(GID, "bot", "recording", "chrome")]
+    assert monitor.watched == [(GID, "bot/default", "recording", "chrome")]
     await c.stop()
 
 
@@ -1221,7 +1221,7 @@ async def test_start_watches_what_the_notes_still_owe(store, inbox):
     monitor = Watcher()
     c = collector(store, inbox, Clock(), monitor=monitor)
     await c.start()
-    assert monitor.watched == [(GID, "a", "recording", "chrome")]
+    assert monitor.watched == [(GID, "a/default", "recording", "chrome")]
     await c.stop()
 
 

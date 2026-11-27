@@ -98,8 +98,8 @@ class Owed:
     dropped: bool = False
     # No workspace holds this browser: its video is deleted, never filed.
     discard: bool = False
-    # The key of the session the browser is, when a sub-session's: what the
-    # monitor knows it by. Its video is still the workspace's.
+    # The key of the session the browser is: what the monitor knows it by. Its
+    # video is still the workspace's.
     session: str = ""
 
     @property
@@ -144,10 +144,13 @@ def _owed_from(workspace: str, grid_id: str, note: dict) -> Owed:
 
 
 def _session_of(workspace: str, raw) -> str:
-    """A note's session key: one of ``workspace``'s sub-sessions, else ""."""
-    if not isinstance(raw, str) or not sessions.is_sub(raw):
-        return ""
-    return raw if sessions.split(raw)[0] == workspace else ""
+    """A note's session key: one of ``workspace``'s sessions' keys, else its
+    ``default``'s, which a note written with none was (WS-81)."""
+    if isinstance(raw, str):
+        owner, name = sessions.split(raw)
+        if owner == workspace and name:
+            return raw
+    return sessions.key_of(workspace, sessions.DEFAULT)
 
 
 class Collector:
@@ -223,8 +226,8 @@ class Collector:
         ``discard``: no workspace holds it (yet); its video is deleted, never
         filed. Expected again for the same browser, the second replaces the
         first (`_add`), which is how a provisional discard becomes ordinary.
-        ``session`` is the sub-session's key when the browser is one's: the
-        monitor is told the browser by it.
+        ``session`` is the key of the session the browser is: the monitor is
+        told the browser by it. One not in ``workspace`` is its default's.
 
         Both calls come from one thread in that order, and `_post` keeps it:
         ``call_soon_threadsafe`` runs callbacks first in, first out."""
@@ -235,7 +238,7 @@ class Collector:
             int(self.clock() * 1000),
             browser,
             discard=discard,
-            session=session if sessions.is_sub(session) else "",
+            session=_session_of(workspace, session),
         )
         try:
             self.store.write_note(workspace, grid_id, self._note(owed))

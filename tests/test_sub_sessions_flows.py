@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import replace
 
 import pytest
 from fastmcp import Client
@@ -25,7 +24,7 @@ from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Workspaces, acting
 
-from .conftest import NAMED, calling_as
+from .conftest import NAMED, NAMED_KEY, calling_as
 from .fakes import (
     TOKEN_SESSION,
     BindingCatalogue,
@@ -72,7 +71,7 @@ def flows(monkeypatch, tmp_path):
     app.actions.grid = double.grid
     calling_as(monkeypatch, NAMED)
     store = app.workspaces.store
-    seated(store, NAMED, session_id="b-1", subs=["tester"])
+    seated(store, NAMED, session_id="b-1")
     seated(store, NAMED, "tester", session_id="b-2")
     double.grid.alive.update({"b-1", "b-2"})
     app.flows.save(NAMED, "trip", {"steps": STEPS})
@@ -151,7 +150,7 @@ async def test_the_run_is_scrubbed_and_checked_as_its_session(flows):
     store = app.workspaces.store
     workspaces = app.workspaces
     assert workspaces.context(f"{NAMED}/tester")["url"] == "https://example.test/extract"
-    assert workspaces.context(NAMED).get("url", "") == ""
+    assert workspaces.context(NAMED_KEY).get("url", "") == ""
     assert {v["session"] for v in shared_of(store, NAMED).history} == {"tester"}
 
 
@@ -287,7 +286,6 @@ def live_build():
     from .test_admin_live import build
 
     app = build()
-    app.workspaces.store.update("w1", lambda r: replace(r, subs=["tester"]))
     seated(app.workspaces.store, "w1", "tester", session_id="g-tester", ran={"live_view": True},
     )
     return app
@@ -379,7 +377,7 @@ def test_a_flow_types_and_scrubs_with_its_own_sessions_origin(tmp_path):
         assert report["status"] == "ok", report
         assert "beta-22" not in json.dumps(report)
         assert "[secret:b/password]" in json.dumps(report)
-        refused = run("shop")
+        refused = run("shop/default")
         assert refused["status"] == "failed", refused
         assert "beta-22" not in json.dumps(refused)
     finally:

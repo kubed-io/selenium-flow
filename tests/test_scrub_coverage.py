@@ -37,7 +37,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace import sessions
 
 from .capture_events import done, log, nav_started, req
-from .conftest import NAMED, RESOURCE_TOOLS, TOKEN, http, over_http
+from .conftest import NAMED, NAMED_KEY, RESOURCE_TOOLS, TOKEN, http, over_http
 from .fakes import TOKEN_SESSION, FakeGrid, record_of, seated, untabbed
 from .test_redaction import golden
 
@@ -213,10 +213,10 @@ def seed(server):
             "saved_at": 1000.0,
         })
 
-    store.update(NAMED, capturing)
+    store.update(NAMED_KEY, capturing)
     # The token's HTTP calls reach its own session, on the same browser.
     own = record_of(store, NAMED)
-    if sessions.key_of(NAMED, TOKEN_SESSION) != NAMED:
+    if sessions.key_of(NAMED, TOKEN_SESSION) != NAMED_KEY:
         own = replace(own, session_id=f"{own.session_id}-token")
     seated(store, NAMED, TOKEN_SESSION, record=own, holder=ADMIN_SUBJECT)
     server.flows.write_file(NAMED, "notes.txt", ALL.encode(), files_module.FILES)
@@ -225,8 +225,8 @@ def seed(server):
         NAMED, "shot.png", b"\x89PNG\r\n\x1a\n" + bytes(8), files_module.SCREENSHOTS
     )
     capture = server.capture
-    held = {NAMED: record.session_id}
-    if (token_key := sessions.key_of(NAMED, TOKEN_SESSION)) != NAMED:
+    held = {NAMED_KEY: record.session_id}
+    if (token_key := sessions.key_of(NAMED, TOKEN_SESSION)) != NAMED_KEY:
         held[token_key] = f"{record.session_id}-token"
     for key, sid in held.items():
         capture.attached(key, sid, "chrome", "top-1", again=False)

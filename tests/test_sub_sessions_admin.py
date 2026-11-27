@@ -1,6 +1,6 @@
 """The admin API over sub-sessions: the list holds workspaces with their
 sessions, every session-scoped route takes ``?session=``, and End all ends them
-every one (WS-74, WS-77, UI-64, UI-65)."""
+every one (WS-74, WS-81, UI-64, UI-65)."""
 
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def server():
     s.actions.end_browser = ended.append
     s.ended = ended
     store = s.workspaces.store
-    seated(store, WS, session_id="g1", opened_at=NOW, subs=["tester"],
+    seated(store, WS, session_id="g1", opened_at=NOW,
         settings={"capture": True, "browser": "firefox"},
         history=[visit(B_SITE, "tester", NOW - 5), visit(A_SITE, "default", NOW - 10)],
         site_data={
@@ -74,8 +74,8 @@ def server():
     seated(store, WS, "tester", session_id="g2", opened_at=NOW, site_data=TESTER_DATA,
         settings={"capture": True, "browser": "chrome"},
     )
-    # A workspace that exists only because a sub-session was opened in it.
-    seated(store, "fresh", subs=["only"])
+    # A workspace that exists only because a session other than `default` was
+    # opened in it: that session heads its list.
     seated(store, "fresh", "only")
     return s
 
@@ -101,20 +101,19 @@ def test_admin_lists_sub_sessions_under_their_workspace(client):
         {"name": "tester", "label": "tester", "default": False, "live": True,
          "browser": "chrome"},
     ]
-    # Only because a sub was opened: no browser, no owner, still listed cleanly.
+    # Only because `only` was opened: no browser, no owner, still listed
+    # cleanly, and `only` heads it (WS-81).
     assert listed["fresh"]["sessions"] == [
-        {"name": "default", "label": "default", "default": True, "live": False,
-         "browser": "chrome"},
-        {"name": "only", "label": "only", "default": False, "live": False,
+        {"name": "only", "label": "only", "default": True, "live": False,
          "browser": "chrome"},
     ]
 
 
 def test_the_admin_list_prunes_a_dead_sub_session_name(server, client):
     store = server.workspaces.store
-    store.update(WS, lambda r: replace(r, subs=["gone", *r.subs]))
+    store.update(WS, lambda r: replace(r, sessions=["default", "gone", "tester"]))
     assert [s["name"] for s in rows(client)[WS]["sessions"]] == ["default", "tester"]
-    assert shared_of(store, WS).subs == ["tester"]
+    assert shared_of(store, WS).sessions == ["default", "tester"]
 
 
 def test_each_session_has_its_own_site_data_rev(server, client):
@@ -148,7 +147,7 @@ def test_admin_session_routes_take_session(server, client):
     server.workspaces.captured = lambda key, kind, **q: seen.append(key) or real(key, kind, **q)
     client.get(f"{base}/console")
     client.get(f"{base}/console", params={"session": "tester"})
-    assert seen == [WS, TESTER]
+    assert seen == [f"{WS}/default", TESTER]
     # An unknown name is a 404, a reserved or malformed one a 400, on every route.
     for method, route in (
         ("get", "session"), ("get", "console"), ("get", "network"),
@@ -178,7 +177,7 @@ def test_end_all_ends_every_sessions_browser(server, client):
     store = server.workspaces.store
     # Every record is kept, detached.
     assert record_of(store, WS).attached is False and record_of(store, WS, "tester").attached is False
-    assert shared_of(store, WS).subs == ["tester"]
+    assert shared_of(store, WS).sessions == ["default", "tester"]
     # Nothing left to end answers 0, and a second press ends nothing.
     assert client.post(f"/admin/workspaces/{WS}/end-all").json()["ended"] == 0
     assert client.post("/admin/workspaces/fresh/end-all").json()["ended"] == 0
@@ -248,8 +247,9 @@ def test_forgetting_a_workspace_forgets_its_sub_sessions(server):
     server.workspaces.forget(WS)
     store = server.workspaces.store
     assert record_of(store, WS) is None and record_of(store, WS, "tester") is None
-    assert store.sub_records(WS) == {}
-    assert record_of(store, "fresh") is not None
+    assert store.sessions_of(WS) == {}
+    assert shared_of(store, WS) is None
+    assert record_of(store, "fresh", "only") is not None
 
 
 def test_admin_logs_never_name_a_sub_session(server, client, caplog):

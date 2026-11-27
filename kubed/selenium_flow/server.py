@@ -69,6 +69,7 @@ from .workspace import config as workspace_config
 from .workspace import locks
 from .workspace import settings as workspace_settings
 from .workspace import store as store_module
+from .workspace.sessions import DEFAULT, key_of
 from .workspace.store import WorkspaceStore
 from .workspace.workspaces import Workspaces, acting
 
@@ -451,9 +452,10 @@ class SeleniumMCP:
             session=acting() or None,
         )
         # So one save reads every site's storage: the history of the session
-        # the call acts in.
+        # the call acts in; outside one, the workspace's `default`, as a
+        # caller with no principal reaches it (WS-82).
         self.actions.visited = lambda: self.workspaces.visited(
-            acting() or clients.caller().name
+            acting() or key_of(clients.caller().name, DEFAULT)
         )
         self.apps = (
             apps.register(self.mcp, self.actions, auth_token, base)

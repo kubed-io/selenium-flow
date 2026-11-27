@@ -11,10 +11,10 @@ from fastmcp.exceptions import ToolError
 from kubed.selenium_flow.http.files import NO_DOWNLOADS
 from kubed.selenium_flow.mcp import apps, show
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 
 from .conftest import TOKEN
-from .fakes import seated
+from .fakes import seated, visits
 
 pytestmark = pytest.mark.unit
 
@@ -456,7 +456,7 @@ async def test_a_json_document_is_drawn_from_its_json(flow_server, uri):
 
 async def test_the_site_data_pair_draws_with_httponly_masked(flow_server, named_caller):
     site = "app.example.com"
-    seated(flow_server.workspaces.store, named_caller, record=Workspace(site_data={
+    seated(flow_server.workspaces.store, named_caller, record=Session(site_data={
         "cookies": [
             {"name": "sid", "value": "s3cret", "domain": site, "http_only": True},
             {"name": "theme", "value": "dark", "domain": site},
@@ -464,7 +464,7 @@ async def test_the_site_data_pair_draws_with_httponly_masked(flow_server, named_
         "origins": {f"https://{site}": {"local": {"k": "v"}}},
         "session": {"origin": f"https://{site}", "items": {}},
         "saved_at": 1000.0,
-    }).visited(f"https://{site}/x"))
+    }), history=visits(f"https://{site}/x"))
     async with Client(flow_server.mcp.server) as c:
         listing = (await c.call_tool("show", {"uri": "workspace://site-data"})).structured_content
         one = (await c.call_tool(
@@ -509,8 +509,8 @@ def test_the_summary_pluralises_its_noun(component, count, line):
 def chatty(server, name, entries=1000, text="x" * 300, requests=0, url_tail=""):
     from .capture_events import done, log, nav_started, req
 
-    seated(server.workspaces.store, name, settings={"capture": True})
-    server.capture.attached(name, "s1", "chrome", "top-1", again=False)
+    key = seated(server.workspaces.store, name, settings={"capture": True})
+    server.capture.attached(key, "s1", "chrome", "top-1", again=False)
     events = [nav_started("https://a.test/")]
     events += [log(f"{i} {text}", level="error" if i % 2 else "info", ts=1000.0 + i)
                for i in range(entries)]
@@ -518,7 +518,7 @@ def chatty(server, name, entries=1000, text="x" * 300, requests=0, url_tail=""):
         events += [req(f"r{i}", f"https://a.test/api/{i}?{url_tail}", initiator="fetch"),
                    done(f"r{i}", 500)]
     for method, params in events:
-        server.capture.ingest(name, "s1", method, params)
+        server.capture.ingest(key, "s1", method, params)
 
 
 @pytest.mark.parametrize("text", ["x" * 300, "y" * 4000])

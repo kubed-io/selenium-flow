@@ -36,7 +36,7 @@ from kubed.selenium_flow.flows.run import run
 from kubed.selenium_flow.mcp import skill
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.spec import build_spec
-from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
+from kubed.selenium_flow.workspace.store import MemoryStore, Session
 
 from .conftest import (
     NAMED,
@@ -56,6 +56,7 @@ from .fakes import (
     request,
     seated,
     untabbed,
+    visits,
 )
 from .golden_tools import GOLDEN, compare, normalised, render
 from .test_flowrun import SECRET_STEP, SIMPLE, flow
@@ -534,12 +535,12 @@ def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
     }
     store = server.workspaces.store
     seated(store, "live",
-        record=Workspace(session_id="live-1", opened_at=NOW - 600).visited(
+        record=Session(session_id="live-1", opened_at=NOW - 600), history=visits(
             "https://app.example.com/x", now=NOW - 60
         ),
     )
     seated(store, "detached",
-        record=Workspace(
+        record=Session(
             session_id="",
             opened_at=NOW - 7200,
             settings={"browser": "firefox", "version": "142"},
@@ -554,19 +555,20 @@ def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
             ],
             ran={"version": "142.0", "node": "node-firefox-1", "live_view": True},
             ended={"at": NOW - 3500, "by": "admin"},
-        ).visited("https://mail.example.org/inbox", now=NOW - 3600),
+        ), history=visits("https://mail.example.org/inbox", now=NOW - 3600),
     )
     seated(store, "sited",
-        record=Workspace(session_id="", opened_at=NOW - 1800)
-        .visited("https://app.example.com/x", now=NOW - 90)
-        .with_site_data(site_data),
+        record=Session(session_id="", opened_at=NOW - 1800).with_site_data(site_data),
+        history=visits("https://app.example.com/x", now=NOW - 90),
     )
-    reopened = Workspace(
+    reopened = Session(
         session_id="live-1",
         opened_at=NOW - 300,
         reopened={"browser": "live-1", "report": {"restored": 1, "skipped": 0}},
-    ).visited("https://app.example.com/y", now=NOW - 20)
-    seated(store, "reopened", record=reopened)
+    )
+    seated(store, "reopened", record=reopened,
+        history=visits("https://app.example.com/y", now=NOW - 20),
+    )
     body = TestClient(server.mcp.server.http_app(), headers=AUTH).get("/admin/workspaces")
     assert body.status_code == 200
     compare("admin-workspaces.json", normalised(body.json()))

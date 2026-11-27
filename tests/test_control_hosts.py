@@ -214,7 +214,7 @@ def test_a_bound_write_is_refused_before_the_page_is_read():
     gate.shut.add(grid_id(workspaces))
     with pytest.raises(faults.Controlled):
         perform_write(
-            Anywhere(), workspaces.actions, workspaces, "ws",
+            Anywhere(), workspaces.actions, workspaces, "ws/default",
             {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}},
         )
     assert workspaces.actions.reached == []
@@ -259,6 +259,6 @@ def test_paste_is_never_refused():
     """The person in control types through it (ruling 3)."""
     workspaces, _, gate = controlled()
     gate.shut.add(grid_id(workspaces))
-    assert workspaces.paste("ws", "hello") == {"typed": 5}
+    assert workspaces.paste("ws/default", "hello") == {"typed": 5}
     assert workspaces.actions.reached == ["paste"]
     assert [tool for _, tool in gate.asked] == ["paste"]

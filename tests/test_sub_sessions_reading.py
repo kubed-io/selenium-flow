@@ -5,17 +5,18 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import replace
 
 import pytest
 from fastmcp import Client
 from mcp.shared.exceptions import MCPError
 
 from kubed.selenium_flow.workspace import sessions
-from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
+from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import CONTEXT_KEYS
 
 from .capture_events import log, nav_started
-from .conftest import NAMED, calling_as
+from .conftest import NAMED, NAMED_KEY, calling_as
 from .fakes import record_of, seated, shared_of
 
 pytestmark = pytest.mark.unit
@@ -56,7 +57,7 @@ def server(data_server, monkeypatch):
     store = MemoryStore(clock=clock)
     data_server.workspaces.store = store
     data_server.clock = clock
-    seated(store, NAMED, session_id="s1", settings={"capture": True}, subs=["tester"],
+    seated(store, NAMED, session_id="s1", settings={"capture": True},
         history=[visit(B_SITE, "tester"), visit(A_SITE, "default")],
     )
     seated(store, NAMED, "tester", session_id="s2", settings={"capture": True},
@@ -97,7 +98,7 @@ def stored(store):
     """Every record in full, by key."""
     return {
         **store.records(),
-        **store.sub_records(NAMED),
+        **store.sessions_of(NAMED),
     }
 
 
@@ -115,7 +116,7 @@ async def test_reading_a_named_session_leaves_the_records_as_they_were(server):
     await read(server, "session://tester")
     await read(server, "session://tester/console")
     assert stored(store) == before
-    assert shared_of(store, NAMED).subs == ["tester"]
+    assert shared_of(store, NAMED).sessions == ["default", "tester"]
 
 
 async def test_session_resource_reads_a_named_session(server):
@@ -140,7 +141,7 @@ async def test_session_name_resource_for_an_unknown_name_is_not_found(server):
 
 
 async def test_capture_is_kept_per_session(server):
-    heard(server, NAMED, "s1", "from the default")
+    heard(server, NAMED_KEY, "s1", "from the default")
     heard(server, TESTER, "s2", "from tester")
     texts = lambda view: [e["text"] for e in view["entries"]]  # noqa: E731
     assert texts(await read(server, "workspace://console")) == ["from the default"]
@@ -163,7 +164,7 @@ async def test_a_sub_sessions_capture_lasts_as_its_record(server):
         await read(server, "session://tester/console")
     assert gone.value.error.code == -32002
     assert capture.counts(TESTER) is None, "the buffer goes with the record"
-    heard(server, NAMED, "s1", "default")
+    heard(server, NAMED_KEY, "s1", "default")
     server.workspaces.forget(NAMED)
     assert capture.counts(NAMED) is None
     assert record_of(server.workspaces.store, NAMED) is None
@@ -185,11 +186,11 @@ def test_site_data_orders_by_the_callers_sessions_own_history(server):
         {"name": "n", "value": "1", "domain": "b.example.test"},
     ]}
     store.update(TESTER, lambda r: r.with_site_data(jar))
-    store.update(NAMED, lambda r: r.with_site_data(jar))
+    store.update(NAMED_KEY, lambda r: r.with_site_data(jar))
     # The default went to a last: read as every session's, a would lead.
-    store.update(NAMED, lambda r: Workspace(**{
-        **r.__dict__, "history": [visit(A_SITE, "default"), visit(B_SITE, "tester")],
-    }))
+    store.update(NAMED, lambda r: replace(
+        r, history=[visit(A_SITE, "default"), visit(B_SITE, "tester")],
+    ))
 
     def sites(session):
         listing = resources.site_listing(server.workspaces, _caller(session))

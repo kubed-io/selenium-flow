@@ -187,7 +187,7 @@ def test_a_save_or_remove_with_no_record_writes_none(client, data_server):
 
 def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.workspace.store import RedisStore, Workspace
+    from kubed.selenium_flow.workspace.store import RedisStore
 
     from .fakes import FakeRedis
 
@@ -201,12 +201,18 @@ def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
         },
         store=redis,
     )
-    redis.set(KEY, Workspace(session_id="a"))
+    seated(redis, KEY, session_id="a")
     client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     client.put(url(), json={"text": VALID})
+    # The workspace's record and its head's, at once (WS-63, WS-87).
     assert fake.expiries[f"p:{KEY}"] is None
+    assert fake.expiries[f"p:{KEY}/default"] is None
     client.delete(url())
     assert fake.expiries[f"p:{KEY}"] == 60
+    assert fake.expiries[f"p:{KEY}/default"] == 60
+    redis.delete(f"{KEY}/default")
+    client.put(url(), json={"text": VALID})
+    assert f"p:{KEY}/default" not in fake.data, "a head with no record is not made"
     redis.delete(KEY)
     client.put(url(), json={"text": VALID})
     assert f"p:{KEY}" not in fake.data

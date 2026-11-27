@@ -33,8 +33,9 @@ from kubed.selenium_flow.secrets import (
 from kubed.selenium_flow.workspace.calls import Calls
 from kubed.selenium_flow.workspace.origins import Origins
 from kubed.selenium_flow.workspace.scrub import Scrubber
+from kubed.selenium_flow.workspace.store import Session
 
-from .fakes import record_of, seated, untabbed
+from .fakes import record_of, seated, shared_of, untabbed, visits
 
 pytestmark = pytest.mark.unit
 
@@ -1237,26 +1238,27 @@ def test_a_workspace_in_use_is_kept_alive_even_when_its_page_is_withheld():
     that threw the refresh away. A test on the store would have passed
     throughout.
     """
-    from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
+    from kubed.selenium_flow.workspace.store import MemoryStore
 
-    from .conftest import NAMED, manager
+    from .conftest import NAMED, NAMED_KEY, manager
 
     clock = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: clock[0])
     seated(
-        store, NAMED, record=Workspace(session_id="browser-1").visited("https://nc.test/home")
+        store, NAMED, record=Session(session_id="browser-1"), history=visits("https://nc.test/home")
     )
     workspaces = manager(store=store)
 
     clock[0] += 50
     # The page is withheld, the way a bound write withholds it.
-    workspaces.touch(NAMED, None)
+    workspaces.touch(NAMED_KEY, None)
 
     clock[0] += 50  # past the original expiry, inside the slid one
-    kept = record_of(store, NAMED)
+    assert record_of(store, NAMED) is not None, "the session expired while it was used"
+    kept = shared_of(store, NAMED)
     assert kept is not None, "the workspace expired while it was being used"
     # And the page it already knew survives being touched with nothing.
-    assert kept.url == "https://nc.test/home"
+    assert kept.page("default") == "https://nc.test/home"
 
 
 @pytest.mark.parametrize(

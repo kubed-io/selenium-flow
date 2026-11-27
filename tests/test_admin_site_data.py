@@ -13,10 +13,10 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.site_data import snapshot as site_data
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session, Workspace
 
 from .conftest import TOKEN
-from .fakes import record_of, seated
+from .fakes import record_of, seated, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -37,7 +37,7 @@ DATA = {
 
 
 def visited():
-    return (Workspace(session_id="")
+    return (Workspace(sessions=["default"])
             .visited("https://mail.example.org/", now=5.0)
             .visited("https://app.example.com/x", now=6.0))
 
@@ -53,7 +53,7 @@ def server():
             "keys": {"user": {"value": "me"}},
         }}},
     })
-    seated(s.workspaces.store, KEY, record=visited().with_site_data(DATA))
+    seated(s.workspaces.store, KEY, history=visited().history, record=Session().with_site_data(DATA))
     return s
 
 
@@ -107,7 +107,7 @@ def test_forget_takes_one_host_and_leaves_shared_cookies_and_the_history(client,
     record = record_of(server.workspaces.store, KEY)
     assert [c["name"] for c in record.site_data["cookies"]] == ["shared", "ad"]
     assert record.site_data["origins"] == {} and record.site_data["session"] == {}
-    assert record.history == visited().history, "History is not Site data's to touch"
+    assert shared_of(server.workspaces.store, KEY).history == visited().history, "History is not Site data's to touch"
     second = client.delete(url("/app.example.com"))
     assert second.status_code == 404
     assert second.json() == {"error": "no saved site data for app.example.com"}
@@ -117,7 +117,7 @@ def test_clear_deletes_the_snapshot_and_keeps_the_history(client, server):
     assert client.delete(url()).json() == {"cleared": ["app.example.com", "ads.example.net"]}
     record = record_of(server.workspaces.store, KEY)
     assert record.site_data == {}
-    assert record.history == visited().history
+    assert shared_of(server.workspaces.store, KEY).history == visited().history
     assert client.get(url()).json()["sites"] == []
     assert client.delete(url()).json() == {"cleared": []}, "nothing left is not an error"
 
@@ -151,7 +151,7 @@ def test_details_say_what_forget_takes_and_what_it_leaves(client):
 
 
 def test_a_parent_only_row_can_be_forgotten_and_a_covered_host_cannot(server):
-    seated(server.workspaces.store, KEY, record=visited().with_site_data({
+    seated(server.workspaces.store, KEY, history=visited().history, record=Session().with_site_data({
         "cookies": [{"name": "shared", "value": "s", "domain": ".example.org", "path": "/"}],
         "origins": {}, "session": {}, "saved_at": 10.0,
     }))
@@ -176,7 +176,7 @@ def test_forget_answers_404_through_the_central_policy(client):
 def test_the_payload_comes_from_one_grouping_of_the_jar(server, monkeypatch):
     cookies = [{"name": "c", "value": "v", "domain": f"h{i}.example{i}.com", "path": "/"}
                for i in range(300)]
-    seated(server.workspaces.store, KEY, record=visited().with_site_data({
+    seated(server.workspaces.store, KEY, history=visited().history, record=Session().with_site_data({
         "cookies": cookies, "origins": {}, "session": {}, "saved_at": 1.0}))
     calls = {"n": 0}
     real = site_data._Jar.covering
@@ -207,7 +207,7 @@ def test_forget_keeps_a_save_that_lands_while_it_works(client, server, monkeypat
 
     def forget(data, host):
         if not saver:
-            saver.append(threading.Thread(target=store.update, args=(KEY, save)))
+            saver.append(threading.Thread(target=store.update, args=(f"{KEY}/default", save)))
             saver[0].start()
             saver[0].join(0.3)
         return real(data, host)

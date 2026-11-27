@@ -438,7 +438,7 @@ class Capture:
     # ---- the workspace -------------------------------------------------------
 
     def kept(self) -> list[str]:
-        """The keys (a workspace's, or a sub-session's) with anything kept."""
+        """The session keys with anything kept."""
         with self._lock:
             return list({
                 *self._cache.keys(),

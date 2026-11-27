@@ -1758,7 +1758,7 @@ def test_a_run_scrubs_each_step_with_the_origins_it_began_and_ended_on(monkeypat
         assert seen["leashed_before_failing"] == 0
         assert seen["failed"].ids == {IN_SCOPE_ID}  # unknown: every leashed secret
         assert catalogue.calls["leashed"] == 1
-        assert workspaces.origins.current("w", record_of(workspaces.store, "w").session_id) == a
+        assert workspaces.origins.current("w/default", record_of(workspaces.store, "w").session_id) == a
     finally:
         workspaces.scrubber.close()
 

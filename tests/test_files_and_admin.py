@@ -19,10 +19,10 @@ from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 
 from .conftest import TOKEN
-from .fakes import TOKEN_SESSION, record_of, seated
+from .fakes import TOKEN_SESSION, record_of, seated, visits
 
 pytestmark = pytest.mark.unit
 
@@ -42,7 +42,7 @@ def flow_session(server):
     The admin surface lists *our* workspaces, not the Grid's, so a test that does
     not put one in the store is asking about an empty server.
     """
-    seated(server.workspaces.store, KEY, record=Workspace(session_id="abc").visited("https://x/"))
+    seated(server.workspaces.store, KEY, record=Session(session_id="abc"), history=visits("https://x/"))
     return server
 
 
@@ -427,7 +427,7 @@ def test_the_listing_shows_workspaces_not_grid_sessions(client, server):
     Listing those would be showing somebody else's work as though it were ours,
     and handing whoever holds the admin token a browser id they never opened."""
     seated(server.workspaces.store, "mine",
-        record=Workspace(session_id="mine", settings={"browser": "firefox"}).visited("https://x/"),
+        record=Session(session_id="mine", settings={"browser": "firefox"}), history=visits("https://x/"),
     )
     grid_rows = [
         {"session_id": "mine", "browser": "firefox", "version": "155", "node": "n1"},
@@ -448,7 +448,7 @@ def test_the_listing_shows_workspaces_not_grid_sessions(client, server):
 def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server):
     """The point of the split: no browser, but still a workspace worth seeing."""
     seated(server.workspaces.store, "idle",
-        record=Workspace(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
+        record=Session(session_id="", settings={"browser": "firefox"}), history=visits("https://x/"),
     )
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
@@ -602,7 +602,7 @@ def test_a_live_row_reports_the_window_its_browser_opened_at(client, server, mon
 
 def test_a_resized_row_reports_the_new_window(client, server):
     seated(server.workspaces.store, "w", session_id="s9", window_seen="945x1038")
-    server.workspaces.reshape("w", {"width": 1200, "height": 800}, browser="s9")
+    server.workspaces.reshape("w/default", {"width": 1200, "height": 800}, browser="s9")
     assert admin_row(client, server, ["s9"])["window"] == "1200x800"
 
 
@@ -610,8 +610,8 @@ def test_a_resized_row_reports_the_new_window(client, server):
     ('"945x1038"', "945x1038"), ('"0x10"', None), ('"big"', None), ("945", None), ("null", None),
 ])
 def test_the_window_seen_survives_the_redis_store_and_nothing_else_does(raw, kept):
-    assert Workspace.from_json(f'{{"window_seen": {raw}}}').window_seen == kept
-    assert Workspace.from_json(Workspace(window_seen="945x1038").to_json()).window_seen == "945x1038"
+    assert Session.from_json(f'{{"window_seen": {raw}}}').window_seen == kept
+    assert Session.from_json(Session(window_seen="945x1038").to_json()).window_seen == "945x1038"
 
 
 def test_a_grid_that_cannot_be_listed_is_logged_without_its_credentials(client, server, caplog):

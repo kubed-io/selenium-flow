@@ -14,7 +14,11 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.names import GLOBAL_WORKSPACE
-from kubed.selenium_flow.workspace.store import HISTORY_CAP, RedisStore, Workspace
+from kubed.selenium_flow.workspace.store import (
+    HISTORY_CAP,
+    RedisStore,
+    Workspace,
+)
 from kubed.selenium_flow.workspace.workspaces import _acting_in, acting
 
 from .conftest import NAMED, TOKEN, http, manager
@@ -52,22 +56,24 @@ def test_a_sub_sessions_visit_is_in_the_workspaces_history_tagged():
     actions = RecordingActions()
     workspaces, store = two_open(actions)
     workspaces.act(as_(), lambda s: {"url": C_SITE}, session="tester")
-    record = record_of(store, "shop")
+    record = shared_of(store, "shop")
     assert tagged(record) == [
         ("tester", origin(C_SITE)),
         ("tester", origin(B_SITE)),
         ("default", origin(A_SITE)),
     ]
-    assert record_of(store, "shop", "tester").history == [], "never on the hour-long record"
+    assert "history" not in json.loads(record_of(store, "shop", "tester").to_json()), (
+        "never on the hour-long record"
+    )
     # Each session's page is its own newest entry (WS-7).
-    assert record.url == A_SITE
-    assert workspaces.context("shop")["url"] == A_SITE
+    assert record.page("default") == A_SITE
+    assert workspaces.context("shop/default")["url"] == A_SITE
     assert workspaces.context("shop/tester")["url"] == C_SITE
     # A reaped sub-session reopens on its own page, the default's left alone.
     actions.grid.alive.discard(ids(store)[1])
     workspaces.act(as_(), lambda s: {}, session="tester")
     assert actions.opened_urls[-1] == C_SITE
-    assert record_of(store, "shop").url == A_SITE
+    assert shared_of(store, "shop").page("default") == A_SITE
 
 
 def test_a_single_player_entry_is_the_defaults():
@@ -86,17 +92,19 @@ def test_a_single_player_entry_is_the_defaults():
 def test_two_sessions_on_one_origin_keep_an_entry_each():
     workspaces, store = two_open()
     workspaces.act(as_(), lambda s: {"url": A_SITE + "x"}, session="tester")
-    assert tagged(record_of(store, "shop")) == [
+    assert tagged(shared_of(store, "shop")) == [
         ("tester", origin(A_SITE)),
         ("tester", origin(B_SITE)),
         ("default", origin(A_SITE)),
     ]
-    assert record_of(store, "shop").url == A_SITE, "the default's page is still its own"
+    assert shared_of(store, "shop").page("default") == A_SITE, (
+        "the default's page is still its own"
+    )
 
 
 def test_each_live_sessions_current_page_is_kept_whole():
     record = (
-        Workspace()
+        Workspace(sessions=["default", "tester"])
         .visited("https://a.test/cb?code=1", now=0.0)
         .visited("https://b.test/reset?token=2", now=1.0, session="tester")
         .visited("https://c.test/?q=3", now=2.0, session="tester")
@@ -105,7 +113,7 @@ def test_each_live_sessions_current_page_is_kept_whole():
     assert [v["url"] for v in record.entries("tester")] == [
         "https://c.test/?q=3", "https://b.test/reset"
     ], "below a session's top a query goes"
-    # The default's top stays whole past the TTL: its reopen goes there.
+    # The head's top stays whole past the TTL: its reopen goes there.
     later = record.visited(None, now=DAY + 10.0, ttl=DAY, sub_ttl=HOUR)
     assert [(v["session"], v["url"]) for v in later.history] == [
         ("default", "https://a.test/cb?code=1"),
@@ -116,7 +124,7 @@ def test_a_dead_sub_sessions_page_loses_its_query_then_ages_out():
     """A sub-session unused past `sub_ttl` has no record to reopen from, so its
     top is an entry like any other: no query, gone after the TTL."""
     record = (
-        Workspace()
+        Workspace(sessions=["default", "tester"])
         .visited("https://a.test/", now=0.0)
         .visited("https://o.test/cb?code=SECRET#state=1", now=0.0, session="tester")
     )
@@ -130,11 +138,11 @@ def test_a_dead_sub_sessions_page_loses_its_query_then_ages_out():
 
 
 def test_sub_sessions_never_push_the_defaults_page_out():
-    record = Workspace().visited("https://a.test/home", now=0.0)
+    record = Workspace(sessions=["default"]).visited("https://a.test/home", now=0.0)
     for i in range(HISTORY_CAP + 5):
         record = record.visited(f"https://h{i}.test/", now=1.0 + i, session=f"s{i}")
     assert len(record.history) == HISTORY_CAP
-    assert record.url == "https://a.test/home"
+    assert record.page("default") == "https://a.test/home"
     assert record.history[-1]["session"] == "default"
 
 
@@ -153,14 +161,15 @@ def test_a_stored_entry_names_its_session_or_is_the_defaults():
 def test_the_admins_clear_keeps_every_live_sessions_current_page(server):
     store = server.workspaces.store
     seated(store, NAMED,
-        record=Workspace(subs=["tester", "gone"])
+        history=Workspace(sessions=["default"])
         .visited("https://old.example.test/")
         .visited(A_SITE)
         .visited(C_SITE, session="gone")
-        .visited(B_SITE, session="tester"),
+        .visited(B_SITE, session="tester").history,
     )
     # `gone`'s record expired: it cannot reopen, so its page is cleared too.
     seated(store, NAMED, "tester")
+    store.update(NAMED, lambda r: r.listing("gone"))
     client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     url = f"/admin/workspaces/{NAMED}/history"
     assert client.get(url).json()["clears"] == [
@@ -169,7 +178,7 @@ def test_the_admins_clear_keeps_every_live_sessions_current_page(server):
     assert client.delete(url).json() == {
         "cleared": ["c.example.test", "old.example.test"]
     }
-    assert tagged(record_of(store, NAMED)) == [
+    assert tagged(shared_of(store, NAMED)) == [
         ("tester", origin(B_SITE)), ("default", origin(A_SITE)),
     ]
 
@@ -188,18 +197,18 @@ def test_two_sessions_append_history_without_losing_an_entry():  # Review Focus 
         if "p:shop" not in fake.watching:
             return
         fake.interfere = None
-        workspaces.touch("shop", C_SITE, browser=default)
+        workspaces.touch("shop/default", C_SITE, browser=default)
 
     fake.interfere = the_default_lands_first
     workspaces.touch("shop/tester", D_SITE, browser=tester)
     assert fake.interfere is None, "the race was run"
-    assert tagged(record_of(store, "shop")) == [
+    assert tagged(shared_of(store, "shop")) == [
         ("tester", origin(D_SITE)),
         ("default", origin(C_SITE)),
         ("tester", origin(B_SITE)),
         ("default", origin(A_SITE)),
     ]
-    assert record_of(store, "shop", "tester").history == []
+    assert "history" not in json.loads(record_of(store, "shop", "tester").to_json())
 
 
 def test_a_replaced_sub_session_browser_writes_no_history():
@@ -216,17 +225,17 @@ def test_a_call_knows_the_session_it_acts_in():
     seen = []
     workspaces.act(as_(), lambda s: seen.append(acting()) or {}, session="tester")
     workspaces.act(as_(), lambda s: seen.append(acting()) or {})
-    assert seen == ["shop/tester", "shop"]
+    assert seen == ["shop/tester", "shop/default"]
     assert acting() == "", "and only while it runs"
 
 
 def test_a_sub_sessions_save_site_data_reads_its_own_sites(server, monkeypatch):
     store = server.workspaces.store
     seated(store, NAMED,
-        record=Workspace(subs=["tester"])
+        history=Workspace(sessions=["default"])
         .visited(A_SITE)
         .visited(B_SITE, session="tester")
-        .visited(C_SITE),
+        .visited(C_SITE).history,
     )
     seated(store, NAMED, "tester")
     monkeypatch.setattr(
@@ -235,7 +244,7 @@ def test_a_sub_sessions_save_site_data_reads_its_own_sites(server, monkeypatch):
     # As `server.py` wires `Actions.visited`, which `save_site_data` reads.
     with _acting_in(f"{NAMED}/tester"):
         assert server.actions.visited() == [origin(B_SITE)]
-    with _acting_in(NAMED):
+    with _acting_in(f"{NAMED}/default"):
         assert server.actions.visited() == [origin(C_SITE), origin(A_SITE)]
     assert server.workspaces.visited(f"{NAMED}/tester") == [origin(B_SITE)]
 
@@ -245,7 +254,7 @@ def test_a_sub_sessions_save_site_data_reads_its_own_sites(server, monkeypatch):
 
 def test_flows_files_and_config_are_the_same_from_every_session(data_server):
     store = data_server.workspaces.store
-    seated(store, NAMED, subs=["tester"])
+    seated(store, NAMED)
     seated(store, NAMED, "tester")
     seated(store, NAMED, TOKEN_SESSION)  # the token's unnamed reads are its own session's
     data_server.flows.write_file(NAMED, "report.pdf", b"PDF")
@@ -279,7 +288,7 @@ def test_flows_files_and_config_are_the_same_from_every_session(data_server):
 
 def _two_browsers(server):
     store = server.workspaces.store
-    seated(store, NAMED, session_id="g-default", subs=["tester"])
+    seated(store, NAMED, session_id="g-default")
     seated(store, NAMED, "tester", session_id="g-tester")
 
 

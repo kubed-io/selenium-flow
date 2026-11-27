@@ -31,7 +31,12 @@ class SilentGrid:
         return ask
 
 
-def feed(capture, *events, workspace="ws"):
+# The key of the session `ws`'s admin routes and unnamed calls reach: its head,
+# `default`, the one `fed` seats.
+WS = "ws/default"
+
+
+def feed(capture, *events, workspace=WS):
     for method, params in events:
         capture.ingest(workspace, "s1", method, params)
 
@@ -60,7 +65,7 @@ def fail_in(server, workspace):
 def fed(server):
     """Workspace `ws` captures, holds no live browser, and has seen a failure."""
     seated(server.workspaces.store, "ws", settings={"capture": True})
-    fail_in(server, "ws")
+    fail_in(server, WS)
     return server
 
 
@@ -83,7 +88,8 @@ def test_captured_console_reads_the_buffer_and_mints_a_signed_tail(admin_client,
     r = admin_client.get("/admin/workspaces/ws/console?level=error", headers=AUTH)
     assert r.status_code == 200 and r.json()["entries"][0]["text"] == "Uncaught TypeError"
     tail = r.json()["tail_url"]
-    assert tail.startswith("/admin/workspaces/ws/tail?exp=") and "&sig=" in tail
+    # Always naming its session, so it opens that one whichever heads the list.
+    assert tail.startswith("/admin/workspaces/ws/tail?session=default&exp=") and "&sig=" in tail
 
 
 def test_network_lists_one_request_and_opens_it(admin_client, fed):
@@ -205,7 +211,7 @@ async def test_a_known_body_after_end_browser_names_why_over_mcp(fed, monkeypatc
 
 
 def test_the_captured_view_and_the_row_say_how_many_events_were_dropped(admin_client, fed):
-    fed.capture.lost("ws", "s1")
+    fed.capture.lost(WS, "s1")
     for kind in ("console", "network"):
         assert admin_client.get(f"/admin/workspaces/ws/{kind}", headers=AUTH).json()["dropped"] == 1
     [row] = admin_client.get("/admin/workspaces", headers=AUTH).json()["workspaces"]
@@ -302,7 +308,7 @@ async def test_a_signed_link_opens_the_tail_without_a_header(admin_app, fed):
 async def test_the_tail_reports_drops(admin_app, fed):
     async with stream(admin_app, "/admin/workspaces/ws/tail?kind=console", AUTH) as events:
         await until(lambda: fed.capture._tails)
-        [sub] = fed.capture._tails["ws"]
+        [sub] = fed.capture._tails[WS]
         sub.dropped = 3
         feed(fed.capture, log("later", level="error"))
         assert (await anext(events))["text"] == "later"

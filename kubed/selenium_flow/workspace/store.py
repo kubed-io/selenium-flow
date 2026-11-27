@@ -1,18 +1,20 @@
-"""Where a workspace is kept: a caller key to workspace-record map.
+"""Where workspaces and their sessions are kept: two kinds of record by key.
 
-Backs the workspace manager in ``workspaces.py``, and nothing else. It stores a
-small record per caller, never a browser, which lives on the Grid.
+Backs the workspace manager in ``workspaces.py``, and nothing else. A
+workspace's record, under its name, holds the names of its sessions in order
+and its history; a session's, under ``<workspace>/<name>``, holds the browser
+it may have, never the browser itself, which lives on the Grid (WS-7).
 
-A workspace is the thing, and a browser is something it may or may not have.
-The record outlives the browser: a workspace whose browser was reaped, or ended
-from the admin UI, keeps the browser choice and the page it was on, so the next
-``open_session`` picks up where it left off. ``session_id`` is empty when
-detached.
+A session's record outlives its browser: one whose browser was reaped, or
+ended from the admin UI, keeps the browser choice, and its page stays on the
+workspace's history, so the next ``open_session`` picks up where it left off.
+``session_id`` is empty when detached.
 
 Nothing here expires a browser: a Grid node reaps a session idle past
 ``SE_NODE_SESSION_TIMEOUT``. What these backends expire is the mapping, which is
 a cache and is allowed to be wrong: ``workspaces.py`` checks a record against
-the Grid before trusting it.
+the Grid before trusting it. A key's expiry is decided by its place when it is
+written (`_Writes._lifetime`, WS-87).
 
 Both backends honour ``ttl``, so swapping one for the other cannot change
 behaviour. Redis does it natively with ``EX``; memory keeps an expiry stamp and
@@ -38,7 +40,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from .. import faults
 from ..core.session_caps import SOURCES
 from ..urls import origin_of, page_of, without_userinfo
-from . import sessions
+from . import sessions as session_keys
 from .settings import CALLER, SET_BY
 
 if TYPE_CHECKING:
@@ -62,7 +64,8 @@ DEFAULT_DB = 0
 # the history the admin view shows. The browser it names is still reaped on the
 # Grid's schedule.
 DEFAULT_TTL_SECONDS = 86400
-# A sub-session's record is kept this long after its last use.
+# A session not at the head of its workspace's list is kept this long after its
+# last use (WS-87).
 DEFAULT_SUB_TTL_SECONDS = 3600
 # How many times a Redis update re-reads after another writer got there first.
 # A key rewritten this often within one round trip is a fault, not contention.
@@ -71,12 +74,12 @@ UPDATE_RETRIES = 10
 HISTORY_CAP = 100
 
 # What `update` applies: the record as it is now in, the record to store out,
-# or None to store nothing.
-Change = Callable[["Workspace"], "Workspace | None"]
+# or None to store nothing. Each is the type its key holds (`record_type`).
+Change = Callable[["Record"], "Record | None"]
 # For `upsert`: the record as it is, or None when the key is absent.
-Create = Callable[["Workspace | None"], "Workspace | None"]
+Create = Callable[["Record | None"], "Record | None"]
 # For `change`: the same, and a note on what the write found, handed back.
-Noted = Callable[["Workspace | None"], "tuple[Workspace | None, Any]"]
+Noted = Callable[["Record | None"], "tuple[Record | None, Any]"]
 
 
 class StoreUnavailable(RuntimeError):
@@ -95,30 +98,32 @@ class StoreConflict(RuntimeError):
 
 
 @dataclass(frozen=True)
-class Workspace:
-    """One workspace: its context, and the browser it currently holds.
+class Session:
+    """One session's record, under ``<workspace>/<name>``: the browser it
+    holds, if any, and what makes that browser replaceable.
 
-    ``history`` and ``settings`` make a browser replaceable: reopening the same
-    browser on the top of the history makes a refresh invisible, and makes
-    ``open_session`` with no arguments carry on after the browser has gone.
+    ``settings`` make a browser replaceable: reopening the same browser on the
+    session's page (its top entry in its workspace's history) makes a refresh
+    invisible, and makes ``open_session`` with no arguments carry on after the
+    browser has gone.
 
     ``session_id`` is empty when no browser is attached, an ordinary state: the
     Grid reaped it, or an admin ended it.
     """
 
+    # The subject that holds this session (`principal.subject_of`), set by the
+    # `open_session` that made it, or "" for a record no subject holds yet,
+    # which the next subject to open it takes (WS-84).
+    holder: str = ""
     session_id: str = ""
     opened_at: float = 0.0
-    # What the workspace was opened with, so a reopen uses the same browser.
+    # What the session was opened with, so a reopen uses the same browser.
     settings: dict = field(default_factory=dict)
     # Who set each of those settings: "config", "client" or "caller", one per
     # key. A record whose sources are missing or do not match its settings is
     # not read (see `from_json`).
     set_by: dict = field(default_factory=dict)
-    # Where the workspace has been: one {"origin", "url", "at", "session"} per
-    # origin and session, newest first, every session's on the workspace's
-    # record (WS-54). Written by `visited`; the admin History tab reads it.
-    history: list = field(default_factory=list)
-    # Cookies and storage the workspace saved (site_data/). Kept with the
+    # Cookies and storage the session saved (site_data/). Kept with the
     # record so it expires with it; never on this server's disk (with Redis,
     # as durable as Redis).
     site_data: dict = field(default_factory=dict)
@@ -126,19 +131,19 @@ class Workspace:
     # says it: {"browser": id, "cause": "reaped" | "lost", "report": {...} |
     # None}, or {}.
     reopened: dict = field(default_factory=dict)
-    # When this workspace's last call ended, in wall time; 0.0 before any. It
+    # When this session's last call ended, in wall time; 0.0 before any. It
     # is what tells a reap (idle past the window) from a lost browser.
     called_at: float = 0.0
     # When the Grid last answered a keep-alive ping for the held browser, in
     # wall time; 0.0 before any. To the node a ping is activity, so it moves the
     # reap clock like a call does.
     pinged_at: float = 0.0
-    # Who opened the browser this workspace holds, {"kind", "username"}, for
+    # Who opened the browser this session holds, {"kind", "username"}, for
     # the admin list. Shown, never consulted.
     opened_by: dict | None = None
-    # Seconds the Grid lets this workspace's session sit idle before reaping
-    # it, read from its node at the last open. Kept when the session ends;
-    # None when the Grid did not say.
+    # Seconds the Grid lets this session sit idle before reaping it, read from
+    # its node at the last open. Kept when the session ends; None when the
+    # Grid did not say.
     grid_timeout: int | None = None
     # The window the held browser has, as ``WxH``: measured when it opened (the
     # node's default when nothing was asked) and moved by a resize. What the
@@ -156,26 +161,16 @@ class Workspace:
     # How the last session ended, {"at", "by": "admin" | "caller"}, or None:
     # set by `end_browser`, cleared by the next open. A reap writes nothing.
     ended: dict | None = None
-    # The names of this workspace's sub-sessions, kept on its record so a listing
-    # needs no scan. Written on a workspace's record only.
-    subs: list = field(default_factory=list)
-    # The subject that holds this session (`principal.subject_of`), set by the
-    # `open_session` that made it, or "" for a record no subject holds yet,
-    # which the next subject to open it takes (WS-84).
-    holder: str = ""
+    # The `label` a record written before WS-81 stored, read for the move
+    # (WS-90) and never written: `to_json` leaves it out.
+    label_was: str | None = None
 
     @property
-    def url(self) -> str:
-        """The page the default session is on: the top of its history, or ""."""
-        return self.page(sessions.DEFAULT)
-
-    def page(self, session: str) -> str:
-        """The page ``session`` (a name) is on: its newest entry, or ""."""
-        return next((v["url"] for v in self.history if _tag(v) == session), "")
-
-    def entries(self, session: str) -> list[dict]:
-        """``session``'s own entries, newest first."""
-        return [v for v in self.history if _tag(v) == session]
+    def last_used(self) -> float:
+        """When this session was last used: the latest of its open, its last
+        call and the last ping the Grid answered (WS-88). Derived, never
+        stored."""
+        return max(self.opened_at, self.called_at, self.pinged_at)
 
     @property
     def notice(self) -> dict | None:
@@ -202,28 +197,36 @@ class Workspace:
 
     @property
     def window(self) -> str | None:
-        """The window size this workspace is set to, as ``WxH``.
+        """The window size this session is set to, as ``WxH``.
 
         Kept current by ``resize``, so it is both the size the browser is now
         and the size it would come back as after a reap. None when the
-        workspace never named one: the window is the Grid node's default, and a
+        session never named one: the window is the Grid node's default, and a
         number here would claim to know it.
         """
         width, height = self.settings.get("width"), self.settings.get("height")
         return f"{width}x{height}" if width and height else None
 
     def to_json(self) -> str:
-        return json.dumps(asdict(self))
+        data = asdict(self)
+        del data["label_was"]
+        return json.dumps(data)
 
     @classmethod
-    def from_json(cls, raw: str | bytes) -> Workspace | None:
+    def from_json(cls, raw: str | bytes) -> Session | None:
         try:
             data = json.loads(raw)
-            if not isinstance(data, dict):
-                # Valid JSON that is not a record (a pointer's `[x, y]`) is a
-                # miss too; `.get` on it would raise AttributeError, which the
-                # clause below does not catch.
-                return None
+        except (ValueError, TypeError):
+            return None
+        # Valid JSON that is not a record (a pointer's `[x, y]`) is a miss too.
+        return cls.from_data(data) if isinstance(data, dict) else None
+
+    @classmethod
+    def from_data(cls, data: dict) -> Session | None:
+        """The session a stored object holds, or None when it does not read:
+        a session's own record, or the session fields of a workspace's record
+        in the shape before WS-81."""
+        try:
             settings = data.get("settings")
             settings = settings if isinstance(settings, dict) else {}
             set_by = _set_by(data.get("set_by"), settings)
@@ -231,7 +234,9 @@ class Workspace:
             site_data = data.get("site_data")
             reopened = data.get("reopened")
             opened_at = data.get("opened_at", 0.0)
+            label = data.get("label")
             return cls(
+                holder=_holder(data.get("holder")),
                 # A record without valid sources keeps no settings and lets go
                 # of its browser, so the Grid reaps it and the next call opens
                 # afresh; the rest of it stays.
@@ -245,7 +250,6 @@ class Workspace:
                 ),
                 settings=settings if set_by is not None else {},
                 set_by=set_by if set_by is not None else {},
-                history=_visits(data.get("history")),
                 site_data=site_data if isinstance(site_data, dict) else {},
                 reopened=reopened if isinstance(reopened, dict) else {},
                 called_at=_seconds(data.get("called_at")),
@@ -256,19 +260,139 @@ class Workspace:
                 sent=_sent(data.get("sent")),
                 ran=_ran(data.get("ran")),
                 ended=_ended(data.get("ended")),
-                subs=_subs(data.get("subs")),
-                holder=_holder(data.get("holder")),
+                label_was=label if isinstance(label, str) and label else None,
             )
         except (ValueError, TypeError):
             # A malformed entry is a cache miss, not an outage.
             return None
+
+    def reshaped(self, settings: dict) -> Session:
+        """The same record, with some of its settings replaced.
+
+        A merge: the caller names only the settings it just changed, and the
+        others (the browser, the timeouts) survive, or a reopen would replay a
+        browser nobody asked for. What is handed in is marked the caller's.
+        """
+        merged = {**self.settings, **settings}
+        set_by = {**self.set_by, **dict.fromkeys(settings, CALLER)}
+        width, height = merged.get("width"), merged.get("height")
+        seen = f"{width}x{height}" if width and height else self.window_seen
+        return replace(self, settings=merged, set_by=set_by, window_seen=seen)
+
+    def with_site_data(self, site_data: dict) -> Session:
+        """The same record holding this site data."""
+        return replace(self, site_data=dict(site_data or {}))
+
+    def delivered(self) -> Session:
+        """The same record, its reopen notice handed to a caller."""
+        return replace(self, reopened={})
+
+    def detached(self, ended: dict | None = None) -> Session:
+        """The same record with no browser, keeping the context it had.
+
+        Not a delete: the last page and the settings (with their sources) are
+        what the next open reads from, so ending a browser must not take them. What
+        the last session sent and ran stay too: the admin's idle card shows the
+        last browser. ``ended`` says how it ended.
+        """
+        return replace(self, session_id="", ended=ended)
+
+
+@dataclass(frozen=True)
+class Old:
+    """What a workspace's record in the shape before WS-81 held besides its
+    history: the default session's fields inline, who owned it, and the names
+    of its sub-sessions. Read only, for the move (WS-90); never written."""
+
+    session: Session
+    owner: str | None
+    subs: list[str]
+
+
+@dataclass(frozen=True)
+class Workspace:
+    """A workspace's record, under its name: its sessions, by name in order,
+    and its history. Nothing of a browser's: each session's is its own
+    record (`Session`).
+
+    The session at the head of the list is the one that lasts as the
+    workspace does (WS-87). ``old`` is what a record in the shape before WS-81
+    held besides its history (`Old`), None for every other.
+    """
+
+    # The names of this workspace's sessions, in the order they were listed
+    # (WS-81). The first is the head.
+    sessions: list = field(default_factory=list)
+    # Where the workspace has been: one {"origin", "url", "at", "session"} per
+    # origin and session, newest first, every session's on the workspace's
+    # record (WS-54). Written by `visited`; the admin History tab reads it.
+    history: list = field(default_factory=list)
+    old: Old | None = None
+
+    @property
+    def head(self) -> str | None:
+        """The session at the head of the list, or None when it is empty. A
+        record in the shape before WS-81 is headed by its default."""
+        if self.sessions:
+            return self.sessions[0]
+        return session_keys.DEFAULT if self.old is not None else None
+
+    def listing(self, name: str) -> Workspace:
+        """The same record with ``name`` at the end of its list, when the
+        list does not hold it."""
+        if name in self.sessions:
+            return self
+        return replace(self, sessions=[*self.sessions, name])
+
+    def without(self, names: Iterable[str]) -> Workspace:
+        """The same record with ``names`` gone from its list."""
+        gone = set(names)
+        return replace(self, sessions=[n for n in self.sessions if n not in gone])
+
+    def page(self, session: str | None) -> str:
+        """The page ``session`` (a name) is on: its newest entry, or ""."""
+        return next((v["url"] for v in self.history if _tag(v) == session), "")
+
+    def entries(self, session: str | None) -> list[dict]:
+        """``session``'s own entries, newest first."""
+        return [v for v in self.history if _tag(v) == session]
+
+    def to_json(self) -> str:
+        # Never `old`: a write is always in the new shape.
+        return json.dumps({"sessions": list(self.sessions), "history": self.history})
+
+    @classmethod
+    def from_json(cls, raw: str | bytes) -> Workspace | None:
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(data, dict):
+            # Valid JSON that is not a record (a pointer's `[x, y]`) is a miss
+            # too; `.get` on it would raise AttributeError.
+            return None
+        history = _visits(data.get("history"))
+        if "sessions" in data:
+            return cls(sessions=_names(data.get("sessions")), history=history)
+        # The shape before WS-81: the default's fields inline, beside an owner
+        # and the sub-sessions' names.
+        session = Session.from_data(data)
+        if session is None:
+            return None
+        owner = data.get("owner")
+        old = Old(
+            session,
+            owner if isinstance(owner, str) and owner else None,
+            _names(data.get("subs")),
+        )
+        return cls(sessions=[], history=history, old=old)
 
     def visited(
         self,
         *urls: str | None,
         now: float | None = None,
         ttl: float = DEFAULT_TTL_SECONDS,
-        session: str = sessions.DEFAULT,
+        session: str = session_keys.DEFAULT,
         sub_ttl: float = DEFAULT_SUB_TTL_SECONDS,
     ) -> Workspace:
         """The same record, ``session`` (a name) having landed on ``urls`` in
@@ -298,8 +422,8 @@ class Workspace:
     ) -> Workspace:
         """The same record without the history entries older than ``ttl``,
         except each session's top one while that session can reopen: it is
-        where the reopen goes back to. The default's top always stays; a
-        sub-session's stays for ``sub_ttl``, as long as its record can live
+        where the reopen goes back to. The head's top always stays; another
+        session's stays for ``sub_ttl``, as long as its record can live
         unused, and is then an entry like any other.
 
         Only such a top entry keeps its whole URL. Elsewhere a URL keeps its
@@ -308,49 +432,33 @@ class Workspace:
         reopen needs them.
 
         At most ``HISTORY_CAP`` entries stay, the oldest dropped first, except
-        the default's top.
+        the head's top.
         """
-        kept, tops, default_top = [], set(), None
+        head = self.head
+        kept, tops, head_top = [], set(), None
         for v in self.history:
             session = _tag(v)
             top = session not in tops
             tops.add(session)
-            if top and session == sessions.DEFAULT:
-                default_top = v
+            if top and session == head:
+                head_top = v
                 kept.append(v)
             elif top and v["at"] >= now - sub_ttl:
                 kept.append(v)
             elif v["at"] >= now - ttl:
                 kept.append({**v, "url": page_of(v["url"])})
         capped = kept[:HISTORY_CAP]
-        if default_top is not None and default_top not in capped:
+        if head_top is not None and head_top not in capped:
             # The oldest of what is kept, so it goes last.
-            capped = [*kept[: HISTORY_CAP - 1], default_top]
+            capped = [*kept[: HISTORY_CAP - 1], head_top]
         return replace(self, history=capped)
 
-    def reshaped(self, settings: dict) -> Workspace:
-        """The same record, with some of its settings replaced.
-
-        A merge: the caller names only the settings it just changed, and the
-        others (the browser, the timeouts) survive, or a reopen would replay a
-        browser nobody asked for. What is handed in is marked the caller's.
-        """
-        merged = {**self.settings, **settings}
-        set_by = {**self.set_by, **dict.fromkeys(settings, CALLER)}
-        width, height = merged.get("width"), merged.get("height")
-        seen = f"{width}x{height}" if width and height else self.window_seen
-        return replace(self, settings=merged, set_by=set_by, window_seen=seen)
-
-    def with_site_data(self, site_data: dict) -> Workspace:
-        """The same record holding this site data."""
-        return replace(self, site_data=dict(site_data or {}))
-
     def history_cleared(self, live: Iterable[str] = ()) -> Workspace:
-        """The same record with only the current page of the default and of
-        each sub-session in ``live`` (those that still have a record) left in
-        the history: one with no record cannot reopen, so its page is
-        cleared too."""
-        keep = {sessions.DEFAULT, *live}
+        """The same record with only the current page of the head and of each
+        session in ``live`` (those that still have a record) left in the
+        history: one with no record cannot reopen, so its page is cleared
+        too."""
+        keep = {*live, *([self.head] if self.head else [])}
         kept, tops = [], set()
         for v in self.history:
             if _tag(v) not in tops and _tag(v) in keep:
@@ -358,19 +466,20 @@ class Workspace:
                 kept.append(v)
         return replace(self, history=kept)
 
-    def delivered(self) -> Workspace:
-        """The same record, its reopen notice handed to a caller."""
-        return replace(self, reopened={})
 
-    def detached(self, ended: dict | None = None) -> Workspace:
-        """The same record with no browser, keeping the context it had.
+# What the store holds under a key: a workspace's record under its name, a
+# session's under `<workspace>/<name>` (`record_type`).
+Record = Workspace | Session
 
-        Not a delete: the last page and the settings (with their sources) are
-        what the next open reads from, so ending a browser must not take them. What
-        the last session sent and ran stay too: the admin's idle card shows the
-        last browser. ``ended`` says how it ended.
-        """
-        return replace(self, session_id="", ended=ended)
+
+def record_type(key: str) -> type[Workspace] | type[Session]:
+    """The type of record ``key`` holds: a session's when it names one."""
+    return Session if session_keys.split(key)[1] else Workspace
+
+
+def _parsed(key: str, raw) -> Record | None:
+    """The record stored under ``key``, read as the type its key says."""
+    return record_type(key).from_json(raw)
 
 
 def _opener(value) -> dict | None:
@@ -432,8 +541,11 @@ def _holder(raw) -> str:
     return raw if isinstance(raw, str) else ""
 
 
-def _subs(raw) -> list[str]:
-    return [n for n in raw if isinstance(n, str)] if isinstance(raw, list) else []
+def _names(raw) -> list[str]:
+    """A stored list of session names: its strings, each once, in order."""
+    if not isinstance(raw, list):
+        return []
+    return list(dict.fromkeys(n for n in raw if isinstance(n, str) and n))
 
 
 def _size(raw) -> str | None:
@@ -463,7 +575,7 @@ def _timeout(raw) -> int | None:
 def _tag(visit: dict) -> str:
     """The session a history entry names: the default for one from before
     sessions were named."""
-    return visit.get("session", sessions.DEFAULT)
+    return visit.get("session", session_keys.DEFAULT)
 
 
 def _visits(raw) -> list[dict]:
@@ -494,37 +606,39 @@ def _never(_key: str) -> bool:
 
 
 class WorkspaceStore(Protocol):
-    """Maps a caller key to its workspace: the record of what it was doing, and
-    the session (the live browser) it holds, if any."""
+    """Maps a key to its record: a workspace's name to its `Workspace`, and a
+    session's key, ``<workspace>/<name>``, to its `Session` (`record_type`)."""
 
     kind: str
     # How long an entry is kept: things derived from a store keep its retention
     # (`pointer.matching`).
     ttl: int
-    # How long a sub-session's record is kept after its last use.
+    # How long a session not at the head of its workspace's list is kept after
+    # its last use (WS-87).
     sub_ttl: int
-    # Whether a key's record is written with no expiry: its workspace has a
-    # config (`workspace.config.Configs.kept`). Asked once per write.
+    # Whether a workspace's record, and its head's, are written with no
+    # expiry: it has a config (`workspace.config.Configs.kept`). Asked with
+    # the workspace's name, once per write.
     kept: Callable[[str], bool]
 
-    def get(self, key: str) -> Workspace | None: ...
+    def get(self, key: str) -> Record | None: ...
 
     # `get` of each of ``keys``, in order, in one round trip where the backend
-    # allows: a listing of a workspace's sub-sessions reads them all at once.
-    def get_many(self, keys: list[str]) -> list[Workspace | None]: ...
+    # allows: a listing of a workspace's sessions reads them all at once.
+    def get_many(self, keys: list[str]) -> list[Record | None]: ...
 
-    def set(self, key: str, record: Workspace) -> None: ...
+    def set(self, key: str, record: Record) -> None: ...
 
     # A read-change-write that cannot revert a concurrent write, as a read, a
     # wait on the Grid and a `set` would. `fn` gets the record as it is at write
     # time and returns the one to store, or None to store nothing; it may run
     # more than once, so it must only compute. It is never called for an absent
     # key. Returns what is stored afterwards.
-    def update(self, key: str, fn: Change) -> Workspace | None: ...
+    def update(self, key: str, fn: Change) -> Record | None: ...
 
     # `update`, and an absent key too: `fn` gets None, so a first write can
     # never land between a read and a fallback `set`.
-    def upsert(self, key: str, fn: Create) -> Workspace | None: ...
+    def upsert(self, key: str, fn: Create) -> Record | None: ...
 
     # A write that answers: `fn` returns the record to store and a note on
     # what it found there, and the note comes back beside what is stored.
@@ -533,46 +647,55 @@ class WorkspaceStore(Protocol):
     # `(None, None)` and `fn` never runs.
     def change(
         self, key: str, fn: Noted, *, create: bool = False
-    ) -> tuple[Workspace | None, Any]: ...
+    ) -> tuple[Record | None, Any]: ...
 
     def delete(self, key: str) -> None: ...
 
-    # Apply the expiry `kept` says now to a key's record, if it has one, without
-    # writing the record: a config saved or removed changes it at once.
-    def retain(self, key: str) -> None: ...
+    # Apply the expiry `kept` says now to a workspace's record and its head's,
+    # each if it has one, without writing either: a config saved or removed
+    # changes it at once. A session's key gets its own.
+    def retain(self, workspace: str) -> None: ...
 
     # Optional, for the admin view only: the MCP surface never lists workspaces.
     # A store that cannot enumerate cheaply may leave these out, and the admin
     # view shows an empty list.
-    # Workspaces only: a sub-session's record is not a workspace.
+    # Workspaces only: a session's record is not a workspace.
     def records(self) -> dict[str, Workspace]: ...
 
-    # `workspace`'s sub-sessions by name.
-    def sub_records(self, workspace: str) -> dict[str, Workspace]: ...
+    # `workspace`'s session records by name, from a scan of its keys.
+    def sessions_of(self, workspace: str) -> dict[str, Session]: ...
 
-    # Every attached browser's id to its session key, sub-sessions included.
+    # Every attached browser's id to its session's key.
     def owners(self) -> dict[str, str]: ...
 
-    # Delete a workspace's record and every sub-session's.
+    # Delete a workspace's record and every session's.
     def forget_workspace(self, workspace: str) -> None: ...
 
 
 class _Writes:
     """`update` and `change`, built on the `upsert` each store implements, so
-    every write runs through it, retries included."""
+    every write runs through it, retries included; and the lifetime every
+    write gives its key, the same in both stores (WS-87)."""
 
-    def upsert(self, key: str, fn: Create) -> Workspace | None:
+    ttl: int
+    sub_ttl: int
+    kept: Callable[[str], bool]
+
+    def get(self, key: str) -> Record | None:
         raise NotImplementedError
 
-    def update(self, key: str, fn: Change) -> Workspace | None:
+    def upsert(self, key: str, fn: Create) -> Record | None:
+        raise NotImplementedError
+
+    def update(self, key: str, fn: Change) -> Record | None:
         return self.upsert(key, lambda r: fn(r) if r is not None else None)
 
     def change(
         self, key: str, fn: Noted, *, create: bool = False
-    ) -> tuple[Workspace | None, Any]:
+    ) -> tuple[Record | None, Any]:
         note: list = [None]
 
-        def run(r: Workspace | None) -> Workspace | None:
+        def run(r: Record | None) -> Record | None:
             # Every run overwrites the note, so a retry answers with its last.
             changed, note[0] = fn(r)
             return changed
@@ -583,6 +706,27 @@ class _Writes:
             # any note is from a run that met a record since gone.
             return None, None
         return stored, note[0]
+
+    def _lifetime(self, key: str) -> int | None:
+        """Seconds ``key``'s record lasts from a write, None for no expiry: a
+        workspace's, and its head's, last ``ttl``, or for ever when it is kept;
+        every other session's ``sub_ttl`` (WS-87). A session that has become
+        head takes the head's at its next write."""
+        workspace, name = session_keys.split(key)
+        shared = self.get(workspace) if name else None
+        if not name or (shared is not None and shared.head == name):
+            return None if self.kept(workspace) else self.ttl
+        return self.sub_ttl
+
+    @staticmethod
+    def _head_key(key: str, record: Record | None) -> str | None:
+        """The key of the head of ``record``'s list when ``key`` is a
+        workspace's: a write of it slides the head's too, so the head never
+        lapses while another session is in use (WS-87). None otherwise."""
+        if session_keys.split(key)[1] or not isinstance(record, Workspace):
+            return None
+        head = record.head
+        return session_keys.key_of(key, head) if head else None
 
 
 class MemoryStore(_Writes):
@@ -600,7 +744,7 @@ class MemoryStore(_Writes):
         sub_ttl: int = DEFAULT_SUB_TTL_SECONDS,
         clock=time.time,
     ):
-        self._data: dict[str, tuple[float, Workspace]] = {}
+        self._data: dict[str, tuple[float, Record]] = {}
         self._ttl = ttl
         self._sub_ttl = sub_ttl
         self._clock = clock
@@ -620,7 +764,7 @@ class MemoryStore(_Writes):
     def sub_ttl(self) -> int:
         return self._sub_ttl
 
-    def get(self, key: str) -> Workspace | None:
+    def get(self, key: str) -> Record | None:
         entry = self._data.get(key)
         if entry is None:
             return None
@@ -630,7 +774,7 @@ class MemoryStore(_Writes):
             return None
         return record
 
-    def get_many(self, keys: list[str]) -> list[Workspace | None]:
+    def get_many(self, keys: list[str]) -> list[Record | None]:
         return [self.get(key) for key in keys]
 
     @contextmanager
@@ -648,41 +792,56 @@ class MemoryStore(_Writes):
                     del self._locks[key]
 
     def _deadline(self, key: str) -> float:
-        if sessions.is_sub(key):
-            # Never kept: a sub-session is a scratch browser, not the
-            # workspace's own config.
-            return self._clock() + self._sub_ttl
-        return math.inf if self.kept(key) else self._clock() + self._ttl
+        lifetime = self._lifetime(key)
+        return math.inf if lifetime is None else self._clock() + lifetime
 
-    def set(self, key: str, record: Workspace) -> None:
+    def _slide(self, key: str, deadline: float) -> None:
+        """Give ``key``'s live record ``deadline``, making none. Under the
+        key's own lock, so a write landing on it is never set back; taken
+        inside a workspace's, never the other way round."""
+        with self._locked(key):
+            current = self.get(key)
+            if current is not None:
+                self._data[key] = (deadline, current)
+
+    def _written(self, key: str, record: Record, deadline: float) -> None:
+        """Store ``record`` under ``key``, held under its lock, and slide the
+        head's key with a workspace's (`_head_key`): the head's lifetime is
+        the workspace's."""
+        self._data[key] = (deadline, record)
+        head = self._head_key(key, record)
+        if head is not None:
+            self._slide(head, deadline)
+
+    def set(self, key: str, record: Record) -> None:
         deadline = self._deadline(key)
         # Under the key's lock, so a plain write cannot land inside an update.
         with self._locked(key):
-            self._data[key] = (deadline, record)
+            self._written(key, record, deadline)
 
-    def upsert(self, key: str, fn: Create) -> Workspace | None:
+    def upsert(self, key: str, fn: Create) -> Record | None:
         deadline = self._deadline(key)
         with self._locked(key):
             current = self.get(key)
             changed = fn(current)
             if changed is None:
                 return current
-            self._data[key] = (deadline, changed)
+            self._written(key, changed, deadline)
             return changed
 
     def delete(self, key: str) -> None:
         with self._locked(key):
             self._data.pop(key, None)
 
-    def retain(self, key: str) -> None:
-        deadline = self._deadline(key)
-        with self._locked(key):
-            current = self.get(key)
+    def retain(self, workspace: str) -> None:
+        deadline = self._deadline(workspace)
+        with self._locked(workspace):
+            current = self.get(workspace)
             if current is not None:
-                self._data[key] = (deadline, current)
+                self._written(workspace, current, deadline)
 
-    def _live(self) -> dict[str, Workspace]:
-        """Every live record, sub-sessions too.
+    def _live(self) -> dict[str, Record]:
+        """Every live record, sessions' too.
 
         Purges as it goes: ``get`` expires only the key it was handed, so this
         is what collects an entry nobody asks for again.
@@ -698,18 +857,18 @@ class MemoryStore(_Writes):
 
     def records(self) -> dict[str, Workspace]:
         """Every live workspace, keyed the way it is stored."""
-        return {k: r for k, r in self._live().items() if not sessions.is_sub(k)}
+        return _workspaces(self._live())
 
-    def sub_records(self, workspace: str) -> dict[str, Workspace]:
-        return _subs_of(self._live(), workspace)
+    def sessions_of(self, workspace: str) -> dict[str, Session]:
+        return _sessions_of(self._live(), workspace)
 
     def owners(self) -> dict[str, str]:
         """session id -> the session key holding it, for the browsers attached."""
-        return {r.session_id: k for k, r in self._live().items() if r.attached}
+        return _owners(self._live())
 
     def forget_workspace(self, workspace: str) -> None:
-        for name in self.sub_records(workspace):
-            self.delete(sessions.key_of(workspace, name))
+        for name in self.sessions_of(workspace):
+            self.delete(session_keys.key_of(workspace, name))
         self.delete(workspace)
 
 
@@ -755,32 +914,52 @@ class RedisStore(_Writes):
     def _k(self, key: str) -> str:
         return f"{self._prefix}{key}"
 
-    def get(self, key: str) -> Workspace | None:
+    def get(self, key: str) -> Record | None:
         value = self._redis.get(self._k(key))
         if value is None:
             return None
-        return Workspace.from_json(value)
+        return _parsed(key, value)
 
-    def get_many(self, keys: list[str]) -> list[Workspace | None]:
+    def get_many(self, keys: list[str]) -> list[Record | None]:
         """One MGET; a key that is absent or does not read is None."""
         if not keys:
             return []
         values = self._redis.mget([self._k(key) for key in keys])
         return [
-            Workspace.from_json(value) if value is not None else None
-            for value in values
+            _parsed(key, value) if value is not None else None
+            for key, value in zip(keys, values, strict=True)
         ]
 
     def _ex(self, key: str) -> int | None:
         # A SET without EX also drops the expiry the key had.
-        if sessions.is_sub(key):
-            return self._sub_ttl
-        return None if self.kept(key) else self._ttl
+        return self._lifetime(key)
 
-    def set(self, key: str, record: Workspace) -> None:
-        self._redis.set(self._k(key), record.to_json(), ex=self._ex(key))
+    @staticmethod
+    def _expiry(target, key: str, ex: int | None) -> None:
+        """EXPIRE ``key`` to ``ex``, or PERSIST it for None: both no-ops on
+        an absent key, so neither makes one."""
+        if ex is None:
+            target.persist(key)
+        else:
+            target.expire(key, ex)
 
-    def upsert(self, key: str, fn: Create) -> Workspace | None:
+    def _write(self, pipe, key: str, record: Record, ex: int | None) -> None:
+        """Queue the write of ``record`` on ``pipe``, inside its MULTI, and a
+        workspace's head's expiry with it (`_head_key`): the head's lifetime is
+        the workspace's."""
+        pipe.set(self._k(key), record.to_json(), ex=ex)
+        head = self._head_key(key, record)
+        if head is not None:
+            self._expiry(pipe, self._k(head), ex)
+
+    def set(self, key: str, record: Record) -> None:
+        ex = self._ex(key)
+        with self._redis.pipeline() as pipe:
+            pipe.multi()
+            self._write(pipe, key, record, ex)
+            pipe.execute()
+
+    def upsert(self, key: str, fn: Create) -> Record | None:
         """WATCH, read, MULTI, write: EXEC refuses if another replica wrote the
         key in between, and the change is re-applied to what it wrote. An
         absent key is watched the same way, so two first writes cannot both
@@ -794,35 +973,35 @@ class RedisStore(_Writes):
                 try:
                     pipe.watch(k)
                     raw = pipe.get(k)
-                    current = Workspace.from_json(raw) if raw is not None else None
+                    current = _parsed(key, raw) if raw is not None else None
                     changed = fn(current)
                     if changed is None:
                         pipe.unwatch()
                         return current
                     pipe.multi()
-                    pipe.set(k, changed.to_json(), ex=ex)
+                    self._write(pipe, key, changed, ex)
                     pipe.execute()
                     return changed
                 except WatchError:
                     continue
         raise StoreConflict(
-            f"workspace {key!r} kept changing while it was being updated; "
-            f"gave up after {UPDATE_RETRIES} tries"
+            # `logged`: a session's key names it, and an error text is logged.
+            f"workspace {session_keys.logged(key)} kept changing while it was "
+            f"being updated; gave up after {UPDATE_RETRIES} tries"
         )
 
     def delete(self, key: str) -> None:
         self._redis.delete(self._k(key))
 
-    def retain(self, key: str) -> None:
-        # Both are no-ops on an absent key.
-        ex = self._ex(key)
-        if ex is None:
-            self._redis.persist(self._k(key))
-        else:
-            self._redis.expire(self._k(key), ex)
+    def retain(self, workspace: str) -> None:
+        ex = self._ex(workspace)
+        self._expiry(self._redis, self._k(workspace), ex)
+        head = self._head_key(workspace, self.get(workspace))
+        if head is not None:
+            self._expiry(self._redis, self._k(head), ex)
 
-    def _live(self, match: str = "*") -> dict[str, Workspace]:
-        """Every live record under ``match``, sub-sessions too.
+    def _live(self, match: str = "*") -> dict[str, Record]:
+        """Every live record under ``match``, sessions' too.
 
         SCAN rather than KEYS: this runs on a database shared with other
         services, and KEYS would block the server while it walked all of it.
@@ -837,38 +1016,55 @@ class RedisStore(_Writes):
             return {}
         # One MGET: this runs on every poll of every open admin page. A key
         # that expired since the SCAN comes back None and is skipped.
-        found: dict[str, Workspace] = {}
+        found: dict[str, Record] = {}
         for key, value in zip(keys, self._redis.mget(keys), strict=True):
-            record = Workspace.from_json(value or b"")
+            name = key[len(self._prefix) :]
+            record = _parsed(name, value or b"")
             if record:
-                found[key[len(self._prefix) :]] = record
+                found[name] = record
         return found
 
     def records(self) -> dict[str, Workspace]:
         """Every live workspace, keyed the way it is stored."""
-        return {k: r for k, r in self._live().items() if not sessions.is_sub(k)}
+        return _workspaces(self._live())
 
-    def sub_records(self, workspace: str) -> dict[str, Workspace]:
-        return _subs_of(self._live(f"{workspace}{sessions.SEP}*"), workspace)
+    def sessions_of(self, workspace: str) -> dict[str, Session]:
+        return _sessions_of(
+            self._live(f"{workspace}{session_keys.SEP}*"), workspace
+        )
 
     def owners(self) -> dict[str, str]:
         """session id -> the session key holding it, for the browsers attached."""
-        return {r.session_id: k for k, r in self._live().items() if r.attached}
+        return _owners(self._live())
 
     def forget_workspace(self, workspace: str) -> None:
-        for name in self.sub_records(workspace):
-            self.delete(sessions.key_of(workspace, name))
+        for name in self.sessions_of(workspace):
+            self.delete(session_keys.key_of(workspace, name))
         self.delete(workspace)
 
 
-def _subs_of(live: dict[str, Workspace], workspace: str) -> dict[str, Workspace]:
-    """``workspace``'s sub-sessions out of ``live``, by name."""
+def _workspaces(live: dict[str, Record]) -> dict[str, Workspace]:
+    """The workspaces' records out of ``live``."""
+    return {k: r for k, r in live.items() if isinstance(r, Workspace)}
+
+
+def _sessions_of(live: dict[str, Record], workspace: str) -> dict[str, Session]:
+    """``workspace``'s session records out of ``live``, by name."""
     found = {}
     for key, record in live.items():
-        owner, name = sessions.split(key)
-        if sessions.is_sub(key) and owner == workspace:
+        owner, name = session_keys.split(key)
+        if name and owner == workspace and isinstance(record, Session):
             found[name] = record
     return found
+
+
+def _owners(live: dict[str, Record]) -> dict[str, str]:
+    """Each attached browser's id out of ``live``, to its session's key."""
+    return {
+        r.session_id: k
+        for k, r in live.items()
+        if isinstance(r, Session) and r.attached
+    }
 
 
 def from_settings(

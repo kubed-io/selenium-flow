@@ -26,7 +26,7 @@ surfaces, the bound write `secrets.perform_write`, a flow step
   or, for a call that raised, as one sentence on its error, which
   `faults.message` reads;
 - with telemetry on, the call is a ``call <tool>`` span from `begin` to `end`,
-  never made current, naming the workspace and never the sub-session.
+  never made current, naming the workspace and never the session.
 
 The host holds the session's lock (`workspace.locks`) from `begin` to `end`, so
 another call's events cannot land inside this one's window. At the end, one
@@ -184,6 +184,9 @@ class Calls:
         self.clock = clock
         # `telemetry.Telemetry`, or None: no span.
         self.telemetry = telemetry
+        # Whether a session's key heads its workspace's list, for the span
+        # (`Workspaces.is_head`, which `Workspaces` sets).
+        self.is_head: Callable[[str], bool] = lambda key: True
 
     def refuse(self, session_id: str, tool: str) -> None:
         """Raise the refusal for ``tool`` on this browser, if a person holds it."""
@@ -316,13 +319,19 @@ class Calls:
     def _span(
         self, key: str, tool: str, browser: str, *, start_time: int | None = None
     ):
-        """A call's span, naming its workspace and never its sub-session; None
+        """A call's span, naming its workspace and never its session, and
+        saying whether that session is not at the head of its list; None
         without telemetry."""
         if self.telemetry is None:
             return None
+        try:
+            head = self.is_head(key)
+        except Exception as exc:  # noqa: BLE001 - a span never fails a call
+            log.debug("the session's place is unknown: %s", type(exc).__name__)
+            head = True
         return self.telemetry.start_call(
             sessions.split(key)[0],
-            sub_session=sessions.is_sub(key),
+            sub_session=not head,
             tool=tool,
             browser=browser,
             start_time=start_time,

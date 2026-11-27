@@ -19,10 +19,10 @@ import pytest
 
 from kubed.selenium_flow.http.admin import workspaces as admin
 from kubed.selenium_flow.monitor.events import CallFinished
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 
 from .conftest import TOKEN
-from .fakes import seated
+from .fakes import seated, visits
 
 pytestmark = pytest.mark.unit
 
@@ -329,8 +329,8 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
         } == json.loads(sink[0])
 
         # Ending a browser changes the list, so the listing after it is new.
-        def end_browser(caller, *, admin=False):
-            seated(server.workspaces.store, caller.name, session_id="")
+        def end_browser(caller, *, admin=False, session=None):
+            seated(server.workspaces.store, caller.name, session or "default", session_id="")
 
         monkeypatch.setattr(server.workspaces, "end_browser", end_browser)
         await _request(app, "DELETE", "/admin/workspaces/one/session")
@@ -430,7 +430,7 @@ async def test_a_forget_with_a_page_open_is_in_the_next_listing(
         "origins": {}, "session": {}, "saved_at": 1.0,
     }
     seated(server.workspaces.store, "one",
-        record=Workspace(session_id="").visited("https://app.example.com/").with_site_data(jar),
+        record=Session(session_id="").with_site_data(jar), history=visits("https://app.example.com/"),
     )
     app = server.mcp.server.http_app()
     stop = asyncio.Event()
@@ -544,7 +544,7 @@ async def test_a_changing_route_is_computed_on_the_next_tick(server, computed, m
         "origins": {}, "session": {}, "saved_at": 1.0,
     }
     seated(server.workspaces.store, "one",
-        record=Workspace(session_id="").visited("https://app.example.com/").with_site_data(jar),
+        record=Session(session_id="").with_site_data(jar), history=visits("https://app.example.com/"),
     )
     app, stop, (sink,), tasks = await _open(server, monkeypatch)
     try:

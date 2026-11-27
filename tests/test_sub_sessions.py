@@ -24,6 +24,7 @@ from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import (
     MemoryStore,
     RedisStore,
+    Session,
     StoreConflict,
     Workspace,
 )
@@ -68,25 +69,25 @@ def built(record=None, actions=None):
 
 
 def test_no_name_reaches_the_default():
-    workspaces, _ = built(Workspace())
-    assert workspaces.session_of(as_()) == "shop"
+    workspaces, _ = built(Session())
+    assert workspaces.session_of(as_()) == "shop/default"
 
 
 def test_a_name_reaches_its_sub_session():
-    workspaces, store = built(Workspace(subs=["tester"]))
+    workspaces, store = built(Session())
     seated(store, "shop", "tester")
     assert workspaces.session_of(as_(), "tester") == "shop/tester"
 
 
 def test_default_by_name_is_the_default():
-    workspaces, store = built(Workspace())
+    workspaces, store = built(Session())
     seated(store, "shop", "tester")
-    assert workspaces.session_of(as_(), "default") == "shop"
-    assert workspaces.session_of(pinned("default")) == "shop"
+    assert workspaces.session_of(as_(), "default") == "shop/default"
+    assert workspaces.session_of(pinned("default")) == "shop/default"
 
 
 def test_a_pin_wins_and_a_different_argument_is_refused():
-    workspaces, store = built(Workspace(subs=["tester"]))
+    workspaces, store = built(Session())
     seated(store, "shop", "tester")
     caller = pinned("tester")
     assert caller.pinned == "tester"
@@ -117,55 +118,56 @@ def test_a_bad_pin_is_refused_when_the_session_is_asked_for(params, headers, say
     assert caller.name == "shop", "the workspace is still named"
     with pytest.raises(ValueError, match=says):
         _ = caller.pinned
-    workspaces, _ = built(Workspace())
+    workspaces, _ = built(Session())
     with pytest.raises(ValueError, match=says):
         workspaces.session_of(caller)
 
 
 def test_a_call_naming_an_unknown_session_is_refused_and_opens_nothing():
     actions = RecordingActions()
-    workspaces, store = built(Workspace(), actions)
+    workspaces, store = built(Session(), actions)
     with pytest.raises(faults.NoSession, match="open_session"):
         workspaces.session_of(as_(), "tester")
     with pytest.raises(faults.NoSession, match="open_session"):
         workspaces.session_of(pinned("tester"))
     assert actions.opened == 0
     assert record_of(store, "shop", "tester") is None
-    assert shared_of(store, "shop").subs == []
+    assert shared_of(store, "shop").sessions == ["default"]
 
 
 def test_open_session_makes_a_named_sub_session():
     actions = RecordingActions()
-    workspaces, store = built(Workspace(), actions)
+    workspaces, store = built(Session(), actions)
     assert workspaces.session_of(as_(), "tester", opening=True) == "shop/tester"
     assert record_of(store, "shop", "tester").holder == "default"
-    assert shared_of(store, "shop").subs == ["tester"]
+    assert shared_of(store, "shop").sessions == ["default", "tester"]
     # Again: the same record, listed once.
     assert workspaces.session_of(as_(), "tester", opening=True) == "shop/tester"
-    assert shared_of(store, "shop").subs == ["tester"]
+    assert shared_of(store, "shop").sessions == ["default", "tester"]
     assert actions.opened == 0, "the record is made; the browser is open_session's"
 
 
 def test_opening_a_sub_session_in_a_workspace_with_no_record_lists_it():
     workspaces, store = built()
     assert workspaces.session_of(as_(), "tester", opening=True) == "shop/tester"
-    assert shared_of(store, "shop").subs == ["tester"]
-    assert shared_of(store, "shop").holder == ""
+    assert shared_of(store, "shop") == Workspace(sessions=["tester"])
+    assert record_of(store, "shop") is None
 
 
-def test_a_dead_sub_session_name_is_pruned_on_the_next_listing():  # WS-60, WS-77
-    workspaces, store = built(Workspace(subs=["gone", "tester"]))
+def test_a_dead_sub_session_name_is_pruned_on_the_next_listing():  # WS-81, WS-87
+    workspaces, store = built(Session())
+    store.update("shop", lambda r: r.listing("gone"))
     seated(store, "shop", "tester")
     assert [s["name"] for s in workspaces.listed_sessions("shop")] == [
         "default", "tester",
     ]
-    assert shared_of(store, "shop").subs == ["tester"]
+    assert shared_of(store, "shop").sessions == ["default", "tester"]
 
 
 def test_a_listing_reads_every_sub_session_in_one_round_trip():
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    seated(store, "shop", subs=["a", "b", "c"])
+    seated(store, "shop")
     for name in "abc":
         seated(store, "shop", name)
     workspaces = manager(RecordingActions(), store)
@@ -191,11 +193,11 @@ class HidingStore(MemoryStore):
 
 def test_a_name_whose_record_was_made_since_the_read_is_not_pruned():
     store = HidingStore()
-    seated(store, "shop", subs=["tester"])
+    seated(store, "shop")
     seated(store, "shop", "tester")
     store.hidden = "shop/tester"
     manager(RecordingActions(), store).listed_sessions("shop")
-    assert shared_of(store, "shop").subs == ["tester"]
+    assert shared_of(store, "shop").sessions == ["default", "tester"]
 
 
 class FailingOnce(MemoryStore):
@@ -221,7 +223,7 @@ def test_a_failed_open_leaves_no_sub_record_the_listing_misses(failing):
     workspaces.listed_sessions("shop")
     # Either nothing, or a name the listing pruned: never a record no listing shows.
     assert record_of(store, "shop", "tester") is None
-    assert shared_of(store, "shop").subs == []
+    assert shared_of(store, "shop").sessions == ["default"]
 
 
 @pytest.mark.parametrize(
@@ -230,11 +232,11 @@ def test_a_failed_open_leaves_no_sub_record_the_listing_misses(failing):
 )
 def test_a_refused_open_makes_and_lists_no_sub_session(wanted):  # WS-78
     actions = RecordingActions()
-    workspaces, store = built(Workspace(), actions)
+    workspaces, store = built(Session(), actions)
     with pytest.raises(ValueError):
         workspaces.open_browser(as_(), session="tester", **wanted)
     assert record_of(store, "shop", "tester") is None
-    assert shared_of(store, "shop").subs == []
+    assert shared_of(store, "shop").sessions == ["default"]
     assert actions.opened == 0
 
 
@@ -242,14 +244,14 @@ def test_the_stdio_caller_reaches_the_default():
     workspaces, store = built()
     stdio = Caller.stdio()
     seated(store, stdio.name)
-    assert workspaces.session_of(stdio) == stdio.name
+    assert workspaces.session_of(stdio) == f"{stdio.name}/default"
 
 
 def test_a_subject_that_cannot_name_a_session_is_refused():
-    workspaces, store = built(Workspace())
+    workspaces, store = built(Session())
     with pytest.raises(ValueError, match="session"):
         workspaces.session_of(as_(Principal("oidc", subject="idp|42")))
-    assert shared_of(store, "shop").subs == []
+    assert shared_of(store, "shop").sessions == ["default"]
 
 
 def test_a_tasks_worker_reaches_the_pinned_session(monkeypatch):
@@ -310,7 +312,7 @@ B_SITE = "https://b.example.test/"
 
 def two_open(actions=None):
     """`built`, the default open on `A_SITE` and `tester` open on `B_SITE`."""
-    workspaces, store = built(Workspace(), actions)
+    workspaces, store = built(Session(), actions)
     workspaces.open_browser(as_(), url=A_SITE)
     workspaces.open_browser(as_(), url=B_SITE, session="tester")
     return workspaces, store
@@ -322,7 +324,7 @@ def ids(store):
 
 def test_a_sub_session_opens_its_own_browser_and_leaves_the_default_open():
     actions = RecordingActions()
-    workspaces, store = built(Workspace(), actions)
+    workspaces, store = built(Session(), actions)
     workspaces.open_browser(as_())
     default = record_of(store, "shop").session_id
     workspaces.open_browser(as_(), session="tester")
@@ -387,7 +389,7 @@ def test_two_callers_of_one_subject_take_turns_in_its_session():  # WS-84
 
 def test_a_sub_session_opens_from_config_not_from_the_defaults_settings():
     actions = RecordingActions()
-    workspaces, store = built(Workspace(), actions)
+    workspaces, store = built(Session(), actions)
     workspaces.open_browser(as_(), browser="firefox", width=1400, height=900)
     workspaces.open_browser(as_(), session="tester")
     assert actions.opened_settings[0]["browser"] == "firefox"
@@ -449,7 +451,7 @@ def test_a_secret_is_scoped_by_its_own_sessions_origin():
         default, tester = ids(workspaces.store)
         key = workspaces.session_of(as_(), "tester")
         assert workspaces.origins.current(key, tester) == b
-        assert workspaces.origins.current("shop", default) == a
+        assert workspaces.origins.current("shop/default", default) == a
         typed = {"selector": {"css": "#p"}, "secret": {"name": "b", "key": "password"}}
         shown = secrets.perform_write(
             catalogue, workspaces.actions, workspaces, key, dict(typed)
@@ -457,7 +459,7 @@ def test_a_secret_is_scoped_by_its_own_sessions_origin():
         assert shown["url"] == B_SITE and "beta-22" not in json.dumps(shown)
         with pytest.raises(secrets.Refused):
             secrets.perform_write(
-                catalogue, workspaces.actions, workspaces, "shop", dict(typed)
+                catalogue, workspaces.actions, workspaces, "shop/default", dict(typed)
             )
         # Each session's answers are scrubbed with its own page's secrets.
         workspaces.actions.result = {"url": B_SITE, "text": "beta-22"}
@@ -484,7 +486,7 @@ def test_a_sub_sessions_recording_is_the_workspaces_and_known_by_its_key():
 
 def test_another_sessions_page_is_listed_without_its_query():  # WS-72
     secret_page = "https://b.example.test/cb?code=SECRET#state=TOKEN"
-    workspaces, _ = built(Workspace())
+    workspaces, _ = built(Session())
     workspaces.open_browser(as_(), url=A_SITE + "?mine=1")
     workspaces.open_browser(as_(), url=secret_page, session="tester")
 
@@ -507,7 +509,7 @@ def test_another_sessions_page_is_listed_without_its_query():  # WS-72
 
 
 def test_open_session_answers_session_default_and_others():  # WS-48, WS-72
-    workspaces, _ = built(Workspace())
+    workspaces, _ = built(Session())
     first = workspaces.open_browser(as_(), url=A_SITE)
     assert (first["workspace"], first["session"], first["default"]) == (
         "shop", "default", True
@@ -567,7 +569,7 @@ def test_a_grid_that_cannot_be_listed_lists_attached_sessions_as_live():
 
 def test_an_acting_call_naming_an_unknown_session_opens_nothing():  # WS-78
     actions = RecordingActions()
-    workspaces, store = built(Workspace(), actions)
+    workspaces, store = built(Session(), actions)
     workspaces.open_browser(as_())
     ran = []
     with pytest.raises(faults.NoSession, match="open_session"):
@@ -620,7 +622,6 @@ async def test_a_call_that_never_names_a_session_is_unchanged(twin):  # noqa: F8
 async def test_a_tool_and_a_route_naming_a_session_act_in_it(twin):  # noqa: F811
     server, double = twin
     store = server.workspaces.store
-    store.update(NAMED, lambda r: replace(r, subs=["tester"]))
     seated(store, NAMED, "tester", session_id="b-2")
     double.grid.alive.add("b-2")
     args = {"url": "https://example.test/a", "session": "tester"}
@@ -646,7 +647,7 @@ def test_a_log_line_names_a_sub_session_by_its_workspace_alone():
     from kubed.selenium_flow.workspace import sessions
 
     assert sessions.logged("shop") == "shop"
-    assert sessions.logged("shop/opaque-subject-123") == "shop (a sub-session)"
+    assert sessions.logged("shop/opaque-subject-123") == "shop (a session)"
 
 
 def test_a_subjects_own_sub_session_is_never_named_in_a_log_line(caplog):
@@ -661,7 +662,7 @@ def test_a_subjects_own_sub_session_is_never_named_in_a_log_line(caplog):
     subject = "opaque-subject-123"
     caller = as_(Principal("oidc", subject=subject))
     actions = RecordingActions()
-    workspaces, store = built(Workspace(), actions)
+    workspaces, store = built(Session(), actions)
     workspaces.open_browser(caller, url=A_SITE)
     workspaces.act(caller, lambda s: {"url": A_SITE}, tool="navigate")
     actions.grid.alive.discard(record_of(store, "shop", subject).session_id)
@@ -675,7 +676,7 @@ def test_a_subjects_own_sub_session_is_never_named_in_a_log_line(caplog):
     assert response.status_code == 400
     assert subject not in response.body.decode()
     said = [r.getMessage() for r in caplog.records]
-    assert any("ended the browser for workspace shop (a sub-session)" in m for m in said)
-    assert any("reopening for workspace shop (a sub-session)" in m for m in said)
+    assert any("ended the browser for workspace shop (a session)" in m for m in said)
+    assert any("reopening for workspace shop (a session)" in m for m in said)
     assert any("refused (400)" in m for m in said)
     assert not [m for m in said if subject in m]

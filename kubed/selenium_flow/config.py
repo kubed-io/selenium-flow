@@ -293,7 +293,10 @@ class SessionSettings(Section):
     sub_ttl: int = Field(
         3600,
         gt=0,
-        doc="Seconds a sub-session's record is kept after its last use.",
+        doc=(
+            "Seconds a session that is not first in its workspace's list is kept "
+            "after its last use."
+        ),
         env="SESSION_SUB_TTL",
         arg="--session-sub-ttl",
     )

@@ -4,6 +4,7 @@ that opened it (WS-82, WS-83, WS-84)."""
 from __future__ import annotations
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from starlette.testclient import TestClient
@@ -11,11 +12,12 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.principal import ADMIN, Principal
 from kubed.selenium_flow.workspace import sessions
+from kubed.selenium_flow.workspace import workspaces as workspaces_module
 from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore
 from kubed.selenium_flow.workspace.workspaces import Caller
 
 from .conftest import TOKEN, manager
-from .fakes import FakeRedis, RecordingActions, record_of, seated, shared_of
+from .fakes import Clock, FakeRedis, RecordingActions, record_of, seated, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -54,7 +56,7 @@ def test_two_subjects_get_two_sessions():
     assert (first["session"], second["session"]) == ("first", "second")
     assert record_of(store, "shop", "first").holder == "sub-a"
     assert record_of(store, "shop", "second").holder == "sub-b"
-    assert shared_of(store, "shop").subs == ["first", "second"]
+    assert shared_of(store, "shop").sessions == ["first", "second"]
     assert actions.opened == 2 and actions.closed == []
 
 
@@ -72,14 +74,14 @@ def test_an_unnamed_read_with_no_session_answers_empty_and_makes_nothing():
     workspaces, store, _ = built()
     seated(store, "shop", session_id="g-default")
     seated(store, "shop", "tester", holder="sub-b")
-    before = {**store.records(), **store.sub_records("shop")}
+    before = {**store.records(), **store.sessions_of("shop")}
     context = workspaces.describe(as_(FIRST))
     assert (context["session"], context["default"], context["live"]) == (
         "first", False, False,
     )
     assert context["url"] is None
-    assert {**store.records(), **store.sub_records("shop")} == before
-    assert shared_of(store, "shop").subs == ["tester"]
+    assert {**store.records(), **store.sessions_of("shop")} == before
+    assert shared_of(store, "shop").sessions == ["default", "tester"]
     assert record_of(store, "shop", "first") is None
 
 
@@ -207,7 +209,7 @@ def test_two_subjects_racing_one_name_leave_one_holder(backend, monkeypatch):
     assert missed == ["shop/first"], "SECOND's check saw no record"
     monkeypatch.undo()
     assert record_of(store, "shop", "first").holder == "sub-a"
-    assert shared_of(store, "shop").subs == ["first"]
+    assert shared_of(store, "shop").sessions == ["first"]
 
 
 def test_the_token_reaches_admin_over_http(server):
@@ -217,3 +219,129 @@ def test_the_token_reaches_admin_over_http(server):
     assert opened.status_code == 200, opened.text
     assert opened.json()["session"] == "admin"
     assert record_of(server.workspaces.store, "shop", "admin").holder == "admin"
+
+
+def _clocked(monkeypatch, ttl=100, sub_ttl=10):
+    """A manager on a memory store at ``ttl`` and ``sub_ttl``, its clock and
+    the wall time the manager stamps moved together by hand."""
+    clock = Clock(0.0)
+    monkeypatch.setattr(workspaces_module, "time", SimpleNamespace(time=clock))
+    workspaces, store, _ = built(
+        MemoryStore(ttl=ttl, sub_ttl=sub_ttl, clock=clock)
+    )
+    return workspaces, store, clock
+
+
+def _names(context):
+    return [(s["name"], s["default"]) for s in context["sessions"]]
+
+
+def test_a_new_workspaces_list_is_empty_until_its_first_open():
+    workspaces, store, _ = built()
+    context = workspaces.describe(as_())
+    assert context["sessions"] == []
+    assert context["default"] is False
+    assert shared_of(store, "shop") is None
+    opened = workspaces.open_browser(as_())
+    assert (opened["session"], opened["default"]) == ("default", True)
+    assert shared_of(store, "shop").sessions == ["default"]
+    assert _names(workspaces.describe(as_())) == [("default", True)]
+
+
+def test_the_first_to_open_heads_the_list():
+    workspaces, store, _ = built()
+    first = workspaces.open_browser(as_(FIRST))
+    second = workspaces.open_browser(as_(SECOND))
+    assert shared_of(store, "shop").sessions == ["first", "second"]
+    assert (first["default"], second["default"]) == (True, False)
+    assert _names(workspaces.describe(as_(SECOND))) == [
+        ("first", True), ("second", False),
+    ]
+    assert workspaces.describe(as_(FIRST))["default"] is True
+    assert workspaces.describe(as_(SECOND))["default"] is False
+
+
+def test_an_expired_session_leaves_the_list(monkeypatch):
+    workspaces, store, clock = _clocked(monkeypatch)
+    workspaces.open_browser(as_(FIRST))
+    workspaces.open_browser(as_(SECOND))
+    clock.now = 11
+    assert record_of(store, "shop", "second") is None
+    assert _names(workspaces.describe(as_(FIRST))) == [("first", True)]
+    assert shared_of(store, "shop").sessions == ["first"]
+    with pytest.raises(faults.NoSession):
+        workspaces.session_of(as_(FIRST), "second")
+
+
+def test_every_call_slides_the_workspace_record(monkeypatch):
+    workspaces, store, clock = _clocked(monkeypatch)
+    workspaces.open_browser(as_(FIRST))
+    clock.now = 50
+    # A result with no page: nothing goes on the history.
+    assert "url" not in workspaces.act(as_(FIRST), lambda sid: {"acted_on": sid})
+    clock.now = 120
+    assert shared_of(store, "shop") is not None
+    assert record_of(store, "shop", "first") is not None
+    clock.now = 150
+    assert shared_of(store, "shop") is None
+
+
+def test_the_heads_record_outlives_ttl_while_only_a_sub_session_is_used(monkeypatch):
+    workspaces, store, clock = _clocked(monkeypatch)
+    workspaces.open_browser(as_(FIRST))
+    workspaces.open_browser(as_(SECOND))
+    for now in range(5, 155, 5):
+        clock.now = now
+        workspaces.act(as_(SECOND), lambda sid: {"acted_on": sid})
+    assert record_of(store, "shop", "first") is not None
+    assert record_of(store, "shop", "second") is not None
+    assert shared_of(store, "shop").sessions[0] == "first"
+    assert workspaces.head_of("shop") == "first"
+
+
+def test_an_admin_route_with_no_session_acts_on_the_head():
+    from .test_admin_live import build
+
+    server = build()
+    store = server.workspaces.store
+    seated(store, "shop", "first", holder="sub-a", session_id="g-first")
+    seated(store, "shop", "second", holder="sub-b", session_id="g-second")
+    client = TestClient(server.mcp.server.http_app(), headers=AUTH)
+    row = client.get("/admin/workspaces/shop/session")
+    assert row.status_code == 200, row.text
+    assert (row.json()["session"], row.json()["default"]) == ("first", True)
+    assert row.json()["session_id"] == "g-first"
+    picked = client.get("/admin/workspaces/shop/session", params={"session": "second"})
+    assert (picked.json()["session"], picked.json()["default"]) == ("second", False)
+
+
+def test_a_calls_span_says_whether_its_session_heads_the_list():
+    workspaces, _, _ = built()
+    workspaces.open_browser(as_(FIRST))
+    workspaces.open_browser(as_(SECOND))
+    assert workspaces.calls.is_head("shop/first") is True
+    assert workspaces.calls.is_head("shop/second") is False
+    assert workspaces.calls.is_head("shop") is True
+
+
+def test_a_named_session_with_no_record_is_refused_unless_it_is_the_callers_own():
+    workspaces, store, actions = built()
+    # `default` is a name like any other: a JWT naming it with no record is refused.
+    for call in (
+        lambda: workspaces.session_of(as_(FIRST), "default"),
+        lambda: workspaces.session_of(pinned("default", FIRST)),
+        lambda: workspaces.reading(as_(FIRST), "default"),
+    ):
+        with pytest.raises(faults.NoSession):
+            call()
+    # The caller's own, named: its key, and nothing is made, as with no name.
+    for caller in (as_(), pinned("default")):
+        assert workspaces.session_of(caller, "default") == "shop/default"
+        assert workspaces.reading(caller, "default") == "shop/default"
+    assert workspaces.session_of(as_(FIRST), "first") == "shop/first"
+    assert shared_of(store, "shop") is None and record_of(store, "shop") is None
+    assert actions.opened == 0
+    # An own name that cannot be read gives no exemption.
+    nameless = as_(Principal("oidc", subject="auth0|1"))
+    with pytest.raises(faults.NoSession):
+        workspaces.session_of(nameless, "default")

@@ -22,6 +22,9 @@ from .fakes import Anywhere, FakeMonitor, PageActions, build, record_of
 
 pytestmark = pytest.mark.unit
 
+# The session `Caller("ws", "query")` reaches: its own, `default`.
+WS = "ws/default"
+
 
 @pytest.fixture
 def captured_ws():
@@ -46,9 +49,9 @@ def test_a_call_that_caused_errors_says_so_on_its_result(captured_ws):
     workspaces, capture, _ = captured_ws
 
     def click(session_id):
-        capture.ingest("ws", session_id, *log("Uncaught TypeError", type="javascript", level="error"))
-        capture.ingest("ws", session_id, *req("r1", "https://a.test/api/orders", method="POST"))
-        capture.ingest("ws", session_id, *done("r1", 500))
+        capture.ingest(WS, session_id, *log("Uncaught TypeError", type="javascript", level="error"))
+        capture.ingest(WS, session_id, *req("r1", "https://a.test/api/orders", method="POST"))
+        capture.ingest(WS, session_id, *done("r1", 500))
         return {"url": "https://a.test/", "title": "A"}
 
     result = workspaces.act(Caller("ws", "query"), click, tool="interact", surface="mcp")
@@ -66,9 +69,9 @@ def test_warnings_and_failed_images_stay_silent(captured_ws):
     workspaces, capture, _ = captured_ws
 
     def noisy(sid):
-        capture.ingest("ws", sid, *log("careful", level="warn"))
-        capture.ingest("ws", sid, *req("r2", "https://a.test/x.png", dest="image"))
-        capture.ingest("ws", sid, *fail("r2"))
+        capture.ingest(WS, sid, *log("careful", level="warn"))
+        capture.ingest(WS, sid, *req("r2", "https://a.test/x.png", dest="image"))
+        capture.ingest(WS, sid, *fail("r2"))
         return {"url": "u"}
 
     assert "page" not in workspaces.act(Caller("ws", "query"), noisy, tool="interact")
@@ -78,8 +81,8 @@ def test_a_failed_call_says_what_the_page_reported(captured_ws):
     workspaces, capture, _ = captured_ws
 
     def click_then_time_out(sid):
-        capture.ingest("ws", sid, *req("r1", "https://a.test/api", initiator="fetch"))
-        capture.ingest("ws", sid, *done("r1", 500))
+        capture.ingest(WS, sid, *req("r1", "https://a.test/api", initiator="fetch"))
+        capture.ingest(WS, sid, *done("r1", 500))
         raise TimeoutException("waited 30s for //div[@id='done']")
 
     with pytest.raises(TimeoutException) as raised:
@@ -110,11 +113,11 @@ def test_each_call_counts_only_its_own_window(captured_ws):
     def slow(sid):
         entered.set()
         release.wait(2)
-        capture.ingest("ws", sid, *log("mine", level="error"))
+        capture.ingest(WS, sid, *log("mine", level="error"))
         return {"url": "u"}
 
     def quick(sid):
-        capture.ingest("ws", sid, *log("theirs", level="error"))
+        capture.ingest(WS, sid, *log("theirs", level="error"))
         return {"url": "u"}
 
     results = {}
@@ -146,7 +149,7 @@ def test_the_first_call_after_a_pause_holds_capture_again_before_it_acts(capture
     monitor.attach = lambda *a, **k: order.append(("attach", *a, k.get("browser")))
     workspaces.act(Caller("ws", "query"), lambda s: order.append("act") or {"url": "u"},
                    tool="interact")
-    assert order == [("attach", "ws", sid, "capture", "chrome"), "act"]
+    assert order == [("attach", WS, sid, "capture", "chrome"), "act"]
 
 
 def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
@@ -158,7 +161,7 @@ def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
 
     def click(session_id):
         capture.ingest(
-            "ws",
+            WS,
             session_id,
             *log("Uncaught TypeError", type="javascript", level="error"),
         )
@@ -200,9 +203,9 @@ def test_a_bound_write_and_a_flow_step_resume_capture_too(tmp_path, catalogue):
     run.monitor.owed.add(sid)
     run(steps=[("interact", 0, 0)])
     run.actions.write = lambda sid, text, **kw: {"url": "u", "value": None}
-    perform_write(catalogue, run.actions, run.workspaces, "ws",
+    perform_write(catalogue, run.actions, run.workspaces, WS,
                   {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}})
-    assert run.monitor.attached == [("ws", sid, "capture", "chrome")] * 2
+    assert run.monitor.attached == [(WS, sid, "capture", "chrome")] * 2
 
 
 # ---- every call is said ------------------------------------------------------
@@ -222,7 +225,7 @@ def test_a_call_without_capture_is_said_too(plain_ws):
     plain_ws.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="extract")
     [event] = plain_ws.monitor.published
     assert isinstance(event, CallFinished)
-    assert (event.workspace, event.tool, event.surface, event.outcome) == ("ws", "extract", "mcp", "ok")
+    assert (event.workspace, event.tool, event.surface, event.outcome) == (WS, "extract", "mcp", "ok")
     assert event.duration >= 0
 
 
@@ -266,7 +269,7 @@ def test_a_flush_that_fails_is_logged_by_type_and_the_hint_still_comes(captured_
     monitor.held, monitor.loop = object(), object()  # a Channel over these cannot flush
 
     def click(sid):
-        capture.ingest("ws", sid, *log("boom", level="error"))
+        capture.ingest(WS, sid, *log("boom", level="error"))
         return {"url": "u"}
 
     with caplog.at_level(logging.DEBUG, logger="kubed.selenium_flow.workspace.calls"):
@@ -287,7 +290,7 @@ def test_with_a_held_connection_the_call_flushes_it_before_counting(captured_ws,
 
         def flush(self, timeout):
             # What the browser sent before the call ended lands now.
-            capture.ingest("ws", record_of(workspaces.store, "ws").session_id, *log("late", level="error"))
+            capture.ingest(WS, record_of(workspaces.store, "ws").session_id, *log("late", level="error"))
             flushed.append(self.pair)
 
     from kubed.selenium_flow.workspace import calls as calls_module
@@ -358,14 +361,14 @@ def test_a_bound_write_after_a_reap_says_the_notice_on_its_error(captured_ws, ca
     workspaces, _, _ = captured_ws
     sid = record_of(workspaces.store, "ws").session_id
     workspaces.store.update(
-        "ws", lambda r: replace(r, reopened={"browser": sid, "cause": "reaped", "report": None}))
+        WS, lambda r: replace(r, reopened={"browser": sid, "cause": "reaped", "report": None}))
 
     def broken(sid, text, **kw):
         raise ValueError("the field is gone")
 
     workspaces.actions.write = broken
     with pytest.raises(ValueError) as exc:
-        perform_write(catalogue, workspaces.actions, workspaces, "ws",
+        perform_write(catalogue, workspaces.actions, workspaces, WS,
                       {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}})
     assert faults.REOPENED["reaped"] in faults.message(exc.value)
 
@@ -376,7 +379,7 @@ def test_a_bound_write_registers_its_value_before_typing(captured_ws, catalogue)
     workspaces.calls.bound = lambda ws, forms: order.append(("bound", min(forms)))
     actions = workspaces.actions
     actions.write = lambda sid, text, **kw: order.append(("typed", text)) or {"url": "u", "value": None}
-    perform_write(catalogue, actions, workspaces, "ws",
+    perform_write(catalogue, actions, workspaces, WS,
                   {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}})
     assert [step for step, _ in order] == ["bound", "typed"]
 
@@ -385,15 +388,15 @@ def test_a_bound_write_masks_its_value_and_carries_the_hint(captured_ws, catalog
     workspaces, capture, monitor = captured_ws
 
     def typed(sid, text, **kw):
-        capture.ingest("ws", sid, *log(f"saw {text}", level="error"))
+        capture.ingest(WS, sid, *log(f"saw {text}", level="error"))
         return {"url": "u", "value": None}
 
     workspaces.actions.write = typed
-    shown = perform_write(catalogue, workspaces.actions, workspaces, "ws",
+    shown = perform_write(catalogue, workspaces.actions, workspaces, WS,
                           {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}},
                           surface="http")
     assert shown["page"]["errors"] == 1
-    assert "hunter2" not in str(capture.console("ws"))
+    assert "hunter2" not in str(capture.console(WS))
     [event] = monitor.published
     assert (event.tool, event.surface, event.outcome) == ("write", "http", "ok")
 
@@ -412,11 +415,11 @@ class FlowActions(PageActions):
     def interact(self, session_id, **kwargs):
         errors, failed = self.plan.pop(0)
         for _ in range(errors):
-            self.capture.ingest("ws", session_id, *log("broken", level="error"))
+            self.capture.ingest(WS, session_id, *log("broken", level="error"))
         for _ in range(failed):
             rid = f"f{next(self.ids)}"
-            self.capture.ingest("ws", session_id, *req(rid, "https://a.test/api"))
-            self.capture.ingest("ws", session_id, *done(rid, 503))
+            self.capture.ingest(WS, session_id, *req(rid, "https://a.test/api"))
+            self.capture.ingest(WS, session_id, *done(rid, 503))
         return {"url": "https://a.test/", "title": "A"}
 
 
@@ -458,7 +461,7 @@ class SecretFlowActions(FlowActions):
     """A flow's `write` whose page echoes what was typed into its console."""
 
     def write(self, session_id, text=None, **kwargs):
-        self.capture.ingest("ws", session_id, *log(f"saw {text}", level="error"))
+        self.capture.ingest(WS, session_id, *log(f"saw {text}", level="error"))
         return {"url": "https://a.test/", "title": "A", "value": text}
 
 
@@ -476,7 +479,7 @@ def test_a_flow_steps_bound_value_is_masked_in_what_capture_keeps(tmp_path):
         store, actions, workspaces, "ws", "login", secrets_catalogue=Anywhere()
     )
     assert report["status"] == "ok" and report["page"]["errors"] == 1
-    console = str(capture.console("ws"))
+    console = str(capture.console(WS))
     assert "saw" in console and "hunter2" not in console
 
 

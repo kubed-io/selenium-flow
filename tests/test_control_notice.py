@@ -29,6 +29,9 @@ from .fakes import FakePeer, held
 
 pytestmark = pytest.mark.unit
 
+# The session a caller naming `w1` and no session reaches: its own, `default`.
+W1 = "w1/default"
+
 URI = "workspace://files/recordings/rec-20261008-1403.mp4"
 
 
@@ -75,7 +78,7 @@ def on_loop(fn):
 
 
 def handed_back(server):
-    tunnel = held(server.tunnels, "w1", "drk", "control")
+    tunnel = held(server.tunnels, W1, "drk", "control")
     tunnel.mode = "watch"
     tunnel.on_mode()
 
@@ -90,12 +93,12 @@ def server(tmp_path, monkeypatch):
 
 
 def test_a_controlled_workspace_s_result_carries_the_notice(server):
-    held(server.tunnels, "w1", "drk", "control")
+    held(server.tunnels, W1, "drk", "control")
 
     async def go():
         async with Client(server.mcp.server) as c:
             result = await c.call_tool("keep_file", {"uri": URI})
-            return result, server.controls.notice("w1")
+            return result, server.controls.notice(W1)
 
     result, notice = asyncio.run(go())
     assert result.content[-1].text.startswith("drk has control of this browser since")
@@ -105,13 +108,13 @@ def test_a_controlled_workspace_s_result_carries_the_notice(server):
 
 
 def test_a_failed_call_carries_it_after_its_own_sentence(server):
-    held(server.tunnels, "w1", "drk", "control")
+    held(server.tunnels, W1, "drk", "control")
 
     async def go():
         async with Client(server.mcp.server) as c:
             with pytest.raises(ToolError) as caught:
                 await c.call_tool("keep_file", {"uri": "workspace://files/recordings/nope.mp4"})
-            return str(caught.value), server.controls.notice("w1")
+            return str(caught.value), server.controls.notice(W1)
 
     said, notice = asyncio.run(go())
     assert "nope.mp4" in said
@@ -120,7 +123,7 @@ def test_a_failed_call_carries_it_after_its_own_sentence(server):
 
 
 def test_handed_back_is_said_once(server):
-    tunnel = held(server.tunnels, "w1", "drk", "control")
+    tunnel = held(server.tunnels, W1, "drk", "control")
     tunnel.mode = "watch"
     tunnel.on_mode()
     first = keep(server)
@@ -136,13 +139,13 @@ def test_a_workspace_with_no_controller_hears_nothing(server):
 
 
 def test_another_workspace_hears_nothing(server, monkeypatch):
-    held(server.tunnels, "w1", "drk", "control")
+    held(server.tunnels, W1, "drk", "control")
     name_as(monkeypatch, "w2")
     assert all("control of this browser" not in t for t in texts(keep(server)))
 
 
 def test_an_unnamed_caller_hears_nothing_and_its_answer_is_its_own(server, monkeypatch):
-    held(server.tunnels, "w1", "drk", "control")
+    held(server.tunnels, W1, "drk", "control")
     name_as(monkeypatch, None)
     with pytest.raises(ToolError) as caught:
         keep(server)
@@ -150,7 +153,7 @@ def test_an_unnamed_caller_hears_nothing_and_its_answer_is_its_own(server, monke
 
 
 def test_a_fresh_server_hears_nothing(server, tmp_path):
-    held(server.tunnels, "w1", "drk", "control")
+    held(server.tunnels, W1, "drk", "control")
     fresh = make(tmp_path / "fresh")
     assert all("control of this browser" not in t for t in texts(keep(fresh)))
 
@@ -158,17 +161,17 @@ def test_a_fresh_server_hears_nothing(server, tmp_path):
 def test_the_http_surface_is_unchanged(server):
     web = TestClient(server.mcp.server.http_app())
     before = web.post("/browser", json={}, headers={"Sf-Workspace": "w1"})
-    held(server.tunnels, "w1", "drk", "control")
+    held(server.tunnels, W1, "drk", "control")
     after = web.post("/browser", json={}, headers={"Sf-Workspace": "w1"})
     assert (after.status_code, after.text) == (before.status_code, before.text)
     assert "control of this browser" not in after.text
-    assert server.controls.notice("w1") is not None
+    assert server.controls.notice(W1) is not None
 
 
 async def test_an_in_flight_call_carries_control_in_structured_content(server, monkeypatch):
     """Asked mid-call: the call before the request still holds its turn, so the
     grant waits, and the call's result says ``requested``."""
-    tunnel = Tunnel(FakePeer(), who="alex", workspace="w1", session="s", grace=1)
+    tunnel = Tunnel(FakePeer(), who="alex", workspace=W1, session="s", grace=1)
     server.tunnels.add("g1", tunnel)
     parse = files_module.parse_uri
 
@@ -200,10 +203,10 @@ async def test_an_in_flight_call_carries_control_in_structured_content(server, m
 
 
 async def test_a_read_while_held_carries_state_held(server):
-    await asyncio.to_thread(held, server.tunnels, "w1", "drk", "control")
+    await asyncio.to_thread(held, server.tunnels, W1, "drk", "control")
     async with Client(server.mcp.server) as c:
         result = await c.call_tool("keep_file", {"uri": URI})
-        assert server.controls.notice("w1")["state"] == "held"  # said every time
+        assert server.controls.notice(W1)["state"] == "held"  # said every time
     control = result.structured_content["control"]
     assert (control["state"], control["who"]) == ("held", ["drk"])
     assert ISO.fullmatch(control["since"])
@@ -227,7 +230,7 @@ async def test_the_unsaid_hand_back_is_said_once(server):
 
 
 async def test_a_refusal_carries_no_second_notice(server, monkeypatch):
-    await asyncio.to_thread(held, server.tunnels, "w1", "drk", "control")
+    await asyncio.to_thread(held, server.tunnels, W1, "drk", "control")
 
     def refused(name, call, **kw):
         raise server.controls.refusal("g1", "navigate")
@@ -243,11 +246,11 @@ async def test_a_refusal_carries_no_second_notice(server, monkeypatch):
 
 
 async def test_a_screenshot_image_gains_structured_content_with_only_control(server, monkeypatch):
-    await asyncio.to_thread(held, server.tunnels, "w1", "drk", "control")
+    await asyncio.to_thread(held, server.tunnels, W1, "drk", "control")
     monkeypatch.setattr(server.workspaces, "act", lambda name, call, **kw: {"image": PNG})
     async with Client(server.mcp.server) as c:
         result = await c.call_tool("screenshot", {})
-        notice = server.controls.notice("w1")
+        notice = server.controls.notice(W1)
     assert result.content[0].type == "image"
     assert result.structured_content == {"control": notice}
     assert result.content[-1].text == notice["hint"]
@@ -279,7 +282,7 @@ async def test_a_create_task_result_passes_untouched(server):
     async with Client(server.mcp.server) as c:
         task = await call_tool_task(c, "tasked")
         result = await task.result()
-        pending = server.controls.notice("w1")
+        pending = server.controls.notice(W1)
     [stub] = inner
     assert isinstance(stub, CreateTaskResult)
     assert outer == [stub] and outer[0] is stub

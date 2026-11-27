@@ -24,7 +24,7 @@ from kubed.selenium_flow.secrets import ALLOWED_URLS, Catalogue, FilesystemSourc
 from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.workspaces import Caller
 
-from .conftest import NAMED, OTHER, manager
+from .conftest import NAMED, NAMED_KEY, OTHER, manager
 from .fakes import TOKEN_SESSION, ScriptedDriver, record_of, seated, untabbed
 
 pytestmark = pytest.mark.unit
@@ -214,7 +214,7 @@ def test_a_navigate_cannot_land_between_a_secrets_check_and_its_keystrokes(leash
         leashed.catalogue,
         leashed.actions,
         leashed.workspaces,
-        NAMED,
+        NAMED_KEY,
         {"selector": {"css": "#p"}, "secret": SECRET},
     )
     assert shown["text_from"] == "secret"

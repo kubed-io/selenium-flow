@@ -34,7 +34,7 @@ KINDS = ("console", "network")
 def tail_path(key: str) -> str:
     """The unprefixed path a tail link for ``key`` is signed over, the key
     quoted as it is on the wire, so a link for one workspace opens no other. A
-    sub-session's key is signed over too, so a link opens no other session."""
+    session's key is signed over too, so a link opens no other session."""
     return TAIL_PATH.format(key=quote(key, safe=""))
 
 
@@ -60,9 +60,12 @@ class _Stream(EventSourceResponse):
 
 def request_uri(workspace: str, name: str, id: str) -> str:
     """Where an agent of ``workspace`` reads request ``id`` of its session
-    ``name``: the default's at ``workspace://``, as the workspace's own."""
+    ``name``: ``default``'s at ``workspace://``, as a caller with no principal
+    reads its own (WS-82), any other at ``session://<name>/``."""
     return sessions.pointer(
-        sessions.key_of(workspace, name), workspace, f"network/{id}"
+        sessions.key_of(workspace, name),
+        sessions.key_of(workspace, sessions.DEFAULT),
+        f"network/{id}",
     )
 
 
@@ -71,17 +74,15 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
 
     def tail_url(key: str, name: str) -> str:
         """The tail's URL for session ``name`` of workspace ``key``: its path
-        names the workspace, ``?session=`` the session unless it is the
-        default, and the link is signed over the session's own key, so it opens
-        no other."""
+        names the workspace, ``?session=`` the session, always, so it opens
+        that session whichever heads the list later, and the link is signed
+        over the session's own key, so it opens no other."""
         path = tail_path(sessions.key_of(key, name))
         signed = links.sign(path, token) if token else ""
-        parts = []
-        if name != sessions.DEFAULT:
-            parts.append(f"session={quote(name, safe='')}")
+        parts = [f"session={quote(name, safe='')}"]
         if signed:
             parts.append(signed.partition("?")[2])
-        return prefix + tail_path(key) + ("?" + "&".join(parts) if parts else "")
+        return prefix + tail_path(key) + "?" + "&".join(parts)
 
     async def view(request: Request, kind: str, *names: str, **fixed) -> JSONResponse:
         workspace = request.path_params["key"]
@@ -179,7 +180,9 @@ def mount(mcp, actions, workspaces, capture, token, prefix, guarded, door) -> No
         server-side queue overflowed. Each event is one ``json.dumps``, which
         escapes newlines, so a captured value cannot forge a frame."""
         try:
-            key, _named = session_key(request.path_params["key"], request)
+            key, _named = await run_in_threadpool(
+                session_key, workspaces, request.path_params["key"], request
+            )
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=400)
         refusal = await answer.stream_door(request, tail_path(key), token, door)
