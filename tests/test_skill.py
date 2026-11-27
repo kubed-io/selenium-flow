@@ -60,9 +60,9 @@ OWN = re.compile(r"`(references/[A-Za-z0-9_.-]+\.md)`")
 NAMED = re.compile(r"`([a-z][a-z-]*)`")
 # Any file name a text gives, with whatever path is in front of it.
 FILE_NAME = re.compile(r"(?<![\w/.])((?:[\w.:-]+/)*[A-Z][A-Z0-9_]*\.md)")
-# The three cross-skill forms (design §1), on whitespace-collapsed text.
 # A file in another skill, as the explorer and the prompts name it, with an optional section.
 IN_SKILL = re.compile(r"(?:\*([^*]+)\* in )?`([A-Z][A-Z0-9_]*\.md)` in the `([a-z-]+)` skill")
+# The three cross-skill forms (design §1), on whitespace-collapsed text.
 CROSS = re.compile(r"[Tt]he `([a-z-]+)` skill(?:'s)?(?:, row \"([^\"]+)\"|, \*([^*]+)\*)?")
 
 
@@ -114,6 +114,31 @@ def ruled_files() -> list[pathlib.Path]:
         *(path for _, path in skill_files()),
         *sorted((PLUGIN / "agents").glob("*.md")),
         *sorted((PLUGIN / "commands").glob("*.md")),
+    ]
+
+
+def whole_phrase(row: str, cell: str) -> bool:
+    """A row quoted from a cell is a whole phrase of it, not a fragment."""
+    return re.search(rf"(?:^|[,;] ){re.escape(row)}(?=$|[,;]| \()", cell) is not None
+
+
+def names_italic(text: str, section: str) -> bool:
+    """A section is named in italics, not in bold."""
+    return re.search(rf"(?<!\*)\*{re.escape(section)}\*(?!\*)", text) is not None
+
+
+def has_heading(text: str, section: str) -> bool:
+    """A section is a whole `## ` heading, not a deeper one that ends the same way."""
+    return re.search(rf"^## {re.escape(section)}$", text, re.M) is not None
+
+
+def bare_files(text: str) -> list[str]:
+    """The file names a text gives with no cross-skill form around them."""
+    named = [match.span() for match in IN_SKILL.finditer(text)]
+    return [
+        match.group(1)
+        for match in FILE_NAME.finditer(text)
+        if not any(start <= match.start() and match.end() <= end for start, end in named)
     ]
 
 
@@ -279,6 +304,34 @@ def test_an_unclosed_fence_is_refused():
         unfenced("a\n```\nb\n")
 
 
+def test_a_quoted_row_is_whole_phrases_of_a_cell():
+    cell = "A workspace's config (`workspace.yaml`, `flows.global`, `config_url`), an invalid config"
+    for quote in ("an invalid config", "A workspace's config", cell, "`flows.global`"):
+        assert whole_phrase(quote, cell), quote
+    for fragment in ("invalid config", "A workspace", "an invalid con", "config (`workspace.yaml`"):
+        assert not whole_phrase(fragment, cell), fragment
+
+
+def test_a_section_is_an_italic_not_a_bold():
+    assert names_italic("| An OIDC issuer | *OIDC* |", "OIDC")
+    assert not names_italic("**OIDC**", "OIDC")
+
+
+def test_a_section_is_a_whole_heading_of_its_level():
+    text = "## When a flow fails\n### Tags\n## Say what must be true here\n"
+    assert has_heading(text, "When a flow fails")
+    assert not has_heading(text, "Tags")
+    assert not has_heading(text, "Say what must be true")
+
+
+def test_a_file_named_without_its_skill_is_bare():
+    assert bare_files("Read `SECRETS.md` first.") == ["SECRETS.md"]
+    assert bare_files("Read SECRETS.md first.") == ["SECRETS.md"]
+    assert bare_files("Read `references/SECRETS.md` first.") == ["references/SECRETS.md"]
+    assert bare_files("Read `SECRETS.md` in the `signing-in` skill.") == []
+    assert bare_files("*When a flow fails* in `FLOWS.md` in the `building-flows` skill") == []
+
+
 @pytest.mark.parametrize("path", ruled_files(), ids=lambda p: p.relative_to(PLUGIN).as_posix())
 def test_no_skill_address_outside_fenced_code(path):
     """Where a skill lives is the client's to know (PLG-76)."""
@@ -304,9 +357,9 @@ def test_every_cross_reference_names_what_is_there():
             found += 1
             assert skill in SKILLS, f"{path.name} names no skill `{skill}`"
             if row:
-                assert any(row in cell for cell in rows(skill)), f"{path.name}: {skill} has no row {row!r}"
+                assert any(whole_phrase(row, cell) for cell in rows(skill)), f"{path.name}: {skill} has no row {row!r}"
             if section:
-                assert f"*{section}*" in body(skill), f"{path.name}: {skill} names no *{section}*"
+                assert names_italic(body(skill), section), f"{path.name}: {skill} names no *{section}*"
     assert found >= 25
 
 
@@ -324,12 +377,13 @@ def test_a_file_named_in_another_skill_is_there():
     found = 0
     for path in [*(PLUGIN / "agents").glob("*.md"), *(PLUGIN / "commands").glob("*.md")]:
         text = " ".join(unfenced(path.read_text()).split())
+        assert not bare_files(text), f"{path.name} names {bare_files(text)} without its skill"
         for section, page, skill in IN_SKILL.findall(text):
             found += 1
             file = SKILLS_DIR / skill / "references" / page
             assert file.is_file(), f"{path.name}: no {page} in {skill}"
             if section:
-                assert f"## {section}\n" in file.read_text(), f"{path.name}: no *{section}* in {page}"
+                assert has_heading(file.read_text(), section), f"{path.name}: no *{section}* in {page}"
     assert found >= 5
 
 
