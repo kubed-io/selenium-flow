@@ -62,6 +62,7 @@ from .mcp import (
 from .monitor.events import LocalBus
 from .monitor.monitor import Monitor
 from .names import SERVER_NAME
+from .principal import ADMIN_SUBJECT, NO_SUBJECT
 from .recordings import collector as recording_collector
 from .recordings import mounts
 from .telemetry import Telemetry
@@ -351,7 +352,16 @@ class SeleniumMCP:
             catalogue=self.secrets,
             configs=self.configs,
             tags=self.flows.tags_in_use if self.flows is not None else None,
+            # Who a moved record with no owner is held by (WS-90): whoever's
+            # unnamed calls reached the old default.
+            unnamed=(
+                ADMIN_SUBJECT
+                if settings.auth.token and settings.serving.transport == "http"
+                else NO_SUBJECT
+            ),
         )
+        # Every record in the shape before WS-81, moved before the first call.
+        self.workspaces.migrate_all()
         # An injected Telemetry is used whatever `otel` says, so the tests
         # record without kubed-mcp starting an SDK.
         self.telemetry = (
@@ -442,15 +452,21 @@ class SeleniumMCP:
             ttl=settings.link_ttl,
         )
         # For `upload_file(file=...)`: a download is the session the call acts
-        # in, or the one its URI names, the rest the workspace's.
-        self.actions.read_file = lambda uri, workspace=None: files.read_file(
-            self.actions,
-            self.workspaces,
-            self.flows,
-            uri,
-            workspace or clients.caller().name,
-            session=acting() or None,
-        )
+        # in, or the one its URI names if the caller's subject holds it, the
+        # rest the workspace's.
+        def read_file(uri, workspace=None):
+            caller = clients.caller()
+            return files.read_file(
+                self.actions,
+                self.workspaces,
+                self.flows,
+                uri,
+                workspace or caller.name,
+                session=acting() or None,
+                caller=caller,
+            )
+
+        self.actions.read_file = read_file
         # So one save reads every site's storage: the history of the session
         # the call acts in; outside one, the workspace's `default`, as a
         # caller with no principal reaches it (WS-82).

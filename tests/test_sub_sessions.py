@@ -650,22 +650,27 @@ def test_a_log_line_names_a_sub_session_by_its_workspace_alone():
     assert sessions.logged("shop/opaque-subject-123") == "shop (a session)"
 
 
-def test_a_subjects_own_sub_session_is_never_named_in_a_log_line(caplog):
-    """Its key is `<workspace>/<subject>`, and no log line carries a subject:
-    not as it opens, acts, is reopened after a reap and ends, nor in the
-    refusal an HTTP call without a browser is logged with."""
+@pytest.mark.parametrize(
+    "username", [None, "username-7f3a"], ids=["by-subject", "by-username"]
+)
+def test_a_subjects_own_sub_session_is_never_named_in_a_log_line(caplog, username):
+    """Its key is `<workspace>/<own name>`, its username's when it has one
+    (WS-82), and no log line carries the subject or the username: not as it
+    opens, acts, is reopened after a reap and ends, nor in the refusal an
+    HTTP call without a browser is logged with."""
     import logging
 
     from kubed.selenium_flow.http import answer
 
     caplog.set_level(logging.DEBUG, logger="kubed.selenium_flow")
     subject = "opaque-subject-123"
-    caller = as_(Principal("oidc", subject=subject))
+    caller = as_(Principal("oidc", subject=subject, username=username))
+    own = username or subject
     actions = RecordingActions()
     workspaces, store = built(Session(), actions)
-    workspaces.open_browser(caller, url=A_SITE)
+    assert workspaces.open_browser(caller, url=A_SITE)["session"] == own
     workspaces.act(caller, lambda s: {"url": A_SITE}, tool="navigate")
-    actions.grid.alive.discard(record_of(store, "shop", subject).session_id)
+    actions.grid.alive.discard(record_of(store, "shop", own).session_id)
     assert "reopened" in workspaces.act(caller, lambda s: {"url": A_SITE})
     workspaces.end_browser(caller)
     with pytest.raises(faults.NoSession) as refused:
@@ -675,8 +680,9 @@ def test_a_subjects_own_sub_session_is_never_named_in_a_log_line(caplog):
     )
     assert response.status_code == 400
     assert subject not in response.body.decode()
+    assert own not in response.body.decode()
     said = [r.getMessage() for r in caplog.records]
     assert any("ended the browser for workspace shop (a session)" in m for m in said)
     assert any("reopening for workspace shop (a session)" in m for m in said)
     assert any("refused (400)" in m for m in said)
-    assert not [m for m in said if subject in m]
+    assert not [m for m in said if subject in m or own in m]

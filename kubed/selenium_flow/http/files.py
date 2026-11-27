@@ -603,17 +603,23 @@ def read_file(
     uri,
     name: str,
     session: str | None = None,
+    caller=None,
 ) -> tuple[str, bytes]:
     """The bytes of one file, by its address. ``name`` is the workspace to read
     from: a flow run passes the workspace running it, so a shared flow does not
     read from `global`. A download is read from the browser of ``session`` (a
     key; when None, the workspace's ``default``, as `folder` reads it), or of
     the session its URI names, whichever session the call acts in.
+
+    A session the URI names is resolved for ``caller`` (the request's when
+    None) as ``session://{name}/downloads`` reads it: one another subject
+    holds is `faults.Held`, and one with no record `NoSession` (WS-84).
     """
     folder_of, leaf = parse_uri(uri)
     named = named_in(uri) if folder_of == DOWNLOADS else None
     if named:
-        session = sessions.key_of(name, named)
+        who = caller if caller is not None else clients.caller()
+        session = workspaces.reading(replace(who, named=name, pin=named))
     if folder_of == DOWNLOADS:
         target = workspaces.browser(session or _default_of(name))
         if not target:

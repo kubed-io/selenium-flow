@@ -101,12 +101,37 @@ def _grid_facts(session: dict) -> dict:
     return {"version": session.get("version"), "node": session.get("node")}
 
 
+def migrated(workspaces, key: str):
+    """`Workspaces.migrated` of the workspace ``key``, for a route: its
+    record, or None when it has none or its move failed. A failure is logged
+    by type and the route reads the record as it is; its next read moves it.
+    """
+    try:
+        return workspaces.migrated(key)
+    except Exception as exc:  # noqa: BLE001 - the route still answers
+        log.warning(
+            "the record of workspace %s could not be moved: %s",
+            sessions.logged(key), type(exc).__name__,
+        )
+        return None
+
+
+def moved(workspaces, key: str, shared):
+    """The workspace ``key``'s record ``shared`` as a row reads it: moved
+    first when it is in the shape before WS-81 (WS-90), else as it is."""
+    if shared.old is None:
+        return shared
+    return migrated(workspaces, key) or shared
+
+
 def session_key(workspaces, key: str, request: Request) -> tuple[str, str]:
     """The session ``?session=`` names in the workspace ``key``, as ``(its
     key, its name)``: when absent, the head of its list, or ``default`` when
     the list is empty; a ValueError (a 400) for a name that cannot be one.
-    Blocking: with no ``?session=`` it reads the store."""
+    Blocking: it reads the store, and moves a record in the shape before
+    WS-81 first (WS-90), as every route on one session reaches it here."""
     named = request.query_params.get("session")
+    migrated(workspaces, key)
     if named:
         named = sessions.valid_session_name(named)
     else:
@@ -535,6 +560,11 @@ def mount(
         if store_failing[0]:
             log.info("the workspace store is readable again")
             store_failing[0] = False
+        # A record an old pod wrote since boot is moved before it is shown
+        # (WS-90); one that fails is shown as it reads, and moved later.
+        records = {
+            key: moved(workspaces, key, shared) for key, shared in records.items()
+        }
 
         # One Grid listing for the whole payload, not a liveness call per row.
         running, grid_listed = grid_running(actions)
@@ -797,7 +827,8 @@ def mount(
         workspace = request.path_params["key"]
 
         def end_all() -> int:
-            top = workspaces.store.get(workspace)
+            # Moved first: a record in the shape before WS-81 lists none.
+            top = workspaces.migrated(workspace)
             names = list(top.sessions) if top is not None else []
             ended, failure = 0, None
             for name in names:

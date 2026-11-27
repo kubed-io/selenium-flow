@@ -53,8 +53,10 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         key = request.path_params["key"]
         try:
             secrets = await secret_rows(catalogue)
-            record = await run_in_threadpool(workspaces.store.get, key)
+            # Listed first: a listing moves a record in the shape before
+            # WS-81 (WS-90).
             found = await run_in_threadpool(live_sessions, workspaces, key)
+            record = await run_in_threadpool(workspaces.store.get, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"history for {key}", log)
         if record is None:
@@ -93,7 +95,8 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
 
         try:
             live = list(await run_in_threadpool(live_sessions, workspaces, key))
-            _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)
+            # Never a record in the shape before WS-81 as it reads (WS-90).
+            _, cleared = await run_in_threadpool(workspaces.change_shared, key, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing the history of {key}", log)
         return JSONResponse({"cleared": cleared or []})

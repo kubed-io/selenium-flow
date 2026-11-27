@@ -77,6 +77,18 @@ def test_a_token_with_neither_sub_nor_username_is_a_401(oidc_server, issuer):
     assert status_of(oidc_server, _claims(issuer, preferred_username="sam")) == 200
 
 
+@pytest.mark.parametrize("sub", ["admin", "default", "preferred_username:sam"])
+def test_a_token_whose_sub_is_reserved_is_a_401(oidc_server, issuer, sub, caplog):
+    """`admin` is the server token's subject, `default` no principal's, and a
+    `preferred_username:` subject one a JWT with no `sub` is given: a `sub`
+    that is one would share another caller's sessions (WS-82, AUTH-49)."""
+    caplog.set_level("INFO", logger="kubed.selenium_flow.http.auth")
+    claims = {"sub": sub, "preferred_username": "sam"}
+    assert status_of(oidc_server, _claims(issuer, **claims)) == 401
+    assert any(r.getMessage().endswith(": sub is reserved") for r in caplog.records)
+    assert status_of(oidc_server, _claims(issuer, sub=f"x{sub}")) == 200
+
+
 def test_the_token_still_opens_it(oidc_server):
     assert status_of(oidc_server, TOKEN) == 200
 

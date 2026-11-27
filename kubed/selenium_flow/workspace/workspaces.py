@@ -81,7 +81,9 @@ from .scrub import Scrubber
 from .store import (
     DEFAULT_TTL_SECONDS,
     MemoryStore,
+    Old,
     Session,
+    StoreConflict,
     Workspace,
     WorkspaceStore,
 )
@@ -106,6 +108,12 @@ HEADLESS_RECORD_REMEMBERED = (
     "pass headless=false to record"
 )
 
+
+# How many times a move (WS-90) starts again when an old pod names another
+# sub-session between its steps.
+MOVE_TRIES = 3
+# What `Workspaces.change_shared`'s write notes when it met a record still to move.
+_OLD = object()
 
 # `settle`'s default page: the one the result itself reports.
 FROM_RESULT = object()
@@ -507,9 +515,14 @@ class Workspaces:
         catalogue=None,
         configs: Configs | None = None,
         tags: Callable[[str], dict[str, int]] | None = None,
+        unnamed: str = sessions.DEFAULT,
     ):
         self.actions = actions
         self.store = store if store is not None else MemoryStore()
+        # The subject a moved record with no owner is held by (WS-90): the
+        # one whose unnamed calls reached it, the token's over HTTP with auth
+        # on, else no principal's (`principal.subject_of`).
+        self.unnamed = unnamed
         # The operator's floor for a new session (`workspace/settings.py`).
         self.defaults = dict(defaults or {})
         # Who files a recorded browser's video (`recordings.Collector`), or None
@@ -810,6 +823,9 @@ class Workspaces:
         name = chosen or sessions.own_name(caller.principal)
         key = sessions.key_of(workspace, name)
         subject = subject_of(caller.principal)
+        # Before any read of its sessions: a record an old pod wrote since
+        # boot holds its default's browser inline.
+        self.migrated(workspace)
         if not admin:
             self._holds(key, subject)
         if opening:
@@ -829,6 +845,7 @@ class Workspaces:
         chosen = self._chosen(caller, named)
         name = chosen or sessions.own_name(caller.principal)
         key = sessions.key_of(workspace, name)
+        self.migrated(workspace)
         self._holds(key, subject_of(caller.principal))
         if chosen and chosen != self._own_name(caller):
             self._recorded_sub(key)
@@ -864,6 +881,143 @@ class Workspaces:
             self.capture.discard(key)
         raise faults.NoSession(NO_SUB.format(workspace=sessions.split(key)[0]))
 
+    def migrated(self, workspace: str) -> Workspace | None:
+        """``workspace``'s record, moved first when it is in the shape before
+        WS-81 (WS-90); None when it has none.
+
+        Four steps, each of which a second run finds done, and the one write
+        that changes the shape last, so a move cut short anywhere is finished
+        by the next read:
+
+        1. Read the record. Absent or in the new shape, it is the answer.
+        2. Make ``<workspace>/default`` from the inline fields, only when it
+           is absent, held by the old ``owner``, else by `unnamed`. The old
+           shape is headed by ``default``, so it gets the head's lifetime.
+        3. Hold each old sub-session's record that no one holds by its name
+           when its old ``label`` is set and differs from it (it was that
+           subject's own). Any other is left held by none, for the next
+           subject that opens it.
+        4. In one compare-and-set, only while the record is still in the old
+           shape, write the list ``default``, the old sub-sessions, then any
+           other session with a record, and the same history.
+
+        An old pod that names another sub-session between the steps sends
+        the move round again, so every name listed was given its holder.
+        """
+        for _ in range(MOVE_TRIES):
+            record = self.store.get(workspace)
+            if record is None or record.old is None:
+                return record
+            stored, again = self._move(workspace, record.old)
+            if not again:
+                return stored
+        raise StoreConflict(
+            f"workspace {sessions.logged(workspace)} kept changing while it "
+            f"was being moved; gave up after {MOVE_TRIES} tries"
+        )
+
+    def _move(self, workspace: str, old: Old) -> tuple[Workspace | None, bool]:
+        """Steps 2 to 4 of `migrated` for the old record's ``old``: the record
+        stored after, and whether its sub-sessions changed since, which wants
+        the move again. Each step's function only computes: it may run more
+        than once."""
+        holder = old.owner or self.unnamed
+        default = sessions.key_of(workspace, sessions.DEFAULT)
+        subs = [name for name in old.subs if name != sessions.DEFAULT]
+
+        def made(r: Session | None) -> tuple[Session | None, None]:
+            if r is not None:
+                return None, None
+            return replace(old.session, holder=holder, label_was=None), None
+
+        self.store.change(default, made, create=True)
+
+        def held_by(subject: str) -> Callable[[Session], Session | None]:
+            return lambda r: None if r.holder else replace(r, holder=subject)
+
+        keys = [sessions.key_of(workspace, name) for name in subs]
+        # All read before any is written: a holder is chosen by the old label,
+        # which a write drops. A label that is empty or the name itself says
+        # nothing of whose it was (an agent's `session=`, or a JWT labelled by
+        # a subject that is its name), so it is left held by none, and the
+        # next subject to open it adopts it (WS-84).
+        for name, key, sub in zip(subs, keys, self.store.get_many(keys), strict=True):
+            if sub is None or sub.holder or sub.label_was in (None, "", name):
+                continue
+            self.store.update(key, held_by(name))
+        # Every other session with a record follows, in the order each was
+        # opened: an old pod that wrote a moved record back in its own shape
+        # named none of them.
+        found = self.store.sessions_of(workspace)
+        others = sorted(
+            (n for n in found if n != sessions.DEFAULT and n not in subs),
+            key=lambda n: (found[n].opened_at, n),
+        )
+        names = [sessions.DEFAULT, *subs, *others]
+
+        def flipped(r: Workspace | None) -> tuple[Workspace | None, bool]:
+            if r is None or r.old is None:
+                return None, False
+            if r.old.subs != old.subs:
+                return None, True
+            return Workspace(sessions=names, history=r.history), False
+
+        # A listed sub-session whose record is gone is pruned by the first
+        # listing (`listed`), as any is.
+        return self.store.change(workspace, flipped)
+
+    def change_shared(
+        self, workspace: str, fn: Callable, *, create: bool = False
+    ) -> tuple[Workspace | None, object]:
+        """`store.change` of ``workspace``'s record: every write of one goes
+        through here. A record in the shape before WS-81 is moved first
+        (`migrated`), since writing one as it reads would drop its default's
+        browser and its sub-sessions: a write may come with no resolution
+        before it (a ping, an end, the admin's History), or after an old pod
+        wrote the record again."""
+
+        def run(r: Workspace | None):
+            if r is not None and r.old is not None:
+                return None, _OLD
+            return fn(r)
+
+        stored, note = self.store.change(workspace, run, create=create)
+        if note is not _OLD:
+            return stored, note
+        self.migrated(workspace)
+        stored, note = self.store.change(workspace, run, create=create)
+        # Written old again since: nothing is written, and the next read moves it.
+        return stored, None if note is _OLD else note
+
+    def migrate_all(self) -> int:
+        """Move every record in the shape before WS-81 (`migrated`), once at
+        boot, and answer how many moved. A workspace that fails is logged by
+        type and left for its first read; nothing here stops the boot."""
+        records = getattr(self.store, "records", None)
+        if records is None:
+            return 0
+        try:
+            found = records()
+        except Exception as exc:  # noqa: BLE001 - the boot goes on
+            log.warning("the workspace records could not be listed to move: %s",
+                        type(exc).__name__)
+            return 0
+        moved = 0
+        for workspace, record in found.items():
+            if record.old is None:
+                continue
+            try:
+                self.migrated(workspace)
+            except Exception as exc:  # noqa: BLE001 - its first read moves it
+                log.warning(
+                    "the record of workspace %s could not be moved: %s",
+                    sessions.logged(workspace), type(exc).__name__,
+                )
+                continue
+            moved += 1
+        log.info("moved %d workspace records into their default session", moved)
+        return moved
+
     def _holds(self, key: str, subject: str) -> None:
         """Refuse with `faults.Held` when the session ``key`` has a record
         held by a subject other than ``subject`` (WS-84). No record, and a
@@ -883,16 +1037,17 @@ class Workspaces:
         """
         key = sessions.key_of(workspace, name)
 
-        def listed(r: Workspace | None) -> Workspace | None:
+        def listed(r: Workspace | None) -> tuple[Workspace | None, None]:
             if r is not None and name in r.sessions:
-                return None
-            return (r or Workspace()).listing(name)
+                return None, None
+            return (r or Workspace()).listing(name), None
 
         def seat(r: Session | None) -> tuple[Session | None, str | None]:
             if r is None:
                 return Session(holder=subject), "made"
             if not r.holder:
-                # Only an old pod writing during a rollout leaves one.
+                # An old pod writing during a rollout leaves one, and so does
+                # the move (`migrated`) for a sub-session it cannot place.
                 return replace(r, holder=subject), None
             if r.holder == subject:
                 return None, None
@@ -903,14 +1058,14 @@ class Workspaces:
         # (`listed`). Listed again after, in case a listing pruned it in
         # between. Listed before its record is made, so its first write
         # already has its place's lifetime (WS-87).
-        self.store.upsert(workspace, listed)
+        self.change_shared(workspace, listed, create=True)
         _, note = self.store.change(key, seat, create=True)
         if note == "held":
             raise faults.Held()
         if note == "made" and self.capture is not None:
             # What an expired record of this name captured is not this one's.
             self.capture.discard(key)
-        self.store.upsert(workspace, listed)
+        self.change_shared(workspace, listed, create=True)
         return key
 
     def browser(self, name: str) -> str:
@@ -2084,8 +2239,11 @@ class Workspaces:
     def _listed(
         self, workspace: str
     ) -> tuple[Workspace | None, list[tuple[str, Session]]]:
-        """`listed`, with the workspace's record as it is after the prune."""
-        shared = self.store.get(workspace)
+        """`listed`, with the workspace's record as it is after the prune.
+        Read through `migrated`: a record in the shape before WS-81 lists
+        none of its sessions until it is moved, and the admin's History
+        writes the record it lists (`http/admin/site_data.py`)."""
+        shared = self.migrated(workspace)
         names = list(shared.sessions) if shared is not None else []
         if not names:
             return shared, []
@@ -2273,11 +2431,12 @@ class Workspaces:
             # Listed again, its workspace's record made if it lapsed, so a
             # session the list lost comes back to it on a reopen (WS-81).
             workspace, session = sessions.split(name)
-            self.store.upsert(
+            self.change_shared(
                 workspace,
-                lambda r: None
+                lambda r: (None, None)
                 if r is not None and session in r.sessions
-                else (r or Workspace()).listing(session),
+                else ((r or Workspace()).listing(session), None),
+                create=True,
             )
             self._visit(name, url)
             return session_id
@@ -2377,7 +2536,7 @@ class Workspaces:
             page = _hinted(r.page(name) if since is None else since, urls)
             return r.visited(*urls, ttl=ttl, session=name, sub_ttl=sub_ttl), page
 
-        return self.store.change(workspace, at)[1]
+        return self.change_shared(workspace, at)[1]
 
     def _page(self, key: str) -> str:
         """The page the session ``key`` is on: its newest entry in its

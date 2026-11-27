@@ -693,6 +693,46 @@ async def test_upload_file_types_another_sessions_download(server, monkeypatch):
             assert typed[-1] == (into, b"PDF of g-tester"), session
 
 
+async def test_upload_file_of_a_download_another_subject_holds_is_refused(
+    server, monkeypatch
+):
+    """A download named by its session's address is read only from a session
+    the caller's subject holds (WS-84, ACT-40): another subject's is a 403,
+    and nothing is read from its browser."""
+    first = Principal("oidc", subject="sub-a", username="first")
+    second = Principal("oidc", subject="sub-b", username="second")
+    store = server.workspaces.store
+    seated(store, NAMED, "first", holder="sub-a", session_id="g-first")
+    seated(store, NAMED, "second", holder="sub-b", session_id="g-second")
+    typed, read = [], []
+
+    def reconnect(session_id):
+        driver = ScriptedDriver()
+        send = driver.element.send_keys
+        driver.element.send_keys = lambda path: (
+            typed.append((session_id, Path(path).read_bytes())) or send(path)
+        )
+        return driver
+
+    grid = server.actions.grid
+    real_read = grid.read_file
+    grid.read_file = lambda sid, name: read.append(sid) or real_read(sid, name)
+    server.actions.grid.reconnect = reconnect
+    who = {"principal": second}
+    monkeypatch.setattr(clients_module, "principal", lambda: who["principal"])
+    args = {"selector": {"css": "input"}, "file": "session://first/downloads/r.pdf"}
+    async with Client(server.mcp.server) as c:
+        with pytest.raises(ToolError) as refused:
+            await c.call_tool("upload_file", args)
+        assert str(faults.Held()) in str(refused.value)
+        assert read == [] and typed == []
+        who["principal"] = first
+        result = await c.call_tool("upload_file", args)
+    assert result.structured_content["filename"] == "r.pdf"
+    assert read == ["g-first"]
+    assert typed == [("g-first", b"PDF of g-first")]
+
+
 # ---- no log line names a sub-session (WS-82, ERR-35) ---------------------------
 
 SUBJECT = "subject-7f3a"

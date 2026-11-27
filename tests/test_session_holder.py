@@ -3,6 +3,8 @@ that opened it (WS-82, WS-83, WS-84)."""
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -11,13 +13,14 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.principal import ADMIN, Principal
-from kubed.selenium_flow.workspace import sessions
+from kubed.selenium_flow.workspace import locks, sessions
 from kubed.selenium_flow.workspace import workspaces as workspaces_module
 from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore
 from kubed.selenium_flow.workspace.workspaces import Caller
 
 from .conftest import TOKEN, manager
 from .fakes import Clock, FakeRedis, RecordingActions, record_of, seated, shared_of
+from .test_locks import in_thread
 
 pytestmark = pytest.mark.unit
 
@@ -131,6 +134,51 @@ def test_the_same_subject_shares_its_session():
     assert record_of(store, "shop", "first").holder == "sub-a"
 
 
+def test_two_callers_of_one_subject_take_turns_in_its_session():  # WS-84, WS-39
+    """Two connections of one subject, naming nothing, reach the one session
+    it holds: the second call waits its turn behind the first, and another
+    subject is refused rather than queued."""
+    workspaces, store, _ = built()
+    one = as_(FIRST)
+    other = replace(
+        Caller.from_request({}, {"sf-workspace": ["shop"]}),
+        principal=Principal("oidc", subject="sub-a", username="first"),
+    )
+    workspaces.open_browser(one)
+    sid = record_of(store, "shop", "first").session_id
+    order, entered, release = [], threading.Event(), threading.Event()
+
+    def first(acted_on):
+        order.append(("first", acted_on))
+        entered.set()
+        release.wait(5)
+        order.append(("first done", acted_on))
+        return {}
+
+    def second(acted_on):
+        order.append(("second", acted_on))
+        return {}
+
+    ran = in_thread(lambda: workspaces.act(one, first))
+    assert entered.wait(5)
+    waited = in_thread(lambda: workspaces.act(other, second))
+    # Until the second holds a ticket behind the first's (internals: the one
+    # deterministic sign that it waits on the session's turn).
+    turns = locks._holds[sid].lock
+    deadline = time.monotonic() + 5
+    while turns._next - turns._serving < 2:
+        assert time.monotonic() < deadline, "the second call never queued"
+        time.sleep(0.001)
+    with pytest.raises(faults.Held):
+        workspaces.act(as_(SECOND), second, session="first")
+    assert order == [("first", sid)]
+    release.set()
+    for thread, outcome in (ran, waited):
+        thread.join(5)
+        assert outcome == [{}]
+    assert order == [("first", sid), ("first done", sid), ("second", sid)]
+
+
 def test_an_admin_route_is_not_held():
     from .test_admin_live import build
 
@@ -177,16 +225,43 @@ def test_an_invalid_own_name_is_refused_with_a_400():
     assert record_of(store, "shop", "x").holder == "auth0|1"
 
 
-def test_a_username_another_holds_is_refused():
+def test_a_name_another_holds_is_refused():
     workspaces, store, actions = built()
     assert workspaces.open_browser(as_(ADMIN))["session"] == "admin"
     impostor = as_(Principal("oidc", subject="sub-c", username="admin"))
     with pytest.raises(faults.Held):
-        workspaces.session_of(impostor)
+        workspaces.session_of(impostor, "admin")
     with pytest.raises(faults.Held):
-        workspaces.open_browser(impostor)
+        workspaces.open_browser(impostor, session="admin")
     assert record_of(store, "shop", "admin").holder == "admin"
     assert actions.opened == 1
+
+
+@pytest.mark.parametrize("token_first", [True, False], ids=["token-first", "jwt-first"])
+@pytest.mark.parametrize("username", ["admin", "default"])
+def test_a_jwt_is_never_named_admin_or_default(username, token_first):
+    """A JWT whose username is the token's or no principal's own name has its
+    subject as its own name, so it never takes either's session (WS-82)."""
+    workspaces, store, _ = built()
+    jwt = as_(Principal("oidc", subject="sub-c", username=username))
+    reserved = as_(ADMIN if username == "admin" else None)
+    if token_first:
+        assert workspaces.open_browser(reserved)["session"] == username
+    assert workspaces.session_of(jwt) == "shop/sub-c"
+    assert workspaces.open_browser(jwt)["session"] == "sub-c"
+    assert record_of(store, "shop", "sub-c").holder == "sub-c"
+    if not token_first:
+        assert record_of(store, "shop", username) is None
+        assert workspaces.open_browser(reserved)["session"] == username
+    assert record_of(store, "shop", username).holder == (
+        "admin" if username == "admin" else "default"
+    )
+    nameless = as_(Principal("oidc", subject="auth0|1", username=username))
+    with pytest.raises(ValueError) as refused:
+        workspaces.session_of(nameless)
+    assert str(refused.value) == sessions.OWN_UNNAMED
+    with pytest.raises(ValueError, match="your token gives no name"):
+        sessions.own_name(Principal("oidc", subject=username, username=username))
 
 
 @pytest.mark.parametrize("backend", ["memory", "redis"])
@@ -198,7 +273,9 @@ def test_two_subjects_racing_one_name_leave_one_holder(backend, monkeypatch):
     real, missed = store.get, []
 
     def get(key):
-        if not missed:
+        # The session's key only: the workspace's is read first, for the move
+        # (WS-90).
+        if not missed and key == "shop/first":
             missed.append(key)
             return None
         return real(key)

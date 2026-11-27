@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 from ..names import valid_name
-from ..principal import ADMIN_SUBJECT, Principal, subject_of
+from ..principal import ADMIN_SUBJECT, NO_SUBJECT, Principal, subject_of
 
 # The name of the session a caller with no principal (auth off, stdio) has as
 # its own (WS-82). An ordinary name: it says nothing of a place in the list.
@@ -111,13 +111,16 @@ def own_name(principal: Principal | None) -> str:
     """The name a caller's own session has when the call names none.
 
     `DEFAULT` for no principal and ``admin`` for the token. A JWT's is the
-    first of its username and its subject that can name a session, else
-    ``ValueError(OWN_UNNAMED)``."""
+    first of its username and its subject that can name a session and is
+    neither of those two, so a JWT never takes the token's or no principal's
+    own session, else ``ValueError(OWN_UNNAMED)``."""
     if principal is None:
         return DEFAULT
     if principal.admin:
         return ADMIN_SUBJECT
     for candidate in (principal.username, subject_of(principal)):
+        if candidate in (ADMIN_SUBJECT, NO_SUBJECT):
+            continue
         try:
             return valid_session_name(candidate)
         except ValueError:
