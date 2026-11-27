@@ -140,7 +140,7 @@ jobs:
       if: env.FAMILY != 'true'
       uses: actions/setup-python@v7
       with:
-        python-version: '3.13'
+        python-version: '3.14'
 
     # The generator imports the package to build the spec from the live tool
     # schemas, so the package itself is the dependency, not just a YAML writer.
