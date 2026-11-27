@@ -5,6 +5,11 @@
       "description": "Hold typescript below 7 until typescript-eslint and svelte-check both accept 7 (typescript-eslint 8.74.0: >=4.8.4 <6.1.0; svelte-check 4.7.8: ^5 || ^6). #243",
       "matchPackageNames": ["typescript"],
       "allowedVersions": "<7"
+    },
+    {
+      "description": "Hold the interpreter at 3.14: pyroscope-io (kubed-mcp[telemetry], installed in the image) ships no cp315 wheel, and its sdist needs a Rust toolchain the builder lacks. Lift this rule once pyroscope-io publishes cp315 wheels; then move the Dockerfile, the workflow pins, the test.yml matrix and the classifiers to 3.15 together.",
+      "matchDepNames": ["python"],
+      "allowedVersions": "<3.15"
     }
   ]
 }
