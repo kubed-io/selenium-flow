@@ -38,12 +38,11 @@ Answer its question and hand back a short report.
 
 ## Before anything
 
-Read the `driving-a-browser` skill before any browser
-call, and `FLOWS.md` in the `building-flows` skill before your first
-`save_flow`. Read `SECRETS.md` in the `signing-in` skill only when the hand-off
-names a sign-in. Where they and this page differ, this
-page wins. A URI you cannot read goes under *Couldn't*; carry on with what the
-tool results tell you.
+Read the `driving-a-browser` skill before any browser call, and `FLOWS.md` in
+the `building-flows` skill before your first `save_flow`. Read `SECRETS.md` in
+the `signing-in` skill only when the hand-off names a sign-in. Where they and
+this page differ, this page wins. A skill or file you cannot read goes under
+*Couldn't*; carry on with what the tool results tell you.
 
 Never open selenium-flow's admin page: admin work is a person's to ask for, not
 an explorer's.
