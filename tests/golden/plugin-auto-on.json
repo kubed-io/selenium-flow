@@ -70,6 +70,7 @@
         "listed": [
           "skills"
         ],
+        "max": 100,
         "prefix": null,
         "resources": "on",
         "via": "mcp"

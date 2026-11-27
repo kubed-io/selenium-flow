@@ -68,6 +68,7 @@
     "_meta": {
       "io.kubed/delivery": {
         "listed": [],
+        "max": 100,
         "prefix": null,
         "resources": "on",
         "via": "extension"

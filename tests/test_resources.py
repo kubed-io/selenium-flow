@@ -44,7 +44,7 @@ async def read(server, uri):
 async def test_the_handshake_reports_the_default_delivery(reader, mode):
     async with over_http(reader, mode=mode) as c:
         assert await delivery_meta(c) == {
-            "resources": "on", "listed": ["skills"], "via": "mcp", "prefix": None,
+            "resources": "on", "listed": ["skills"], "via": "mcp", "prefix": None, "max": 100,
         }
 
 
@@ -200,7 +200,7 @@ async def test_via_fits_the_instructions_and_the_listings(reader, mode, via, sen
         else:
             assert len(skills) == 5 and agents == {"explorer"}
         assert await delivery_meta(c) == {
-            "resources": "on", "listed": [], "via": via, "prefix": None,
+            "resources": "on", "listed": [], "via": via, "prefix": None, "max": 100,
         }
 
 
@@ -221,8 +221,15 @@ async def test_local_with_resources_off_lists_the_tools(reader, mode):
 async def test_the_handshake_reports_the_prefix_and_off(reader):
     async with over_http(reader, {"Sf-Resources": "off", "Sf-Resource-Prefix": "sf+"}) as c:
         assert await delivery_meta(c) == {
-            "resources": "off", "listed": ["skills"], "via": "mcp", "prefix": "sf+",
+            "resources": "off", "listed": ["skills"], "via": "mcp", "prefix": "sf+", "max": 100,
         }
+
+
+@pytest.mark.parametrize("sent", [{"headers": {"Sf-Max": "2"}}, {"params": {"max": "2"}}])
+async def test_max_caps_the_skills_listed(reader, sent):
+    async with over_http(reader, **sent) as c:
+        assert len((await request(c, "skills/list"))["skills"]) == 2
+        assert (await delivery_meta(c))["max"] == 2
 
 
 async def test_the_sf_via_beats_the_x_mcp_via(reader):  # Review Focus 1
