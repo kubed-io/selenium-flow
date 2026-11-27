@@ -53,10 +53,11 @@ OUT = {
 MIRROR = {"list_resources", "read_resource"}
 NAMESPACE = "skill://selenium-flow/"
 SKILL_URI = f"{NAMESPACE}driving-a-browser/SKILL.md"
-# The skills the explorer names (#195): the entry point and the flows skill.
+# The skills the explorer names: the entry point, the flows skill and the sign-in skill.
 SKILLS = {
     "driving-a-browser": SKILL_URI,
     "building-flows": f"{NAMESPACE}building-flows/SKILL.md",
+    "signing-in": f"{NAMESPACE}signing-in/SKILL.md",
 }
 HEADINGS = ["Found", "Flows used", "Flows saved", "Couldn't", "Browser"]
 QUOTED_URI = re.compile(r"`([a-z]+://[^`]+)`")
@@ -89,7 +90,7 @@ def test_it_loads_strictly(caplog):  # spec test 1
     assert "is skipped" not in caplog.text
     assert front()["model"] == "sonnet"
     assert front()["maxTurns"] == 40
-    assert front()["skills"] == ["driving-a-browser", "building-flows"]
+    assert front()["skills"] == ["driving-a-browser", "building-flows", "signing-in"]
 
 
 async def test_every_listed_tool_exists(server):  # spec test 2
@@ -145,8 +146,9 @@ def test_it_stops_on_a_pinned_connection():  # PLG-47
     assert "drives the main agent's browser" in text
 
 
-async def test_it_names_the_skill_by_uri(server):  # spec test 4
-    assert f"`{SKILL_URI}`" in body()
+async def test_it_names_each_skill_by_name(server):  # spec test 4, PLG-76
+    text = body()
+    assert all(f"`{name}`" in text for name in SKILLS) and "skill://" not in text
     async with Client(server.mcp.server) as client:
         got = await request(client, "agents/get", name="explorer")
     assert got["_meta"]["io.kubed/agent"]["skills"] == SKILLS
@@ -164,8 +166,6 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
     named = set(QUOTED_URI.findall(text))
     assert text.count("://") == len(QUOTED_URI.findall(text)), "a URI outside backticks"
     assert {
-        SKILL_URI,
-        "skill://selenium-flow/building-flows/references/FLOWS.md",
         "session://<name>",
         "session://<name>/console",
         "session://<name>/network",
@@ -184,10 +184,7 @@ async def test_every_uri_it_names_is_served(server):  # spec test 8, Review Focu
             for t in await client.list_resource_templates()
         }
     for uri in named:
-        if uri.startswith(NAMESPACE):
-            assert (skill.skills_path() / uri.removeprefix(NAMESPACE)).is_file(), uri
-        else:
-            assert uri in served, uri
+        assert uri in served, uri
 
 
 def test_the_report_has_its_five_headings_in_order():  # spec test 9, Review Focus 4

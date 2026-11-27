@@ -266,6 +266,7 @@ async def test_get_returns_the_detail(server):
     assert skills == {
         "driving-a-browser": "skill://selenium-flow/driving-a-browser/SKILL.md",
         "building-flows": "skill://selenium-flow/building-flows/SKILL.md",
+        "signing-in": "skill://selenium-flow/signing-in/SKILL.md",
     }
     assert got["agent"] == "explorer" and got["tools"] == [] and "capabilities" not in got
     assert {k: got[k] for k in FRESH} == FRESH

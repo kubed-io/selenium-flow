@@ -61,6 +61,8 @@ NAMED = re.compile(r"`([a-z][a-z-]*)`")
 # Any file name a text gives, with whatever path is in front of it.
 FILE_NAME = re.compile(r"(?<![\w/.])((?:[\w.:-]+/)*[A-Z][A-Z0-9_]*\.md)")
 # The three cross-skill forms (design §1), on whitespace-collapsed text.
+# A file in another skill, as the explorer and the prompts name it, with an optional section.
+IN_SKILL = re.compile(r"(?:\*([^*]+)\* in )?`([A-Z][A-Z0-9_]*\.md)` in the `([a-z-]+)` skill")
 CROSS = re.compile(r"[Tt]he `([a-z-]+)` skill(?:'s)?(?:, row \"([^\"]+)\"|, \*([^*]+)\*)?")
 
 
@@ -107,8 +109,12 @@ def rows(name: str) -> list[str]:
 
 
 def ruled_files() -> list[pathlib.Path]:
-    """The files the address rule reads: here, the skill files."""
-    return [path for _, path in skill_files()]
+    """The files the address rule reads: the skill files, the agents and the prompts."""
+    return [
+        *(path for _, path in skill_files()),
+        *sorted((PLUGIN / "agents").glob("*.md")),
+        *sorted((PLUGIN / "commands").glob("*.md")),
+    ]
 
 
 # ---- the set of skills -----------------------------------------------------
@@ -302,6 +308,29 @@ def test_every_cross_reference_names_what_is_there():
             if section:
                 assert f"*{section}*" in body(skill), f"{path.name}: {skill} names no *{section}*"
     assert found >= 25
+
+
+@pytest.mark.parametrize("path", sorted((PLUGIN / "agents").glob("*.md")), ids=lambda p: p.name)
+def test_every_skill_an_agent_names_is_in_its_skills(path):
+    """`_meta` skills are where a subagent finds an address (PLG-40, PLG-76)."""
+    _, front, text = path.read_text().split("---", 2)
+    listed = yaml.safe_load(front)["skills"]
+    named = {n for n in NAMED.findall(text) if n in SKILLS}
+    assert named and named <= set(listed), sorted(named - set(listed))
+    assert set(listed) <= set(SKILLS)
+
+
+def test_a_file_named_in_another_skill_is_there():
+    found = 0
+    for path in [*(PLUGIN / "agents").glob("*.md"), *(PLUGIN / "commands").glob("*.md")]:
+        text = " ".join(unfenced(path.read_text()).split())
+        for section, page, skill in IN_SKILL.findall(text):
+            found += 1
+            file = SKILLS_DIR / skill / "references" / page
+            assert file.is_file(), f"{path.name}: no {page} in {skill}"
+            if section:
+                assert f"## {section}\n" in file.read_text(), f"{path.name}: no *{section}* in {page}"
+    assert found >= 5
 
 
 # ---- every address a reader is given reads ---------------------------------
