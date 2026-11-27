@@ -20,10 +20,11 @@ afterEach(() => {
 })
 
 // Setup's `animate` is inert, and so is the stub each test sets below: neither
-// calls `onfinish`. So at this file's nonzero duration Svelte only assigns
-// `animation.onfinish`, nothing fires it, and the outro stays open until the
-// test dispatches 'outroend' itself. Each test sets its own stub so that this
-// does not depend on setup.ts.
+// calls `onfinish`. At this file's nonzero duration Svelte makes a dummy
+// animation lasting the delay and assigns the real outro's start to *its*
+// `onfinish`. Nothing fires it, so the outro never starts and the section
+// stays open until the test dispatches 'outroend' itself. Each test that folds
+// a section sets its own stub so that this does not depend on setup.ts.
 test('data-open follows the outro ending, not the click that starts it', async () => {
   Element.prototype.animate = (() => ({ cancel() {}, onfinish: null, currentTime: 0 })) as unknown as typeof Element.prototype.animate
 
@@ -74,8 +75,8 @@ test('a different id starts open', () => {
 })
 
 test('a collapsed section starts closed, and a fold the user made still wins', async () => {
-  // This file runs real durations (the mock above), so the outro stays open: this stub is inert and never
-  // calls `onfinish`, as setup.ts's is.
+  // This file runs real durations (the mock above), so the outro stays open:
+  // this stub is inert and never calls `onfinish`, as setup.ts's is.
   Element.prototype.animate = (() => ({ cancel() {}, onfinish: null, currentTime: 0 })) as unknown as typeof Element.prototype.animate
   const { container, unmount } = render(Harness, { collapsed: true })
   const toggle = container.querySelector('button.title') as HTMLButtonElement
