@@ -699,7 +699,7 @@ SECTION_DESCRIPTIONS = {
     "secrets": "Where secrets are read from.",
     "mcp": "What MCP clients are offered beyond tools.",
     "security": "Who may frame the admin page.",
-    "serving": "Where it listens, and what it logs.",
+    "serving": "Where it listens, what it logs, and how long a stop waits.",
     "telemetry": "Profiles, traces and metrics, run by kubed-mcp; all off unless set.",
     "delivery": "What a request gets when it sends no delivery header.",
 }

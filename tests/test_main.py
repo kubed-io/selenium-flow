@@ -469,3 +469,17 @@ def test_help_prints_every_setting_and_builds_nothing(flag, capsys, listened, mo
     for leaf in config_module.leaves():
         assert leaf.flag in out and leaf.env in out, leaf.path
     assert listened == []
+
+
+@pytest.mark.parametrize(("environ", "expected"), [({}, 15), ({"GRACEFUL_TIMEOUT": "3"}, 3)])
+def test_the_stop_timeout_reaches_uvicorn(tmp_path, listened, monkeypatch, environ, expected):
+    seen = []
+
+    async def serve(self, sockets=None):
+        seen.append(self.config.timeout_graceful_shutdown)
+
+    monkeypatch.setattr(uvicorn.Server, "serve", serve)
+    for name, value in environ.items():
+        monkeypatch.setenv(name, value)
+    main_module.main(config(tmp_path))
+    assert seen == [expected]
