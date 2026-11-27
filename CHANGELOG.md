@@ -169,12 +169,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** Environment names match exactly, in upper case: `redis_host` no longer sets `redis.host` (#214).
 - The Settings tab shows `telemetry.profiles` only as set or not set, and a store derived from `REDIS_HOST` or `REDIS_URL` as a default (#214).
 - `resources/directory/read` and `skills/get` resolve `.` and `..` in a `skill://` address as a read does. With `TELEMETRY_OTEL=true`, a log line written inside a span ends with its `trace_id` and `span_id`, and resource reads are in the call metrics (#214).
-- An open admin page costs next to nothing while nothing changes and no longer refetches the list every minute; a change a tool makes shows at once, any other within 30 s (#226).
 
 ### Changed
 
 - The server needs kubed-mcp 0.4.4 (#201, #190, #209, #214, #229).
-- The server needs kubed-mcp 0.4.1 (#201, #190, #209, #214).
+- An open admin page costs next to nothing while nothing changes and no longer refetches the list every minute; a change a tool makes shows at once, any other within 30 s (#226).
 
 ### Fixed
 
