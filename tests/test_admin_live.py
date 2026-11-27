@@ -8,6 +8,7 @@ own, in a thread), so the socket's whole road is walked without a Grid.
 import asyncio
 import logging
 import time
+from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlsplit
 
 import pytest
@@ -22,7 +23,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
-from .fakes import FakePeer, FocusedDriver, element, held
+from .fakes import Clock, FakePeer, FocusedDriver, element, held
 from .test_live_tunnel import GRID_ID, vnc_node
 
 pytestmark = pytest.mark.unit
@@ -160,24 +161,31 @@ def test_an_expired_link_closes_4401_saying_so(client):
     assert (gone.code, gone.reason) == (4401, live_module.EXPIRED)
 
 
-def _minted_at(client, monkeypatch, at: float) -> str:
-    """A live link minted through the endpoint with the clock at ``at``,
-    the clock restored before the caller connects."""
-    with monkeypatch.context() as frozen:
-        frozen.setattr(links.time, "time", lambda: at)
-        url = mint(client)
-    assert int(dict(parse_qsl(urlsplit(url).query))["exp"]) == int(at) + 60
+@pytest.fixture
+def clock(monkeypatch):
+    """The links module's clock, held by hand; the global ``time.time`` is untouched."""
+    clock = Clock()
+    monkeypatch.setattr(links, "time", SimpleNamespace(time=clock))
+    return clock
+
+
+def minted(client, clock) -> str:
+    """A live link minted through the endpoint, its expiry 60 seconds after ``clock.now``."""
+    url = mint(client)
+    assert int(dict(parse_qsl(urlsplit(url).query))["exp"]) == int(clock.now) + 60
     return url
 
 
-def test_a_live_link_signed_61_seconds_ago_is_refused(client, hub, monkeypatch):
-    url = _minted_at(client, monkeypatch, time.time() - 61)
+def test_a_live_link_signed_61_seconds_ago_is_refused(client, hub, clock):
+    url = minted(client, clock)
+    clock.now += 61
     gone = closed_with(client, url)
     assert (gone.code, gone.reason) == (4401, live_module.EXPIRED)
 
 
-def test_a_live_link_signed_59_seconds_ago_opens_the_view(client, hub, monkeypatch):
-    url = _minted_at(client, monkeypatch, time.time() - 59)
+def test_a_live_link_signed_59_seconds_ago_opens_the_view(client, hub, clock):
+    url = minted(client, clock)
+    clock.now += 59
     with client.websocket_connect(url) as ws:
         assert ws.receive_json() == {"type": "mode", "mode": "watch"}
 
