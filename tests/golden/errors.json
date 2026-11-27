@@ -35,6 +35,12 @@
     },
     "status": 404
   },
+  "Held": {
+    "body": {
+      "error": "that session is held by another caller"
+    },
+    "status": 403
+  },
   "InsecureCertificateException": {
     "body": {
       "error": "it went wrong"

@@ -17,9 +17,17 @@ def refuse(*args, **kwargs):
     raise RuntimeError("no tracer")
 
 
+def headed_by_default(key):
+    """Where a key stands, as `Workspaces.is_head` answers it: here `ws`'s list
+    is headed by `default`, and a workspace's own key counts as its head."""
+    return key.partition("/")[2] in ("", "default")
+
+
 def calls_with_spans(**kwargs):
     rec = recorded()
-    return Calls(telemetry=rec.telemetry, **kwargs), rec
+    calls = Calls(telemetry=rec.telemetry, **kwargs)
+    calls.is_head = headed_by_default
+    return calls, rec
 
 
 def test_a_call_has_a_span_named_by_its_tool():
@@ -42,6 +50,29 @@ def test_a_sub_session_span_names_its_workspace_never_the_session():
     assert span.attributes["selenium_flow.workspace"] == "ws"
     assert span.attributes["selenium_flow.sub_session"] is True
     assert "alice" not in repr((span.name, dict(span.attributes)))
+
+
+def test_a_span_says_whether_its_session_heads_its_list():
+    calls, rec = calls_with_spans()
+    for key in ("ws/default", "ws/alice"):
+        calls.end(calls.begin(key, "g", browser="chrome", tool="extract"),
+                  tool="extract", surface="mcp", browser="chrome")
+    head, other = rec.spans.get_finished_spans()
+    assert head.attributes["selenium_flow.sub_session"] is False
+    assert other.attributes["selenium_flow.sub_session"] is True
+
+
+def test_a_span_whose_place_cannot_be_read_is_the_heads():
+    calls, rec = calls_with_spans()
+
+    def down(key):
+        raise ConnectionError("redis down")
+
+    calls.is_head = down
+    calls.end(calls.begin("ws/alice", "g", browser="chrome", tool="extract"),
+              tool="extract", surface="mcp", browser="chrome")
+    [span] = rec.spans.get_finished_spans()
+    assert span.attributes["selenium_flow.sub_session"] is False
 
 
 def test_a_failed_call_carries_its_outcome_and_type():
@@ -113,6 +144,7 @@ def test_a_timed_call_has_one_span_and_one_finished_call():
     monitor = Watched()
     rec = recorded()
     calls = Calls(monitor=monitor, telemetry=rec.telemetry, clock=Clock(100.0, 102.5))
+    calls.is_head = headed_by_default
     with calls.timed("ws/alice", tool="open_session", surface="mcp") as timing:
         timing.browser = "firefox"
     [span] = rec.spans.get_finished_spans()

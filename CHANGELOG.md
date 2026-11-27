@@ -176,6 +176,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The server needs kubed-mcp 0.6 (#201, #190, #209, #214, #229, #237).
 - An open admin page costs next to nothing while nothing changes and no longer refetches the list every minute; a change a tool makes shows at once, any other within 30 s (#226).
+- A call that names no session acts in your own session, named after your token's username (`admin` for the server token, `default` with auth off); another subject's session answers 403 (#246).
 
 ### Fixed
 

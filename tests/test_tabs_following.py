@@ -19,7 +19,7 @@ from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
-from .fakes import BindingCatalogue, FakeCatalogue, TabbedActions
+from .fakes import BindingCatalogue, FakeCatalogue, TabbedActions, record_of, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -56,7 +56,7 @@ def ws():
 
 
 def sid(ws):
-    return ws.store.get("w").session_id
+    return record_of(ws.store, "w").session_id
 
 
 def test_a_call_after_a_popup_opened_acts_on_the_popup_and_says_so(ws):
@@ -71,7 +71,7 @@ def test_the_before_check_is_noted_before_the_call_reads_its_origin(ws):
     seen = []
 
     def call(session_id):
-        seen.append(ws.origins.current("w", session_id))
+        seen.append(ws.origins.current("w/default", session_id))
         return {}
 
     ws.act(CALLER, call, tool="interact")
@@ -93,7 +93,7 @@ def test_a_popup_the_call_opened_moves_the_results_page(ws):
     result = ws.act(CALLER, ws.actions.do, tool="interact")
     assert (result["url"], result["title"]) == (P, "Sign in")
     assert result["tab"] == "t2" and result["in_frame"] is False
-    assert ws.store.get("w").url == P
+    assert shared_of(ws.store, "w").page("default") == P
 
 
 def test_a_result_where_nothing_moved_carries_no_tab_keys(ws):
@@ -104,10 +104,10 @@ def test_a_result_where_nothing_moved_carries_no_tab_keys(ws):
 
 
 def test_a_move_clears_the_noted_frame(ws):
-    ws.origins.framed("w", sid(ws), True)
+    ws.origins.framed("w/default", sid(ws), True)
     ws.actions.checks = [MOVE_TO_P, {}]
     ws.act(CALLER, ws.actions.do, tool="interact")
-    assert ws.origins.framed("w", sid(ws)) is False
+    assert ws.origins.framed("w/default", sid(ws)) is False
 
 
 def test_a_call_whose_tab_closed_before_it_acted_is_a_409_naming_the_new_tab(ws):
@@ -118,7 +118,7 @@ def test_a_call_whose_tab_closed_before_it_acted_is_a_409_naming_the_new_tab(ws)
     assert errors.status_for(raised.value) == 409
     assert "t1" in str(raised.value) and f"{A}/" in str(raised.value)
     assert raised.value.__cause__ is None and raised.value.__suppress_context__
-    assert ws.origins.current("w", sid(ws)) == A
+    assert ws.origins.current("w/default", sid(ws)) == A
 
 
 def test_a_tab_closed_error_carrying_a_value_is_scrubbed_with_every_secret(ws):
@@ -195,7 +195,7 @@ def test_a_bound_write_that_fails_after_a_popup_says_the_session_moved(ws):
     ws.actions.checks = [MOVE_TO_P, {}]
     with pytest.raises(ValueError) as raised:
         secrets.perform_write(
-            ws.scrubber._catalogue, ws.actions, ws, "w",
+            ws.scrubber._catalogue, ws.actions, ws, "w/default",
             {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
         )
     assert f"The session moved to tab t2 ({P}) during this call." in faults.message(
@@ -208,7 +208,7 @@ def test_a_bound_write_refused_after_a_popup_says_the_session_moved(ws, monkeypa
     ws.actions.checks = [MOVE_TO_P]
     with pytest.raises(faults.Controlled) as raised:
         secrets.perform_write(
-            ws.scrubber._catalogue, ws.actions, ws, "w",
+            ws.scrubber._catalogue, ws.actions, ws, "w/default",
             {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
         )
     assert f"moved to tab t2 ({P}) before this call." in faults.message(raised.value)
@@ -283,7 +283,7 @@ def test_an_opened_popups_url_is_scrubbed_with_every_leashed_secret():
 def test_a_bound_write_after_a_popup_opened_types_into_the_popup(ws):
     ws.actions.checks = [MOVE_TO_P, {}]
     shown = secrets.perform_write(
-        ws.scrubber._catalogue, ws.actions, ws, "w",
+        ws.scrubber._catalogue, ws.actions, ws, "w/default",
         {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
     )
     assert ws.actions.calls[:4] == ["check_tabs", "page", "write", "check_tabs"]
@@ -296,7 +296,7 @@ def test_a_bound_write_whose_tab_closed_before_it_typed_is_a_409(ws):
     ws.actions.write = _closed_window
     with pytest.raises(faults.TabClosed) as raised:
         secrets.perform_write(
-            ws.scrubber._catalogue, ws.actions, ws, "w",
+            ws.scrubber._catalogue, ws.actions, ws, "w/default",
             {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
         )
     assert "t1" in str(raised.value) and "pi-314159" not in faults.message(raised.value)
@@ -306,7 +306,7 @@ def test_a_bound_write_whose_before_check_fails_never_reads_the_page(ws):
     ws.actions.checks = [WebDriverException(f"lost at {P}?t=pi-314159")]
     with pytest.raises(WebDriverException) as raised:
         secrets.perform_write(
-            ws.scrubber._catalogue, ws.actions, ws, "w",
+            ws.scrubber._catalogue, ws.actions, ws, "w/default",
             {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
         )
     assert ws.actions.calls == ["check_tabs"]
@@ -327,7 +327,7 @@ def test_a_bound_writes_opened_urls_are_scrubbed_with_every_leashed_secret(ws):
         },
     ]
     shown = secrets.perform_write(
-        ws.scrubber._catalogue, ws.actions, ws, "w",
+        ws.scrubber._catalogue, ws.actions, ws, "w/default",
         {"selector": {"css": "#p"}, "secret": {"name": "p", "key": "password"}},
     )
     assert shown["opened"][0] == {"tab": "t3", "url": f"{A}/?k=[secret:a/password]"}

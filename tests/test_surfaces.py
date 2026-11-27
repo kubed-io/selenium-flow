@@ -19,7 +19,7 @@ from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
 
 from .conftest import RESOURCE_TOOLS, over_http
-from .fakes import KeyDriver
+from .fakes import KeyDriver, record_of
 
 pytestmark = pytest.mark.unit
 
@@ -242,7 +242,7 @@ async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypa
     and only diverge later, when the Grid reaped that browser and it came back
     the size it was opened at. So assert the tool actually asks.
     """
-    from .conftest import NAMED, calling_as
+    from .conftest import NAMED, NAMED_KEY, calling_as
 
     resize = (await server.mcp.get_tool("resize")).fn
     calling_as(monkeypatch, NAMED)
@@ -252,10 +252,10 @@ async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypa
         "resize",
         lambda s, width, height: {"width": width, "height": height, "url": "about:blank"},
     )
-    server.workspaces.remember(NAMED, "abc", "", {"browser": "firefox"})
+    server.workspaces.remember(NAMED_KEY, "abc", "", {"browser": "firefox"})
 
     resize(width=1024, height=768, actions=server.actions)
-    assert server.workspaces.store.get(NAMED).window == "1024x768"
+    assert record_of(server.workspaces.store, NAMED).window == "1024x768"
 
 
 def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypatch):

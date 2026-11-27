@@ -10,6 +10,7 @@ import json
 import threading
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager, suppress
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import ClassVar, NamedTuple
@@ -37,6 +38,8 @@ from kubed.selenium_flow.live.tunnel import Tunnel
 from kubed.selenium_flow.redaction import Forms
 from kubed.selenium_flow.telemetry import Telemetry
 from kubed.selenium_flow.urls import origin_of, scope_origin
+from kubed.selenium_flow.workspace import sessions
+from kubed.selenium_flow.workspace.store import Session, Workspace
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 MAIN = "main-1"
@@ -379,6 +382,62 @@ class FakeClock:
         return self.now
 
 
+# The session a server-token caller reaches when it names none: its own (WS-82).
+TOKEN_SESSION = "admin"
+
+
+def seated(
+    store,
+    workspace,
+    name=sessions.DEFAULT,
+    *,
+    record=None,
+    history=None,
+    holder: str | None = None,
+    **fields,
+):
+    """Seat a session in ``workspace``: list its name on the workspace's
+    record (made when absent), then write its record. Returns the session key.
+
+    The record is ``record`` (a ``Session``) as it is, or a ``Session`` made of
+    ``fields`` (both is a ``TypeError``). ``holder`` is the subject that holds
+    it (WS-84), set on ``record`` too when given; by default none, which any
+    subject may use. ``history`` is what the workspace's record holds; when
+    None (omitted) the workspace keeps the history it has. The first name
+    seated heads the list.
+    """
+    if record is not None and fields:
+        raise TypeError("seated takes a record or fields, not both")
+    record = record if record is not None else Session(**fields)
+    if holder is not None:
+        record = replace(record, holder=holder)
+    shared = (store.get(workspace) or Workspace()).listing(name)
+    if history is not None:
+        shared = replace(shared, history=list(history))
+    # Listed first, so the record's write has its place's lifetime (WS-87).
+    store.set(workspace, shared)
+    key = sessions.key_of(workspace, name)
+    store.set(key, record)
+    return key
+
+
+def visits(*urls, now=None, session=sessions.DEFAULT):
+    """The history entries of ``session`` landing on ``urls`` in order, as a
+    workspace's record keeps them (`Workspace.visited`): for ``seated``'s
+    ``history``."""
+    return Workspace().visited(*urls, now=now, session=session).history
+
+
+def record_of(store, workspace, name=sessions.DEFAULT):
+    """The record of ``name``'s session in ``workspace``."""
+    return store.get(sessions.key_of(workspace, name))
+
+
+def shared_of(store, workspace):
+    """The workspace's record: its list of sessions and its history."""
+    return store.get(workspace)
+
+
 class Clock:
     """A ``clock`` argument a test moves by hand: calling it returns ``now``."""
 
@@ -443,8 +502,9 @@ class FakeRedis:
 
 
 class FakePipeline:
-    """redis-py's optimistic transaction: WATCH reads at once, MULTI buffers,
-    EXEC refuses with WatchError if a watched key was written since.
+    """redis-py's optimistic transaction: WATCH reads at once, MULTI buffers
+    SET, EXPIRE and PERSIST, EXEC refuses with WatchError if a watched key was
+    written since.
 
     ``fake.interfere`` runs just before EXEC — another replica's write landing
     between this one's read and its write. ``fake.watching`` holds the keys
@@ -480,7 +540,15 @@ class FakePipeline:
 
     def set(self, key, value, ex=None):
         assert self.buffering, "a write outside MULTI is not a transaction"
-        self.queued.append((key, value, ex))
+        self.queued.append(("set", (key, value), {"ex": ex}))
+
+    def expire(self, key, seconds):
+        assert self.buffering, "a write outside MULTI is not a transaction"
+        self.queued.append(("expire", (key, seconds), {}))
+
+    def persist(self, key):
+        assert self.buffering, "a write outside MULTI is not a transaction"
+        self.queued.append(("persist", (key,), {}))
 
     def execute(self):
         from redis.exceptions import WatchError
@@ -494,8 +562,8 @@ class FakePipeline:
         self.reset()
         if changed:
             raise WatchError("watched key changed")
-        for key, value, ex in queued:
-            self.fake.set(key, value, ex=ex)
+        for op, args, kwargs in queued:
+            getattr(self.fake, op)(*args, **kwargs)
         return [True] * len(queued)
 
 
@@ -1139,13 +1207,13 @@ class Anywhere:
 
 def build(capture, monitor, actions=None):
     """Workspaces over ``monitor`` and ``capture`` with a browser open in ``ws``
-    (attached to ``capture`` when there is one), and the monitor's record of
-    the open cleared."""
+    (its session ``ws/default``, attached to ``capture`` when there is one), and
+    the monitor's record of the open cleared."""
     workspaces = Workspaces(actions or PageActions(), monitor=monitor, capture=capture)
-    workspaces.open_browser(Caller("ws", "query"))
+    key = workspaces.open_browser(Caller("ws", "query")) and "ws/default"
     if capture is not None:
-        sid = workspaces.store.get("ws").session_id
-        capture.attached("ws", sid, "chrome", "top-1", again=False)
+        sid = workspaces.store.get(key).session_id
+        capture.attached(key, sid, "chrome", "top-1", again=False)
     monitor.touched.clear()
     monitor.published.clear()
     return workspaces

@@ -13,7 +13,7 @@ from kubed.selenium_flow.workspace import settings
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .capture_events import log
-from .fakes import caller, loaded
+from .fakes import caller, loaded, record_of
 
 pytestmark = pytest.mark.unit
 
@@ -268,8 +268,8 @@ def ws():
 
 def test_an_open_with_capture_attaches_and_remembers_it(ws):
     result = ws.workspaces.open_browser(caller(), url="https://a.test/", capture=True)
-    assert ws.monitor.attached == [("bot", "grid0001", "capture")]
-    assert ws.workspaces.store.get("bot").settings["capture"] is True
+    assert ws.monitor.attached == [("bot/default", "grid0001", "capture")]
+    assert record_of(ws.workspaces.store, "bot").settings["capture"] is True
     assert result["capture"] is True and "grid0001" not in str(result)
 
 
@@ -281,7 +281,7 @@ def test_a_failed_attach_fails_the_open_and_binds_nothing(ws):
     ws.monitor.refuse = True
     with pytest.raises(BidiUnavailable):
         ws.workspaces.open_browser(caller(), capture=True)
-    record = ws.workspaces.store.get("bot")
+    record = record_of(ws.workspaces.store, "bot")
     assert record is None or not record.attached
 
 
@@ -300,7 +300,7 @@ def test_a_failure_after_the_attach_ends_the_watch(ws):
     with pytest.raises(TimeoutError):
         ws.workspaces.open_browser(caller(), url="https://typo.test/", capture=True)
     assert [c[1] for c in ws.monitor.ended_calls] == ["grid0001"]
-    record = ws.workspaces.store.get("bot")
+    record = record_of(ws.workspaces.store, "bot")
     assert record is None or not record.attached
 
 
@@ -327,7 +327,7 @@ def test_a_failure_after_a_reopens_attach_ends_the_watch(ws):
     ws.monitor.ended_calls.clear()
     ws.actions.fail_after_ready = TimeoutError("page load")
     with pytest.raises(TimeoutError):
-        ws.workspaces.resolve("bot")
+        ws.workspaces.resolve("bot/default")
     assert [c[1] for c in ws.monitor.ended_calls] == ["grid0001", "grid0002"]
 
 
@@ -345,7 +345,7 @@ def test_a_monitor_that_is_not_running_is_a_503_not_a_500(ws):
 def test_capture_is_never_inherited_but_a_reap_replays_it(ws):
     ws.workspaces.open_browser(caller(), capture=True)
     ws.actions.grid.alive.clear()  # the Grid reaped it
-    ws.workspaces.resolve("bot")
+    ws.workspaces.resolve("bot/default")
     assert len(ws.monitor.attached) == 2  # the silent reopen replayed it
     ws.workspaces.open_browser(caller())
     assert len(ws.monitor.attached) == 2  # an explicit open did not
@@ -358,16 +358,16 @@ def test_a_reap_without_a_monitor_any_more_drops_capture():
     workspaces.open_browser(caller(), capture=True)
     workspaces.monitor = None
     actions.grid.alive.clear()
-    workspaces.resolve("bot")
+    workspaces.resolve("bot/default")
     assert "capture" not in actions.opened[-1]
 
 
 def test_an_explicit_open_without_capture_discards_the_buffers(ws):
-    ws.capture.attached("bot", "old", "chrome", "top-1", again=False)
-    ws.capture.ingest("bot", "old", *log("kept"))
-    assert ws.capture.console("bot") is not None
+    ws.capture.attached("bot/default", "old", "chrome", "top-1", again=False)
+    ws.capture.ingest("bot/default", "old", *log("kept"))
+    assert ws.capture.console("bot/default") is not None
     ws.workspaces.open_browser(caller())
-    assert ws.capture.console("bot") is None
+    assert ws.capture.console("bot/default") is None
 
 
 def test_capture_without_a_monitor_is_refused_before_a_browser_opens():
@@ -385,7 +385,7 @@ def test_a_raising_monitor_never_fails_end_browser(ws):
 
     ws.monitor.ended = boom
     ws.workspaces.end_browser(caller())
-    assert not ws.workspaces.store.get("bot").attached
+    assert not record_of(ws.workspaces.store, "bot").attached
 
 
 def test_a_raising_monitor_never_fails_an_open(ws):
@@ -418,7 +418,7 @@ def test_current_without_capture_has_neither_counts_nor_capturing(ws):
 
 def test_capture_off_reads_as_off_not_an_error(ws):
     ws.workspaces.open_browser(caller())
-    assert ws.workspaces.captured("bot", "console") == {
+    assert ws.workspaces.captured("bot/default", "console") == {
         "capture": False,
         "how": "open_session(capture=true)",
     }
@@ -427,10 +427,10 @@ def test_capture_off_reads_as_off_not_an_error(ws):
 def test_an_empty_buffer_reads_as_an_empty_view(ws):
     ws.workspaces.open_browser(caller(), capture=True)
     ws.monitor.held.add("grid0001")
-    view = ws.workspaces.captured("bot", "console")
+    view = ws.workspaces.captured("bot/default", "console")
     assert view["capture"] is True and view["capturing"] is True
     assert view["entries"] == [] and view["count"] == 0
-    network = ws.workspaces.captured("bot", "network", filter="failed")
+    network = ws.workspaces.captured("bot/default", "network", filter="failed")
     assert network["requests"] == [] and network["capturing"] is True
 
 
@@ -439,13 +439,13 @@ def test_an_unknown_request_id_names_the_listing(ws):
     with pytest.raises(
         ValueError, match=r"no captured request 'r9': workspace://network lists"
     ):
-        ws.workspaces.captured("bot", "request", id="r9")
+        ws.workspaces.captured("bot/default", "request", id="r9")
 
 
 def test_a_bad_level_is_refused_even_on_an_empty_buffer(ws):
     ws.workspaces.open_browser(caller(), capture=True)
     with pytest.raises(ValueError, match="level is one of"):
-        ws.workspaces.captured("bot", "console", level="loud")
+        ws.workspaces.captured("bot/default", "console", level="loud")
 
 
 def test_the_ttl_is_a_setting_in_its_own_section():

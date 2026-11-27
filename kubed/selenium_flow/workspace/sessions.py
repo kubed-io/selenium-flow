@@ -1,9 +1,9 @@
-"""A session's key: telling a workspace's default session from its sub-sessions.
+"""A session's key, and the name a caller's own session has.
 
-A workspace keeps one default session and may hold sub-sessions, each its own
-browser. The store keys a record by the session key: the workspace's name for the
-default, ``<workspace>/<name>`` for a sub-session. A name holds no ``/``
-(``names.NAME``), so a sub-session's key can never be a workspace's.
+A workspace holds an ordered list of sessions, each its own browser (WS-81).
+The store keys a session's record by ``<workspace>/<name>``, ``default``
+included, and a workspace's own record by its name. A name holds no ``/``
+(``names.NAME``), so a session's key can never be a workspace's.
 """
 
 from __future__ import annotations
@@ -11,10 +11,17 @@ from __future__ import annotations
 import re
 
 from ..names import valid_name
+from ..principal import ADMIN_SUBJECT, NO_SUBJECT, Principal, subject_of
 
-# The session every workspace has, and the one a caller that names none uses.
+# The name of the session a caller with no principal (auth off, stdio) has as
+# its own (WS-82). An ordinary name: it says nothing of a place in the list.
 DEFAULT = "default"
-# What a sub-session's key joins its workspace and name with.
+# What `own_name` says when a JWT gives no name a session can have.
+OWN_UNNAMED = (
+    "your token gives no name a session can have: pass session=<name>, or pin "
+    "one with Sf-Session or ?session="
+)
+# What a session's key joins its workspace and name with.
 SEP = "/"
 # Names that read a resource (`workspace://current`, `session://downloads`) or
 # that a `session://` URI used to start with (`names.MOVED`), so a session
@@ -25,30 +32,25 @@ RESERVED = frozenset(
 
 
 def key_of(workspace: str, name: str) -> str:
-    """The store key of ``name`` in ``workspace``: the workspace for the default."""
-    return workspace if name == DEFAULT else f"{workspace}{SEP}{name}"
+    """The store key of the session ``name`` in ``workspace``."""
+    return f"{workspace}{SEP}{name}"
 
 
 def split(key: str) -> tuple[str, str]:
-    """``(workspace, name)`` of a key; a workspace's own is ``(key, "default")``."""
-    workspace, sep, name = key.partition(SEP)
-    return (workspace, name) if sep else (key, DEFAULT)
-
-
-def is_sub(key: str) -> bool:
-    """Whether ``key`` names a sub-session rather than a workspace's default."""
-    return SEP in key
+    """``(workspace, name)`` of a key; a workspace's own is ``(key, "")``."""
+    workspace, _, name = key.partition(SEP)
+    return workspace, name
 
 
 def logged(key: str) -> str:
-    """How a log line names the session ``key``: its workspace, and whether it
-    is a sub-session, never the sub-session's name, which may be a token's
-    subject (WS-49, 3)."""
+    """How a log line names the key ``key``: its workspace, and that it is a
+    session's, never the session's name, which may be a username or a token's
+    subject (WS-82)."""
     workspace, name = split(key)
-    return workspace if name == DEFAULT else f"{workspace} (a sub-session)"
+    return f"{workspace} (a session)" if name else workspace
 
 
-# A `session://<name>…` URI: the name is a token's subject for a sub-session,
+# A `session://<name>…` URI: the name may be a username or a token's subject,
 # so a log line, and an error text (which is logged), shows `session://…`. Left
 # as is: a reserved word as written, lower-case and followed by `/`, `?`, `#`
 # or the end (`session://downloads…` is the caller's own; the others are roots
@@ -103,3 +105,24 @@ def repointed(uri, acted: str, own: str):
         if path.partition("/")[0].partition("?")[0] in roots:
             return pointer(acted, own, path)
     return uri
+
+
+def own_name(principal: Principal | None) -> str:
+    """The name a caller's own session has when the call names none.
+
+    `DEFAULT` for no principal and ``admin`` for the token. A JWT's is the
+    first of its username and its subject that can name a session and is
+    neither of those two, so a JWT never takes the token's or no principal's
+    own session, else ``ValueError(OWN_UNNAMED)``."""
+    if principal is None:
+        return DEFAULT
+    if principal.admin:
+        return ADMIN_SUBJECT
+    for candidate in (principal.username, subject_of(principal)):
+        if candidate in (ADMIN_SUBJECT, NO_SUBJECT):
+            continue
+        try:
+            return valid_session_name(candidate)
+        except ValueError:
+            continue
+    raise ValueError(OWN_UNNAMED)

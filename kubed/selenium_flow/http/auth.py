@@ -32,7 +32,7 @@ from kubed.mcp.auth import (
 from starlette.requests import Request
 
 from .. import config
-from ..principal import ADMIN, Principal
+from ..principal import ADMIN, ADMIN_SUBJECT, FROM_USERNAME, NO_SUBJECT, Principal
 
 log = logging.getLogger(__name__)
 
@@ -186,10 +186,17 @@ class OidcVerifier(JWTVerifier):
         ):
             _log_refusal("nbf not numeric or in the future", claims)
             return None
-        return PrincipalToken(
-            **verified.model_dump(),
-            principal=Principal.from_claims(claims, self._roles_claim),
-        )
+        principal = Principal.from_claims(claims, self._roles_claim)
+        if principal.subject is None:
+            # A session is held by its subject: a token with none is nobody's.
+            _log_refusal("no sub or preferred_username", claims)
+            return None
+        if _reserved(claims.get("sub")):
+            # It would be the token's, no principal's or a username's subject,
+            # and pass the holder check on their sessions (WS-84).
+            _log_refusal("sub is reserved", claims)
+            return None
+        return PrincipalToken(**verified.model_dump(), principal=principal)
 
     async def verify_token(self, token: str) -> AccessToken | None:
         verified = await self.verify_jwt(token)
@@ -199,6 +206,15 @@ class OidcVerifier(JWTVerifier):
             _log_refusal("no allowed role", verified.claims)
             return None
         return verified
+
+
+def _reserved(sub) -> bool:
+    """Whether a JWT's ``sub`` is a subject the server gives another caller:
+    the token's, no principal's, or one made from a username
+    (`principal.subject_of`)."""
+    return isinstance(sub, str) and (
+        sub in (ADMIN_SUBJECT, NO_SUBJECT) or sub.startswith(FROM_USERNAME)
+    )
 
 
 def _log_refusal(reason: str, claims: dict) -> None:

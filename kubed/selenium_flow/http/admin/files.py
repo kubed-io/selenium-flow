@@ -3,7 +3,7 @@
 The listing and the rules are ``http.files``'; this is the admin's routes over
 them, addressed by a workspace key rather than by whoever is calling. Downloads
 are one session's (WS-52, UI-65): the downloads routes take ``?session=``, a
-sub-session's name, the default when absent.
+session's name, the head of the list when absent.
 """
 
 from __future__ import annotations
@@ -36,17 +36,21 @@ def mount(
     )
     @guarded
     async def admin_files(request: Request) -> JSONResponse:
-        """Every section at once: Downloads, Screenshots, Recordings and Files."""
+        """Every section at once: Downloads, Screenshots, Recordings and Files.
+        The downloads are the session's ``?session=`` names, else the head's."""
         key = request.path_params["key"]
         # A workspace whose name cannot be a directory keeps nothing, and must
         # not be shown the shared library's files.
         workspace = library_of(key) or ""
         try:
+            session, _ = await run_in_threadpool(
+                known_session, workspaces, key, request
+            )
             # The record can name a browser the Grid already reaped, and that
             # dead id would fail the whole view. `is_alive`, not the header's
             # `live`: it assumes alive when it cannot tell, so a Grid that is
             # down still fails below instead of showing no downloads.
-            attached = await run_in_threadpool(attached_id, workspaces, key)
+            attached = await run_in_threadpool(attached_id, workspaces, session)
             alive = attached and await run_in_threadpool(
                 actions.grid.is_alive, attached
             )
@@ -99,7 +103,7 @@ def mount(
         one."""
         key = request.path_params["key"]
         try:
-            # A sub-session with no record is a 404, as on every session route.
+            # A session named with no record is a 404, as on every session route.
             session, named = await run_in_threadpool(
                 known_session, workspaces, key, request
             )

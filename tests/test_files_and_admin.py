@@ -19,9 +19,10 @@ from kubed.selenium_flow.core import browser
 from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.mcp import apps
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 
 from .conftest import TOKEN
+from .fakes import TOKEN_SESSION, record_of, seated, visits
 
 pytestmark = pytest.mark.unit
 
@@ -41,7 +42,7 @@ def flow_session(server):
     The admin surface lists *our* workspaces, not the Grid's, so a test that does
     not put one in the store is asking about an empty server.
     """
-    server.workspaces.store.set(KEY, Workspace(session_id="abc").visited("https://x/"))
+    seated(server.workspaces.store, KEY, record=Session(session_id="abc"), history=visits("https://x/"))
     return server
 
 
@@ -250,7 +251,7 @@ def test_a_grid_that_refuses_to_quit_is_still_a_200(client, flow_session):
 def test_ending_a_workspace_with_no_browser_is_a_no_op(client, server):
     """The button's job is "make sure this holds no browser", which is already
     true — so it succeeds rather than erroring."""
-    server.workspaces.store.set("idle", Workspace(session_id=""))
+    seated(server.workspaces.store, "idle", session_id="")
     with patch.object(browser.Grid, "quit") as quit_:
         response = client.delete(
             "/admin/workspaces/idle/session", headers={"Authorization": f"Bearer {TOKEN}"}
@@ -275,6 +276,9 @@ def test_the_admins_end_is_never_refused_while_a_person_holds_control(
         return faults.Controlled("a person has control of this browser")
 
     monkeypatch.setattr(flow_session.controls, "refusal", refusal)
+    # The caller's end is the token's: it ends the token's session, the admin's
+    # ends the default's.
+    seated(flow_session.workspaces.store, KEY, TOKEN_SESSION, session_id="abc")
     auth = {"Authorization": f"Bearer {TOKEN}"}
     with patch.object(browser.Grid, "is_alive", return_value=True), \
             patch.object(browser.Grid, "quit") as quit_:
@@ -422,9 +426,8 @@ def test_the_listing_shows_workspaces_not_grid_sessions(client, server):
     """The Grid is the superset — it runs browsers put there by anything at all.
     Listing those would be showing somebody else's work as though it were ours,
     and handing whoever holds the admin token a browser id they never opened."""
-    server.workspaces.store.set(
-        "mine",
-        Workspace(session_id="mine", settings={"browser": "firefox"}).visited("https://x/"),
+    seated(server.workspaces.store, "mine",
+        record=Session(session_id="mine", settings={"browser": "firefox"}), history=visits("https://x/"),
     )
     grid_rows = [
         {"session_id": "mine", "browser": "firefox", "version": "155", "node": "n1"},
@@ -444,9 +447,8 @@ def test_the_listing_shows_workspaces_not_grid_sessions(client, server):
 
 def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server):
     """The point of the split: no browser, but still a workspace worth seeing."""
-    server.workspaces.store.set(
-        "idle",
-        Workspace(session_id="", settings={"browser": "firefox"}).visited("https://x/"),
+    seated(server.workspaces.store, "idle",
+        record=Session(session_id="", settings={"browser": "firefox"}), history=visits("https://x/"),
     )
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
@@ -463,7 +465,7 @@ def test_a_detached_workspace_is_listed_as_idle_with_its_context(client, server)
 def test_the_stdio_workspace_is_listed_and_labelled(client, server):
     """One key shape survives — the name a caller chose — and `stdio` is the one
     nobody typed, so it is still worth saying where it came from."""
-    server.workspaces.store.set("stdio", Workspace(session_id="abc"))
+    seated(server.workspaces.store, "stdio", session_id="abc")
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get(
             "/admin/workspaces", headers={"Authorization": f"Bearer {TOKEN}"}
@@ -475,7 +477,7 @@ def test_a_detached_workspace_has_no_files_rather_than_an_error(client, server):
     """It had them; the Grid deleted them with the browser. That is not a
     fault — and neither is having no store at all, which `server` also has
     none of."""
-    server.workspaces.store.set("idle", Workspace(session_id=""))
+    seated(server.workspaces.store, "idle", session_id="")
     body = client.get(
         "/admin/workspaces/idle/files",
         headers={"Authorization": f"Bearer {TOKEN}"},
@@ -592,15 +594,15 @@ def test_a_live_row_reports_the_window_its_browser_opened_at(client, server, mon
     monkeypatch.setattr(server.workspaces.actions, "open_session", lambda **_: dict(opened))
     monkeypatch.setattr(server.workspaces, "end_browser", lambda caller: None)
     server.workspaces.open_browser(Caller.from_request({"workspace": ["w"]}, {}))
-    assert server.workspaces.store.get("w").window is None   # nothing was asked for
+    assert record_of(server.workspaces.store, "w").window is None   # nothing was asked for
     assert admin_row(client, server, ["s9"])["window"] == "945x1038"
     # Not live: what the workspace would open with, as workspace://current says.
     assert admin_row(client, server, [])["window"] is None
 
 
 def test_a_resized_row_reports_the_new_window(client, server):
-    server.workspaces.store.set("w", Workspace(session_id="s9", window_seen="945x1038"))
-    server.workspaces.reshape("w", {"width": 1200, "height": 800}, browser="s9")
+    seated(server.workspaces.store, "w", session_id="s9", window_seen="945x1038")
+    server.workspaces.reshape("w/default", {"width": 1200, "height": 800}, browser="s9")
     assert admin_row(client, server, ["s9"])["window"] == "1200x800"
 
 
@@ -608,15 +610,15 @@ def test_a_resized_row_reports_the_new_window(client, server):
     ('"945x1038"', "945x1038"), ('"0x10"', None), ('"big"', None), ("945", None), ("null", None),
 ])
 def test_the_window_seen_survives_the_redis_store_and_nothing_else_does(raw, kept):
-    assert Workspace.from_json(f'{{"window_seen": {raw}}}').window_seen == kept
-    assert Workspace.from_json(Workspace(window_seen="945x1038").to_json()).window_seen == "945x1038"
+    assert Session.from_json(f'{{"window_seen": {raw}}}').window_seen == kept
+    assert Session.from_json(Session(window_seen="945x1038").to_json()).window_seen == "945x1038"
 
 
 def test_a_grid_that_cannot_be_listed_is_logged_without_its_credentials(client, server, caplog):
     """R1-9: a `requests` error quotes the Grid URL whole, userinfo included."""
     import logging
 
-    server.workspaces.store.set("w", Workspace(session_id="s9"))
+    seated(server.workspaces.store, "w", session_id="s9")
     leak = requests.ConnectionError("http://admin:hunter2@grid:4444/status refused")
     with (
         caplog.at_level(logging.INFO),
@@ -631,13 +633,12 @@ def test_a_row_carries_what_the_session_sent_ran_and_how_it_ended(client, server
     """The Session tab's three parts (spec 2026-10-26-session-capabilities):
     what was asked, what the Grid gave, and every capability sent."""
     sent = [{"key": "kubed:pool", "value": "a", "sources": ["config"]}]
-    server.workspaces.store.set("w", Workspace(
-        session_id="",
+    seated(server.workspaces.store, "w", session_id="",
         settings={"browser": "firefox", "version": "142"},
         sent=sent,
         ran={"version": "142.0", "node": "node-a", "live_view": True},
         ended={"at": 5.0, "by": "admin"},
-    ))
+    )
     row = admin_row(client, server, [])
     assert row["sent"] == sent
     assert row["ran"] == {"version": "142.0", "node": "node-a", "live_view": True}
@@ -647,7 +648,7 @@ def test_a_row_carries_what_the_session_sent_ran_and_how_it_ended(client, server
 
 def test_a_row_from_before_sessions_kept_anything_reads_as_none(client, server):
     """Review Focus 5: an old record lists like any other."""
-    server.workspaces.store.set("w", Workspace(session_id=""))
+    seated(server.workspaces.store, "w", session_id="")
     row = admin_row(client, server, [])
     assert row["sent"] == [] and row["ran"] is None and row["ended"] is None
     assert row["asked_version"] is None
@@ -662,31 +663,27 @@ def _admin_payload(client, sessions):
 
 
 def test_a_failed_grid_listing_is_said_and_a_recording_stays_on(client, server):
-    server.workspaces.store.set("w", Workspace(
-        session_id="s9", settings={"record": True}, set_by={"record": "caller"}))
+    seated(server.workspaces.store, "w", session_id="s9", settings={"record": True}, set_by={"record": "caller"})
     row = _admin_payload(client, {"side_effect": requests.ConnectionError("down")})["workspaces"][0]
     assert row["grid_listed"] is False and row["live"] is False and row["recording"] is True
 
 
 def test_a_listing_that_answered_says_so(client, server):
-    server.workspaces.store.set("w", Workspace(
-        session_id="s9", settings={"record": True}, set_by={"record": "caller"}))
+    seated(server.workspaces.store, "w", session_id="s9", settings={"record": True}, set_by={"record": "caller"})
     row = _admin_payload(client, {"return_value": []})["workspaces"][0]
     assert row["grid_listed"] is True and row["recording"] is False
 
 
 def test_the_row_says_whether_the_browser_is_headless(client, server):
-    server.workspaces.store.set("a", Workspace(
-        session_id="", settings={"headless": True}, set_by={"headless": "caller"}))
-    server.workspaces.store.set("b", Workspace(session_id=""))
+    seated(server.workspaces.store, "a", session_id="", settings={"headless": True}, set_by={"headless": "caller"})
+    seated(server.workspaces.store, "b", session_id="")
     rows = _admin_payload(client, {"return_value": []})["workspaces"]
     assert [row["headless"] for row in sorted(rows, key=lambda r: r["key"])] == [True, False]
 
 
 def test_the_row_carries_insecure_and_each_settings_source(client, server):
-    server.workspaces.store.set("w", Workspace(
-        session_id="", settings={"browser": "firefox", "insecure": True},
-        set_by={"browser": "config", "insecure": "caller"}))
+    seated(server.workspaces.store, "w", session_id="", settings={"browser": "firefox", "insecure": True},
+        set_by={"browser": "config", "insecure": "caller"})
     row = _admin_payload(client, {"return_value": []})["workspaces"][0]
     assert row["insecure"] is True
     assert row["set_by"] == {"browser": "config", "insecure": "caller"}

@@ -20,8 +20,16 @@ from kubed.selenium_flow.core.guidance import ENTRY
 from kubed.selenium_flow.mcp import instructions
 from kubed.selenium_flow.mcp.resources import RESOURCE_URI, where_linked
 
-from .conftest import NAMED, RESOURCE_TOOLS, calling_as, delivery_meta, http, over_http
-from .fakes import request
+from .conftest import (
+    NAMED,
+    NAMED_KEY,
+    RESOURCE_TOOLS,
+    calling_as,
+    delivery_meta,
+    http,
+    over_http,
+)
+from .fakes import record_of, request
 
 pytestmark = pytest.mark.unit
 
@@ -527,7 +535,7 @@ async def test_the_part_template_is_listed_beside_the_whole(reader):
 
 async def test_a_part_never_opens_a_browser(reader):
     assert (await read_part(reader, "live"))["live"] is False
-    assert reader.store.get(NAMED) is None
+    assert record_of(reader.store, NAMED) is None
 
 
 def test_every_key_the_context_carries_is_in_the_list_of_keys():
@@ -540,7 +548,7 @@ def test_every_key_the_context_carries_is_in_the_list_of_keys():
     m = manager()
     m.hints = lambda name, url: [{"name": "login"}]
     m.open_browser(Caller(NAMED), url="https://a.test/")
-    m.store.update(NAMED, lambda r: replace(
+    m.store.update(NAMED_KEY, lambda r: replace(
         r, settings={**r.settings, "capture": True}, site_data={"origins": {"https://a.test": {"cookies": [], "local": {}, "session": {}}}},
     ))
     m.capture = type("C", (), {"counts": lambda self, name: None, "kept": lambda self: []})()

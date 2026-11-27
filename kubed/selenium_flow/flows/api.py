@@ -43,6 +43,7 @@ from ..mcp import clients, progress, timing
 from ..mcp.tools import SecretRef, Session
 from ..names import GLOBAL_WORKSPACE, valid_name
 from ..workspace import calls as calls_module
+from ..workspace import sessions
 from . import document as flowdoc
 from . import engine, places, redact, template
 from . import library as flowlib
@@ -631,7 +632,8 @@ def run_for(
     """Run a saved flow in a session's browser, and update its record.
 
     ``workspace`` is the library the flow is read from; ``key`` is the session
-    key it runs in (`Workspaces.session_of`), the workspace's own when unset;
+    key it runs in (`Workspaces.session_of`), the workspace's ``default`` (the
+    session no principal names, WS-82) when unset;
     ``own`` the caller's own session (`Workspaces.own`), which the run's and
     its steps' pointers are read against.
     The run's browser, turn, origins, scrubbing and record are that session's.
@@ -644,7 +646,7 @@ def run_for(
     """
     # A missing flow is named before a missing browser.
     library = workspace
-    workspace = key or workspace
+    workspace = key or sessions.key_of(workspace, sessions.DEFAULT)
     read_one(store, library, name)
     resolved, kind = workspaces.resolved(workspace)
     # The run's hint compares its end with this, since a flush before a save

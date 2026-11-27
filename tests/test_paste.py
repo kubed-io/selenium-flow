@@ -19,11 +19,11 @@ from kubed.selenium_flow.core.actions import (
     PASTE_CAP,
 )
 from kubed.selenium_flow.workspace import locks
-from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
+from kubed.selenium_flow.workspace.store import MemoryStore, Session
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .conftest import manager
-from .fakes import FocusedDriver, element
+from .fakes import FocusedDriver, element, record_of, seated, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -183,29 +183,30 @@ def held(actions, monkeypatch):
     monkeypatch.setattr(actions.grid, "is_alive", lambda session_id: True)
     monkeypatch.setattr(actions.grid, "reconnect", lambda session_id: driver)
     workspaces = Workspaces(actions, MemoryStore())
-    workspaces.store.set("w1", Workspace(session_id="abc"))
+    seated(workspaces.store, "w1", session_id="abc")
     return workspaces, driver
 
 
 def test_the_workspace_answers_a_count_only(held):
     workspaces, driver = held
-    assert workspaces.paste("w1", "hunter2") == {"typed": 7}
+    assert workspaces.paste("w1/default", "hunter2") == {"typed": 7}
     assert ("element", "send_keys", "hunter2") in driver.log
 
 
 def test_a_paste_is_not_recorded_in_the_workspace(held):
     workspaces, _ = held
-    workspaces.paste("w1", "hunter2")
-    record = workspaces.store.get("w1")
+    workspaces.paste("w1/default", "hunter2")
+    record = record_of(workspaces.store, "w1")
     assert "hunter2" not in repr(record)
-    assert not record.history
+    assert "hunter2" not in repr(shared_of(workspaces.store, "w1"))
+    assert not shared_of(workspaces.store, "w1").history
 
 
 def test_no_browser_is_404_and_nothing_is_reopened():
     workspaces = manager()
-    workspaces.store.set("w1", Workspace(session_id="gone"))
+    seated(workspaces.store, "w1", session_id="gone")
     with pytest.raises(faults.NotFound) as refused:
-        workspaces.paste("w1", "hello")
+        workspaces.paste("w1/default", "hello")
     assert str(refused.value) == "this workspace has no browser open"
     assert workspaces.actions.opened == 0
 
@@ -217,9 +218,12 @@ def reopened_between_reads(workspaces, monkeypatch):
     real, reads, said = workspaces.store.get, [], []
 
     def get(name):
+        if "/" not in name:
+            # The workspace's own record: its list and history, no browser.
+            return real(name)
         reads.append(name)
         if len(reads) > 1:
-            return Workspace(session_id="def", settings={"browser": "firefox"})
+            return Session(session_id="def", settings={"browser": "firefox"})
         return real(name)
 
     monkeypatch.setattr(workspaces.store, "get", get)
@@ -234,18 +238,18 @@ def reopened_between_reads(workspaces, monkeypatch):
 
 def test_a_paste_says_the_kind_of_the_browser_it_read(held, monkeypatch):
     workspaces, _ = held
-    workspaces.store.set("w1", Workspace(session_id="abc", settings={"browser": "chrome"}))
+    seated(workspaces.store, "w1", session_id="abc", settings={"browser": "chrome"})
     said = reopened_between_reads(workspaces, monkeypatch)
-    workspaces.paste("w1", "hello")
+    workspaces.paste("w1/default", "hello")
     assert said == ["chrome"]
 
 
 def test_a_hand_back_says_the_kind_of_the_browser_it_read(held, monkeypatch):
     workspaces, _ = held
-    workspaces.store.set("w1", Workspace(session_id="abc", settings={"browser": "chrome"}))
+    seated(workspaces.store, "w1", session_id="abc", settings={"browser": "chrome"})
     monkeypatch.setattr(workspaces.actions, "outline", lambda session_id: {"url": None})
     said = reopened_between_reads(workspaces, monkeypatch)
-    workspaces.handed_back("w1", None)
+    workspaces.handed_back("w1/default", None)
     assert said == ["chrome"]
 
 def test_a_paste_waits_for_a_call_in_flight(held):
@@ -258,7 +262,7 @@ def test_a_paste_waits_for_a_call_in_flight(held):
             release.wait(5)
 
     def person():
-        workspaces.paste("w1", "hello")
+        workspaces.paste("w1/default", "hello")
         done.set()
 
     holder = threading.Thread(target=agent)
@@ -278,10 +282,10 @@ def test_a_paste_waits_for_a_call_in_flight(held):
 def test_a_paste_leaves_the_notice_for_the_agent(held):
     workspaces, _ = held
     held_notice = {"browser": "abc", "cause": "reaped", "report": None}
-    workspaces.store.update("w1", lambda r: replace(r, reopened=held_notice))
-    workspaces.paste("w1", "hello")
-    assert workspaces.store.get("w1").reopened == held_notice
-    assert workspaces.touch("w1", browser="abc") == {"cause": "reaped", "report": None}
+    workspaces.store.update("w1/default", lambda r: replace(r, reopened=held_notice))
+    workspaces.paste("w1/default", "hello")
+    assert record_of(workspaces.store, "w1").reopened == held_notice
+    assert workspaces.touch("w1/default", browser="abc") == {"cause": "reaped", "report": None}
 
 
 def test_a_paste_takes_the_sessions_turn_before_the_call_begins(held, monkeypatch):
@@ -304,7 +308,7 @@ def test_a_paste_takes_the_sessions_turn_before_the_call_begins(held, monkeypatc
     holder = threading.Thread(target=agent)
     holder.start()
     assert entered.wait(5)
-    pasting = threading.Thread(target=workspaces.paste, args=("w1", "hello"))
+    pasting = threading.Thread(target=workspaces.paste, args=("w1/default", "hello"))
     pasting.start()
     pasting.join(0.3)
     assert order == [], "the call began while the agent's call was in flight"

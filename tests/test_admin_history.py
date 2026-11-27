@@ -12,9 +12,10 @@ import pytest
 from starlette.testclient import TestClient
 
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session, Workspace
 
 from .conftest import TOKEN
+from .fakes import record_of, seated, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -42,7 +43,7 @@ DATA = {
 
 
 def visited():
-    return (Workspace(session_id="")
+    return (Workspace(sessions=["default"])
             .visited("https://mail.example.org/inbox", now=NOW - 3600)
             .visited("http://app.example.com:8080/dev", now=NOW - 120)
             .visited("https://app.example.com/x", now=NOW - 60))
@@ -53,7 +54,7 @@ def server():
     s = SeleniumMCP({
         "grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}, "secrets": SECRETS,
     })
-    s.workspaces.store.set(KEY, visited().with_site_data(DATA))
+    seated(s.workspaces.store, KEY, history=visited().history, record=Session().with_site_data(DATA))
     return s
 
 
@@ -111,8 +112,8 @@ def test_the_view_names_every_origin_clear_would_take(client):
 
 def test_clear_keeps_the_current_site_and_nothing_else(client, server):
     assert client.delete(URL).json() == {"cleared": ["mail.example.org"]}
-    record = server.workspaces.store.get(KEY)
-    assert record.history == visited().history[:1]
+    record = record_of(server.workspaces.store, KEY)
+    assert shared_of(server.workspaces.store, KEY).history == visited().history[:1]
     assert record.site_data == DATA, "site data is not History's to touch"
     assert [s["site"] for s in client.get(URL).json()["sites"]] == ["app.example.com"]
 

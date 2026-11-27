@@ -13,6 +13,7 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow.names import CONFIG_FILE
 
 from .conftest import TOKEN
+from .fakes import seated
 
 pytestmark = pytest.mark.unit
 
@@ -164,18 +165,16 @@ async def test_no_tool_writes_the_config(data_server):
 
 def test_a_save_keeps_an_idle_workspaces_record_at_once(client, data_server):
     """The record is not written again after the save, and still never expires."""
-    from kubed.selenium_flow.workspace.store import Workspace
 
-    data_server.store.set(KEY, Workspace(session_id="a"))
+    seated(data_server.store, KEY, session_id="a")
     client.put(url(), json={"text": VALID}, headers=AUTH)
     assert data_server.store._data[KEY][0] == float("inf")
 
 
 def test_a_remove_sets_the_expiry_again_at_once(client, data_server):
-    from kubed.selenium_flow.workspace.store import Workspace
 
     client.put(url(), json={"text": VALID}, headers=AUTH)
-    data_server.store.set(KEY, Workspace(session_id="a"))
+    seated(data_server.store, KEY, session_id="a")
     client.delete(url(), headers=AUTH)
     assert data_server.store._data[KEY][0] < float("inf")
 
@@ -188,7 +187,7 @@ def test_a_save_or_remove_with_no_record_writes_none(client, data_server):
 
 def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
     from kubed.selenium_flow.server import SeleniumMCP
-    from kubed.selenium_flow.workspace.store import RedisStore, Workspace
+    from kubed.selenium_flow.workspace.store import RedisStore
 
     from .fakes import FakeRedis
 
@@ -202,12 +201,18 @@ def test_with_redis_a_save_persists_the_key_and_a_remove_expires_it(tmp_path):
         },
         store=redis,
     )
-    redis.set(KEY, Workspace(session_id="a"))
+    seated(redis, KEY, session_id="a")
     client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     client.put(url(), json={"text": VALID})
+    # The workspace's record and its head's, at once (WS-63, WS-87).
     assert fake.expiries[f"p:{KEY}"] is None
+    assert fake.expiries[f"p:{KEY}/default"] is None
     client.delete(url())
     assert fake.expiries[f"p:{KEY}"] == 60
+    assert fake.expiries[f"p:{KEY}/default"] == 60
+    redis.delete(f"{KEY}/default")
+    client.put(url(), json={"text": VALID})
+    assert f"p:{KEY}/default" not in fake.data, "a head with no record is not made"
     redis.delete(KEY)
     client.put(url(), json={"text": VALID})
     assert f"p:{KEY}" not in fake.data
@@ -246,9 +251,8 @@ def _row(client):
 def test_the_row_carries_a_config_revision_that_follows_a_hand_edit(
     client, data_server, tmp_path
 ):
-    from kubed.selenium_flow.workspace.store import Workspace
 
-    data_server.store.set(KEY, Workspace())
+    seated(data_server.store, KEY)
     assert _row(client)["config_rev"] == ""
     client.put(url(), json={"text": VALID}, headers=AUTH)
     saved = _row(client)

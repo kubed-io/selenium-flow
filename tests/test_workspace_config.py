@@ -21,7 +21,7 @@ from kubed.selenium_flow.workspace.config import CONFIG_FILE, Configs
 from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, Workspace
 
 from .conftest import TOKEN, log_lines
-from .fakes import FakeRedis
+from .fakes import FakeRedis, record_of, seated
 
 pytestmark = pytest.mark.unit
 
@@ -278,26 +278,32 @@ def _kept_stores(tmp_path, configs):
 def test_a_kept_workspace_is_written_with_no_expiry(configs, tmp_path):
     memory, now, redis, fake = _kept_stores(tmp_path, configs)
     configs.save(NAME, "flows: {}\n")
-    memory.set(NAME, Workspace(session_id="a"))
-    redis.set(NAME, Workspace(session_id="a"))
-    redis.update(NAME, lambda r: r.with_site_data({"x": 1}))
+    seated(memory, NAME, session_id="a")
+    seated(redis, NAME, session_id="a")
+    redis.update(f"{NAME}/default", lambda r: r.with_site_data({"x": 1}))
     now[0] += 10**9
     assert memory.get(NAME) is not None
+    assert record_of(memory, NAME) is not None, "its head is kept too"
     assert NAME in memory.records()
     assert fake.expiries[f"p:{NAME}"] is None
+    assert fake.expiries[f"p:{NAME}/default"] is None
 
 
 def test_the_first_write_after_the_file_goes_sets_the_expiry_again(configs, tmp_path):
     memory, now, redis, fake = _kept_stores(tmp_path, configs)
     configs.save(NAME, "flows: {}\n")
-    memory.set(NAME, Workspace(session_id="a"))
-    redis.set(NAME, Workspace(session_id="a"))
+    seated(memory, NAME, session_id="a")
+    seated(redis, NAME, session_id="a")
     configs.remove(NAME)
-    memory.update(NAME, lambda r: r.with_site_data({"x": 1}))
-    redis.upsert(NAME, lambda r: r.with_site_data({"x": 1}))
+    memory.update(f"{NAME}/default", lambda r: r.with_site_data({"x": 1}))
+    redis.upsert(f"{NAME}/default", lambda r: r.with_site_data({"x": 1}))
+    assert fake.expiries[f"p:{NAME}/default"] == 60
+    memory.update(NAME, lambda r: r.visited())
+    redis.update(NAME, lambda r: r.visited())
     assert fake.expiries[f"p:{NAME}"] == 60
     now[0] += 61
     assert memory.get(NAME) is None
+    assert record_of(memory, NAME) is None
 
 
 def test_an_invalid_config_keeps_the_workspace_too(configs, tmp_path):
@@ -313,13 +319,13 @@ def test_the_server_keeps_a_workspace_its_config_names(data_server, tmp_path):
     """Wired at boot: the store asks the server's configs."""
     data_server.workspaces.configs.save(NAME, "flows: {}\n")
     store = data_server.store
-    store.set(NAME, Workspace())
+    seated(store, NAME)
     assert store._data[NAME][0] == float("inf")
 
 
 def test_the_admin_list_shows_a_kept_workspace_with_no_record(data_server):
     data_server.workspaces.configs.save("kept-only", "flows: {}\n")
-    data_server.store.set(NAME, Workspace())
+    seated(data_server.store, NAME)
     client = TestClient(data_server.mcp.server.http_app(), headers=AUTH)
     rows = {r["key"]: r for r in client.get("/admin/workspaces").json()["workspaces"]}
     assert set(rows) == {"kept-only", NAME}

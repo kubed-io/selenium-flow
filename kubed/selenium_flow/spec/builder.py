@@ -272,6 +272,7 @@ async def build_spec(
     paths.update(_secret_paths(prefix))
     schemas.update(SITE_DATA_SCHEMAS)
     paths.update(_site_data_paths(prefix))
+    _held(paths)
 
     # One ops endpoint per question a probe asks. Each also answers at the
     # root; the document names the mounted one.
@@ -508,6 +509,10 @@ def _without(schema: dict, *names: str) -> dict:
     return schema
 
 
+HELD_DOC = (
+    "The session this call names is held by another caller. Name your own "
+    "session, or leave `session` out."
+)
 UNAUTHORIZED = "Missing or wrong bearer token."
 UNEXPECTED = "Something failed that this server did not expect."
 TOO_LARGE = (
@@ -554,6 +559,15 @@ def _json(schema: dict) -> dict:
 def _answer(description: str, schema: dict) -> dict:
     """A response with a JSON body."""
     return {"description": description, "content": _json(schema)}
+
+
+def _held(paths: dict) -> None:
+    """A 403 on every operation that takes the workspace parameters: a call
+    may name a session another caller holds (`faults.Held`)."""
+    for methods in paths.values():
+        for operation in methods.values():
+            if all(p in operation.get("parameters", ()) for p in WORKSPACE_PARAMETERS):
+                operation["responses"]["403"] = _error(HELD_DOC)
 
 
 def _error(description: str) -> dict:

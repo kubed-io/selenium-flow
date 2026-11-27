@@ -11,9 +11,9 @@ import pytest
 from kubed.selenium_flow import urls
 from kubed.selenium_flow.site_data import snapshot as sd
 from kubed.selenium_flow.site_data import transfer
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session, Workspace
 
-from .fakes import FakeChannel, untabbed
+from .fakes import TOKEN_SESSION, FakeChannel, record_of, seated, shared_of, untabbed
 from .site_data_fakes import (
     NOW,
     FakeSpare,
@@ -188,11 +188,11 @@ def test_the_cap_evicts_what_the_re_serialising_loop_did(monkeypatch):
 
 def test_the_record_round_trips_its_snapshot():
     data, _ = sd.snapshot({}, captured(local={"a": "1"}, session={"t": "1"}), [visit(APP)], NOW)
-    record = Workspace(session_id="s").visited(APP + "/x").with_site_data(data)
-    again = Workspace.from_json(record.to_json())
+    record = Session(session_id="s").with_site_data(data)
+    again = Session.from_json(record.to_json())
     assert again.site_data == data
     assert again.detached().site_data == data, "ending a browser keeps site data"
-    assert again.visited("https://x.example.com/").site_data == data
+    assert again.reshaped({"width": 800}).site_data == data
 
 
 # ---- capture: what the browser holds -----------------------------------------
@@ -307,16 +307,20 @@ def test_one_save_through_the_server_keeps_every_site_the_workspace_went_to(monk
     # Stamped now, not at NOW: the save reads the history as the next write
     # would keep it, and a fixed stamp ages out of the store's TTL.
     now = time.time()
-    server.workspaces.store.set(
-        NAMED, Workspace(session_id="live-id").visited(SSO + "/", now=now - 60).visited(APP + "/x", now=now)
+    visited = (
+        Workspace()
+        .visited(SSO + "/", now=now - 60, session=TOKEN_SESSION)
+        .visited(APP + "/x", now=now, session=TOKEN_SESSION)
     )
+    seated(server.workspaces.store, NAMED, TOKEN_SESSION, record=Session(session_id="live-id"),
+           history=visited.history)
     response = TestClient(server.mcp.server.http_app()).post(
         "/browser/save-site-data", headers={"Authorization": f"Bearer {TOKEN}"},
         params={"workspace": NAMED}, json={},
     )
     assert response.status_code == 200, response.json()
     assert response.json()["saved"]["sites"] == [APP, SSO]
-    stored = server.workspaces.store.get(NAMED).site_data
+    stored = record_of(server.workspaces.store, NAMED, TOKEN_SESSION).site_data
     assert stored["origins"] == {APP: {"local": {"a": "1"}}, SSO: {"local": {"kc": "1"}}}
     assert stored["session"] == {"origin": APP, "items": {"t": "1"}}
 
@@ -366,7 +370,7 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
         {"tool": "save_site_data", "args": {}, "return": True},
         {"tool": "navigate", "args": {"url": c + "/"}},
     ]})
-    server.workspaces.store.set(NAMED, Workspace(session_id="live-id"))
+    seated(server.workspaces.store, NAMED, session_id="live-id")
     touched = []
     real = server.workspaces._touch
 
@@ -378,8 +382,8 @@ def test_a_save_mid_flow_reads_the_sites_the_run_reached_before_it(
     report = flowapi.run_for(server.flows, server.actions, server.workspaces, NAMED, "trip")
     assert spare.runs == [("spare", a)], "a is read in the spare tab; b is the page"
     assert report["steps"][2]["result"]["saved"]["sites"] == [b, a]
-    record = server.workspaces.store.get(NAMED)
+    record = record_of(server.workspaces.store, NAMED)
     assert record.site_data["origins"] == {b: {"local": {"page": b}}, a: {"local": {"a": "1"}}}
     assert len(touched) == 2 and touched[0] == (a + "/", b + "/"), "flushed before the save, in order"
     assert a + "/" not in touched[1] and b + "/" not in touched[1], "the end writes only what came after"
-    assert [v["origin"] for v in record.history] == [c, b, a]
+    assert [v["origin"] for v in shared_of(server.workspaces.store, NAMED).history] == [c, b, a]

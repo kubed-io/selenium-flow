@@ -8,6 +8,7 @@ own, in a thread), so the socket's whole road is walked without a Grid.
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlsplit
 
@@ -20,16 +21,26 @@ from kubed.selenium_flow.http import links
 from kubed.selenium_flow.http.admin import live as live_module
 from kubed.selenium_flow.live.rfb import RFB_38
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 
 from .conftest import TOKEN
-from .fakes import Clock, FakePeer, FocusedDriver, element, held
+from .fakes import Clock, FakePeer, FocusedDriver, element, held, record_of, seated
 from .test_live_tunnel import GRID_ID, vnc_node
 
 pytestmark = pytest.mark.unit
 
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 SOCKET = "/admin/workspaces/w1/live/socket"
+# The key of the session the socket opens with no `?session=`: the head of
+# `w1`'s list, and what its link is signed over.
+W1 = "w1/default"
+SIGNED_OVER = live_module.socket_path(W1)
+
+
+def signed(*args, **kw):
+    """A link for `w1`'s head as the mint makes one: signed over its key,
+    sent as the workspace and `?session=`."""
+    return f"{SOCKET}?session=default&" + links.sign(SIGNED_OVER, *args, **kw).partition("?")[2]
 
 
 def build(prefix="", token=TOKEN, **live):
@@ -44,27 +55,17 @@ def build(prefix="", token=TOKEN, **live):
     # The Grid still lists the browser, so a tunnel's close asks nothing real.
     server.actions.grid.listing = lambda: (1, {GRID_ID: 300})
     store = server.workspaces.store
-    store.set(
-        "w1",
-        Workspace(
-            session_id=GRID_ID,
-            opened_at=1_700_000_000.0,
-            ran={"live_view": True},
-        ),
+    seated(store, "w1", session_id=GRID_ID,
+        opened_at=1_700_000_000.0,
+        ran={"live_view": True},
     )
-    store.set("idle", Workspace(session_id=""))
-    store.set(
-        "novnc",
-        Workspace(session_id="g-other", ran={"live_view": False}),
+    seated(store, "idle", session_id="")
+    seated(store, "novnc", session_id="g-other", ran={"live_view": False},
     )
-    store.set(
-        "headless",
-        Workspace(
-            session_id="g-headless",
-            ran={"live_view": True},
-            settings={"headless": True},
-            set_by={"headless": "caller"},
-        ),
+    seated(store, "headless", session_id="g-headless",
+        ran={"live_view": True},
+        settings={"headless": True},
+        set_by={"headless": "caller"},
     )
     return server
 
@@ -96,7 +97,7 @@ def mint(client):
 def test_the_mint_answers_a_signed_url_bound_to_the_admin(client):
     body = client.get("/admin/workspaces/w1/live", headers=AUTH).json()
     assert body["heartbeat"] == 10 and body["grace"] == 30
-    assert body["url"].startswith("/admin/workspaces/w1/live/socket?exp=")
+    assert body["url"].startswith("/admin/workspaces/w1/live/socket?session=default&exp=")
     assert "by=admin" in body["url"]
 
 
@@ -156,7 +157,7 @@ def test_an_altered_or_missing_link_closes_4401(client, change):
 
 
 def test_an_expired_link_closes_4401_saying_so(client):
-    url = links.sign(SOCKET, TOKEN, 60, now=time.time() - 3600, by="admin")
+    url = signed(TOKEN, 60, now=time.time() - 3600, by="admin")
     gone = closed_with(client, url)
     assert (gone.code, gone.reason) == (4401, live_module.EXPIRED)
 
@@ -204,7 +205,7 @@ def test_an_admin_header_opens_the_socket_without_a_link(client):
 
 def test_the_socket_refuses_4004_once_the_browser_has_gone(client, server):
     url = mint(client)
-    server.workspaces.store.set("w1", Workspace(session_id=""))
+    seated(server.workspaces.store, "w1", session_id="")
     gone = closed_with(client, url)
     assert (gone.code, gone.reason) == (4004, live_module.NO_BROWSER)
 
@@ -227,7 +228,7 @@ def test_a_4004_refusal_is_a_refused_audit_line(hub, caplog, name, enabled, reas
     assert (gone.code, gone.reason) == (4004, reason)
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert [r.getMessage() for r in warnings] == [
-        f"live: refused admin the live view of {name}: {reason}"
+        f"live: refused admin the live view of {name} (a session): {reason}"
     ]
 
 
@@ -244,7 +245,7 @@ def test_an_unreadable_password_file_is_a_warning_naming_the_path(
     said = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert f"live: the VNC password file {missing} cannot be read" in said
     assert (
-        "live: refused admin the live view of w1: "
+        "live: refused admin the live view of w1 (a session): "
         "the VNC password file cannot be read"
     ) in said
 
@@ -271,8 +272,7 @@ def test_an_unbound_link_never_opens_the_socket(client):
 
 
 def test_a_link_for_one_workspace_opens_no_other(client, server):
-    server.workspaces.store.set(
-        "w2", Workspace(session_id="g-2", ran={"live_view": True})
+    seated(server.workspaces.store, "w2", session_id="g-2", ran={"live_view": True}
     )
     url = mint(client).replace("/w1/", "/w2/")
     gone = closed_with(client, url)
@@ -286,7 +286,7 @@ def test_without_a_token_the_url_is_unsigned_and_the_viewer_is_open(
     password.write_text("secret\n")
     client = TestClient(build(token=None, password_file=str(password)).mcp.server.http_app())
     url = client.get("/admin/workspaces/w1/live").json()["url"]
-    assert url == SOCKET
+    assert url == SOCKET + "?session=default"
     with (
         caplog.at_level("INFO", logger="kubed.selenium_flow.live"),
         client.websocket_connect(url) as ws,
@@ -389,7 +389,7 @@ def typing(server, monkeypatch):
 @pytest.mark.parametrize("mode", [None, "watch"])
 def test_paste_needs_control(client, server, typing, mode):
     if mode:
-        held(server.tunnels, "w1", "admin", mode, GRID_ID)
+        held(server.tunnels, W1, "admin", mode, GRID_ID)
     answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
     assert answered.status_code == 409
     assert answered.json() == {"error": live_module.NEEDS_CONTROL}
@@ -404,7 +404,7 @@ def test_an_oidc_user_named_admin_cannot_paste_while_the_token_holder_has_contro
     async def admit(_request):
         return Principal("oidc", subject="s9", username="admin")
 
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     monkeypatch.setattr(server.doors.admin, "admit", admit)
     answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
     assert answered.status_code == 409
@@ -412,20 +412,20 @@ def test_an_oidc_user_named_admin_cannot_paste_while_the_token_holder_has_contro
 
 
 def test_paste_in_control_types_and_audits_a_count(client, server, typing, caplog):
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     with caplog.at_level(logging.DEBUG):
         answered = client.post(PASTE, json={"text": "hunter2"}, headers=AUTH)
     assert answered.status_code == 200 and answered.json() == {"typed": 7}
     assert ("element", "send_keys", "hunter2") in typing.log
-    assert "pasted 7 characters into w1" in caplog.text
+    assert "pasted 7 characters into w1 (a session)" in caplog.text
     assert all("hunter2" not in r.getMessage() for r in caplog.records)
-    assert "hunter2" not in repr(server.workspaces.store.get("w1"))
+    assert "hunter2" not in repr(record_of(server.workspaces.store, "w1"))
 
 
 def test_a_paste_reads_the_store_off_the_event_loop(
     client, server, typing, monkeypatch
 ):
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     store = server.workspaces.store
     real = store.get
     on_loop = []
@@ -445,7 +445,7 @@ def test_a_paste_reads_the_store_off_the_event_loop(
 
 
 def test_a_refused_paste_logs_no_text(client, server, typing, caplog):
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     typing.answers[:] = []  # nothing has focus
     with caplog.at_level(logging.DEBUG):
         answered = client.post(PASTE, json={"text": "hunter2"}, headers=AUTH)
@@ -455,7 +455,7 @@ def test_a_refused_paste_logs_no_text(client, server, typing, caplog):
 
 
 def test_paste_with_no_browser_is_404(client, server):
-    held(server.tunnels, "idle", "admin", "control", "g-idle")
+    held(server.tunnels, "idle/default", "admin", "control", "g-idle")
     answered = client.post(
         "/admin/workspaces/idle/live/paste", json={"text": "x"}, headers=AUTH
     )
@@ -478,12 +478,12 @@ def test_paste_is_behind_the_admin_door(client):
 
 @pytest.mark.parametrize("body", [[], "x", {}, {"text": 5}])
 def test_paste_wants_text(client, server, typing, body):
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     assert client.post(PASTE, json=body, headers=AUTH).status_code == 400
 
 
 def test_an_oversize_paste_body_is_413(client, server, typing):
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     big = "a" * (3 * 2**20)
     answered = client.post(PASTE, json={"text": big}, headers=AUTH)
     assert answered.status_code == 413
@@ -495,7 +495,7 @@ def test_a_driver_failure_is_logged_by_type_and_never_quoted(
 ):
     from selenium.common.exceptions import WebDriverException
 
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     field = typing.answers[0]
     field.fail_on = {"send_keys": WebDriverException("could not type hunter2")}
     with caplog.at_level(logging.DEBUG):
@@ -510,7 +510,7 @@ def test_a_driver_failure_is_logged_by_type_and_never_quoted(
 def test_a_frame_the_driver_cannot_enter_says_our_sentence(client, server, typing):
     from selenium.common.exceptions import NoSuchFrameException
 
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     typing.answers[:] = [element(typing.log, "object")]
 
     def refuse(target):
@@ -548,14 +548,14 @@ def test_the_socket_asks_control_of_the_registry_and_leaving_hands_back(
         # here (no monitor running) fails at once and grants all the same.
         assert ws.receive_json() == {"type": "mode", "mode": "requested"}
         assert ws.receive_json() == {"type": "mode", "mode": "control"}
-        assert server.controls.controlling("w1", "admin")
+        assert server.controls.controlling(W1, "admin")
         assert server.controls.refusal(GRID_ID, "navigate") is not None
     deadline = time.monotonic() + 2
-    while server.controls.controlling("w1", "admin") and time.monotonic() < deadline:
+    while server.controls.controlling(W1, "admin") and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert not server.controls.controlling("w1", "admin")
+    assert not server.controls.controlling(W1, "admin")
     assert server.controls.refusal(GRID_ID, "navigate") is None
-    assert server.controls.notice("w1")["state"] == "handed_back"
+    assert server.controls.notice(W1)["state"] == "handed_back"
 
 
 def left_line(client, monkeypatch, caplog) -> str:
@@ -584,7 +584,7 @@ def left_line(client, monkeypatch, caplog) -> str:
         ws.close(1000)
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
-            found = [m for m in caplog.messages if "left the live view of w1" in m]
+            found = [m for m in caplog.messages if "left the live view of w1 (a session)" in m]
             if found:
                 return found[0]
             time.sleep(0.01)
@@ -630,7 +630,7 @@ def test_leaving_a_browser_the_grid_still_lists_keeps_the_viewer_closed(
 def test_a_paste_is_audited_even_when_the_store_fails_once_it_is_typed(
     client, server, typing, monkeypatch, caplog
 ):
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     store = server.workspaces.store
     real_get, real_paste = store.get, server.workspaces.paste
     typed = []
@@ -650,20 +650,22 @@ def test_a_paste_is_audited_even_when_the_store_fails_once_it_is_typed(
     with caplog.at_level(logging.INFO):
         answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
     assert answered.status_code == 200
-    assert "pasted 5 characters into w1" in caplog.text
+    assert "pasted 5 characters into w1 (a session)" in caplog.text
 
 
 def test_a_paste_with_an_unreadable_start_time_types_nothing_and_says_so(
     client, server, typing, monkeypatch
 ):
-    from kubed.selenium_flow.workspace.store import Workspace
 
-    held(server.tunnels, "w1", "admin", "control", GRID_ID)
+    held(server.tunnels, W1, "admin", "control", GRID_ID)
     real = server.workspaces.store.get
     monkeypatch.setattr(
         server.workspaces.store,
         "get",
-        lambda key: Workspace(**{**vars(real(key)), "opened_at": float("nan")}),
+        lambda key: (
+            replace(real(key), opened_at=float("nan"))
+            if isinstance(real(key), Session) else real(key)
+        ),
     )
     answered = client.post(PASTE, json={"text": "hello"}, headers=AUTH)
     assert answered.status_code >= 400

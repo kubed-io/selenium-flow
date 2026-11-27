@@ -14,8 +14,7 @@ from starlette.responses import JSONResponse
 
 from ... import faults
 from ...site_data import snapshot as site_data
-from ...workspace import sessions
-from ...workspace.store import Workspace
+from ...workspace.store import Session, Workspace
 from .. import answer
 from .workspaces import known_session
 
@@ -28,17 +27,11 @@ async def secret_rows(catalogue) -> list[dict]:
     return (await run_in_threadpool(catalogue.listing))["secrets"]
 
 
-def sub_records(store, key: str) -> dict[str, Workspace]:
-    """``key``'s sub-sessions that still have a record, by name: only their
-    current pages are History's to keep (SITE-56), and only their snapshots
-    its rows count."""
-    listing = getattr(store, "sub_records", None)
-    return dict(listing(key)) if listing is not None else {}
-
-
-def live_subs(store, key: str) -> list[str]:
-    """The names of ``key``'s sub-sessions that still have a record."""
-    return list(sub_records(store, key))
+def live_sessions(workspaces, key: str) -> dict[str, Session]:
+    """``key``'s sessions that still have a record, by name, in list order:
+    only their current pages are History's to keep (SITE-56), and only their
+    snapshots its rows count."""
+    return dict(workspaces.listed(key))
 
 
 def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
@@ -60,19 +53,18 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         key = request.path_params["key"]
         try:
             secrets = await secret_rows(catalogue)
+            # Listed first: a listing moves a record in the shape before
+            # WS-81 (WS-90).
+            found = await run_in_threadpool(live_sessions, workspaces, key)
             record = await run_in_threadpool(workspaces.store.get, key)
-            subs = await run_in_threadpool(sub_records, workspaces.store, key)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"history for {key}", log)
         if record is None:
             return JSONResponse({"key": key, "sites": [], "clears": []})
         # Each row counts its own session's snapshot: the one its pill opens.
-        snapshots = {
-            sessions.DEFAULT: record.site_data,
-            **{name: sub.site_data for name, sub in subs.items()},
-        }
+        snapshots = {name: own.site_data for name, own in found.items()}
         joined = site_data.history_view(record.history, snapshots, secrets)
-        live = list(subs)
+        live = list(found)
         # What Clear would take, by origin: rows are by host, so a second port
         # of the current host has no row and would otherwise hide Clear. Each
         # live session's current page stays (WS-54).
@@ -102,8 +94,9 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
             return cleared, hosts
 
         try:
-            live = await run_in_threadpool(live_subs, workspaces.store, key)
-            _, cleared = await run_in_threadpool(workspaces.store.change, key, clear)
+            live = list(await run_in_threadpool(live_sessions, workspaces, key))
+            # Never a record in the shape before WS-81 as it reads (WS-90).
+            _, cleared = await run_in_threadpool(workspaces.change_shared, key, clear)
         except Exception as exc:  # noqa: BLE001 - errors.py says what it means
             return answer.refused(exc, f"clearing the history of {key}", log)
         return JSONResponse({"cleared": cleared or []})
@@ -147,7 +140,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
         untouched; only the next browser opened comes back signed out."""
         key = request.path_params["key"]
 
-        def clear(record: Workspace) -> tuple[Workspace, list]:
+        def clear(record: Session) -> tuple[Session, list]:
             listed = site_data.view(record.site_data, history)
             return record.with_site_data({}), [s["site"] for s in listed["sites"]]
 
@@ -182,7 +175,7 @@ def mount(mcp, workspaces, catalogue, prefix, guarded, changes) -> None:
 
         # Applied to the record as it is when written, so a save or an open
         # landing while this runs is kept rather than set back.
-        def forget(record: Workspace) -> tuple[Workspace, dict]:
+        def forget(record: Session) -> tuple[Session, dict]:
             left, removed = site_data.forget(record.site_data, host)
             if not (removed["cookies"] or removed["origins"]):
                 raise faults.NotFound(missing)

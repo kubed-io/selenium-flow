@@ -25,7 +25,7 @@ def timed(workspaces, tool: str):
     its schema and its description are unchanged. The call names the caller's
     workspace, or for a tool that takes ``session`` the session it reads
     (`Workspaces.reading`, which never writes, never `session_of`, which
-    claims); a session that cannot be read is the workspace's, and the tool
+    seats an open); a session that cannot be read is the workspace's, and the tool
     says why itself.
     """
 

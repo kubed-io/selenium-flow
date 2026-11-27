@@ -9,10 +9,10 @@ from mcp.shared.exceptions import MCPError
 
 from kubed.selenium_flow.capture import OFF
 from kubed.selenium_flow.mcp import resources
-from kubed.selenium_flow.workspace.store import Workspace
 
 from .capture_events import done, log, nav_started, req
-from .conftest import NAMED, calling_as
+from .conftest import NAMED, NAMED_KEY, calling_as
+from .fakes import seated
 
 pytestmark = pytest.mark.unit
 
@@ -43,16 +43,16 @@ def server(data_server, monkeypatch):
 
 def capturing(server):
     """The named workspace holds a captured browser that has seen a failure."""
-    server.workspaces.store.set(NAMED, Workspace(session_id="s1", settings={"capture": True}))
+    seated(server.workspaces.store, NAMED, session_id="s1", settings={"capture": True})
     capture = server.capture
-    capture.attached(NAMED, "s1", "chrome", "top-1", again=False)
+    capture.attached(NAMED_KEY, "s1", "chrome", "top-1", again=False)
     for method, params in (
         nav_started("https://a.test/"),
         log("boom", level="error"),
         req("r1", "https://a.test/api", initiator="fetch"),
         done("r1", 500),
     ):
-        capture.ingest(NAMED, "s1", method, params)
+        capture.ingest(NAMED_KEY, "s1", method, params)
 
 
 async def read(server, uri):

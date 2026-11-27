@@ -37,12 +37,12 @@ from kubed.selenium_flow.live.control import (
 )
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import waiting
+from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace import locks
-from kubed.selenium_flow.workspace.store import Workspace
 
-from .conftest import calling_as
-from .fakes import held, loaded, untabbed
+from .conftest import TOKEN, calling_as
+from .fakes import held, loaded, record_of, seated, shared_of, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -66,6 +66,8 @@ OUTLINE = {
 }
 HISTORY = [{"origin": "https://a.test", "url": "https://a.test/", "at": 1.0}]
 HHMM = r"\d\d:\d\d"
+# The session a caller naming `w1` and no session reaches: its own, `default`.
+W1 = "w1/default"
 
 
 class Browser:
@@ -79,7 +81,20 @@ class Browser:
 
 @pytest.fixture
 def server(monkeypatch):
-    server = untabbed(SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}}))
+    return built(monkeypatch, {"grid": {"url": "http://grid.invalid:4444"}})
+
+
+@pytest.fixture
+def token_server(monkeypatch):
+    """`server`, behind the server token."""
+    return built(
+        monkeypatch,
+        {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}},
+    )
+
+
+def built(monkeypatch, settings):
+    server = untabbed(SeleniumMCP(settings))
     browser = Browser()
     monkeypatch.setattr(server.grid, "is_alive", lambda sid: sid in browser.alive)
 
@@ -101,7 +116,7 @@ def server(monkeypatch):
     monkeypatch.setattr(
         server.pages, "listed", lambda _gid: ([dict(p) for p in PAGES], 0)
     )
-    server.store.set("w1", Workspace(session_id=GRID, history=list(HISTORY)))
+    seated(server.store, "w1", session_id=GRID, history=list(HISTORY))
     server.browser = browser
     return server
 
@@ -169,7 +184,7 @@ def hand_back(tunnel):
 
 
 async def hold(server, who="alex"):
-    return await asyncio.to_thread(held, server.tunnels, "w1", who, "control", GRID)
+    return await asyncio.to_thread(held, server.tunnels, W1, who, "control", GRID)
 
 
 def legacy(server):
@@ -193,7 +208,7 @@ async def test_it_returns_with_the_summary_the_moment_the_person_hands_back(
         result = await call
         # Said by this answer, so the next result has nothing to add. (The
         # client's exit stops the server, which forgets every hand-back.)
-        assert server.controls.notice("w1") is None
+        assert server.controls.notice(W1) is None
     summary = result.structured_content
     assert summary["handed_back"] is True and summary["ended"] is False
     control = summary["control"]
@@ -211,7 +226,7 @@ async def test_it_returns_with_the_summary_the_moment_the_person_hands_back(
     )
     assert "visited" in summary["message"]
     # Ruling 29: nothing to History, and the page was read, not reopened.
-    assert server.store.get("w1").history == HISTORY
+    assert shared_of(server.store, "w1").history == HISTORY
     assert server.browser.read == [GRID] and server.browser.opened == 0
 
 
@@ -230,7 +245,7 @@ def test_a_hand_back_keeps_the_tab_moves_its_read_followed(server, monkeypatch):
     monkeypatch.setattr(
         server.actions, "check_tabs", lambda sid: next(follows, {})
     )
-    summary = server.workspaces.handed_back("w1", None)
+    summary = server.workspaces.handed_back(W1, None)
     assert summary["tab"] == "t2"
     assert summary["opened"] == [
         {"tab": "t2", "url": "https://pay.example.test/?k=s3cret"}
@@ -240,7 +255,7 @@ def test_a_hand_back_keeps_the_tab_moves_its_read_followed(server, monkeypatch):
 
 
 def test_a_hand_back_with_no_tab_move_says_none(server):
-    summary = server.workspaces.handed_back("w1", None)
+    summary = server.workspaces.handed_back(W1, None)
     assert not {"tab", "opened", "closed"} & set(summary)
 
 
@@ -257,7 +272,7 @@ async def test_the_blocking_call_sends_progress_and_answers_at_the_cap(
     async with asyncio.timeout(SOON), legacy(server) as client:
         result = await client.call_tool("await_control", progress_handler=progressed)
         # Still held: the episode is the person's, not the waiter's.
-        assert server.controls.notice("w1")["state"] == "held"
+        assert server.controls.notice(W1)["state"] == "held"
     summary = result.structured_content
     assert summary["handed_back"] is False and summary["ended"] is False
     assert summary["message"] == "still in a person's control; call again."
@@ -294,17 +309,17 @@ async def test_nobody_in_control_answers_at_once(server, named, monkeypatch):
     assert summary["page"] == {"url": OUTLINE["url"], "title": "Home"}
     assert summary["message"] == NOBODY
     assert NOBODY == "nobody has control of this browser: carry on."
-    assert server.store.get("w1").history == HISTORY
+    assert shared_of(server.store, "w1").history == HISTORY
 
 
 async def test_a_held_notice_is_said_by_await_control(server, named):
     server.store.update(
-        "w1", lambda r: replace(r, reopened={"browser": GRID, "cause": "reaped", "report": None}))
+        W1, lambda r: replace(r, reopened={"browser": GRID, "cause": "reaped", "report": None}))
     async with asyncio.timeout(SOON), legacy(server) as client:
         result = await client.call_tool("await_control")
     assert result.structured_content["reopened"] == {
         "cause": "reaped", "message": faults.REOPENED["reaped"]}
-    assert server.store.get("w1").reopened == {}
+    assert record_of(server.store, "w1").reopened == {}
 
 
 async def test_an_unsaid_hand_back_is_returned_once(server, named):
@@ -312,7 +327,7 @@ async def test_an_unsaid_hand_back_is_returned_once(server, named):
     hand_back(tunnel)
     async with asyncio.timeout(SOON), legacy(server) as client:
         first = await client.call_tool("await_control")
-        assert server.controls.notice("w1") is None
+        assert server.controls.notice(W1) is None
         second = await client.call_tool("await_control")
     assert first.structured_content["handed_back"] is True
     assert first.structured_content["control"]["who"] == ["alex"]
@@ -375,10 +390,10 @@ async def test_a_cancelled_wait_leaves_the_episode_holding(server, named, monkey
             await asyncio.sleep(0.02)
         assert (await task.status()).status == "cancelled"
         await stopped.wait()
-        assert server.controls.notice("w1")["state"] == "held"
+        assert server.controls.notice(W1)["state"] == "held"
         hand_back(tunnel)
         # Nobody heard it: the hand-back is still to be said.
-        assert server.controls.notice("w1")["state"] == "handed_back"
+        assert server.controls.notice(W1)["state"] == "handed_back"
 
 
 
@@ -398,7 +413,7 @@ async def test_a_hand_back_heard_by_a_wait_being_cancelled_is_still_to_be_said(
     monkeypatch.setattr(server.actions, "outline", outline)
     async with asyncio.timeout(SOON):
         waiter = asyncio.create_task(
-            await_control(server.controls, server.workspaces, "w1", cap=None)
+            await_control(server.controls, server.workspaces, W1, cap=None)
         )
         await asyncio.sleep(0)
         hand_back(tunnel)
@@ -407,7 +422,7 @@ async def test_a_hand_back_heard_by_a_wait_being_cancelled_is_still_to_be_said(
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await waiter
-    assert server.controls.notice("w1")["state"] == "handed_back"
+    assert server.controls.notice(W1)["state"] == "handed_back"
 
 @contextmanager
 def turn_held():
@@ -486,7 +501,7 @@ async def test_a_page_that_cannot_be_read_is_said_and_the_hand_back_spent(
     caplog.set_level(logging.DEBUG)
     async with asyncio.timeout(SOON), legacy(server) as client:
         result = await client.call_tool("await_control")
-        assert server.controls.notice("w1") is None  # said by this answer
+        assert server.controls.notice(W1) is None  # said by this answer
     summary = result.structured_content
     assert summary["handed_back"] is True
     assert "app.example/secret" in summary["page_error"]
@@ -601,7 +616,7 @@ async def test_the_carried_header_is_ignored_on_a_request(server):
 async def test_a_submission_naming_no_workspace_is_refused(server):
     """Refused at submission, as the tool would refuse it inline: a worker
     has nothing to say it with, and must never invent a name."""
-    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "alex", "control"))
+    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio/default", "alex", "control"))
     async with over_http(server, "http://test/mcp") as client:
         with pytest.raises(ToolError, match="did not run as a task"):
             await call_tool_task(client, "await_control")
@@ -619,7 +634,7 @@ async def test_a_worker_with_no_carried_name_is_unnamed_never_stdio(
         return await call_next(context)
 
     monkeypatch.setattr(clients_module.Carry, "on_call_tool", through)
-    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "alex", "control"))
+    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio/default", "alex", "control"))
     hand_back(await hold(server))
     async with over_http(
         server, "http://test/mcp", headers={"Sf-Workspace": "w1"}
@@ -627,13 +642,13 @@ async def test_a_worker_with_no_carried_name_is_unnamed_never_stdio(
         task = await call_tool_task(client, "await_control")
         with pytest.raises(ToolError, match="name your workspace"):
             await task.result()
-        assert server.controls.notice("w1")["state"] == "handed_back"
+        assert server.controls.notice(W1)["state"] == "handed_back"
 
 
 async def test_a_task_over_stdio_is_still_stdio(server):
     """No HTTP request behind the task at all: one process, one client, and
     the stdio name is right."""
-    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio", "alex", "control"))
+    hand_back(await asyncio.to_thread(held, server.tunnels, "stdio/default", "alex", "control"))
     async with asyncio.timeout(SOON), Client(server.mcp.server) as client:
         result = await (await call_tool_task(client, "await_control")).result()
     assert result.structured_content["handed_back"] is True
@@ -662,6 +677,90 @@ async def test_every_task_tool_is_carried_and_no_tool_hears_a_client_s_header(se
         plain = await client.call_tool("heard")
     assert tasked.structured_content == {"workspace": "w1"}
     assert plain.structured_content == {"carried": None}
+
+
+# ---- the principal reaches the worker (WS-82, WS-84) ---------------------------
+
+BEARER = {"Authorization": f"Bearer {TOKEN}"}
+SPOOFED = '{"kind": "oidc", "subject": "sub-x", "username": "spoofed"}'
+FIRST = Principal("oidc", subject="sub-a", username="first")
+
+
+async def held_in(server, name, who="alex"):
+    """Control held on ``w1``'s session ``name``, its browser live."""
+    key = seated(server.store, "w1", name, session_id=GRID)
+    return await asyncio.to_thread(held, server.tunnels, key, who, "control", GRID)
+
+
+async def test_the_tokens_task_waits_on_its_own_session(token_server):
+    """The worker's token comes back without its principal: `Carry` carries
+    it, so an unnamed task waits on `w1/admin`, and a copy the client sent is
+    dropped."""
+    hand_back(await held_in(token_server, "admin"))
+    async with over_http(
+        token_server,
+        "http://test/mcp?workspace=w1",
+        headers={**BEARER, clients_module.CARRIED_PRINCIPAL: SPOOFED},
+    ) as client:
+        result = await (await call_tool_task(client, "await_control")).result()
+    assert result.structured_content["handed_back"] is True
+    assert result.structured_content["control"]["who"] == ["alex"]
+
+
+async def test_a_jwts_task_waits_on_its_own_session_and_may_name_it(
+    token_server, monkeypatch
+):
+    """As a JWT's verifier would give it: its own name and its subject reach
+    the worker, so it waits on `w1/first`, and naming that session is not
+    refused as another subject's."""
+    real = clients_module.principal
+
+    def verified():
+        try:
+            get_http_request()
+        except RuntimeError:
+            return real()
+        return FIRST
+
+    monkeypatch.setattr(clients_module, "principal", verified)
+    hand_back(await held_in(token_server, "first"))
+    token_server.store.update("w1/first", lambda r: replace(r, holder="sub-a"))
+    async with over_http(
+        token_server, "http://test/mcp?workspace=w1", headers=BEARER
+    ) as client:
+        unnamed = await (await call_tool_task(client, "await_control")).result()
+        hand_back(await held_in(token_server, "first", who="drk"))
+        named = await (
+            await call_tool_task(client, "await_control", {"session": "first"})
+        ).result()
+    assert unnamed.structured_content["control"]["who"] == ["alex"]
+    assert named.structured_content["handed_back"] is True
+    assert named.structured_content["control"]["who"] == ["drk"]
+
+
+async def test_a_carried_principal_the_client_sent_is_ignored(server):
+    """On an open server nothing is carried: a worker given a client's copy
+    would take another's subject."""
+
+    @server.mcp.tool(task=waiting.TASK)
+    async def who() -> dict:
+        principal = clients_module.caller().principal
+        return {"principal": principal.status() if principal else None}
+
+    @server.mcp.tool
+    def plain() -> dict:
+        principal = clients_module.caller().principal
+        return {"principal": principal.status() if principal else None}
+
+    async with over_http(
+        server,
+        "http://test/mcp?workspace=w1",
+        headers={clients_module.CARRIED_PRINCIPAL: SPOOFED},
+    ) as client:
+        tasked = await (await call_tool_task(client, "who")).result()
+        inline = await client.call_tool("plain")
+    assert tasked.structured_content == {"principal": None}
+    assert inline.structured_content == {"principal": None}
 
 
 # ---- the long poll -------------------------------------------------------------
@@ -699,7 +798,7 @@ async def test_the_long_poll_answers_the_same_summary(server, monkeypatch):
     assert summary["visited"] == VISITED
     assert summary["page"] == {"url": OUTLINE["url"], "title": "Home"}
     assert "control of this browser" not in response.text  # no notice on HTTP
-    assert server.store.get("w1").history == HISTORY
+    assert shared_of(server.store, "w1").history == HISTORY
 
 
 async def test_the_long_poll_answers_at_the_cap(server, monkeypatch):

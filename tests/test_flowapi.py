@@ -19,8 +19,8 @@ from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.names import GLOBAL_WORKSPACE, STDIO_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
 
-from .conftest import NAMED, TOKEN
-from .fakes import untabbed
+from .conftest import NAMED, NAMED_KEY, TOKEN
+from .fakes import record_of, shared_of, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -657,7 +657,7 @@ async def test_a_resize_step_is_written_back_to_the_workspace(flow_server, monke
                                   "url": "u", "title": "t"},
     )
     monkeypatch.setattr(flow_server.workspaces, "resolved", lambda name: ("browser-1", "chrome"))
-    flow_server.workspaces.remember(NAMED, "browser-1", "", {"browser": "firefox"})
+    flow_server.workspaces.remember(NAMED_KEY, "browser-1", "", {"browser": "firefox"})
     await call(
         flow_server,
         flowapi.SAVE_TOOL,
@@ -665,7 +665,7 @@ async def test_a_resize_step_is_written_back_to_the_workspace(flow_server, monke
         steps=[{"tool": "resize", "args": {"width": 1400, "height": 900}}],
     )
     await call(flow_server, flowapi.RUN_TOOL, name="widen")
-    record = flow_server.workspaces.store.get(NAMED)
+    record = record_of(flow_server.workspaces.store, NAMED)
     assert record.window == "1400x900"
     # And the browser choice survived, as reshape's merge promises.
     assert record.settings["browser"] == "firefox"
@@ -900,7 +900,7 @@ def test_a_run_reaches_a_popup_its_step_opened_and_leaves_the_session_there():
 
     class Watching(TabbedActions):
         def extract(self, session_id, **kwargs):
-            seen.append(self.workspaces.origins.current("w", session_id))
+            seen.append(self.workspaces.origins.current("w/default", session_id))
             return super().extract(session_id, **kwargs)
 
     actions = Watching()
@@ -918,7 +918,7 @@ def test_a_run_reaches_a_popup_its_step_opened_and_leaves_the_session_there():
         assert report["status"] == "ok", report
         assert report["steps"][0]["result"]["tab"] == "t2"
         assert seen == ["https://sso.example.test"]
-        assert workspaces.store.get("w").url == popup
+        assert shared_of(workspaces.store, "w").page("default") == popup
     finally:
         workspaces.scrubber.close()
 

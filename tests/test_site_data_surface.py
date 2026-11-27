@@ -10,11 +10,11 @@ from kubed.selenium_flow.core import capabilities
 from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.site_data import snapshot as site_data
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .conftest import NAMED, TOKEN, calling_as
-from .fakes import untabbed
+from .fakes import TOKEN_SESSION, record_of, seated, untabbed, visits
 
 pytestmark = pytest.mark.unit
 
@@ -32,13 +32,13 @@ def saved_record():
         "session": {"origin": f"https://{SITE}", "items": {}},
         "saved_at": 1000.0,
     }
-    return Workspace(site_data=data).visited(f"https://{SITE}/x")
+    return Session(site_data=data)
 
 
 @pytest.fixture
 def saved(server, monkeypatch):
     calling_as(monkeypatch, NAMED)
-    server.workspaces.store.set(NAMED, saved_record())
+    seated(server.workspaces.store, NAMED, record=saved_record(), history=visits(f"https://{SITE}/x"))
     return server
 
 
@@ -76,6 +76,9 @@ async def test_the_resources_list_and_show_one_site_masking_httponly(saved):
 
 
 async def test_the_http_routes_answer_the_same(saved):
+    # The token's own session holds the same saved data as the default's.
+    seated(saved.workspaces.store, NAMED, TOKEN_SESSION, record=saved_record(),
+           history=visits(f"https://{SITE}/x"))
     client = TestClient(saved.mcp.server.http_app())
     params = {"workspace": NAMED}
     listed = client.get("/site-data", headers=AUTH, params=params)
@@ -111,8 +114,8 @@ def test_the_capture_never_leaves_the_server(monkeypatch):
     ))
     # The record names the browser `resolve` hands back, as it does for real:
     # a save is kept only by the browser that captured it.
-    server.workspaces.store.set(
-        NAMED, Workspace(session_id="live-id").visited(f"https://{SITE}/")
+    seated(
+        server.workspaces.store, NAMED, TOKEN_SESSION, record=Session(session_id="live-id"), history=visits(f"https://{SITE}/")
     )
     client = TestClient(server.mcp.server.http_app())
     response = client.post(
@@ -164,7 +167,7 @@ def _save_through_the_server(monkeypatch, channel, broken=None):
         {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     ))
     server.actions.channels = channels_for(channel, broken=broken)
-    server.workspaces.store.set(NAMED, Workspace().visited(f"https://{SITE}/"))
+    seated(server.workspaces.store, NAMED, TOKEN_SESSION, record=Session(), history=visits(f"https://{SITE}/"))
     client = TestClient(server.mcp.server.http_app())
     response = client.post(
         "/browser/save-site-data", headers=AUTH, params={"workspace": NAMED}, json={}
@@ -186,7 +189,7 @@ def test_save_with_bidi_unreachable_is_a_scrubbed_503(monkeypatch, caplog):
     assert response.status_code == 503, response.json()
     error = response.json()["error"]
     assert error.startswith("the browser's BiDi channel is unavailable")
-    assert server.workspaces.store.get(NAMED).site_data == {}
+    assert record_of(server.workspaces.store, NAMED, TOKEN_SESSION).site_data == {}
 
     url = "ws://user:pw@grid.invalid/session/x/se/bidi"
 
@@ -214,7 +217,7 @@ def test_a_channel_that_will_not_open_is_a_503_and_saves_nothing(monkeypatch):
         monkeypatch, None, broken=BidiUnavailable(CHANNEL_DOWN)
     )
     assert response.status_code == 503, response.json()
-    assert server.workspaces.store.get(NAMED).site_data == {}
+    assert record_of(server.workspaces.store, NAMED, TOKEN_SESSION).site_data == {}
 
 
 def test_a_browser_that_refuses_the_cookie_read_is_a_503_too(monkeypatch):

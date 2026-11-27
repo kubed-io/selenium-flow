@@ -19,9 +19,10 @@ import pytest
 
 from kubed.selenium_flow.http.admin import workspaces as admin
 from kubed.selenium_flow.monitor.events import CallFinished
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 
 from .conftest import TOKEN
+from .fakes import seated, visits
 
 pytestmark = pytest.mark.unit
 
@@ -193,7 +194,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
         return {"value": {"nodes": []}}
 
     monkeypatch.setattr(server.actions.grid, "status", status)
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
 
     app = server.mcp.server.http_app()
     stop = asyncio.Event()
@@ -216,7 +217,7 @@ async def test_every_connected_page_is_sent_the_same_events(server, monkeypatch)
         assert all(len(s) == 1 for s in sinks), "a tick that found no change spoke"
 
         # Tick three is blocked having already read the store; this lands in four.
-        server.workspaces.store.set("two", Workspace(session_id=""))
+        seated(server.workspaces.store, "two", session_id="")
         await tick(4)
         await _until(lambda: all(len(s) == 2 for s in sinks), "the change")
         assert sinks[0] == sinks[1] == sinks[2]
@@ -271,7 +272,7 @@ async def test_a_page_joining_mid_tick_is_sent_each_state_once(
     sends a page the same state twice."""
     monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
     gate, entered = gated
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     app = server.mcp.server.http_app()
     stop = asyncio.Event()
     first, second, third = [], [], []
@@ -296,7 +297,7 @@ async def test_a_page_joining_mid_tick_is_sent_each_state_once(
         assert len(entered) == 3, "a fresh join is not a Grid call"
 
         # Tick 3 read the store before it blocked; the change lands in tick 4.
-        server.workspaces.store.set("two", Workspace(session_id=""))
+        seated(server.workspaces.store, "two", session_id="")
         gate.release(1)
         await _until(lambda: len(entered) >= 4, "tick 4")
         gate.release(1)
@@ -312,7 +313,7 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
 ):
     monkeypatch.setattr(admin, "POLL_SECONDS", 60.0)
     monkeypatch.setattr(admin, "FRESH_SECONDS", 60.0)
-    server.workspaces.store.set("one", Workspace(session_id="abc"))
+    seated(server.workspaces.store, "one", session_id="abc")
     app = server.mcp.server.http_app()
     stop = asyncio.Event()
     sink = []
@@ -328,8 +329,8 @@ async def test_the_listing_is_the_last_broadcast_while_it_is_fresh(
         } == json.loads(sink[0])
 
         # Ending a browser changes the list, so the listing after it is new.
-        def end_browser(caller, *, admin=False):
-            server.workspaces.store.set(caller.name, Workspace(session_id=""))
+        def end_browser(caller, *, admin=False, session=None):
+            seated(server.workspaces.store, caller.name, session or "default", session_id="")
 
         monkeypatch.setattr(server.workspaces, "end_browser", end_browser)
         await _request(app, "DELETE", "/admin/workspaces/one/session")
@@ -350,7 +351,7 @@ async def test_a_failed_tick_sends_nothing_and_the_stream_carries_on(
     server, counted, monkeypatch
 ):
     monkeypatch.setattr(admin, "POLL_SECONDS", 0.02)
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     failures = []
     real = admin.owner_label
 
@@ -428,9 +429,8 @@ async def test_a_forget_with_a_page_open_is_in_the_next_listing(
                      "path": "/"}],
         "origins": {}, "session": {}, "saved_at": 1.0,
     }
-    server.workspaces.store.set(
-        "one",
-        Workspace(session_id="").visited("https://app.example.com/").with_site_data(jar),
+    seated(server.workspaces.store, "one",
+        record=Session(session_id="").with_site_data(jar), history=visits("https://app.example.com/"),
     )
     app = server.mcp.server.http_app()
     stop = asyncio.Event()
@@ -527,7 +527,7 @@ async def _open(server, monkeypatch, poll=0.02, refresh=60.0, pages=1):
 
 async def test_a_quiet_list_is_computed_once(server, computed, monkeypatch):
     # 10 ticks with nothing marked: one build, the first.
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     _app, stop, (sink,), tasks = await _open(server, monkeypatch)
     try:
         await _until(lambda: len(sink) == 1, "the first event")
@@ -543,9 +543,8 @@ async def test_a_changing_route_is_computed_on_the_next_tick(server, computed, m
                      "path": "/"}],
         "origins": {}, "session": {}, "saved_at": 1.0,
     }
-    server.workspaces.store.set(
-        "one",
-        Workspace(session_id="").visited("https://app.example.com/").with_site_data(jar),
+    seated(server.workspaces.store, "one",
+        record=Session(session_id="").with_site_data(jar), history=visits("https://app.example.com/"),
     )
     app, stop, (sink,), tasks = await _open(server, monkeypatch)
     try:
@@ -561,11 +560,11 @@ async def test_a_changing_route_is_computed_on_the_next_tick(server, computed, m
 
 
 async def test_a_finished_call_is_computed_on_the_next_tick(server, computed, monkeypatch):
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     _app, stop, (sink,), tasks = await _open(server, monkeypatch)
     try:
         await _until(lambda: len(sink) == 1, "the first event")
-        server.workspaces.store.set("two", Workspace(session_id=""))
+        seated(server.workspaces.store, "two", session_id="")
         server.bus.publish(_finished())
         await _until(lambda: len(sink) == 2, "the change")
         await asyncio.sleep(0.2)
@@ -575,7 +574,7 @@ async def test_a_finished_call_is_computed_on_the_next_tick(server, computed, mo
 
 
 async def test_many_finished_calls_are_one_computation(server, computed, monkeypatch):
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     _app, stop, (sink,), tasks = await _open(server, monkeypatch, poll=0.4)
     try:
         await _until(lambda: len(sink) == 1, "the first event")
@@ -593,7 +592,7 @@ async def test_many_finished_calls_are_one_computation(server, computed, monkeyp
 async def test_an_unchanged_list_is_computed_again_past_the_refresh_bound(
     server, computed, monkeypatch
 ):
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     _app, stop, (sink,), tasks = await _open(server, monkeypatch, refresh=0.1)
     try:
         await _until(lambda: len(sink) == 1, "the first event")
@@ -605,7 +604,7 @@ async def test_an_unchanged_list_is_computed_again_past_the_refresh_bound(
 
 async def test_a_page_joining_a_quiet_list_is_sent_it_at_once(server, computed, monkeypatch):
     # FRESH_SECONDS stays 1.0: the first build is older than that when the second page joins.
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     app, stop, (first,), tasks = await _open(server, monkeypatch)
     second = []
     try:
@@ -621,7 +620,7 @@ async def test_a_page_joining_a_quiet_list_is_sent_it_at_once(server, computed, 
 async def test_a_mark_during_a_computation_is_not_seen_by_it(server, gated, monkeypatch):
     monkeypatch.setattr(admin, "REFRESH_SECONDS", 60.0)  # over the fixture's 0.0
     gate, entered = gated
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     app = server.mcp.server.http_app()
     stop = asyncio.Event()
     sink = []
@@ -669,7 +668,7 @@ async def test_an_invalidation_is_never_seen_by_a_build_it_raced(monkeypatch):
 
 
 async def test_a_failed_computation_leaves_the_mark_unseen(server, computed, monkeypatch):
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     failing = []
     real = admin.owner_label
 
@@ -684,7 +683,7 @@ async def test_a_failed_computation_leaves_the_mark_unseen(server, computed, mon
     try:
         await _until(lambda: len(sink) == 1, "the first event")
         failing.append(True)
-        server.workspaces.store.set("two", Workspace(session_id=""))
+        seated(server.workspaces.store, "two", session_id="")
         server.bus.publish(_finished())
         await _until(lambda: len(sink) == 2, "the change, after the blip")
         await asyncio.sleep(0.2)
@@ -709,7 +708,7 @@ def _blips_once(real):
 async def test_a_build_the_grid_failed_is_built_again_on_the_next_tick(
     server, computed, monkeypatch
 ):
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     sessions, blips = _blips_once(list)
     monkeypatch.setattr(server.actions.grid, "sessions", sessions)
     _app, stop, (sink,), tasks = await _open(server, monkeypatch)
@@ -728,7 +727,7 @@ async def test_a_build_the_grid_failed_is_built_again_on_the_next_tick(
 async def test_a_build_the_store_failed_is_built_again_on_the_next_tick(
     server, computed, monkeypatch
 ):
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     records, blips = _blips_once(server.workspaces.store.records)
     monkeypatch.setattr(server.workspaces.store, "records", records)
     _app, stop, (sink,), tasks = await _open(server, monkeypatch)
@@ -746,7 +745,7 @@ async def test_a_build_the_store_failed_is_built_again_on_the_next_tick(
 
 async def test_a_finished_call_is_never_answered_from_before_it(server, counted, monkeypatch):
     monkeypatch.setattr(admin, "FRESH_SECONDS", 0.0)
-    server.workspaces.store.set("one", Workspace(session_id=""))
+    seated(server.workspaces.store, "one", session_id="")
     app, stop, (sink,), tasks = await _open(server, monkeypatch, poll=60.0)
     try:
         await _until(lambda: len(sink) == 1, "the first event")

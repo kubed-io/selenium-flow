@@ -16,7 +16,7 @@ from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.flows.run import run
 from kubed.selenium_flow.flows.template import FlowError
 
-from .fakes import FakeActions, FakeClock, Vault
+from .fakes import FakeActions, FakeClock, Vault, record_of
 
 pytestmark = pytest.mark.unit
 
@@ -1758,7 +1758,7 @@ def test_a_run_scrubs_each_step_with_the_origins_it_began_and_ended_on(monkeypat
         assert seen["leashed_before_failing"] == 0
         assert seen["failed"].ids == {IN_SCOPE_ID}  # unknown: every leashed secret
         assert catalogue.calls["leashed"] == 1
-        assert workspaces.origins.current("w", workspaces.store.get("w").session_id) == a
+        assert workspaces.origins.current("w/default", record_of(workspaces.store, "w").session_id) == a
     finally:
         workspaces.scrubber.close()
 

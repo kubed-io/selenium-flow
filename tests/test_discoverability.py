@@ -188,14 +188,14 @@ async def test_a_choice_is_accepted_in_any_case_over_mcp(
     capitalised must not start failing. Through the real tool, not a model."""
     from fastmcp import Client
 
-    from .conftest import NAMED, calling_as
+    from .conftest import NAMED, NAMED_KEY, calling_as
 
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.workspaces, "resolved", lambda name: ("abc", "chrome"))
     monkeypatch.setattr(
         server.actions, tool, lambda s, action, **_: {"action": action, "url": "about:blank"}
     )
-    server.workspaces.remember(NAMED, "abc", "", {"browser": "chrome"})
+    server.workspaces.remember(NAMED_KEY, "abc", "", {"browser": "chrome"})
 
     async with Client(server.mcp.server) as client:
         result = await client.call_tool(tool, given)

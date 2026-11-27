@@ -5,13 +5,16 @@ from dataclasses import replace
 
 import pytest
 
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
-from .conftest import NAMED, RecordingActions
-from .fakes import WorkspaceActions, caller
+from .conftest import NAMED, NAMED_KEY, RecordingActions
+from .fakes import WorkspaceActions, caller, record_of, seated
 
 pytestmark = pytest.mark.unit
+
+# The key of the session `caller()` reaches: its own, in the workspace `bot`.
+BOT = "bot/default"
 
 
 class Announced:
@@ -38,22 +41,22 @@ def test_an_open_keeps_the_grids_timeout_and_announces_the_browser():
     announced = Announced()
     m = manager(announced)
     m.open_browser(caller(), browser="firefox")
-    assert m.store.get("bot").grid_timeout == 300
-    assert announced.calls == [("opened", "bot", "grid0001", "firefox", 300, False)]
+    assert record_of(m.store, "bot").grid_timeout == 300
+    assert announced.calls == [("opened", BOT, "grid0001", "firefox", 300, False)]
 
 
 def test_a_timeout_the_grid_will_not_give_is_none_and_the_open_goes_on():
     m = manager()
     m.actions.grid.timeout_fails = True
     result = m.open_browser(caller())
-    assert result["workspace"] == "bot" and m.store.get("bot").grid_timeout is None
+    assert result["workspace"] == "bot" and record_of(m.store, "bot").grid_timeout is None
 
 
 def test_the_timeout_survives_the_browser_and_is_described():
     m = manager()
     m.open_browser(caller())
     m.end_browser(caller())
-    record = m.store.get("bot")
+    record = record_of(m.store, "bot")
     assert not record.attached and record.grid_timeout == 300
     assert m.describe(caller())["grid_timeout"] == 300
 
@@ -67,12 +70,12 @@ def test_end_announces_ended_and_a_failed_quit_announces_nothing():
     m = manager(announced)
     m.open_browser(caller())
     m.end_browser(caller())
-    assert announced.calls[-1] == ("ended", "bot", "grid0001", "ended")
+    assert announced.calls[-1] == ("ended", BOT, "grid0001", "ended")
     m.open_browser(caller())
     m.actions.quit_fails = True
     m.end_browser(caller())
     assert [c for c in announced.calls if c[0] == "ended"] == [
-        ("ended", "bot", "grid0001", "ended")
+        ("ended", BOT, "grid0001", "ended")
     ]
 
 
@@ -98,34 +101,34 @@ def test_a_reap_found_by_a_call_is_lost_and_the_reopen_is_announced():
     m.open_browser(caller())
     m.actions.grid.alive.clear()  # the Grid reaped it
     m.actions.grid.timeouts["grid0002"] = 600  # a node with another timeout
-    assert m.resolve("bot") == "grid0002"
+    assert m.resolve(BOT) == "grid0002"
     assert announced.calls[1:] == [
-        ("ended", "bot", "grid0001", "lost"),
-        ("opened", "bot", "grid0002", "chrome", 600, True),
+        ("ended", BOT, "grid0001", "lost"),
+        ("opened", BOT, "grid0002", "chrome", 600, True),
     ]
-    assert m.store.get("bot").grid_timeout == 600
+    assert record_of(m.store, "bot").grid_timeout == 600
 
 
 def test_a_racing_opens_loser_is_announced_ended_and_never_opened():
     announced = Announced()
     m = manager(announced)
-    m.store.set("bot", Workspace(session_id="winner"))
-    kept = m.remember("bot", "loser", replacing=None)
+    seated(m.store, "bot", session_id="winner")
+    kept = m.remember(BOT, "loser", replacing=None)
     assert kept == "winner"
-    assert announced.calls == [("ended", "bot", "loser", "ended")]
+    assert announced.calls == [("ended", BOT, "loser", "ended")]
 
 
 def test_without_a_monitor_nothing_is_announced_and_nothing_fails():
     m = manager()
     m.open_browser(caller())
     m.end_browser(caller())
-    assert m.store.get("bot").grid_timeout == 300
+    assert record_of(m.store, "bot").grid_timeout == 300
 
 
 def test_an_old_held_report_reads_as_reaped():  # Review Focus 2
     raw = {"session_id": "a", "set_by": {}, "opened_at": 5.0,
            "reopened": {"browser": "a", "report": {"restored": ["x.test"]}}}
-    record = Workspace.from_json(json.dumps(raw))
+    record = Session.from_json(json.dumps(raw))
     assert record.called_at == 0.0
     assert record.notice == {"cause": "reaped", "report": {"restored": ["x.test"]}}
     assert replace(record, session_id="b").notice is None
@@ -134,15 +137,15 @@ def test_an_old_held_report_reads_as_reaped():  # Review Focus 2
 @pytest.mark.parametrize("raw, read", [("12.5", 12.5), ('"x"', 0.0), ("null", 0.0), ("-5", 0.0), ("true", 0.0),
                                       (str(10**400), 0.0)])
 def test_a_stored_called_at_is_read_only_when_it_is_a_number(raw, read):
-    record = Workspace.from_json(f'{{"session_id": "a", "set_by": {{}}, "called_at": {raw}}}')
+    record = Session.from_json(f'{{"session_id": "a", "set_by": {{}}, "called_at": {raw}}}')
     assert record is not None and record.called_at == read
 
 
 @pytest.mark.parametrize("raw, read", [("12.5", 12.5), ('"x"', 0.0), ("null", 0.0), ("-5", 0.0), ("true", 0.0)])
 def test_a_stored_pinged_at_is_read_as_called_at_is(raw, read):
-    record = Workspace.from_json(f'{{"session_id": "a", "set_by": {{}}, "pinged_at": {raw}}}')
+    record = Session.from_json(f'{{"session_id": "a", "set_by": {{}}, "pinged_at": {raw}}}')
     assert record is not None and record.pinged_at == read
-    assert Workspace.from_json(record.to_json()).pinged_at == read
+    assert Session.from_json(record.to_json()).pinged_at == read
 
 
 @pytest.mark.parametrize("raw, read", [("12.5", 12.5), ("-5", 0.0), ("true", 0.0), (str(10**400), 0.0),
@@ -150,14 +153,14 @@ def test_a_stored_pinged_at_is_read_as_called_at_is(raw, read):
                                       ('"inf"', 0.0), ('"-5"', 0.0)])
 def test_a_stored_opened_at_is_read_as_called_at_is_when_it_is_a_number(raw, read):
     """Not a number at all, the record is a miss instead."""
-    record = Workspace.from_json(f'{{"session_id": "a", "set_by": {{}}, "opened_at": {raw}}}')
+    record = Session.from_json(f'{{"session_id": "a", "set_by": {{}}, "opened_at": {raw}}}')
     assert record is not None and record.opened_at == read
 
 
 def test_a_stored_timeout_is_read_back_only_when_it_is_a_positive_int():
-    assert Workspace.from_json('{"grid_timeout": 300}').grid_timeout == 300
+    assert Session.from_json('{"grid_timeout": 300}').grid_timeout == 300
     for raw in ('"300"', "0", "-5", "true", "1.5", "null"):
-        record = Workspace.from_json(f'{{"grid_timeout": {raw}}}')
+        record = Session.from_json(f'{{"grid_timeout": {raw}}}')
         assert record.grid_timeout is None, raw
 
 
@@ -191,7 +194,7 @@ def let_go(spy, session_id):
 def test_a_failed_quit_lets_the_monitor_go_of_the_browser():
     spy = SpyMonitor()
     workspaces = Workspaces(StuckActions(), monitor=spy)
-    workspaces.remember(NAMED, "one", "https://a.test/")
+    workspaces.remember(NAMED_KEY, "one", "https://a.test/")
     workspaces.end_browser(Caller(NAMED))
     assert let_go(spy, "one")
 
@@ -199,6 +202,6 @@ def test_a_failed_quit_lets_the_monitor_go_of_the_browser():
 def test_a_losing_open_whose_quit_fails_is_not_left_watched():
     spy = SpyMonitor()
     workspaces = Workspaces(StuckActions(), monitor=spy)
-    workspaces.remember(NAMED, "winner", "https://a.test/")
-    workspaces.remember(NAMED, "loser", "https://a.test/")
+    workspaces.remember(NAMED_KEY, "winner", "https://a.test/")
+    workspaces.remember(NAMED_KEY, "loser", "https://a.test/")
     assert let_go(spy, "loser")

@@ -71,6 +71,19 @@ class Controlled(Exception):
         super().__init__(message)
 
 
+HELD = "that session is held by another caller"
+
+
+class Held(Exception):
+    """The session a call names is held by another caller: a 403.
+
+    Not a ValueError: the caller can change the call, but the same call stays
+    refused for as long as the other caller holds it."""
+
+    def __init__(self, message: str = HELD):
+        super().__init__(message)
+
+
 class Conflict(Exception):
     """The request is fine, and what the server holds refuses it: a 409. Its
     message says what has to change first."""

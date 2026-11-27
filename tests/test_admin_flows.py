@@ -19,9 +19,9 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow.flows import store as flows
 from kubed.selenium_flow.names import GLOBAL_WORKSPACE
 from kubed.selenium_flow.server import SeleniumMCP
-from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
+from .fakes import seated
 
 pytestmark = pytest.mark.unit
 
@@ -52,7 +52,7 @@ def server(tmp_path, monkeypatch):
             "data": {"dir": str(tmp_path)},
         }
     )
-    built.workspaces.store.set(KEY, Workspace(session_id=""))
+    seated(built.workspaces.store, KEY, session_id="")
     return built
 
 
@@ -94,7 +94,7 @@ def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypa
     off = SeleniumMCP(
         {"grid": {"url": "http://grid.invalid:4444"}, "auth": {"token": TOKEN}}
     )
-    off.workspaces.store.set(KEY, Workspace(session_id=""))
+    seated(off.workspaces.store, KEY, session_id="")
     body = TestClient(off.mcp.server.http_app()).get(url(), headers=AUTH)
     assert body.status_code == 200
     assert body.json() == {
@@ -108,7 +108,7 @@ def test_with_flows_off_the_panel_is_empty_rather_than_broken(tmp_path, monkeypa
 def test_a_workspace_whose_name_is_not_a_directory_lists_nothing(client, server):
     """It has no library, and must not be shown the shared one as though it
     were its own — the same rule the file counts follow."""
-    server.workspaces.store.set("my bot", Workspace(session_id=""))
+    seated(server.workspaces.store, "my bot", session_id="")
     server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
     body = client.get(
         f"/admin/workspaces/{quote('my bot', safe='')}/flows", headers=AUTH
@@ -378,7 +378,7 @@ def test_moving_between_two_workspaces_needs_no_new_mechanism(client, server):
     so it is worth proving rather than assuming."""
     server.flows.write_text("other", "login", YAML)
     other = f"/admin/workspaces/{quote('other', safe='')}/flows/login/move"
-    server.workspaces.store.set("other", Workspace(session_id=""))
+    seated(server.workspaces.store, "other", session_id="")
     client.post(other, json={"to": GLOBAL_WORKSPACE}, headers=AUTH)
     client.post(url("login", "/move"), json={"to": WORKSPACE}, headers=AUTH)
     assert server.flows.read_text(WORKSPACE, "login") == YAML
@@ -473,7 +473,7 @@ def test_the_shared_revision_is_read_once_per_payload(client, server, monkeypatc
     walked and stat-ed the whole shared library once per workspace — O(workspaces x
     shared flows) on a two-second poll."""
     for n in range(3):
-        server.workspaces.store.set(f"s{n}", Workspace(session_id=""))
+        seated(server.workspaces.store, f"s{n}", session_id="")
     seen = []
     real = server.flows.revision
     monkeypatch.setattr(

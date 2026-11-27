@@ -7,6 +7,7 @@ issuer's JWKS is fetched over loopback (tests/jwks.py).
 
 import json
 import secrets
+import time
 
 # mcp's own HTTP client (a required dependency of mcp>=2.0): the test talks to
 # the app the way the real client does.
@@ -19,6 +20,7 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
+from .jwks import AUDIENCE
 from .test_http_answer import TREES
 
 INIT = {
@@ -55,6 +57,36 @@ def status_of(server, bearer):
 
 def test_a_jwt_opens_the_mcp_door(oidc_server, issuer):
     assert status_of(oidc_server, issuer.mint()) == 200
+
+
+def _claims(issuer, **claims):
+    base = {
+        "iss": issuer.issuer,
+        "aud": AUDIENCE,
+        "roles": ["mcp"],
+        "exp": int(time.time()) + 300,
+    }
+    return issuer.mint_raw(base | claims)
+
+
+def test_a_token_with_neither_sub_nor_username_is_a_401(oidc_server, issuer):
+    assert status_of(oidc_server, _claims(issuer)) == 401
+    assert status_of(oidc_server, _claims(issuer, sub="", preferred_username="")) == 401
+    # A subject is enough, and so is a username alone.
+    assert status_of(oidc_server, _claims(issuer, sub="6b0f")) == 200
+    assert status_of(oidc_server, _claims(issuer, preferred_username="sam")) == 200
+
+
+@pytest.mark.parametrize("sub", ["admin", "default", "preferred_username:sam"])
+def test_a_token_whose_sub_is_reserved_is_a_401(oidc_server, issuer, sub, caplog):
+    """`admin` is the server token's subject, `default` no principal's, and a
+    `preferred_username:` subject one a JWT with no `sub` is given: a `sub`
+    that is one would share another caller's sessions (WS-82, AUTH-49)."""
+    caplog.set_level("INFO", logger="kubed.selenium_flow.http.auth")
+    claims = {"sub": sub, "preferred_username": "sam"}
+    assert status_of(oidc_server, _claims(issuer, **claims)) == 401
+    assert any(r.getMessage().endswith(": sub is reserved") for r in caplog.records)
+    assert status_of(oidc_server, _claims(issuer, sub=f"x{sub}")) == 200
 
 
 def test_the_token_still_opens_it(oidc_server):

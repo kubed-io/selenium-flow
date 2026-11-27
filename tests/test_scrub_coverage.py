@@ -32,11 +32,13 @@ from kubed.selenium_flow.core.capabilities import CAPABILITIES
 from kubed.selenium_flow.http import files as files_module
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp.scrubbed import EXEMPT
+from kubed.selenium_flow.principal import ADMIN_SUBJECT
 from kubed.selenium_flow.server import SeleniumMCP
+from kubed.selenium_flow.workspace import sessions
 
 from .capture_events import done, log, nav_started, req
-from .conftest import NAMED, RESOURCE_TOOLS, TOKEN, http, over_http
-from .fakes import FakeGrid, untabbed
+from .conftest import NAMED, NAMED_KEY, RESOURCE_TOOLS, TOKEN, http, over_http
+from .fakes import TOKEN_SESSION, FakeGrid, record_of, seated, untabbed
 from .test_redaction import golden
 
 pytestmark = pytest.mark.unit
@@ -199,7 +201,7 @@ def server(tmp_path, leaky, monkeypatch):
 def seed(server):
     """The value everywhere a resource reads from, for the browser now open."""
     store = server.workspaces.store
-    record = store.get(NAMED)
+    record = record_of(store, NAMED)
 
     def capturing(r):
         settings = {**(r.settings or {}), "capture": True}
@@ -211,14 +213,23 @@ def seed(server):
             "saved_at": 1000.0,
         })
 
-    store.update(NAMED, capturing)
+    store.update(NAMED_KEY, capturing)
+    # The token's HTTP calls reach its own session, on the same browser.
+    own = record_of(store, NAMED)
+    if sessions.key_of(NAMED, TOKEN_SESSION) != NAMED_KEY:
+        own = replace(own, session_id=f"{own.session_id}-token")
+    seated(store, NAMED, TOKEN_SESSION, record=own, holder=ADMIN_SUBJECT)
     server.flows.write_file(NAMED, "notes.txt", ALL.encode(), files_module.FILES)
     # A plain image: pixels pass unscrubbed (ruling 16), so it holds no value.
     server.flows.write_file(
         NAMED, "shot.png", b"\x89PNG\r\n\x1a\n" + bytes(8), files_module.SCREENSHOTS
     )
     capture = server.capture
-    capture.attached(NAMED, record.session_id, "chrome", "top-1", again=False)
+    held = {NAMED_KEY: record.session_id}
+    if (token_key := sessions.key_of(NAMED, TOKEN_SESSION)) != NAMED_KEY:
+        held[token_key] = f"{record.session_id}-token"
+    for key, sid in held.items():
+        capture.attached(key, sid, "chrome", "top-1", again=False)
     basic = base64.b64encode(f"user:{VALUE}".encode()).decode()
     for method, params in (
         nav_started(f"{A}/"),
@@ -229,7 +240,8 @@ def seed(server):
         ),
         done("r1", 200, headers=[("x-echo", ALL), ("content-type", "application/json")]),
     ):
-        capture.ingest(NAMED, record.session_id, method, params)
+        for key, sid in held.items():
+            capture.ingest(key, sid, method, params)
 
 
 # ---- what comes back -------------------------------------------------------

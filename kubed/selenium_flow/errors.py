@@ -40,6 +40,7 @@ from .faults import (
     BidiUnavailable,
     Conflict,
     Controlled,
+    Held,
     NodeLost,
     NodeRefused,
     NoNodeTook,
@@ -99,6 +100,9 @@ UNAVAILABLE = (
 
 def status_for(exc: BaseException) -> int:
     """The HTTP status that tells the truth about ``exc``."""
+    if isinstance(exc, Held):
+        # First: the caller's own mistake is a 400, and this is not one.
+        return 403
     if isinstance(exc, (Controlled, Conflict)):
         # The request is fine and succeeds after `await_control`, or once
         # what refused it has changed.

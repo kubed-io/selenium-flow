@@ -21,10 +21,9 @@ from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows import store as flow_store
 from kubed.selenium_flow.secrets import perform_write
 from kubed.selenium_flow.workspace import locks
-from kubed.selenium_flow.workspace.store import Workspace
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
-from .fakes import Anywhere, FakeMonitor, WorkspaceActions
+from .fakes import Anywhere, FakeMonitor, WorkspaceActions, record_of, seated
 
 pytestmark = pytest.mark.unit
 
@@ -88,7 +87,7 @@ def controlled(gate=None):
 
 
 def grid_id(workspaces):
-    return workspaces.store.get("ws").session_id
+    return record_of(workspaces.store, "ws").session_id
 
 
 def test_an_acting_call_is_refused_and_never_begun():
@@ -120,7 +119,7 @@ def test_a_call_queued_before_the_request_is_refused_when_its_turn_comes():
     already waiting on the lock when the person asked is refused, not let in."""
     workspaces, monitor, gate = controlled()
     sid = "queued before control"
-    workspaces.store.set("ws", Workspace(session_id=sid))
+    seated(workspaces.store, "ws", session_id=sid)
     workspaces.actions.grid.alive.add(sid)
     held, release = threading.Event(), threading.Event()
 
@@ -178,7 +177,7 @@ def test_open_session_and_end_browser_are_refused_while_controlled():
         workspaces.end_browser(CALLER)
     assert workspaces.actions.n == 1, "a second browser was opened"
     assert sid in workspaces.actions.grid.alive, "the held browser was quit"
-    assert workspaces.store.get("ws").session_id == sid
+    assert record_of(workspaces.store, "ws").session_id == sid
     assert [tool for _, tool in gate.asked] == ["open_session", "end_browser"]
 
 
@@ -197,7 +196,7 @@ def test_the_admins_end_is_never_refused():
     gate.shut.add(sid)
     assert workspaces.end_browser(Caller("ws", "admin"), admin=True) == sid
     assert sid not in workspaces.actions.grid.alive
-    assert not workspaces.store.get("ws").attached
+    assert not record_of(workspaces.store, "ws").attached
     assert gate.asked == []
 
 
@@ -207,7 +206,7 @@ def test_only_the_admin_route_says_admin():
     gate.shut.add(grid_id(workspaces))
     with pytest.raises(faults.Controlled):
         workspaces.end_browser(Caller("ws", "admin"))
-    assert workspaces.store.get("ws").attached
+    assert record_of(workspaces.store, "ws").attached
 
 
 def test_a_bound_write_is_refused_before_the_page_is_read():
@@ -215,7 +214,7 @@ def test_a_bound_write_is_refused_before_the_page_is_read():
     gate.shut.add(grid_id(workspaces))
     with pytest.raises(faults.Controlled):
         perform_write(
-            Anywhere(), workspaces.actions, workspaces, "ws",
+            Anywhere(), workspaces.actions, workspaces, "ws/default",
             {"secret": {"name": "demo", "key": "password"}, "selector": {"css": "#p"}},
         )
     assert workspaces.actions.reached == []
@@ -260,6 +259,6 @@ def test_paste_is_never_refused():
     """The person in control types through it (ruling 3)."""
     workspaces, _, gate = controlled()
     gate.shut.add(grid_id(workspaces))
-    assert workspaces.paste("ws", "hello") == {"typed": 5}
+    assert workspaces.paste("ws/default", "hello") == {"typed": 5}
     assert workspaces.actions.reached == ["paste"]
     assert [tool for _, tool in gate.asked] == ["paste"]

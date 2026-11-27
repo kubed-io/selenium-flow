@@ -7,9 +7,12 @@ from kubed.selenium_flow.workspace import workspaces as workspaces_module
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .conftest import configured
-from .fakes import caller
+from .fakes import caller, record_of
 
 pytestmark = pytest.mark.unit
+
+# The key of the session `caller()` reaches: its own, in the workspace `bot`.
+BOT = "bot/default"
 
 
 class Recorder:
@@ -159,7 +162,7 @@ def test_a_reap_replays_record_and_expects_the_new_browser():
     m = manager(rec)
     m.open_browser(caller(), record=True)
     m.actions.grid.alive.clear()  # the Grid reaped it
-    m.resolve("bot")
+    m.resolve(BOT)
     assert m.actions.calls[-1]["record"] is True
     assert m.actions.calls[-1]["video_name"] == "bot"
     assert rec.expected[-1] == ("bot", "grid0002", "chrome")
@@ -168,7 +171,7 @@ def test_a_reap_replays_record_and_expects_the_new_browser():
 
 def test_a_note_that_cannot_be_written_keeps_the_browser_and_says_why():
     class Broken(Recorder):
-        def expect(self, workspace, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False, session=None):
             raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Broken())
@@ -246,14 +249,14 @@ def test_a_disabled_recorder_may_name_any_inbox(tmp_path):
 
 def test_a_reap_survives_a_note_that_cannot_be_written():
     class Broken(Recorder):
-        def expect(self, workspace, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False, session=None):
             raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Recorder())
     m.open_browser(caller(), record=True)
     m.recordings = Broken()
     m.actions.grid.alive.clear()
-    assert m.resolve("bot") == "grid0002"
+    assert m.resolve(BOT) == "grid0002"
     assert m.actions.grid.alive == {"grid0002"}
 
 
@@ -262,7 +265,7 @@ def test_a_reap_with_recording_off_does_not_replay_record():
     m.open_browser(caller(), record=True)
     m.recordings = None
     m.actions.grid.alive.clear()
-    m.resolve("bot")
+    m.resolve(BOT)
     assert not m.actions.calls[-1].get("record")
     assert "video_name" not in m.actions.calls[-1]
 
@@ -272,9 +275,9 @@ def test_a_reap_with_recording_off_remembers_the_browser_as_unrecorded():
     m.open_browser(caller(), record=True)
     m.recordings = None
     m.actions.grid.alive.clear()
-    m.resolve("bot")
+    m.resolve(BOT)
     assert m.describe(caller())["recording"] is False
-    assert "record" not in m.store.get("bot").settings
+    assert "record" not in record_of(m.store, "bot").settings
 
 
 def test_a_reap_that_loses_the_race_notes_its_video_for_discard():
@@ -287,11 +290,11 @@ def test_a_reap_that_loses_the_race_notes_its_video_for_discard():
     def open_while_another_binds(**kwargs):
         # A reopen alongside this one binds its browser first.
         m.actions.grid.alive.add("grid9999")
-        m.remember("bot", "grid9999", "", {"record": True}, replacing="grid0001")
+        m.remember(BOT, "grid9999", "", {"record": True}, replacing="grid0001")
         return real(**kwargs)
 
     m.actions.open_session = open_while_another_binds
-    assert m.resolve("bot") == "grid9999"
+    assert m.resolve(BOT) == "grid9999"
     assert [e[1] for e in rec.expected] == ["grid0001"]
     assert rec.discarded[-1] == ("bot", "grid0002", "chrome")
     assert rec.notes == {"grid0001": False, "grid0002": True}
@@ -304,7 +307,7 @@ def test_an_open_that_loses_the_race_notes_its_video_for_discard():
 
     def open_while_another_binds(**kwargs):
         m.actions.grid.alive.add("grid9999")
-        m.remember("bot", "grid9999", "", {"record": True})
+        m.remember(BOT, "grid9999", "", {"record": True})
         return real(**kwargs)
 
     m.actions.open_session = open_while_another_binds
@@ -332,7 +335,7 @@ def test_a_reap_that_fails_once_the_browser_exists_leaves_a_discard_note():
     m.actions.grid.alive.clear()
     m.actions.fail = TimeoutError("first page")
     with pytest.raises(TimeoutError):
-        m.resolve("bot")
+        m.resolve(BOT)
     assert rec.notes == {"grid0001": False, "grid0002": True}
 
 
@@ -345,7 +348,7 @@ def test_an_unrecorded_open_notes_nothing():
 
 def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
     class Broken(Recorder):
-        def expect(self, workspace, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False, session=None):
             raise PermissionError(13, "denied", "/data/workspaces/bot/recordings")
 
     m = manager(Broken())
@@ -353,7 +356,7 @@ def test_a_discard_that_cannot_be_noted_never_fails_the_open(caplog):
 
     def open_while_another_binds(**kwargs):
         m.actions.grid.alive.add("grid9999")
-        m.remember("bot", "grid9999", "", {"record": True})
+        m.remember(BOT, "grid9999", "", {"record": True})
         return real(**kwargs)
 
     m.actions.open_session = open_while_another_binds
@@ -366,7 +369,7 @@ def test_a_note_path_that_is_refused_never_fails_the_open(where):
     from kubed.selenium_flow.names import InvalidName
 
     class Refused(Recorder):
-        def expect(self, workspace, grid_id, browser, *, discard=False):
+        def expect(self, workspace, grid_id, browser, *, discard=False, session=None):
             raise InvalidName("'recordings' is a link")
 
     if where == "open":
@@ -379,7 +382,7 @@ def test_a_note_path_that_is_refused_never_fails_the_open(where):
         m.open_browser(caller(), record=True)
         m.recordings = Refused()
         m.actions.grid.alive.clear()
-        assert m.resolve("bot") == "grid0002"
+        assert m.resolve(BOT) == "grid0002"
 
 
 def test_a_quit_that_failed_does_not_start_the_collectors_clock():
@@ -393,4 +396,4 @@ def test_a_quit_that_failed_does_not_start_the_collectors_clock():
     m.actions.end_browser = down
     m.end_browser(caller())
     assert [c for c in announced.calls if c[0] == "ended"] == []
-    assert not m.store.get("bot").attached
+    assert not record_of(m.store, "bot").attached

@@ -125,7 +125,7 @@ OFF = (
 
 NOTHING = "nothing to list: this server keeps no files and holds no browser for you"
 
-# Never quotes either name: a refusal's text is logged (WS-49, 3).
+# Never quotes either name: a refusal's text is logged (WS-82).
 SESSION_DIFFERS = (
     "the uri names one session's download and session names another: drop "
     "session, since session://{name}/downloads/<file> already says whose it is"
@@ -188,7 +188,7 @@ def named_in(uri) -> str | None:
 
 def _quoted(text: str) -> str:
     """An address as a refusal quotes it: nameless (`sessions.nameless`), since
-    a refusal's text is logged (WS-49, 3)."""
+    a refusal's text is logged (WS-82)."""
     return sessions.nameless(repr(text))
 
 
@@ -204,7 +204,7 @@ def parse_uri(uri) -> tuple[str, str]:
         leaf = text.rpartition("/")[2]
         if leaf:
             return DOWNLOADS, valid_file_name(unquote(leaf))
-        # Nameless: a refusal's text is logged (WS-49, 3).
+        # Nameless: a refusal's text is logged (WS-82).
         raise ValueError(f"session://{{name}}/downloads/ names no file: use {SHAPES}")
     downloads = FOLDER_URI[DOWNLOADS] + "/"
     if text.startswith(downloads):
@@ -388,8 +388,9 @@ def folder(
 ) -> dict:
     """One section's own listing: Files, Screenshots, Recordings or Downloads.
 
-    Downloads are the session's, ``session`` (a key, the workspace's default
-    when None): with none open they are refused with ``NO_DOWNLOADS``, before
+    Downloads are the session's, ``session`` (a key; when None, the
+    workspace's ``default``, the session a caller with no principal reaches,
+    WS-82): with none open they are refused with ``NO_DOWNLOADS``, before
     anything else is asked. The other three are the workspace's, and are
     ``OFF`` without a ``DATA_DIR``, browser or not. ``at`` is the URI the
     listing is read at, when that is not its folder's own.
@@ -400,7 +401,7 @@ def folder(
     target = ""
     if which == DOWNLOADS:
         # Never `resolve`: see the module docstring.
-        target = workspaces.browser(session or name)
+        target = workspaces.browser(session or _default_of(name))
         if not target:
             raise NoSession(NO_DOWNLOADS)
     elif store is None:
@@ -462,7 +463,8 @@ def keep(
     rolled back and the error raised, never a success with the video in both.
 
     A download is read from ``session_id``, else from the browser of
-    ``session`` (a key, the workspace's default when None). ``at`` is the
+    ``session`` (a key; when None, the workspace's ``default``, as `folder`
+    reads it). ``at`` is the
     downloads it is said to come from, when not ``session://downloads``.
     """
     if store is None:
@@ -535,7 +537,7 @@ def keep(
         # Never resolved: a reopened browser cannot hold a download it never
         # took, so opening one would only spend a Grid slot.
         if session_id is None:
-            session_id = workspaces.browser(session or name)
+            session_id = workspaces.browser(session or _default_of(name))
         if not session_id:
             raise NoSession(NO_DOWNLOADS)
         data = actions.grid.read_file(session_id, leaf)
@@ -588,6 +590,12 @@ def keep_made(
     return describe(folder, entry, url, base)
 
 
+def _default_of(workspace: str) -> str:
+    """The key of ``workspace``'s ``default``: a workspace's own key holds no
+    browser (WS-7)."""
+    return sessions.key_of(workspace, sessions.DEFAULT)
+
+
 def read_file(
     actions,
     workspaces,
@@ -595,19 +603,25 @@ def read_file(
     uri,
     name: str,
     session: str | None = None,
+    caller=None,
 ) -> tuple[str, bytes]:
     """The bytes of one file, by its address. ``name`` is the workspace to read
     from: a flow run passes the workspace running it, so a shared flow does not
     read from `global`. A download is read from the browser of ``session`` (a
-    key, the workspace's default when None), or of the session its URI names,
-    whichever session the call acts in.
+    key; when None, the workspace's ``default``, as `folder` reads it), or of
+    the session its URI names, whichever session the call acts in.
+
+    A session the URI names is resolved for ``caller`` (the request's when
+    None) as ``session://{name}/downloads`` reads it: one another subject
+    holds is `faults.Held`, and one with no record `NoSession` (WS-84).
     """
     folder_of, leaf = parse_uri(uri)
     named = named_in(uri) if folder_of == DOWNLOADS else None
     if named:
-        session = sessions.key_of(name, named)
+        who = caller if caller is not None else clients.caller()
+        session = workspaces.reading(replace(who, named=name, pin=named))
     if folder_of == DOWNLOADS:
-        target = workspaces.browser(session or name)
+        target = workspaces.browser(session or _default_of(name))
         if not target:
             raise NoSession(NO_DOWNLOADS)
         return leaf, actions.grid.read_file(target, leaf)
@@ -718,8 +732,8 @@ def register(
         )
 
     def _session(caller, which: str, named: str | None = None) -> str | None:
-        """The key of the session whose downloads ``caller`` reads, made and
-        claimed by no read (`Workspaces.reading`); None for the other
+        """The key of the session whose downloads ``caller`` reads, made by no
+        read (`Workspaces.reading`); None for the other
         sections, which are the workspace's."""
         if which != DOWNLOADS and not named:
             return None

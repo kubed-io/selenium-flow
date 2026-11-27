@@ -28,10 +28,10 @@ from kubed.selenium_flow.http import files, links
 from kubed.selenium_flow.http.admin import signed as admin
 from kubed.selenium_flow.names import FILES_DIR, GLOBAL_WORKSPACE, InvalidName
 from kubed.selenium_flow.spec import build_spec
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace.store import Session
 
 from .conftest import TOKEN
-from .fakes import FakeActions, FakeGrid, FakeWorkspaces
+from .fakes import TOKEN_SESSION, FakeActions, FakeGrid, FakeWorkspaces, seated, visits
 
 pytestmark = pytest.mark.unit
 
@@ -63,9 +63,10 @@ def client(data_server):
 @pytest.fixture
 def live(data_server):
     """A workspace holding a browser, which is what the admin API addresses."""
-    data_server.workspaces.store.set(
-        KEY, Workspace(session_id="abc").visited("https://x/")
-    )
+    store = data_server.workspaces.store
+    seated(store, KEY, record=Session(session_id="abc"), history=visits("https://x/"))
+    # The token's own calls (`/files`, `/browser/...`) reach the same browser.
+    seated(store, KEY, TOKEN_SESSION, session_id="abc")
     return data_server
 
 
@@ -407,7 +408,7 @@ def test_the_downloads_listing_is_under_browser(client, live):
         assert response.status_code == 200, response.text
         assert response.json()["uri"] == "session://downloads"
         assert client.get("/files/downloads", headers=AUTH).status_code != 200
-    live.workspaces.store.set(KEY, Workspace())
+    seated(live.workspaces.store, KEY, TOKEN_SESSION)
     idle = client.get("/browser/downloads", headers=AUTH)
     assert idle.status_code == 400
     assert idle.json() == {"error": files.NO_DOWNLOADS}
@@ -604,7 +605,7 @@ def test_a_workspace_whose_name_is_not_a_directory_keeps_nothing(client, data_se
     through the admin surface. Every write path here refuses through
     `library(key)`, so nothing can land in `global` for a key that cannot own a
     directory of its own."""
-    data_server.workspaces.store.set(BAD_KEY, Workspace(session_id="abc"))
+    seated(data_server.workspaces.store, BAD_KEY, session_id="abc")
     response = client.delete(
         f"/admin/workspaces/{quote(BAD_KEY, safe='')}/files/report.pdf", headers=AUTH
     )
@@ -620,7 +621,7 @@ def test_such_a_workspace_shows_unknown_counts_not_the_shared_librarys(
     file and a flow it has no way to reach."""
     data_server.flows.write_file(GLOBAL_WORKSPACE, "shared.pdf", b"x")
     data_server.flows.save(GLOBAL_WORKSPACE, "shared", {"steps": []})
-    data_server.workspaces.store.set(BAD_KEY, Workspace(session_id=""))
+    seated(data_server.workspaces.store, BAD_KEY, session_id="")
     with patch.object(browser.Grid, "sessions", return_value=[]):
         body = client.get("/admin/workspaces", headers=AUTH).json()
     row = next(r for r in body["workspaces"] if r["key"] == BAD_KEY)
@@ -769,7 +770,7 @@ async def test_every_file_operation_declares_the_grids_failure_modes(spec):
     reaped browser it will certainly meet."""
     for method, template in files.FILE_ROUTES.values():
         responses = spec["paths"][template][method]["responses"]
-        expected = {"200", "400", "401", "404", "500", "503"}
+        expected = {"200", "400", "401", "403", "404", "500", "503"}
         if method in ("post", "put"):
             expected.add("413")  # a body can be over its cap
         assert set(responses) == expected, template

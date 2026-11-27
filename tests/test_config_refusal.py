@@ -18,6 +18,7 @@ from kubed.selenium_flow.names import CONFIG_FILE
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import NAMED, OTHER, TOKEN, calling_as
+from .fakes import record_of
 
 pytestmark = pytest.mark.unit
 
@@ -137,7 +138,7 @@ async def test_every_tool_is_refused_before_it_runs(broken):
                 f"An admin fixes it in the admin UI: "
                 f"https://flows.example.com/#/workspaces/{NAMED}/config"
             ), tool.name
-    assert broken.workspaces.store.get(NAMED) is None, "nothing ran"
+    assert record_of(broken.workspaces.store, NAMED) is None, "nothing ran"
 
 
 async def test_every_resource_is_refused_the_context_included(broken):
@@ -159,7 +160,7 @@ async def test_a_refused_workspace_is_refused_once_through_read_resource(broken)
         with pytest.raises(ToolError) as refused:
             await client.call_tool("read_resource", {"uri": "workspace://current"})
     assert str(refused.value).count(REFUSED) == 1
-    assert broken.workspaces.store.get(NAMED) is None, "nothing ran"
+    assert record_of(broken.workspaces.store, NAMED) is None, "nothing ran"
 
 
 async def test_the_skill_is_read_while_refused(broken):
@@ -242,7 +243,7 @@ def test_every_token_door_route_refuses_the_workspace(broken):
         response = client.request(method, path, params={"workspace": NAMED}, json={})
         assert response.status_code == 409, (method, path, response.text)
         assert REFUSED in response.json()["error"], (method, path)
-    assert broken.workspaces.store.get(NAMED) is None, "nothing ran"
+    assert record_of(broken.workspaces.store, NAMED) is None, "nothing ran"
 
 
 def test_the_token_door_still_answers_first(broken):

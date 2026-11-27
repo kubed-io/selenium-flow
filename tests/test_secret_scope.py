@@ -32,7 +32,7 @@ from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 from . import fakes
 from .conftest import RecordingActions
-from .fakes import Clock, FakeCatalogue
+from .fakes import Clock, FakeCatalogue, record_of, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -935,6 +935,8 @@ BindingCatalogue = partial(fakes.BindingCatalogue, on=A)
 
 
 CALLER = Caller("w", "query")
+# The session `CALLER` reaches: its own, `default`.
+W = "w/default"
 SECRET_A = {A: {("a", "password"): "alpha-11"}}
 
 
@@ -964,7 +966,7 @@ def act(ws, tool="extract"):
 
 
 def sid(ws):
-    return ws.store.get("w").session_id
+    return record_of(ws.store, "w").session_id
 
 
 @pytest.mark.parametrize(
@@ -1011,7 +1013,7 @@ def test_an_error_is_scrubbed_and_keeps_its_status(ws):
 
 def test_an_error_after_a_reopen_is_scrubbed_and_says_the_reopen(ws):
     ws.store.update(
-        "w",
+        W,
         lambda r: replace(
             r, reopened={"browser": r.session_id, "cause": "lost", "report": None}
         ),
@@ -1027,8 +1029,8 @@ def test_an_error_after_a_reopen_is_scrubbed_and_says_the_reopen(ws):
 def test_a_url_carrying_a_value_is_marked_and_never_recorded(ws):  # Review Focus 3
     ws.actions.result = {"url": f"{A}/search?q=alpha-11", "title": "t"}
     assert "[secret:a/password]" in act(ws)["url"]
-    record = ws.store.get("w")
-    assert "alpha-11" not in (record.url or "")
+    record = shared_of(ws.store, "w")
+    assert "alpha-11" not in record.page("default")
     assert "alpha-11" not in json.dumps(record.history)
     # A later reopen goes back to the page before it, never to the value.
     ws.actions.grid.alive.discard(sid(ws))
@@ -1096,10 +1098,10 @@ def test_an_error_whose_scrub_fails_is_never_chained_to_it(ws, monkeypatch):  # 
 def test_a_frame_result_sets_framed(ws):  # ruling 15
     ws.actions.result = {"action": "switched", "in_frame": True}
     act(ws, tool="frame")
-    assert ws.origins.framed("w", sid(ws)) is True
+    assert ws.origins.framed(W, sid(ws)) is True
     ws.actions.result = {"action": "parent", "in_frame": False}
     act(ws, tool="frame")
-    assert ws.origins.framed("w", sid(ws)) is False
+    assert ws.origins.framed(W, sid(ws)) is False
 
 
 def test_the_event_fires_for_open_reopen_and_a_withheld_bound_write(ws):
@@ -1108,28 +1110,28 @@ def test_the_event_fires_for_open_reopen_and_a_withheld_bound_write(ws):
     first = sid(ws)
     ws.open_browser(CALLER, url=f"{A}/")
     second = sid(ws)
-    assert seen[-1] == OriginChanged("w", second, None, A, False)
+    assert seen[-1] == OriginChanged(W, second, None, A, False)
     # A bound write that lands on B with the value in its URL: withheld, and heard.
     ws.actions.written = {"url": f"{B}/?q=alpha-11", "title": "t", "value": None}
     shown = secrets.perform_write(
-        ws.scrubber._catalogue, ws.actions, ws, "w",
+        ws.scrubber._catalogue, ws.actions, ws, W,
         {"selector": {"css": "#p"}, "secret": {"name": "a", "key": "password"}},
     )
     assert "alpha-11" not in json.dumps(shown)
-    assert seen[-1] == OriginChanged("w", second, A, B, False)
-    assert ws.store.get("w").url == f"{A}/"  # withheld
+    assert seen[-1] == OriginChanged(W, second, A, B, False)
+    assert shared_of(ws.store, "w").page("default") == f"{A}/"  # withheld
     # The Grid reaps it: the reopen is heard on the page the record holds.
     ws.actions.grid.alive.discard(second)
     act(ws)
     third = sid(ws)
     assert third not in (first, second)
-    assert OriginChanged("w", third, None, A, False) in seen
+    assert OriginChanged(W, third, None, A, False) in seen
 
 
 def test_open_session_scrubs_what_it_tells(ws):
     told = ws.open_browser(CALLER, url=f"{A}/search?q=alpha-11")
     assert told["url"] == f"{A}/search?q=[secret:a/password]"
-    record = ws.store.get("w")
+    record = shared_of(ws.store, "w")
     assert "alpha-11" not in json.dumps(record.history)
 
 
@@ -1142,8 +1144,8 @@ def test_an_open_that_lost_its_race_is_scrubbed_and_gives_no_slot(ws, monkeypatc
     ]))
     told = ws.open_browser(CALLER, url=f"{A}/")
     assert told["url"] == f"{A}/?q=[secret:a/password]"
-    assert "w" not in ws.scrubber._entries
-    assert ws.origins.current("w", "won-elsewhere") is None
+    assert W not in ws.scrubber._entries
+    assert ws.origins.current(W, "won-elsewhere") is None
 
 
 def test_a_bound_writes_url_carrying_another_value_in_scope_is_withheld():
@@ -1152,11 +1154,11 @@ def test_a_bound_writes_url_carrying_another_value_in_scope_is_withheld():
     try:
         ws.actions.written = {"url": f"{A}/?t=tok-123456", "title": "t", "value": None}
         shown = secrets.perform_write(
-            cat, ws.actions, ws, "w",
+            cat, ws.actions, ws, W,
             {"selector": {"css": "#p"}, "secret": {"name": "a", "key": "password"}},
         )
         assert shown["url"] == f"{A}/?t=[secret:a/token]"
-        assert "tok-123456" not in json.dumps(ws.store.get("w").history)
+        assert "tok-123456" not in json.dumps(shared_of(ws.store, "w").history)
     finally:
         ws.scrubber.close()
 
@@ -1167,7 +1169,7 @@ def test_a_bound_writes_error_is_scrubbed_by_scope_too(ws):
     ws.actions.raises = InvalidSessionIdException("gone on ?t=tok-123456 typing alpha-11")
     with pytest.raises(InvalidSessionIdException) as raised:
         secrets.perform_write(
-            ws.scrubber._catalogue, ws.actions, ws, "w",
+            ws.scrubber._catalogue, ws.actions, ws, W,
             {"selector": {"css": "#p"}, "secret": {"name": "a", "key": "password"}},
         )
     said = faults.message(raised.value)
@@ -1208,13 +1210,13 @@ def test_a_key_with_no_settings_is_scrubbed_as_ever(tmp_path):
         ws.actions.result = {"url": f"{A}/", "title": "t", "text": "drk-user alpha-11"}
         said = "[secret:ldap/username] [secret:ldap/password]"
         assert act(ws)["text"] == said
-        assert ws.scrubber.resource("w", "drk-user alpha-11") == said
+        assert ws.scrubber.resource(W, "drk-user alpha-11") == said
     finally:
         ws.scrubber.close()
 
 
 def test_a_key_not_masked_survives_a_resource_read(unmasked):
-    said = unmasked.scrubber.resource("w", "drk-user alpha-11")
+    said = unmasked.scrubber.resource(W, "drk-user alpha-11")
     assert said == "drk-user [secret:ldap/password]"
 
 
@@ -1222,28 +1224,28 @@ def test_a_key_not_masked_is_bound_and_its_write_leaves_it_on_the_page(unmasked)
     unmasked.actions.written = {
         "url": f"{A}/?u=drk-user", "title": "signed in as drk-user", "value": None}
     shown = secrets.perform_write(
-        unmasked.scrubber._catalogue, unmasked.actions, unmasked, "w",
+        unmasked.scrubber._catalogue, unmasked.actions, unmasked, W,
         {"selector": {"css": "#u"}, "secret": {"name": "ldap", "key": "username"}},
     )
     assert shown["title"] == "signed in as drk-user"
-    assert unmasked.store.get("w").url == f"{A}/?u=drk-user"
+    assert shared_of(unmasked.store, "w").page("default") == f"{A}/?u=drk-user"
 
 
 def test_end_browser_forgets_the_browser(ws):
     gone = sid(ws)
     act(ws)
-    assert ws.origins.current("w", gone) == A
+    assert ws.origins.current(W, gone) == A
     ws.end_browser(CALLER)
-    assert ws.origins.current("w", gone) is None
-    assert "w" not in ws.scrubber._entries
+    assert ws.origins.current(W, gone) is None
+    assert W not in ws.scrubber._entries
 
 
 def test_a_session_ended_elsewhere_forgets_the_browser(ws):
     gone = sid(ws)
     act(ws)
-    ws.browser_ended("w", gone)
-    assert ws.origins.current("w", gone) is None
-    assert "w" not in ws.scrubber._entries
+    ws.browser_ended(W, gone)
+    assert ws.origins.current(W, gone) is None
+    assert W not in ws.scrubber._entries
 
 
 def test_a_reap_reopen_carries_the_sets(ws):
@@ -1254,10 +1256,10 @@ def test_a_reap_reopen_carries_the_sets(ws):
     assert act(ws)["title"] == "[secret:a/password]"
     new = sid(ws)
     assert new != old
-    assert ws.scrubber._entries["w"].browser == new
-    assert A in ws.scrubber._entries["w"].sets  # carried, not read again
+    assert ws.scrubber._entries[W].browser == new
+    assert A in ws.scrubber._entries[W].sets  # carried, not read again
     assert ws.scrubber._catalogue.calls["forms_for"] == [A]
-    assert ws.origins.framed("w", new) is False
+    assert ws.origins.framed(W, new) is False
 
 
 def test_the_event_is_never_emitted_inside_a_store_fn(ws, monkeypatch):
@@ -1308,7 +1310,7 @@ def test_a_hand_back_scrubs_the_tab_moves_it_keeps(ws):
         "opened": [{"tab": "t2", "url": f"{B}/?q=alpha-11"}],
         "closed": ["t3"],
     }
-    summary = ws.handed_back("w", None)
+    summary = ws.handed_back(W, None)
     shown = json.dumps(summary)
     assert "alpha-11" not in shown
     assert summary["tab"] == "t2" and summary["closed"] == ["t3"]
@@ -1321,12 +1323,12 @@ def test_captured_is_scrubbed_and_its_off_answer_is_not():
 
     ws = scoped(BindingCatalogue(SECRET_A))
     try:
-        assert ws.captured("w", "console") == OFF  # the constant, unread
+        assert ws.captured(W, "console") == OFF  # the constant, unread
         assert ws.scrubber._catalogue.calls["leashed"] == 0
         ws.capture = FakeCaptureViews({"entries": [{"text": "pw alpha-11"}]})
-        ws.store.update("w", lambda r: replace(r, settings={**r.settings, "capture": True},
+        ws.store.update(W, lambda r: replace(r, settings={**r.settings, "capture": True},
                                                set_by={**r.set_by, "capture": "caller"}))
-        view = ws.captured("w", "console")
+        view = ws.captured(W, "console")
         assert view["entries"] == [{"text": "pw [secret:a/password]"}]
     finally:
         ws.scrubber.close()
@@ -1369,7 +1371,7 @@ def test_a_captured_site_data_save_is_stored_raw(ws, monkeypatch):
 def test_capture_heard_builds_and_hands_the_forms_for_its_url(ws, url):
     got: list = []
     done = threading.Event()
-    ws.capture_heard("w", sid(ws), url, False, lambda forms: (got.append(forms), done.set()))
+    ws.capture_heard(W, sid(ws), url, False, lambda forms: (got.append(forms), done.set()))
     assert done.wait(WAIT)
     assert "alpha-11" in got[0]
 
@@ -1392,13 +1394,13 @@ def test_the_server_forgets_a_browser_the_bus_says_ended(tmp_path, monkeypatch):
     server = SeleniumMCP({"grid": {"url": "http://grid.invalid:4444"}})
     try:
         ws = server.workspaces
-        ws.origins.opened("w", "g1")
-        ws.origins.arrived("w", "g1", f"{A}/")
-        ws.scrubber.opened("w", "g1")
+        ws.origins.opened(W, "g1")
+        ws.origins.arrived(W, "g1", f"{A}/")
+        ws.scrubber.opened(W, "g1")
         for cause in ("ended", "gone", "lost"):
-            server.bus.publish(SessionEnded("w", "g1", cause, 1.0))
-        assert ws.origins.current("w", "g1") is None
-        assert "w" not in ws.scrubber._entries
+            server.bus.publish(SessionEnded(W, "g1", cause, 1.0))
+        assert ws.origins.current(W, "g1") is None
+        assert W not in ws.scrubber._entries
     finally:
         server.workspaces.scrubber.close()
 
@@ -1499,7 +1501,7 @@ def test_an_open_that_fails_is_scrubbed(ws):  # fix 2
         ws.open_browser(CALLER, url=f"{A}/")
     assert "alpha-11" not in faults.message(raised.value)
     assert errors.status_for(raised.value) == 400
-    assert "w" not in ws.scrubber._entries  # no browser took the slot
+    assert W not in ws.scrubber._entries  # no browser took the slot
 
 
 def test_a_reopen_that_fails_is_scrubbed(ws):  # fix 2
@@ -1524,7 +1526,7 @@ def test_a_reopen_landing_on_a_value_never_records_it(ws, monkeypatch):  # fix 2
     ws.actions.grid.alive.discard(sid(ws))
     ws.actions.result = {"title": "t"}  # records nothing: the reopen's page stays
     act(ws)
-    assert "alpha-11" not in json.dumps(ws.store.get("w").history)
+    assert "alpha-11" not in json.dumps(shared_of(ws.store, "w").history)
 
 
 def test_the_reopen_report_is_scrubbed_when_handed_over(ws, monkeypatch):  # fix 3
@@ -1546,14 +1548,14 @@ def test_an_open_whose_scrub_fails_records_no_url(ws, monkeypatch):  # fix 4
     monkeypatch.setattr(ws.scrubber._catalogue, "leashed", boom)
     with pytest.raises(faults.ScrubFailed):
         ws.open_browser(CALLER, url=f"{B}/somewhere")
-    assert f"{B}/somewhere" not in json.dumps(ws.store.get("w").history)
+    assert f"{B}/somewhere" not in json.dumps(shared_of(ws.store, "w").history)
 
 
 def test_a_withheld_open_keeps_the_earlier_entry_of_its_origin(ws):  # fix 5
-    first = ws.store.get("w").history[0]
+    first = shared_of(ws.store, "w").history[0]
     assert first["url"] == f"{A}/"
     ws.open_browser(CALLER, url=f"{A}/?q=alpha-11")
-    history = ws.store.get("w").history
+    history = shared_of(ws.store, "w").history
     assert history and history[0]["url"] == f"{A}/"
 
 
@@ -1714,7 +1716,7 @@ def test_an_outline_name_is_cut_at_80_with_secrets_off(ws_without_secrets):
 def test_the_hand_backs_outline_is_cut_too(ws_without_secrets):
     ws_without_secrets.actions.outline = ws_without_secrets.actions.do
     ws_without_secrets.actions.result = outlined("n" * 100)
-    summary = ws_without_secrets.handed_back("w", None)
+    summary = ws_without_secrets.handed_back(W, None)
     assert summary["outline"]["elements"][0]["name"] == "n" * 80 + "…"
 
 
@@ -1723,7 +1725,7 @@ def test_the_hand_backs_outline_is_scrubbed_before_it_is_cut(on_a):
     marker, never a prefix."""
     on_a.actions.outline = on_a.actions.do
     on_a.actions.result = outlined("n" * 60 + LONG + "z" * 10)
-    summary = on_a.handed_back("w", None)
+    summary = on_a.handed_back(W, None)
     assert summary["outline"]["elements"][0]["name"] == "n" * 60 + LONG_MARK + "z…"
 
 
