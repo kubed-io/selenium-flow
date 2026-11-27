@@ -50,6 +50,10 @@ key in it stops the server.
 | `SECRETS_DIRS` | unset | colon-separated directories of secrets; unset means none (*Secrets on the server*) |
 | `PUBLIC_BASE_URL` | unset | where browsers reach this server: file links become absolute, and `workspace://current` gains `config_url` |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `WARNING`, `ERROR` or `CRITICAL` |
+| `GRACEFUL_TIMEOUT` | `15` | seconds a stop gives the calls in flight |
+
+On Kubernetes, keep `terminationGracePeriodSeconds` above `GRACEFUL_TIMEOUT` plus any preStop sleep,
+or the kubelet kills the server before its calls finish.
 
 A browser lives until the Grid's own idle timeout (`SE_NODE_SESSION_TIMEOUT`, on
 the node) runs out after the keep-alive. The server runs no cleanup loop: the

@@ -568,6 +568,17 @@ class ServingSettings(kubed.mcp.ServingSettings):
         env="LOG_LEVEL",
         arg="--log-level",
     )
+    # kubed-mcp's own leaf and bounds; redeclared only for a one-line description.
+    graceful_timeout: float = Field(
+        15,
+        ge=0,
+        doc=(
+            "Seconds a stop gives the calls in flight; a signal ends listen streams"
+            " at once."
+        ),
+        env="GRACEFUL_TIMEOUT",
+        arg="--graceful-timeout",
+    )
 
 
 def _held(section: Any, name: str) -> Any:
@@ -699,7 +710,7 @@ SECTION_DESCRIPTIONS = {
     "secrets": "Where secrets are read from.",
     "mcp": "What MCP clients are offered beyond tools.",
     "security": "Who may frame the admin page.",
-    "serving": "Where it listens, and what it logs.",
+    "serving": "Where it listens, what it logs, and how long a stop waits.",
     "telemetry": "Profiles, traces and metrics, run by kubed-mcp; all off unless set.",
     "delivery": "What a request gets when it sends no delivery header.",
 }

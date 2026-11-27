@@ -674,10 +674,10 @@ def mount(
 
         # sse-starlette, for shutdown: uvicorn waits for open connections
         # before the lifespan, so a stream that never ends would hold each
-        # SIGTERM for FastMCP's 2s grace. This one hears uvicorn's exit and sets
-        # `page`, within a shorter grace. Its beat keeps proxies from closing an
-        # idle stream and tells the page the stream is alive: `EventSource` never
-        # shows a comment.
+        # SIGTERM for the whole grace (`serving.graceful_timeout`). This one
+        # hears uvicorn's exit and sets `page`, within a shorter grace. Its beat
+        # keeps proxies from closing an idle stream and tells the page the
+        # stream is alive: `EventSource` never shows a comment.
         return _Stream(
             broadcast,
             page,
