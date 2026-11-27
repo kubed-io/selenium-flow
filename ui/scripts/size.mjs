@@ -5,7 +5,8 @@ const OUT = new URL('../../kubed/selenium_flow/http/static/', import.meta.url)
 // admin raised 45 -> 50 KB: carries E3's Console and Network tabs.
 // admin raised 50 -> 55 KB: carries #83's Live tab.
 // admin raised 55 -> 60 KB: carries the Config tab.
-const BUDGET = { admin: 60 * 1024, app: 110 * 1024, live: 64 * 1024 }
+// admin raised 60 -> 70 KB, app 110 -> 120 KB: svelte 5.58+ grew the runtime (#243).
+const BUDGET = { admin: 70 * 1024, app: 120 * 1024, live: 64 * 1024 }
 let over = false
 for (const surface of /** @type {const} */ (['admin', 'app', 'live'])) {
   // live is one file, loaded rather than inlined.

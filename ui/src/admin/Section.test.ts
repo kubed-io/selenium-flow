@@ -11,16 +11,19 @@ afterEach(() => resetFolds())
 // observe here.
 vi.mock('../motion', () => ({ ms: () => 150 }))
 
+// `test/setup.ts` gives jsdom an inert `animate`; keep it to put back after
+// each test.
+const setupAnimate = Element.prototype.animate
+
 afterEach(() => {
-  delete (Element.prototype as { animate?: unknown }).animate
+  Element.prototype.animate = setupAnimate
 })
 
-// jsdom has no `Element.prototype.animate`, so a nonzero duration can't run
-// to completion on its own here — which is exactly what lets this test hold
-// the outro open and drive it by hand, rather than racing whatever finishes
-// it for real. The stub below never calls its own `onfinish`, so Svelte's
-// automatic 'outroend' dispatch never happens on its own; the test dispatches
-// it itself once it wants the outro to "finish".
+// Setup's `animate` is inert, and so is the stub each test sets below: neither
+// calls `onfinish`. So at this file's nonzero duration Svelte only assigns
+// `animation.onfinish`, nothing fires it, and the outro stays open until the
+// test dispatches 'outroend' itself. Each test sets its own stub so that this
+// does not depend on setup.ts.
 test('data-open follows the outro ending, not the click that starts it', async () => {
   Element.prototype.animate = (() => ({ cancel() {}, onfinish: null, currentTime: 0 })) as unknown as typeof Element.prototype.animate
 
@@ -71,7 +74,8 @@ test('a different id starts open', () => {
 })
 
 test('a collapsed section starts closed, and a fold the user made still wins', async () => {
-  // This file runs real durations (the mock above), and jsdom has no animate.
+  // This file runs real durations (the mock above), so the outro stays open: this stub is inert and never
+  // calls `onfinish`, as setup.ts's is.
   Element.prototype.animate = (() => ({ cancel() {}, onfinish: null, currentTime: 0 })) as unknown as typeof Element.prototype.animate
   const { container, unmount } = render(Harness, { collapsed: true })
   const toggle = container.querySelector('button.title') as HTMLButtonElement
