@@ -25,7 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- An open admin page costs next to nothing while nothing changes and no longer refetches the list every minute; a change a tool makes shows at once, any other within 30 s (#226).
 - **Browser metrics and traces:** with `TELEMETRY_OTEL=true`, each call's time by tool, surface, outcome and browser, the Grid's busy and free slots, and a span for every call, naming its workspace, and every HTTP request (#65, #220).
 - **Profiles and traces:** the image pushes profiles to Pyroscope when `TELEMETRY_PROFILES` names it, and runs OpenTelemetry with `TELEMETRY_OTEL=true` (#199).
 - **BREAKING:** The one skill is five, by reader and moment: `driving-a-browser` (the entry point), `building-flows`, `signing-in`, `using-the-admin-ui` and `deploying-the-server`, each at `skill://selenium-flow/<skill>/SKILL.md` (#195, #196). The old `skill://selenium-flow/SKILL.md` and `skill://selenium-flow/references/…` addresses no longer read: nothing redirects them, and hints, the instructions, the prompts and the explorer name the new ones.
@@ -170,9 +169,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** Environment names match exactly, in upper case: `redis_host` no longer sets `redis.host` (#214).
 - The Settings tab shows `telemetry.profiles` only as set or not set, and a store derived from `REDIS_HOST` or `REDIS_URL` as a default (#214).
 - `resources/directory/read` and `skills/get` resolve `.` and `..` in a `skill://` address as a read does. With `TELEMETRY_OTEL=true`, a log line written inside a span ends with its `trace_id` and `span_id`, and resource reads are in the call metrics (#214).
+- An open admin page costs next to nothing while nothing changes and no longer refetches the list every minute; a change a tool makes shows at once, any other within 30 s (#226).
 
 ### Changed
 
+- The server needs kubed-mcp 0.4.4 (#201, #190, #209, #214, #229).
 - The server needs kubed-mcp 0.4.1 (#201, #190, #209, #214).
 
 ### Fixed
@@ -180,6 +181,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An idle server uses less CPU: the background-task worker checks for new work and for work scheduled for later once a second each, not 20 and 4 times a second (#219, #227).
 - A refused `SECURITY_FRAME_ANCESTORS` origin is quoted without its userinfo, so a password in it no longer reaches the error (#214).
 - A `socksPassword` in `session.capabilities` shows as `***` on the Settings tab and in the startup log (#214).
+- A `subscriptions/listen` stream no longer shows as a minutes-long span, and the telemetry start line names each OTLP exporter's endpoint (#229).
 
 ## [0.3.0] - 2026-09-26
 
