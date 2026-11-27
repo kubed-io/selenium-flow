@@ -6594,6 +6594,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "409": {
             "content": {
               "application/json": {
@@ -6684,6 +6694,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           }
         },
         "summary": "What this workspace is, and whether it holds a browser.",
@@ -6755,6 +6775,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "409": {
             "content": {
@@ -6858,6 +6888,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -6982,6 +7022,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -7084,6 +7134,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -7198,6 +7258,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -7300,6 +7370,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -7424,6 +7504,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -7546,6 +7636,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -7686,6 +7786,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -7808,6 +7918,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -7932,6 +8052,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8054,6 +8184,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -8178,6 +8318,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8300,6 +8450,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -8424,6 +8584,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8546,6 +8716,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -8670,6 +8850,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8793,6 +8983,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -8915,6 +9115,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -9081,6 +9291,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -9204,6 +9424,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -9317,6 +9547,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -9410,6 +9650,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -9502,6 +9752,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "404": {
             "content": {
@@ -9628,6 +9888,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -9731,6 +10001,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9812,6 +10092,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -9890,6 +10180,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "500": {
             "content": {
@@ -10043,6 +10343,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "413": {
             "content": {
               "application/json": {
@@ -10153,6 +10463,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "413": {
             "content": {
@@ -10316,6 +10636,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -10389,6 +10719,16 @@
             },
             "description": "Missing or wrong bearer token."
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
+          },
           "500": {
             "content": {
               "application/json": {
@@ -10461,6 +10801,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "500": {
             "content": {
@@ -10543,6 +10893,16 @@
               }
             },
             "description": "Missing or wrong bearer token."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The session this call names is held by another caller. Name your own session, or leave `session` out."
           },
           "500": {
             "content": {
