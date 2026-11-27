@@ -16,6 +16,8 @@ from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 from tests.conftest import NAMED, RecordingActions, manager
 from tests.fakes import FakeMonitor
 
+from .fakes import record_of, seated
+
 URL = "https://app.example.com/x"
 REPORT = {"restored": ["app.example.com"], "skipped": [], "uri": "workspace://site-data"}
 
@@ -91,7 +93,7 @@ def test_a_save_is_stored_and_never_returned_raw(named_caller):
     result = m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
     assert site_data.CAPTURED not in result
     assert result["saved"]["cookies"] == 1 and result["uri"] == "workspace://site-data"
-    assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
+    assert list(record_of(m.store, NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
 def test_open_restores_what_was_saved_and_says_so(named_caller):
@@ -106,7 +108,7 @@ def test_restore_off_deletes_the_snapshot_and_keeps_the_history(named_caller):
     told = reopened(m, restore_site_data=False)
     assert m.actions.site_data_seen[-1] is None
     assert told["site_data"] == {"forgotten": 1}
-    record = m.store.get(NAMED)
+    record = record_of(m.store, NAMED)
     assert record.site_data == {}
     assert any(v["origin"] == "https://app.example.com" for v in record.history)
 
@@ -114,7 +116,7 @@ def test_restore_off_deletes_the_snapshot_and_keeps_the_history(named_caller):
 def test_restore_site_data_accepts_a_string_false(named_caller):
     m = opened_with_save()
     reopened(m, restore_site_data="false")
-    assert m.store.get(NAMED).site_data == {}
+    assert record_of(m.store, NAMED).site_data == {}
 
 
 def test_a_failed_open_does_not_erase_what_was_saved(named_caller):
@@ -129,7 +131,7 @@ def test_a_failed_open_does_not_erase_what_was_saved(named_caller):
     m.actions.open_session = refuse
     with pytest.raises(RuntimeError):
         m.open_browser(Caller(NAMED), restore_site_data=False)
-    assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
+    assert list(record_of(m.store, NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
 def test_nothing_saved_means_no_hint(named_caller):
@@ -142,7 +144,7 @@ def test_an_insecure_open_keeps_what_was_saved(named_caller):
     the next secure browser gets it all back."""
     m = opened_with_save()
     reopened(m, insecure=True)
-    assert m.store.get(NAMED).site_data["origins"]
+    assert record_of(m.store, NAMED).site_data["origins"]
 
 
 def test_an_insecure_browser_saves_no_site_data():
@@ -150,7 +152,7 @@ def test_an_insecure_browser_saves_no_site_data():
 
     workspaces = Workspaces(RecordingActions())
     workspaces.open_browser(Caller(NAMED), insecure=True)
-    session_id = workspaces.store.get(NAMED).session_id
+    session_id = record_of(workspaces.store, NAMED).session_id
     captured = {
         "cookies": [
             {
@@ -176,24 +178,24 @@ def test_an_insecure_browser_saves_no_site_data():
         workspaces.settle(
             NAMED, {"url": "https://bad.test/", CAPTURED: captured}, browser=session_id
         )
-    assert not workspaces.store.get(NAMED).site_data
+    assert not record_of(workspaces.store, NAMED).site_data
 
 
 def test_an_insecure_save_keeps_what_a_secure_browser_saved_and_says_why(named_caller):
     m = opened_with_save()
-    before = m.store.get(NAMED).site_data
+    before = record_of(m.store, NAMED).site_data
     reopened(m, insecure=True)
     result = m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
     assert site_data.CAPTURED not in result
     assert result["saved"]["skipped"] == [{"reason": INSECURE_SKIP}]
-    assert m.store.get(NAMED).site_data == before
+    assert record_of(m.store, NAMED).site_data == before
 
 
 def test_remember_keeps_site_data(named_caller):
     m = opened_with_save()
     m.open_browser(Caller(NAMED))
     m.open_browser(Caller(NAMED))
-    assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
+    assert list(record_of(m.store, NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
 def test_describe_summarises_site_data(named_caller):
@@ -213,7 +215,7 @@ def test_the_call_that_reopens_a_reaped_browser_says_what_came_back(named_caller
     assert first["reopened"] == {"cause": "lost", "message": faults.REOPENED["lost"]}
     second = m.act(Caller(NAMED), lambda s: {"url": "https://elsewhere.example.com/"})
     assert "site_data" not in second and "reopened" not in second
-    assert m.store.get(NAMED).reopened == {}
+    assert record_of(m.store, NAMED).reopened == {}
 
 
 def test_a_reap_with_no_site_data_is_said_once(named_caller):  # ruling 2
@@ -253,7 +255,7 @@ async def pinged_workspaces(answer):
     )
     workspaces = Workspaces(RecordingActions(), monitor=monitor)
     workspaces.open_browser(Caller(NAMED), url="https://a.test/")
-    session_id = workspaces.store.get(NAMED).session_id
+    session_id = record_of(workspaces.store, NAMED).session_id
     listing.running[session_id] = 300
     for _ in range(2):
         clock.now += 240
@@ -278,20 +280,20 @@ def gone_after(workspaces, idle_for, pinged_for=None):
     )
     workspaces.actions.grid.alive.clear()
     workspaces.resolve(NAMED)
-    return workspaces.store.get(NAMED).reopened["cause"]
+    return record_of(workspaces.store, NAMED).reopened["cause"]
 
 
 async def test_a_reap_after_every_keep_alive_ping_failed_is_reaped():
     """The keep-alive was owed but never reached the browser, so the node's own
     timeout is the window that applied."""
     workspaces, _ = await pinged_workspaces(ConnectionError("grid down"))
-    assert workspaces.store.get(NAMED).pinged_at == 0
+    assert record_of(workspaces.store, NAMED).pinged_at == 0
     assert gone_after(workspaces, 500) == "reaped"
 
 
 async def test_a_browser_pinged_until_shortly_before_the_reap_is_judged_from_the_ping():
     workspaces, _ = await pinged_workspaces(True)
-    assert workspaces.store.get(NAMED).pinged_at > 0
+    assert record_of(workspaces.store, NAMED).pinged_at > 0
     # idle 500 s, but the Grid answered a ping 100 s ago: the node's clock had
     # not run out, so something else took it.
     assert gone_after(workspaces, 500, pinged_for=100) == "lost"
@@ -304,21 +306,21 @@ async def test_a_browser_whose_last_answered_ping_is_older_than_the_timeout_was_
 
 async def test_a_ping_the_grid_answered_false_is_not_recorded():
     workspaces, _ = await pinged_workspaces(False)
-    assert workspaces.store.get(NAMED).pinged_at == 0
+    assert record_of(workspaces.store, NAMED).pinged_at == 0
 
 
 async def test_a_ping_is_recorded_on_the_record_that_holds_the_session_and_moves_no_call():
     workspaces, session_id = await pinged_workspaces(True)
-    called = workspaces.store.get(NAMED).called_at
+    called = record_of(workspaces.store, NAMED).called_at
     workspaces.pinged(NAMED, "another-browser")
-    before = workspaces.store.get(NAMED).pinged_at
+    before = record_of(workspaces.store, NAMED).pinged_at
     workspaces.pinged(NAMED, session_id)
-    record = workspaces.store.get(NAMED)
+    record = record_of(workspaces.store, NAMED)
     assert record.pinged_at >= before and record.called_at == called
     stale = replace(record, pinged_at=0.0)
-    workspaces.store.set(NAMED, stale)
+    seated(workspaces.store, NAMED, record=stale)
     workspaces.pinged(NAMED, "another-browser")
-    assert workspaces.store.get(NAMED).pinged_at == 0.0
+    assert record_of(workspaces.store, NAMED).pinged_at == 0.0
 
 
 async def test_a_ping_for_a_session_the_record_no_longer_holds_writes_nothing():
@@ -341,7 +343,7 @@ async def test_the_servers_monitor_records_a_ping_on_the_workspace(open_server):
     monitor.opened(NAMED, "s1", "chrome", 300)
     clock.now += 240
     await monitor.look()
-    assert open_server.store.get(NAMED).pinged_at > 0
+    assert record_of(open_server.store, NAMED).pinged_at > 0
 
 
 def test_an_open_counts_as_activity_for_the_cause(named_caller):  # ruling 14
@@ -362,7 +364,7 @@ def test_a_call_stamps_called_at(named_caller):  # ruling 10
     m.open_browser(Caller(NAMED))
     before = time.time()
     m.act(Caller(NAMED), lambda s: {"url": URL})
-    assert m.store.get(NAMED).called_at >= before
+    assert record_of(m.store, NAMED).called_at >= before
 
 
 def test_a_save_step_leaves_the_notice_for_the_run(named_caller, tmp_path):  # ruling 23
@@ -403,7 +405,7 @@ def test_a_failed_call_stamps_called_at(named_caller):  # ruling 15
     m.store.update(NAMED, lambda r: replace(r, called_at=1.0))
     with pytest.raises(RuntimeError):
         m.act(Caller(NAMED), lambda s: (_ for _ in ()).throw(RuntimeError("x")))
-    assert m.store.get(NAMED).called_at > 1.0
+    assert record_of(m.store, NAMED).called_at > 1.0
 
 
 def test_a_run_that_fails_to_start_after_a_reap_says_so(named_caller, tmp_path):
@@ -434,11 +436,11 @@ def test_a_failure_from_another_browser_only_stamps_the_call(named_caller):
     m = opened_with_save()
     reaped(m)
     m.resolve(NAMED)
-    before = m.store.get(NAMED)
+    before = record_of(m.store, NAMED)
     assert before.reopened
     error = ValueError("the old browser's call failed")
     m.failed(NAMED, error, browser="old-id")
-    after = m.store.get(NAMED)
+    after = record_of(m.store, NAMED)
     assert not getattr(error, "__notes__", [])
     assert after.reopened == before.reopened
     assert after.called_at >= before.called_at
@@ -453,10 +455,10 @@ def test_a_retried_touch_hands_over_only_what_its_last_run_saw(named_caller):
     m.act(Caller(NAMED), lambda s: m.actions.save_site_data(s))
     reaped(m)
     browser = m.resolve(NAMED)
-    store.first = store.get(NAMED)
+    store.first = record_of(store, NAMED)
     store.between = lambda: store.update(NAMED, lambda r: replace(r, session_id="newer"))
     assert m.touch(NAMED, URL, browser=browser) is None
-    held = store.get(NAMED).reopened
+    held = record_of(store, NAMED).reopened
     assert held["browser"] == browser
     assert (held["cause"], held["report"]) == ("lost", REPORT)
 
@@ -500,7 +502,7 @@ def test_a_flow_that_saves_keeps_the_data_and_never_reports_the_capture(
 ):
     store, m = flow_world(tmp_path, [{"tool": "save_site_data", "args": {}, "return": True}])
     report = run(store, m)
-    assert list(m.store.get(NAMED).site_data["origins"]) == ["https://app.example.com"]
+    assert list(record_of(m.store, NAMED).site_data["origins"]) == ["https://app.example.com"]
     assert site_data.CAPTURED not in json.dumps(report)
     assert report["steps"][0]["result"]["saved"]["cookies"] == 1
 
@@ -555,13 +557,13 @@ def test_a_retried_save_into_an_expired_record_claims_nothing(named_caller):
     store = RetryingStore()
     m = manager(SiteActions(), store)
     m.open_browser(Caller(NAMED))
-    store.first = store.get(NAMED)
+    store.first = record_of(store, NAMED)
     store.between = lambda: store.delete(NAMED)
     result = m.actions.save_site_data("x")
     m.settle(NAMED, result, touch=False)
     assert site_data.CAPTURED not in result
     assert "saved" not in result and "uri" not in result
-    assert store.get(NAMED) is None
+    assert record_of(store, NAMED) is None
 
 
 def save_elsewhere(m, origin):
@@ -583,7 +585,7 @@ def test_ending_a_browser_keeps_a_save_that_landed_while_it_quit(named_caller):
 
     m.actions.end_browser = end
     m.end_browser(Caller(NAMED))
-    record = m.store.get(NAMED)
+    record = record_of(m.store, NAMED)
     assert not record.attached
     assert record.site_data["origins"].get("https://late.example.com") is not None
 
@@ -602,7 +604,7 @@ def test_a_save_from_a_replaced_browser_keeps_nothing(named_caller):
     assert site_data.CAPTURED not in told
     assert told["saved"]["sites"] == [] and told["saved"]["cookies"] == 0
     assert told["saved"]["skipped"][0]["reason"].startswith("another session took over")
-    assert m.store.get(NAMED).site_data == {}
+    assert record_of(m.store, NAMED).site_data == {}
 
 
 def test_a_save_keeps_the_storage_of_an_origin_visited_during_the_capture():
@@ -610,7 +612,7 @@ def test_a_save_keeps_the_storage_of_an_origin_visited_during_the_capture():
 
     workspaces = Workspaces(RecordingActions())
     workspaces.open_browser(Caller(NAMED), url="https://b.test/")
-    session_id = workspaces.store.get(NAMED).session_id
+    session_id = record_of(workspaces.store, NAMED).session_id
     workspaces.store.update(
         NAMED,
         lambda r: r.with_site_data(
@@ -636,7 +638,7 @@ def test_a_save_keeps_the_storage_of_an_origin_visited_during_the_capture():
     workspaces.settle(
         NAMED, {CAPTURED: captured}, browser=session_id, url=None, touch=False
     )
-    origins = workspaces.store.get(NAMED).site_data["origins"]
+    origins = record_of(workspaces.store, NAMED).site_data["origins"]
     assert origins.get("https://a.test") == {"local": {"k": "v"}}
 
 
@@ -652,7 +654,7 @@ def test_a_stale_result_does_not_move_the_newer_browsers_page_or_window(named_ca
         return {"url": "https://a.test/page", "width": 640, "height": 480}
 
     m.act(Caller(NAMED), meanwhile, reshapes=True)
-    record = m.store.get(NAMED)
+    record = record_of(m.store, NAMED)
     assert record.session_id == "newer"
     assert record.url == "https://b.test/"
     assert record.settings.get("width") != 640
@@ -662,7 +664,7 @@ def test_a_result_from_the_browser_held_still_moves_the_page(named_caller):
     m = opened_with_save()
     m.act(Caller(NAMED), lambda s: {"url": "https://a.test/page", "width": 640, "height": 480},
           reshapes=True)
-    record = m.store.get(NAMED)
+    record = record_of(m.store, NAMED)
     assert record.url == "https://a.test/page"
     assert record.settings["width"] == 640
 
@@ -700,4 +702,4 @@ def test_a_corrupt_record_never_fails_the_clean_open_that_throws_it_away(named_c
     m.end_browser(Caller(NAMED))
     told = m.open_browser(Caller(NAMED), restore_site_data=False)
     assert told["workspace"] == NAMED
-    assert m.store.get(NAMED).site_data == {}
+    assert record_of(m.store, NAMED).site_data == {}

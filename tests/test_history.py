@@ -20,7 +20,7 @@ from kubed.selenium_flow.workspace.store import (
 from kubed.selenium_flow.workspace.workspaces import Caller
 
 from .conftest import NAMED, RecordingActions, manager
-from .fakes import FakeRedis
+from .fakes import FakeRedis, record_of, seated, shared_of
 from .test_workspaces import LOGIN_HINT
 
 pytestmark = pytest.mark.unit
@@ -101,8 +101,8 @@ def test_at_most_a_hundred_entries_and_the_oldest_goes_first():
 def test_both_stores_round_trip_the_history(store):
     record = Workspace(session_id="s").visited("https://a.test/1", now=1.0).visited("https://b.test/2", now=2.0)
     store.set("k", record)
-    assert store.get("k").history == record.history
-    assert store.get("k").url == "https://b.test/2"
+    assert shared_of(store, "k").history == record.history
+    assert record_of(store, "k").url == "https://b.test/2"
 
 
 def test_a_record_from_before_the_history_reads_as_having_been_nowhere():
@@ -142,7 +142,7 @@ def test_touch_bumps_the_history_and_a_withheld_url_still_slides_the_ttl():
     clock[0] += 50
     workspaces.touch(NAMED, None)
     clock[0] += 50
-    record = store.get(NAMED)
+    record = record_of(store, NAMED)
     assert record is not None, "the workspace expired while it was being used"
     assert origins(record) == ["https://b.test", "https://a.test"]
 
@@ -151,17 +151,17 @@ def test_touch_from_a_browser_the_record_no_longer_names_records_nothing():
     workspaces = manager()
     workspaces.remember(NAMED, "new", "https://a.test/")
     workspaces.touch(NAMED, "https://elsewhere.test/", browser="old")
-    assert workspaces.store.get(NAMED).url == "https://a.test/"
+    assert record_of(workspaces.store, NAMED).url == "https://a.test/"
 
 
 def test_a_save_never_reads_an_origin_that_aged_out_since_the_last_call():
     # The save reads `visited` before its own touch prunes.
     m = manager(RecordingActions())
     now = time.time()
-    m.store.set(NAMED, Workspace(history=[
+    seated(m.store, NAMED, history=[
         {"origin": "https://new.test", "url": "https://new.test/", "at": now},
         {"origin": "https://old.test", "url": "https://old.test/", "at": now - DAY - 10},
-    ]))
+    ])
     assert m.visited(NAMED) == ["https://new.test"]
 
 
@@ -169,14 +169,14 @@ def test_opening_another_browser_keeps_where_the_workspace_has_been():
     workspaces = manager(RecordingActions())
     workspaces.remember(NAMED, "one", "https://a.test/")
     workspaces.remember(NAMED, "two", "https://b.test/", replacing="one")
-    assert origins(workspaces.store.get(NAMED)) == ["https://b.test", "https://a.test"]
+    assert origins(record_of(workspaces.store, NAMED)) == ["https://b.test", "https://a.test"]
 
 
 def test_ending_a_browser_keeps_the_history():
     workspaces = manager(RecordingActions())
     workspaces.remember(NAMED, "one", "https://a.test/")
     workspaces.end_browser(Caller(NAMED))
-    assert workspaces.store.get(NAMED).url == "https://a.test/"
+    assert record_of(workspaces.store, NAMED).url == "https://a.test/"
 
 
 # ---- a flow run writes every page it reached, in one update ------------------
@@ -292,7 +292,7 @@ def test_a_flow_run_records_each_steps_page_in_order_in_one_write(monkeypatch):
         ],
         "url": "https://app.test/home",
     })
-    assert [v["url"] for v in workspaces.store.get(NAMED).history] == [
+    assert [v["url"] for v in shared_of(workspaces.store, NAMED).history] == [
         "https://app.test/home", "https://sso.test/auth", "https://start.test/",
     ]
     assert writes == [NAMED], "one update for the whole run"
@@ -308,7 +308,7 @@ def test_a_failed_step_and_a_redacted_end_record_nothing(monkeypatch):
         "url": "https://other.test/?q=[hidden]",
         "url_redacted": True,
     })
-    assert [v["url"] for v in workspaces.store.get(NAMED).history] == [
+    assert [v["url"] for v in shared_of(workspaces.store, NAMED).history] == [
         "https://app.test/login", "https://start.test/",
     ]
 
@@ -316,4 +316,4 @@ def test_a_failed_step_and_a_redacted_end_record_nothing(monkeypatch):
 def test_a_run_that_went_nowhere_still_slides_the_ttl(monkeypatch):
     workspaces, writes = run_reporting(monkeypatch, {"status": "ok", "steps": [{"n": 1, "ok": True}]})
     assert writes == [NAMED]
-    assert workspaces.store.get(NAMED).url == "https://start.test/"
+    assert record_of(workspaces.store, NAMED).url == "https://start.test/"

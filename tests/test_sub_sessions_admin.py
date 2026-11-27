@@ -13,9 +13,9 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace import sessions
-from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
+from .fakes import record_of, seated, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -60,8 +60,7 @@ def server():
     s.actions.end_browser = ended.append
     s.ended = ended
     store = s.workspaces.store
-    store.set(WS, Workspace(
-        session_id="g1", opened_at=NOW, subs=["tester"],
+    seated(store, WS, session_id="g1", opened_at=NOW, subs=["tester"],
         settings={"capture": True, "browser": "firefox"},
         history=[visit(B_SITE, "tester", NOW - 5), visit(A_SITE, "default", NOW - 10)],
         site_data={
@@ -71,14 +70,13 @@ def server():
             ],
             "origins": {}, "session": {}, "saved_at": NOW,
         },
-    ))
-    store.set(TESTER, Workspace(
-        session_id="g2", opened_at=NOW, label="tester", site_data=TESTER_DATA,
+    )
+    seated(store, WS, "tester", session_id="g2", opened_at=NOW, label="tester", site_data=TESTER_DATA,
         settings={"capture": True, "browser": "chrome"},
-    ))
+    )
     # A workspace that exists only because a sub-session was opened in it.
-    store.set("fresh", Workspace(subs=["only"]))
-    store.set(sessions.key_of("fresh", "only"), Workspace(label="only"))
+    seated(store, "fresh", subs=["only"])
+    seated(store, "fresh", "only", label="only")
     return s
 
 
@@ -116,7 +114,7 @@ def test_the_admin_list_prunes_a_dead_sub_session_name(server, client):
     store = server.workspaces.store
     store.update(WS, lambda r: replace(r, subs=["gone", *r.subs]))
     assert [s["name"] for s in rows(client)[WS]["sessions"]] == ["default", "tester"]
-    assert store.get(WS).subs == ["tester"]
+    assert shared_of(store, WS).subs == ["tester"]
 
 
 def test_each_session_has_its_own_site_data_rev(server, client):
@@ -170,7 +168,7 @@ def test_ending_one_session_leaves_the_others(server, client):
     assert done.json() == {"success": True, "key": WS, "session_id": "g2"}
     assert server.ended == ["g2"]
     store = server.workspaces.store
-    assert store.get(TESTER).attached is False and store.get(WS).attached is True
+    assert record_of(store, WS, "tester").attached is False and record_of(store, WS).attached is True
 
 
 def test_end_all_ends_every_sessions_browser(server, client):
@@ -179,8 +177,8 @@ def test_end_all_ends_every_sessions_browser(server, client):
     assert sorted(server.ended) == ["g1", "g2"]
     store = server.workspaces.store
     # Every record is kept, detached.
-    assert store.get(WS).attached is False and store.get(TESTER).attached is False
-    assert store.get(WS).subs == ["tester"]
+    assert record_of(store, WS).attached is False and record_of(store, WS, "tester").attached is False
+    assert shared_of(store, WS).subs == ["tester"]
     # Nothing left to end answers 0, and a second press ends nothing.
     assert client.post(f"/admin/workspaces/{WS}/end-all").json()["ended"] == 0
     assert client.post("/admin/workspaces/fresh/end-all").json()["ended"] == 0
@@ -249,9 +247,9 @@ def test_site_data_orders_and_counts_by_the_picked_sessions_history(client):
 def test_forgetting_a_workspace_forgets_its_sub_sessions(server):
     server.workspaces.forget(WS)
     store = server.workspaces.store
-    assert store.get(WS) is None and store.get(TESTER) is None
+    assert record_of(store, WS) is None and record_of(store, WS, "tester") is None
     assert store.sub_records(WS) == {}
-    assert store.get("fresh") is not None
+    assert record_of(store, "fresh") is not None
 
 
 def test_admin_logs_never_name_a_sub_session(server, client, caplog):

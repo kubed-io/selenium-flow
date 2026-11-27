@@ -14,6 +14,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
+from .fakes import seated
 
 pytestmark = pytest.mark.unit
 
@@ -455,7 +456,7 @@ async def test_a_json_document_is_drawn_from_its_json(flow_server, uri):
 
 async def test_the_site_data_pair_draws_with_httponly_masked(flow_server, named_caller):
     site = "app.example.com"
-    flow_server.workspaces.store.set(named_caller, Workspace(site_data={
+    seated(flow_server.workspaces.store, named_caller, record=Workspace(site_data={
         "cookies": [
             {"name": "sid", "value": "s3cret", "domain": site, "http_only": True},
             {"name": "theme", "value": "dark", "domain": site},
@@ -508,7 +509,7 @@ def test_the_summary_pluralises_its_noun(component, count, line):
 def chatty(server, name, entries=1000, text="x" * 300, requests=0, url_tail=""):
     from .capture_events import done, log, nav_started, req
 
-    server.workspaces.store.set(name, Workspace(settings={"capture": True}))
+    seated(server.workspaces.store, name, settings={"capture": True})
     server.capture.attached(name, "s1", "chrome", "top-1", again=False)
     events = [nav_started("https://a.test/")]
     events += [log(f"{i} {text}", level="error" if i % 2 else "info", ts=1000.0 + i)

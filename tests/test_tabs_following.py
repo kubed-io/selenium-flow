@@ -19,7 +19,7 @@ from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
-from .fakes import BindingCatalogue, FakeCatalogue, TabbedActions
+from .fakes import BindingCatalogue, FakeCatalogue, TabbedActions, record_of
 
 pytestmark = pytest.mark.unit
 
@@ -56,7 +56,7 @@ def ws():
 
 
 def sid(ws):
-    return ws.store.get("w").session_id
+    return record_of(ws.store, "w").session_id
 
 
 def test_a_call_after_a_popup_opened_acts_on_the_popup_and_says_so(ws):
@@ -93,7 +93,7 @@ def test_a_popup_the_call_opened_moves_the_results_page(ws):
     result = ws.act(CALLER, ws.actions.do, tool="interact")
     assert (result["url"], result["title"]) == (P, "Sign in")
     assert result["tab"] == "t2" and result["in_frame"] is False
-    assert ws.store.get("w").url == P
+    assert record_of(ws.store, "w").url == P
 
 
 def test_a_result_where_nothing_moved_carries_no_tab_keys(ws):

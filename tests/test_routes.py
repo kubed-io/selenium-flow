@@ -20,6 +20,7 @@ from kubed.selenium_flow import errors, faults
 from kubed.selenium_flow.server import SeleniumMCP
 
 from .conftest import TOKEN
+from .fakes import seated
 
 pytestmark = pytest.mark.unit
 
@@ -705,7 +706,7 @@ def test_a_store_that_kept_losing_to_other_writers_is_a_500(open_server, open_cl
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    store.set(WORKSPACE, Workspace(session_id="abc"))
+    seated(store, WORKSPACE, session_id="abc")
     n = [0]
 
     def always():

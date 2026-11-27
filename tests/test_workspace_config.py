@@ -21,7 +21,7 @@ from kubed.selenium_flow.workspace.config import CONFIG_FILE, Configs
 from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, Workspace
 
 from .conftest import TOKEN, log_lines
-from .fakes import FakeRedis
+from .fakes import FakeRedis, seated
 
 pytestmark = pytest.mark.unit
 
@@ -313,13 +313,13 @@ def test_the_server_keeps_a_workspace_its_config_names(data_server, tmp_path):
     """Wired at boot: the store asks the server's configs."""
     data_server.workspaces.configs.save(NAME, "flows: {}\n")
     store = data_server.store
-    store.set(NAME, Workspace())
+    seated(store, NAME)
     assert store._data[NAME][0] == float("inf")
 
 
 def test_the_admin_list_shows_a_kept_workspace_with_no_record(data_server):
     data_server.workspaces.configs.save("kept-only", "flows: {}\n")
-    data_server.store.set(NAME, Workspace())
+    seated(data_server.store, NAME)
     client = TestClient(data_server.mcp.server.http_app(), headers=AUTH)
     rows = {r["key"]: r for r in client.get("/admin/workspaces").json()["workspaces"]}
     assert set(rows) == {"kept-only", NAME}

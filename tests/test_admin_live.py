@@ -23,7 +23,7 @@ from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
-from .fakes import Clock, FakePeer, FocusedDriver, element, held
+from .fakes import Clock, FakePeer, FocusedDriver, element, held, record_of, seated
 from .test_live_tunnel import GRID_ID, vnc_node
 
 pytestmark = pytest.mark.unit
@@ -44,27 +44,17 @@ def build(prefix="", token=TOKEN, **live):
     # The Grid still lists the browser, so a tunnel's close asks nothing real.
     server.actions.grid.listing = lambda: (1, {GRID_ID: 300})
     store = server.workspaces.store
-    store.set(
-        "w1",
-        Workspace(
-            session_id=GRID_ID,
-            opened_at=1_700_000_000.0,
-            ran={"live_view": True},
-        ),
+    seated(store, "w1", session_id=GRID_ID,
+        opened_at=1_700_000_000.0,
+        ran={"live_view": True},
     )
-    store.set("idle", Workspace(session_id=""))
-    store.set(
-        "novnc",
-        Workspace(session_id="g-other", ran={"live_view": False}),
+    seated(store, "idle", session_id="")
+    seated(store, "novnc", session_id="g-other", ran={"live_view": False},
     )
-    store.set(
-        "headless",
-        Workspace(
-            session_id="g-headless",
-            ran={"live_view": True},
-            settings={"headless": True},
-            set_by={"headless": "caller"},
-        ),
+    seated(store, "headless", session_id="g-headless",
+        ran={"live_view": True},
+        settings={"headless": True},
+        set_by={"headless": "caller"},
     )
     return server
 
@@ -204,7 +194,7 @@ def test_an_admin_header_opens_the_socket_without_a_link(client):
 
 def test_the_socket_refuses_4004_once_the_browser_has_gone(client, server):
     url = mint(client)
-    server.workspaces.store.set("w1", Workspace(session_id=""))
+    seated(server.workspaces.store, "w1", session_id="")
     gone = closed_with(client, url)
     assert (gone.code, gone.reason) == (4004, live_module.NO_BROWSER)
 
@@ -271,8 +261,7 @@ def test_an_unbound_link_never_opens_the_socket(client):
 
 
 def test_a_link_for_one_workspace_opens_no_other(client, server):
-    server.workspaces.store.set(
-        "w2", Workspace(session_id="g-2", ran={"live_view": True})
+    seated(server.workspaces.store, "w2", session_id="g-2", ran={"live_view": True}
     )
     url = mint(client).replace("/w1/", "/w2/")
     gone = closed_with(client, url)
@@ -419,7 +408,7 @@ def test_paste_in_control_types_and_audits_a_count(client, server, typing, caplo
     assert ("element", "send_keys", "hunter2") in typing.log
     assert "pasted 7 characters into w1" in caplog.text
     assert all("hunter2" not in r.getMessage() for r in caplog.records)
-    assert "hunter2" not in repr(server.workspaces.store.get("w1"))
+    assert "hunter2" not in repr(record_of(server.workspaces.store, "w1"))
 
 
 def test_a_paste_reads_the_store_off_the_event_loop(
@@ -656,7 +645,6 @@ def test_a_paste_is_audited_even_when_the_store_fails_once_it_is_typed(
 def test_a_paste_with_an_unreadable_start_time_types_nothing_and_says_so(
     client, server, typing, monkeypatch
 ):
-    from kubed.selenium_flow.workspace.store import Workspace
 
     held(server.tunnels, "w1", "admin", "control", GRID_ID)
     real = server.workspaces.store.get

@@ -32,7 +32,7 @@ from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 from . import fakes
 from .conftest import RecordingActions
-from .fakes import Clock, FakeCatalogue
+from .fakes import Clock, FakeCatalogue, record_of, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -964,7 +964,7 @@ def act(ws, tool="extract"):
 
 
 def sid(ws):
-    return ws.store.get("w").session_id
+    return record_of(ws.store, "w").session_id
 
 
 @pytest.mark.parametrize(
@@ -1027,7 +1027,7 @@ def test_an_error_after_a_reopen_is_scrubbed_and_says_the_reopen(ws):
 def test_a_url_carrying_a_value_is_marked_and_never_recorded(ws):  # Review Focus 3
     ws.actions.result = {"url": f"{A}/search?q=alpha-11", "title": "t"}
     assert "[secret:a/password]" in act(ws)["url"]
-    record = ws.store.get("w")
+    record = record_of(ws.store, "w")
     assert "alpha-11" not in (record.url or "")
     assert "alpha-11" not in json.dumps(record.history)
     # A later reopen goes back to the page before it, never to the value.
@@ -1117,7 +1117,7 @@ def test_the_event_fires_for_open_reopen_and_a_withheld_bound_write(ws):
     )
     assert "alpha-11" not in json.dumps(shown)
     assert seen[-1] == OriginChanged("w", second, A, B, False)
-    assert ws.store.get("w").url == f"{A}/"  # withheld
+    assert record_of(ws.store, "w").url == f"{A}/"  # withheld
     # The Grid reaps it: the reopen is heard on the page the record holds.
     ws.actions.grid.alive.discard(second)
     act(ws)
@@ -1129,7 +1129,7 @@ def test_the_event_fires_for_open_reopen_and_a_withheld_bound_write(ws):
 def test_open_session_scrubs_what_it_tells(ws):
     told = ws.open_browser(CALLER, url=f"{A}/search?q=alpha-11")
     assert told["url"] == f"{A}/search?q=[secret:a/password]"
-    record = ws.store.get("w")
+    record = record_of(ws.store, "w")
     assert "alpha-11" not in json.dumps(record.history)
 
 
@@ -1156,7 +1156,7 @@ def test_a_bound_writes_url_carrying_another_value_in_scope_is_withheld():
             {"selector": {"css": "#p"}, "secret": {"name": "a", "key": "password"}},
         )
         assert shown["url"] == f"{A}/?t=[secret:a/token]"
-        assert "tok-123456" not in json.dumps(ws.store.get("w").history)
+        assert "tok-123456" not in json.dumps(shared_of(ws.store, "w").history)
     finally:
         ws.scrubber.close()
 
@@ -1226,7 +1226,7 @@ def test_a_key_not_masked_is_bound_and_its_write_leaves_it_on_the_page(unmasked)
         {"selector": {"css": "#u"}, "secret": {"name": "ldap", "key": "username"}},
     )
     assert shown["title"] == "signed in as drk-user"
-    assert unmasked.store.get("w").url == f"{A}/?u=drk-user"
+    assert record_of(unmasked.store, "w").url == f"{A}/?u=drk-user"
 
 
 def test_end_browser_forgets_the_browser(ws):
@@ -1524,7 +1524,7 @@ def test_a_reopen_landing_on_a_value_never_records_it(ws, monkeypatch):  # fix 2
     ws.actions.grid.alive.discard(sid(ws))
     ws.actions.result = {"title": "t"}  # records nothing: the reopen's page stays
     act(ws)
-    assert "alpha-11" not in json.dumps(ws.store.get("w").history)
+    assert "alpha-11" not in json.dumps(shared_of(ws.store, "w").history)
 
 
 def test_the_reopen_report_is_scrubbed_when_handed_over(ws, monkeypatch):  # fix 3
@@ -1546,14 +1546,14 @@ def test_an_open_whose_scrub_fails_records_no_url(ws, monkeypatch):  # fix 4
     monkeypatch.setattr(ws.scrubber._catalogue, "leashed", boom)
     with pytest.raises(faults.ScrubFailed):
         ws.open_browser(CALLER, url=f"{B}/somewhere")
-    assert f"{B}/somewhere" not in json.dumps(ws.store.get("w").history)
+    assert f"{B}/somewhere" not in json.dumps(shared_of(ws.store, "w").history)
 
 
 def test_a_withheld_open_keeps_the_earlier_entry_of_its_origin(ws):  # fix 5
-    first = ws.store.get("w").history[0]
+    first = shared_of(ws.store, "w").history[0]
     assert first["url"] == f"{A}/"
     ws.open_browser(CALLER, url=f"{A}/?q=alpha-11")
-    history = ws.store.get("w").history
+    history = shared_of(ws.store, "w").history
     assert history and history[0]["url"] == f"{A}/"
 
 

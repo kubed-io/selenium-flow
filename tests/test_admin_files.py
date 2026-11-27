@@ -25,7 +25,7 @@ from kubed.selenium_flow.names import RECORDINGS_DIR, SCREENSHOTS_DIR
 from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import TOKEN
-from .fakes import patch_os
+from .fakes import patch_os, seated
 
 pytestmark = pytest.mark.unit
 
@@ -45,8 +45,8 @@ def client(data_server):
 @pytest.fixture
 def live(data_server):
     """A workspace holding a browser, which is what the admin API addresses."""
-    data_server.workspaces.store.set(
-        KEY, Workspace(session_id="abc").visited("https://x/")
+    seated(
+        data_server.workspaces.store, KEY, record=Workspace(session_id="abc").visited("https://x/")
     )
     return data_server
 
@@ -102,7 +102,7 @@ def test_a_reaped_browser_has_no_downloads_to_clear(client, data_server):
     """The record still names a browser; the Grid no longer has it. Dialling
     `clear_files` for an id the Grid has reaped would be a call for nothing,
     so this is success without ever making it."""
-    data_server.workspaces.store.set(KEY, Workspace(session_id="abc"))
+    seated(data_server.workspaces.store, KEY, session_id="abc")
     with (
         patch.object(browser.Grid, "is_alive", return_value=False),
         patch.object(browser.Grid, "clear_files") as clear,
@@ -199,7 +199,7 @@ def test_the_admin_keep_refuses_a_key_that_owns_no_library(client, data_server, 
     clear handlers do, so a stored key that cannot be a directory is refused
     with that reason rather than reaching the store as a raw name."""
     stale = "named:desktop"
-    data_server.workspaces.store.set(stale, Workspace(session_id="").visited("https://x/"))
+    seated(data_server.workspaces.store, stale, record=Workspace(session_id="").visited("https://x/"))
     response = client.post(
         f"/admin/workspaces/{stale}/files/screenshots/shot.png/keep", headers=AUTH
     )
@@ -309,9 +309,8 @@ def test_every_files_endpoint_needs_the_token(client, method, path):
 
 
 def test_recordings_are_listed_counted_cleared_and_kept(client, live):
-    live.workspaces.store.set(
-        KEY,
-        Workspace(session_id="abc", settings={"record": True}).visited("https://x/"),
+    seated(live.workspaces.store, KEY,
+        record=Workspace(session_id="abc", settings={"record": True}).visited("https://x/"),
     )
     live.flows.write_file(WORKSPACE, "rec-1.mp4", b"v", RECORDINGS_DIR)
     live.flows.write_file(WORKSPACE, "rec-2.mp4", b"w", RECORDINGS_DIR)

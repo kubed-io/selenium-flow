@@ -7,7 +7,7 @@ import pytest
 from kubed.selenium_flow.workspace import sessions
 from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, Workspace
 
-from .fakes import Clock, FakeRedis
+from .fakes import Clock, FakeRedis, record_of, seated, shared_of
 
 
 def test_a_default_session_key_is_the_workspace_name():
@@ -169,3 +169,14 @@ def test_a_name_a_session_uri_once_started_with_cannot_name_a_session(name):
     pinned = Caller.from_request({"workspace": ["shop"], "session": [name]}, {})
     with pytest.raises(ValueError):
         _ = pinned.pinned
+
+
+def test_seated_is_read_back_by_record_of():
+    store = _memory(Clock())
+    visit = {"origin": "https://example.com", "url": "https://example.com/a", "at": 1.0, "session": "default"}
+    seated(store, "shop", "default", session_id="b-1", history=[visit])
+    seated(store, "shop", "tester", session_id="b-2")
+    assert record_of(store, "shop").session_id == "b-1"
+    assert record_of(store, "shop", "tester").session_id == "b-2"
+    assert shared_of(store, "shop").page("default") == "https://example.com/a"
+    assert shared_of(store, "shop").subs == ["tester"]

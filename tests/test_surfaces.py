@@ -19,7 +19,7 @@ from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.http import files as files_module
 
 from .conftest import RESOURCE_TOOLS, over_http
-from .fakes import KeyDriver
+from .fakes import KeyDriver, record_of
 
 pytestmark = pytest.mark.unit
 
@@ -255,7 +255,7 @@ async def test_resize_writes_the_new_size_back_to_the_workspace(server, monkeypa
     server.workspaces.remember(NAMED, "abc", "", {"browser": "firefox"})
 
     resize(width=1024, height=768, actions=server.actions)
-    assert server.workspaces.store.get(NAMED).window == "1024x768"
+    assert record_of(server.workspaces.store, NAMED).window == "1024x768"
 
 
 def test_a_key_name_that_is_not_one_is_refused_with_every_name(actions, monkeypatch):

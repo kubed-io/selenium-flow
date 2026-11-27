@@ -23,7 +23,7 @@ from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .conftest import manager
-from .fakes import FocusedDriver, element
+from .fakes import FocusedDriver, element, record_of, seated
 
 pytestmark = pytest.mark.unit
 
@@ -183,7 +183,7 @@ def held(actions, monkeypatch):
     monkeypatch.setattr(actions.grid, "is_alive", lambda session_id: True)
     monkeypatch.setattr(actions.grid, "reconnect", lambda session_id: driver)
     workspaces = Workspaces(actions, MemoryStore())
-    workspaces.store.set("w1", Workspace(session_id="abc"))
+    seated(workspaces.store, "w1", session_id="abc")
     return workspaces, driver
 
 
@@ -196,14 +196,14 @@ def test_the_workspace_answers_a_count_only(held):
 def test_a_paste_is_not_recorded_in_the_workspace(held):
     workspaces, _ = held
     workspaces.paste("w1", "hunter2")
-    record = workspaces.store.get("w1")
+    record = record_of(workspaces.store, "w1")
     assert "hunter2" not in repr(record)
     assert not record.history
 
 
 def test_no_browser_is_404_and_nothing_is_reopened():
     workspaces = manager()
-    workspaces.store.set("w1", Workspace(session_id="gone"))
+    seated(workspaces.store, "w1", session_id="gone")
     with pytest.raises(faults.NotFound) as refused:
         workspaces.paste("w1", "hello")
     assert str(refused.value) == "this workspace has no browser open"
@@ -234,7 +234,7 @@ def reopened_between_reads(workspaces, monkeypatch):
 
 def test_a_paste_says_the_kind_of_the_browser_it_read(held, monkeypatch):
     workspaces, _ = held
-    workspaces.store.set("w1", Workspace(session_id="abc", settings={"browser": "chrome"}))
+    seated(workspaces.store, "w1", session_id="abc", settings={"browser": "chrome"})
     said = reopened_between_reads(workspaces, monkeypatch)
     workspaces.paste("w1", "hello")
     assert said == ["chrome"]
@@ -242,7 +242,7 @@ def test_a_paste_says_the_kind_of_the_browser_it_read(held, monkeypatch):
 
 def test_a_hand_back_says_the_kind_of_the_browser_it_read(held, monkeypatch):
     workspaces, _ = held
-    workspaces.store.set("w1", Workspace(session_id="abc", settings={"browser": "chrome"}))
+    seated(workspaces.store, "w1", session_id="abc", settings={"browser": "chrome"})
     monkeypatch.setattr(workspaces.actions, "outline", lambda session_id: {"url": None})
     said = reopened_between_reads(workspaces, monkeypatch)
     workspaces.handed_back("w1", None)
@@ -280,7 +280,7 @@ def test_a_paste_leaves_the_notice_for_the_agent(held):
     held_notice = {"browser": "abc", "cause": "reaped", "report": None}
     workspaces.store.update("w1", lambda r: replace(r, reopened=held_notice))
     workspaces.paste("w1", "hello")
-    assert workspaces.store.get("w1").reopened == held_notice
+    assert record_of(workspaces.store, "w1").reopened == held_notice
     assert workspaces.touch("w1", browser="abc") == {"cause": "reaped", "report": None}
 
 

@@ -10,6 +10,7 @@ import json
 import threading
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager, suppress
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import ClassVar, NamedTuple
@@ -37,6 +38,8 @@ from kubed.selenium_flow.live.tunnel import Tunnel
 from kubed.selenium_flow.redaction import Forms
 from kubed.selenium_flow.telemetry import Telemetry
 from kubed.selenium_flow.urls import origin_of, scope_origin
+from kubed.selenium_flow.workspace import sessions
+from kubed.selenium_flow.workspace.store import Workspace
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 MAIN = "main-1"
@@ -377,6 +380,62 @@ class FakeClock:
     def monotonic(self):
         self.now += 1.0
         return self.now
+
+
+# The session a server-token caller reaches when it names none.
+TOKEN_SESSION = "default"
+
+
+def seated(
+    store, workspace, name=sessions.DEFAULT, *, record=None, history=None, **fields
+):
+    """Seat a session in ``workspace``: write its record, list it, put the
+    history on the workspace's record. Returns the session key.
+
+    The record is ``record`` as it is, or a ``Workspace`` made of ``fields``
+    (both is a ``TypeError``). ``history`` is what the workspace's record
+    holds; when None (omitted), a ``record``'s own history supplies it (even if
+    empty, for the default), and with ``fields`` the default keeps its existing
+    history; a sub's record moves only a history it has. A sub's own
+    record never holds history. For the default, ``subs`` the record lacks are
+    kept from the existing record too.
+    """
+    if record is not None and fields:
+        raise TypeError("seated takes a record or fields, not both")
+    given = record is not None
+    record = record if given else Workspace(**fields)
+    key = sessions.key_of(workspace, name)
+    held = store.get(workspace)
+    if name == sessions.DEFAULT:
+        if held is not None:
+            if not record.subs:
+                record = replace(record, subs=list(held.subs))
+            if history is None and not given:
+                history = list(held.history)
+        if history is not None:
+            record = replace(record, history=history)
+        store.set(key, record)
+        return key
+    if history is None and given and record.history:
+        history = record.history
+    store.set(key, replace(record, history=[]))
+    shared = held or Workspace()
+    subs = shared.subs if name in shared.subs else [*shared.subs, name]
+    shared = replace(shared, subs=subs)
+    if history is not None:
+        shared = replace(shared, history=history)
+    store.set(workspace, shared)
+    return key
+
+
+def record_of(store, workspace, name=sessions.DEFAULT):
+    """The record of ``name``'s session in ``workspace``."""
+    return store.get(sessions.key_of(workspace, name))
+
+
+def shared_of(store, workspace):
+    """The record that holds the workspace's history and its listed sessions."""
+    return store.get(workspace)
 
 
 class Clock:

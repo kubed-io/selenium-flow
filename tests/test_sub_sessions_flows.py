@@ -22,11 +22,21 @@ from kubed.selenium_flow.live.tunnels import Tunnels
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.site_data import snapshot as site_data
 from kubed.selenium_flow.workspace import locks
-from kubed.selenium_flow.workspace.store import MemoryStore, Workspace
+from kubed.selenium_flow.workspace.store import MemoryStore
 from kubed.selenium_flow.workspace.workspaces import Workspaces, acting
 
 from .conftest import NAMED, calling_as
-from .fakes import BindingCatalogue, RecordingActions, TabbedActions, held, untabbed
+from .fakes import (
+    TOKEN_SESSION,
+    BindingCatalogue,
+    RecordingActions,
+    TabbedActions,
+    held,
+    record_of,
+    seated,
+    shared_of,
+    untabbed,
+)
 from .test_admin_live import hub  # noqa: F401 - a fixture, used below
 from .test_await_control import (  # noqa: F401 - fixtures, used below
     GRID,
@@ -62,8 +72,8 @@ def flows(monkeypatch, tmp_path):
     app.actions.grid = double.grid
     calling_as(monkeypatch, NAMED)
     store = app.workspaces.store
-    store.set(NAMED, Workspace(session_id="b-1", subs=["tester"]))
-    store.set(f"{NAMED}/tester", Workspace(session_id="b-2", label="tester"))
+    seated(store, NAMED, session_id="b-1", subs=["tester"])
+    seated(store, NAMED, "tester", session_id="b-2", label="tester")
     double.grid.alive.update({"b-1", "b-2"})
     app.flows.save(NAMED, "trip", {"steps": STEPS})
     return app, double
@@ -80,6 +90,8 @@ async def test_run_flow_runs_every_step_in_its_session(flows):
         assert browsers(double) == ["b-2", "b-2"]
         await client.call_tool("run_flow", {"name": "trip"})
     assert browsers(double) == ["b-2", "b-2", "b-1", "b-1"]
+    # The token's calls reach the browser the in-memory ones do, through its own session.
+    seated(app.workspaces.store, NAMED, TOKEN_SESSION, session_id="b-1")
     http = TestClient(app.mcp.server.http_app(), headers=AUTH)
     answered = http.post(
         f"/flows/trip/runs?workspace={NAMED}", json={"session": "tester"}
@@ -104,8 +116,7 @@ async def test_a_flow_failing_in_a_sub_session_logs_no_name(flows, monkeypatch, 
     app, double = flows
     subject = "subject-7f3a"
     store = app.workspaces.store
-    store.set(f"{NAMED}/{subject}", Workspace(session_id="b-3", label=subject))
-    store.update(NAMED, lambda r: replace(r, subs=[*r.subs, subject]))
+    seated(store, NAMED, subject, session_id="b-3", label=subject)
     double.grid.alive.add("b-3")
 
     def refuse(self, session_id, url):
@@ -141,7 +152,7 @@ async def test_the_run_is_scrubbed_and_checked_as_its_session(flows):
     workspaces = app.workspaces
     assert workspaces.context(f"{NAMED}/tester")["url"] == "https://example.test/extract"
     assert workspaces.context(NAMED).get("url", "") == ""
-    assert {v["session"] for v in store.get(NAMED).history} == {"tester"}
+    assert {v["session"] for v in shared_of(store, NAMED).history} == {"tester"}
 
 
 async def test_save_flow_refuses_a_step_naming_a_session(flows):
@@ -189,10 +200,10 @@ def test_a_flow_steps_save_site_data_saves_into_its_sessions_record(tmp_path):
     )
     assert report["status"] == "ok", report
     assert actions.acted_in == ["shop/tester"], "the step reads its session's sites"
-    assert list(store.get("shop/tester").site_data["origins"]) == [
+    assert list(record_of(store, "shop", "tester").site_data["origins"]) == [
         B_SITE.rstrip("/")
     ]
-    assert not store.get("shop").site_data
+    assert not record_of(store, "shop").site_data
     assert acting() == "", "and only while the run does"
 
 
@@ -229,8 +240,7 @@ def test_control_of_one_session_leaves_another_acting():
 
 async def test_await_control_waits_for_its_own_session(server, named, monkeypatch):  # noqa: F811
     store = server.store
-    store.set("w1", replace(store.get("w1"), subs=["tester"]))
-    store.set("w1/tester", Workspace(session_id="g2", label="tester"))
+    seated(store, "w1", "tester", session_id="g2", label="tester")
     server.browser.alive.add("g2")
     tunnel = await asyncio.to_thread(
         held, server.tunnels, "w1/tester", "alex", "control", "g2"
@@ -278,9 +288,7 @@ def live_build():
 
     app = build()
     app.workspaces.store.update("w1", lambda r: replace(r, subs=["tester"]))
-    app.workspaces.store.set(
-        "w1/tester",
-        Workspace(session_id="g-tester", label="tester", ran={"live_view": True}),
+    seated(app.workspaces.store, "w1", "tester", session_id="g-tester", label="tester", ran={"live_view": True},
     )
     return app
 

@@ -18,7 +18,14 @@ from kubed.selenium_flow.workspace.store import HISTORY_CAP, RedisStore, Workspa
 from kubed.selenium_flow.workspace.workspaces import _acting_in, acting
 
 from .conftest import NAMED, TOKEN, http, manager
-from .fakes import FakeRedis, RecordingActions
+from .fakes import (
+    TOKEN_SESSION,
+    FakeRedis,
+    RecordingActions,
+    record_of,
+    seated,
+    shared_of,
+)
 from .test_sub_sessions import A_SITE, B_SITE, as_, ids, two_open
 
 pytestmark = pytest.mark.unit
@@ -45,13 +52,13 @@ def test_a_sub_sessions_visit_is_in_the_workspaces_history_tagged():
     actions = RecordingActions()
     workspaces, store = two_open(actions)
     workspaces.act(as_(), lambda s: {"url": C_SITE}, session="tester")
-    record = store.get("shop")
+    record = record_of(store, "shop")
     assert tagged(record) == [
         ("tester", origin(C_SITE)),
         ("tester", origin(B_SITE)),
         ("default", origin(A_SITE)),
     ]
-    assert store.get("shop/tester").history == [], "never on the hour-long record"
+    assert record_of(store, "shop", "tester").history == [], "never on the hour-long record"
     # Each session's page is its own newest entry (WS-7).
     assert record.url == A_SITE
     assert workspaces.context("shop")["url"] == A_SITE
@@ -60,7 +67,7 @@ def test_a_sub_sessions_visit_is_in_the_workspaces_history_tagged():
     actions.grid.alive.discard(ids(store)[1])
     workspaces.act(as_(), lambda s: {}, session="tester")
     assert actions.opened_urls[-1] == C_SITE
-    assert store.get("shop").url == A_SITE
+    assert record_of(store, "shop").url == A_SITE
 
 
 def test_a_single_player_entry_is_the_defaults():
@@ -69,7 +76,7 @@ def test_a_single_player_entry_is_the_defaults():
     workspaces.act(as_(), lambda s: {"url": B_SITE})
     assert [
         {k: v for k, v in entry.items() if k != "at"}
-        for entry in workspaces.store.get("shop").history
+        for entry in shared_of(workspaces.store, "shop").history
     ] == [
         {"origin": origin(B_SITE), "url": B_SITE, "session": "default"},
         {"origin": origin(A_SITE), "url": A_SITE, "session": "default"},
@@ -79,12 +86,12 @@ def test_a_single_player_entry_is_the_defaults():
 def test_two_sessions_on_one_origin_keep_an_entry_each():
     workspaces, store = two_open()
     workspaces.act(as_(), lambda s: {"url": A_SITE + "x"}, session="tester")
-    assert tagged(store.get("shop")) == [
+    assert tagged(record_of(store, "shop")) == [
         ("tester", origin(A_SITE)),
         ("tester", origin(B_SITE)),
         ("default", origin(A_SITE)),
     ]
-    assert store.get("shop").url == A_SITE, "the default's page is still its own"
+    assert record_of(store, "shop").url == A_SITE, "the default's page is still its own"
 
 
 def test_each_live_sessions_current_page_is_kept_whole():
@@ -145,16 +152,15 @@ def test_a_stored_entry_names_its_session_or_is_the_defaults():
 
 def test_the_admins_clear_keeps_every_live_sessions_current_page(server):
     store = server.workspaces.store
-    store.set(
-        NAMED,
-        Workspace(subs=["tester", "gone"])
+    seated(store, NAMED,
+        record=Workspace(subs=["tester", "gone"])
         .visited("https://old.example.test/")
         .visited(A_SITE)
         .visited(C_SITE, session="gone")
         .visited(B_SITE, session="tester"),
     )
     # `gone`'s record expired: it cannot reopen, so its page is cleared too.
-    store.set(f"{NAMED}/tester", Workspace(label="tester"))
+    seated(store, NAMED, "tester", label="tester")
     client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     url = f"/admin/workspaces/{NAMED}/history"
     assert client.get(url).json()["clears"] == [
@@ -163,7 +169,7 @@ def test_the_admins_clear_keeps_every_live_sessions_current_page(server):
     assert client.delete(url).json() == {
         "cleared": ["c.example.test", "old.example.test"]
     }
-    assert tagged(store.get(NAMED)) == [
+    assert tagged(record_of(store, NAMED)) == [
         ("tester", origin(B_SITE)), ("default", origin(A_SITE)),
     ]
 
@@ -187,19 +193,19 @@ def test_two_sessions_append_history_without_losing_an_entry():  # Review Focus 
     fake.interfere = the_default_lands_first
     workspaces.touch("shop/tester", D_SITE, browser=tester)
     assert fake.interfere is None, "the race was run"
-    assert tagged(store.get("shop")) == [
+    assert tagged(record_of(store, "shop")) == [
         ("tester", origin(D_SITE)),
         ("default", origin(C_SITE)),
         ("tester", origin(B_SITE)),
         ("default", origin(A_SITE)),
     ]
-    assert store.get("shop/tester").history == []
+    assert record_of(store, "shop", "tester").history == []
 
 
 def test_a_replaced_sub_session_browser_writes_no_history():
     workspaces, store = two_open()
     workspaces.touch("shop/tester", C_SITE, browser="someone-elses")
-    assert origin(C_SITE) not in [v["origin"] for v in store.get("shop").history]
+    assert origin(C_SITE) not in [v["origin"] for v in shared_of(store, "shop").history]
 
 
 # ---- visited: a save reads its own session's sites (R10) --------------------
@@ -216,14 +222,13 @@ def test_a_call_knows_the_session_it_acts_in():
 
 def test_a_sub_sessions_save_site_data_reads_its_own_sites(server, monkeypatch):
     store = server.workspaces.store
-    store.set(
-        NAMED,
-        Workspace(subs=["tester"])
+    seated(store, NAMED,
+        record=Workspace(subs=["tester"])
         .visited(A_SITE)
         .visited(B_SITE, session="tester")
         .visited(C_SITE),
     )
-    store.set(f"{NAMED}/tester", Workspace(label="tester"))
+    seated(store, NAMED, "tester", label="tester")
     monkeypatch.setattr(
         clients_module, "request_values", lambda: http({"workspace": NAMED})
     )
@@ -240,8 +245,9 @@ def test_a_sub_sessions_save_site_data_reads_its_own_sites(server, monkeypatch):
 
 def test_flows_files_and_config_are_the_same_from_every_session(data_server):
     store = data_server.workspaces.store
-    store.set(NAMED, Workspace(subs=["tester"]))
-    store.set(f"{NAMED}/tester", Workspace(label="tester"))
+    seated(store, NAMED, subs=["tester"])
+    seated(store, NAMED, "tester", label="tester")
+    seated(store, NAMED, TOKEN_SESSION)  # the token's unnamed reads are its own session's
     data_server.flows.write_file(NAMED, "report.pdf", b"PDF")
     data_server.flows.save(NAMED, "mine", {"steps": [], "description": "mine"})
     data_server.flows.save(GLOBAL_WORKSPACE, "offered", {"steps": [], "tags": ["web"]})
@@ -273,8 +279,8 @@ def test_flows_files_and_config_are_the_same_from_every_session(data_server):
 
 def _two_browsers(server):
     store = server.workspaces.store
-    store.set(NAMED, Workspace(session_id="g-default", subs=["tester"]))
-    store.set(f"{NAMED}/tester", Workspace(session_id="g-tester", label="tester"))
+    seated(store, NAMED, session_id="g-default", subs=["tester"])
+    seated(store, NAMED, "tester", session_id="g-tester", label="tester")
 
 
 def _listing(session_id):
@@ -287,6 +293,8 @@ def _names(listing):
 
 async def test_each_session_has_its_own_downloads(data_server, monkeypatch):
     _two_browsers(data_server)
+    # The token's unnamed REST call is its own session, on the default's browser.
+    seated(data_server.workspaces.store, NAMED, TOKEN_SESSION, session_id="g-default")
     client = TestClient(data_server.mcp.server.http_app(), headers=AUTH)
     admin = f"/admin/workspaces/{NAMED}/files/downloads"
     with (

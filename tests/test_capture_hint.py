@@ -18,7 +18,7 @@ from kubed.selenium_flow.workspace.calls import Calls, hint, total
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 from .capture_events import done, fail, log, req
-from .fakes import Anywhere, FakeMonitor, PageActions, build
+from .fakes import Anywhere, FakeMonitor, PageActions, build, record_of
 
 pytestmark = pytest.mark.unit
 
@@ -140,7 +140,7 @@ def test_the_first_call_after_a_pause_holds_capture_again_before_it_acts(capture
     """The deadline closed the connection while the agent thought; the call
     that comes back is the one most worth capturing."""
     workspaces, _, monitor = captured_ws
-    sid = workspaces.store.get("ws").session_id
+    sid = record_of(workspaces.store, "ws").session_id
     monitor.owed.add(sid)
     order = []
     monitor.attach = lambda *a, **k: order.append(("attach", *a, k.get("browser")))
@@ -153,7 +153,7 @@ def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
     now = [1000.0]
     capture, monitor = Capture(ttl=10, clock=lambda: now[0]), FakeMonitor()
     workspaces = build(capture, monitor)
-    monitor.owed.add(workspaces.store.get("ws").session_id)
+    monitor.owed.add(record_of(workspaces.store, "ws").session_id)
     now[0] += 60
 
     def click(session_id):
@@ -172,7 +172,7 @@ def test_the_first_call_after_a_quiet_spell_still_counts_what_it_caused():
 
 def test_a_held_or_unowed_capture_is_not_attached_again(captured_ws):
     workspaces, _, monitor = captured_ws
-    sid = workspaces.store.get("ws").session_id
+    sid = record_of(workspaces.store, "ws").session_id
     workspaces.act(Caller("ws", "query"), lambda s: {"url": "u"}, tool="extract")
     monitor.owed.add(sid)
     monitor.held = object()
@@ -183,7 +183,7 @@ def test_a_held_or_unowed_capture_is_not_attached_again(captured_ws):
 
 def test_capture_that_cannot_resume_never_fails_the_call(captured_ws, caplog):
     workspaces, _, monitor = captured_ws
-    sid = workspaces.store.get("ws").session_id
+    sid = record_of(workspaces.store, "ws").session_id
     monitor.owed.add(sid)
 
     def refuse(*_a, **_k):
@@ -196,7 +196,7 @@ def test_capture_that_cannot_resume_never_fails_the_call(captured_ws, caplog):
 
 def test_a_bound_write_and_a_flow_step_resume_capture_too(tmp_path, catalogue):
     run = FlowRun(tmp_path)
-    sid = run.workspaces.store.get("ws").session_id
+    sid = record_of(run.workspaces.store, "ws").session_id
     run.monitor.owed.add(sid)
     run(steps=[("interact", 0, 0)])
     run.actions.write = lambda sid, text, **kw: {"url": "u", "value": None}
@@ -238,7 +238,7 @@ def test_a_call_says_which_browser_it_ran_on_after_a_reopen_too():
         if isinstance(e, CallFinished) and e.tool == "extract"
     ]
     assert event.browser == "firefox"
-    assert event.session_id == workspaces.store.get("ws").session_id
+    assert event.session_id == record_of(workspaces.store, "ws").session_id
 
 
 def test_a_failure_of_ours_is_a_5xx():
@@ -272,7 +272,7 @@ def test_a_flush_that_fails_is_logged_by_type_and_the_hint_still_comes(captured_
     with caplog.at_level(logging.DEBUG, logger="kubed.selenium_flow.workspace.calls"):
         result = workspaces.act(Caller("ws", "query"), click, tool="interact")
     assert result["page"]["errors"] == 1
-    sid = workspaces.store.get("ws").session_id
+    sid = record_of(workspaces.store, "ws").session_id
     assert "flush" in caplog.text and sid not in caplog.text
 
 
@@ -287,7 +287,7 @@ def test_with_a_held_connection_the_call_flushes_it_before_counting(captured_ws,
 
         def flush(self, timeout):
             # What the browser sent before the call ended lands now.
-            capture.ingest("ws", workspaces.store.get("ws").session_id, *log("late", level="error"))
+            capture.ingest("ws", record_of(workspaces.store, "ws").session_id, *log("late", level="error"))
             flushed.append(self.pair)
 
     from kubed.selenium_flow.workspace import calls as calls_module
@@ -356,7 +356,7 @@ def test_the_reopen_note_comes_before_the_page_note():
 
 def test_a_bound_write_after_a_reap_says_the_notice_on_its_error(captured_ws, catalogue):
     workspaces, _, _ = captured_ws
-    sid = workspaces.store.get("ws").session_id
+    sid = record_of(workspaces.store, "ws").session_id
     workspaces.store.update(
         "ws", lambda r: replace(r, reopened={"browser": sid, "cause": "reaped", "report": None}))
 

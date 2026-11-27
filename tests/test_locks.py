@@ -22,11 +22,10 @@ from kubed.selenium_flow.core.actions import Actions
 from kubed.selenium_flow.flows import run as flowrun
 from kubed.selenium_flow.secrets import ALLOWED_URLS, Catalogue, FilesystemSource
 from kubed.selenium_flow.workspace import locks
-from kubed.selenium_flow.workspace.store import Workspace
 from kubed.selenium_flow.workspace.workspaces import Caller
 
 from .conftest import NAMED, OTHER, manager
-from .fakes import ScriptedDriver, untabbed
+from .fakes import TOKEN_SESSION, ScriptedDriver, record_of, seated, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -75,7 +74,7 @@ def wired(**browsers):
     actions = Actions(grid)
     workspaces = manager(actions)
     for name, (gid, _) in browsers.items():
-        workspaces.store.set(name, Workspace(session_id=gid))
+        seated(workspaces.store, name, session_id=gid)
     return actions, workspaces
 
 
@@ -151,7 +150,7 @@ def test_end_browser_does_not_wait_for_an_assert_and_the_assert_lets_go():
     assert isinstance(error, cancel.Ended)
     assert str(error) == ENDED
     assert actions.grid.quit_ == ["abc"]
-    assert not workspaces.store.get(NAMED).attached
+    assert not record_of(workspaces.store, NAMED).attached
 
 
 @pytest.fixture
@@ -317,7 +316,9 @@ def ended_server(monkeypatch):
     ))
     driver, polling = polling_driver()
     server.actions.grid = Grid(abc=driver)
-    server.workspaces.store.set(NAMED, Workspace(session_id="abc"))
+    # The HTTP test's token and the MCP test's no-principal client each reach it.
+    seated(server.workspaces.store, NAMED, session_id="abc")
+    seated(server.workspaces.store, NAMED, TOKEN_SESSION, session_id="abc")
     calling_as(monkeypatch, NAMED)
     return server, polling, TOKEN
 

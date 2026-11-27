@@ -17,6 +17,7 @@ from kubed.selenium_flow.workspace.workspaces import CONTEXT_KEYS
 
 from .capture_events import log, nav_started
 from .conftest import NAMED, calling_as
+from .fakes import record_of, seated, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -56,13 +57,11 @@ def server(data_server, monkeypatch):
     store = MemoryStore(clock=clock)
     data_server.workspaces.store = store
     data_server.clock = clock
-    store.set(NAMED, Workspace(
-        session_id="s1", settings={"capture": True}, subs=["tester"],
+    seated(store, NAMED, session_id="s1", settings={"capture": True}, subs=["tester"],
         history=[visit(B_SITE, "tester"), visit(A_SITE, "default")],
-    ))
-    store.set(TESTER, Workspace(
-        session_id="s2", settings={"capture": True}, label="tester",
-    ))
+    )
+    seated(store, NAMED, "tester", session_id="s2", settings={"capture": True}, label="tester",
+    )
     calling_as(monkeypatch, NAMED)
     return data_server
 
@@ -118,11 +117,11 @@ def test_reading_as_a_subject_claims_nothing_and_makes_nothing(server):
     first = Principal("oidc", subject="sub-a", username="first")
     second = Principal("oidc", subject="sub-b", username="second")
     # An unowned default: reading is not claiming it.
-    assert store.get(NAMED).owner is None
+    assert shared_of(store, NAMED).owner is None
     before = stored(store)
     context = server.workspaces.describe(replace(_caller(), principal=first))
     assert context["session"] == "default"
-    assert stored(store) == before and store.get(NAMED).owner is None
+    assert stored(store) == before and shared_of(store, NAMED).owner is None
     # Another subject owns it: a subject with no sub-session yet reads an
     # empty one under its own name, and none is made or listed.
     store.update(NAMED, lambda r: replace(r, owner="sub-a"))
@@ -133,8 +132,8 @@ def test_reading_as_a_subject_claims_nothing_and_makes_nothing(server):
     )
     assert context["url"] is None
     assert stored(store) == before
-    assert store.get(NAMED).subs == ["tester"]
-    assert store.get(sessions.key_of(NAMED, "sub-b")) is None
+    assert shared_of(store, NAMED).subs == ["tester"]
+    assert record_of(store, NAMED, "sub-b") is None
 
 
 async def test_reading_a_named_session_leaves_the_records_as_they_were(server):
@@ -143,7 +142,7 @@ async def test_reading_a_named_session_leaves_the_records_as_they_were(server):
     await read(server, "session://tester")
     await read(server, "session://tester/console")
     assert stored(store) == before
-    assert store.get(NAMED).subs == ["tester"]
+    assert shared_of(store, NAMED).subs == ["tester"]
 
 
 async def test_session_resource_reads_a_named_session(server):
@@ -164,7 +163,7 @@ async def test_session_name_resource_for_an_unknown_name_is_not_found(server):
         with pytest.raises(MCPError) as missing:
             await read(server, uri)
         assert missing.value.error.code == -32002, uri
-    assert server.workspaces.store.get(sessions.key_of(NAMED, "nobody")) is None
+    assert record_of(server.workspaces.store, NAMED, "nobody") is None
 
 
 async def test_capture_is_kept_per_session(server):
@@ -194,7 +193,7 @@ async def test_a_sub_sessions_capture_lasts_as_its_record(server):
     heard(server, NAMED, "s1", "default")
     server.workspaces.forget(NAMED)
     assert capture.counts(NAMED) is None
-    assert server.workspaces.store.get(NAMED) is None
+    assert record_of(server.workspaces.store, NAMED) is None
 
 
 def test_a_recreated_sub_session_starts_with_no_capture(server):

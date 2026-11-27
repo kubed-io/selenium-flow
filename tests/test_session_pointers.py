@@ -27,7 +27,6 @@ from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.principal import Principal
 from kubed.selenium_flow.secrets import perform_write
 from kubed.selenium_flow.workspace import sessions
-from kubed.selenium_flow.workspace.store import Workspace
 from kubed.selenium_flow.workspace.workspaces import (
     Caller,
     Workspaces,
@@ -37,7 +36,16 @@ from kubed.selenium_flow.workspace.workspaces import (
 
 from .capture_events import done, log, nav_started, req
 from .conftest import NAMED, TOKEN, calling_as, http, manager
-from .fakes import Anywhere, FakeMonitor, PageActions, ScriptedDriver
+from .fakes import (
+    TOKEN_SESSION,
+    Anywhere,
+    FakeMonitor,
+    PageActions,
+    ScriptedDriver,
+    record_of,
+    seated,
+    shared_of,
+)
 from .test_site_data_workspaces import SiteActions
 
 pytestmark = pytest.mark.unit
@@ -68,7 +76,7 @@ def two():
     workspaces.open_browser(unnamed())
     workspaces.open_browser(unnamed(), session="tester")
     for key in (WS, SUB):
-        sid = workspaces.store.get(key).session_id
+        sid = record_of(workspaces.store, *sessions.split(key)).session_id
         capture.attached(key, sid, "chrome", "top-1", again=False)
     return workspaces, capture
 
@@ -187,7 +195,7 @@ def test_a_store_failing_on_the_callers_own_reopens_nothing(two, monkeypatch):
     """`own` is read before the browser is touched: a reaped browser is not
     reopened for a call that then fails, with its notice stranded."""
     workspaces, capture = two
-    reaped = workspaces.store.get(SUB).session_id
+    reaped = record_of(workspaces.store, WS, "tester").session_id
     workspaces.actions.grid.alive.discard(reaped)
     opened = workspaces.actions.n
 
@@ -198,7 +206,7 @@ def test_a_store_failing_on_the_callers_own_reopens_nothing(two, monkeypatch):
     with pytest.raises(ConnectionError):
         workspaces.act(unnamed(), erring(capture), session="tester", tool="interact")
     assert workspaces.actions.n == opened
-    assert workspaces.store.get(SUB).session_id == reaped
+    assert record_of(workspaces.store, WS, "tester").session_id == reaped
 
 
 # ---- a flow run --------------------------------------------------------------
@@ -226,7 +234,7 @@ def flow(tmp_path):
     workspaces.open_browser(unnamed())
     workspaces.open_browser(unnamed(), session="tester")
     for key in (WS, SUB):
-        sid = workspaces.store.get(key).session_id
+        sid = record_of(workspaces.store, *sessions.split(key)).session_id
         capture.attached(key, sid, "chrome", "top-1", again=False)
     store = flow_store.LocalFlowStore(tmp_path)
     store.save(WS, "trip", {"steps": [
@@ -331,12 +339,10 @@ def server(data_server, monkeypatch):
     capturing, `tester` with saved site data and a request of its own."""
     data_server.workspaces.actions.grid = AliveGrid()
     store = data_server.workspaces.store
-    store.set(NAMED, Workspace(
-        session_id="g-default", settings={"capture": True}, subs=["tester"],
-    ))
-    store.set(TESTER, Workspace(
-        session_id="g-tester", settings={"capture": True}, label="tester",
-    ))
+    seated(store, NAMED, session_id="g-default", settings={"capture": True}, subs=["tester"],
+    )
+    seated(store, NAMED, "tester", session_id="g-tester", settings={"capture": True}, label="tester",
+    )
     store.update(TESTER, lambda r: r.with_site_data(JAR))
     capture = data_server.capture
     for key, sid in ((NAMED, "g-default"), (TESTER, "g-tester")):
@@ -389,7 +395,7 @@ async def test_a_named_sessions_request_is_read_at_its_own_uri(server):
 
 async def test_the_new_reads_of_an_unknown_session_are_not_found(server):
     store = server.workspaces.store
-    before = store.get(NAMED)
+    before = record_of(store, NAMED)
     for uri in (
         "session://nobody/network/1.1",
         "session://nobody/site-data",
@@ -399,8 +405,8 @@ async def test_the_new_reads_of_an_unknown_session_are_not_found(server):
         with pytest.raises(MCPError) as missing:
             await read(server, uri)
         assert missing.value.error.code == -32002, uri
-    assert store.get(NAMED) == before
-    assert store.get(sessions.key_of(NAMED, "nobody")) is None
+    assert record_of(store, NAMED) == before
+    assert record_of(store, NAMED, "nobody") is None
 
 
 async def test_a_named_sessions_downloads_name_it(server):
@@ -462,6 +468,11 @@ async def test_an_address_naming_no_file_never_names_the_session(server):
 
 
 def test_a_rest_keep_says_whose_download_it_kept(server):
+    # The token's unnamed keep acts in its own session, on the default's browser.
+    seated(
+        server.workspaces.store, NAMED, TOKEN_SESSION,
+        session_id="g-default", settings={"capture": True},
+    )
     client = TestClient(server.mcp.server.http_app(), headers=AUTH)
     path = f"/files/downloads/report.pdf/kept?workspace={NAMED}"
     theirs = client.put(path, json={"session": "tester"})
@@ -492,10 +503,10 @@ async def test_reading_your_downloads_claims_nothing(server, monkeypatch):
     first = Principal("oidc", subject="sub-a", username="first")
     monkeypatch.setattr(clients_module, "principal", lambda: first)
     store = server.workspaces.store
-    assert store.get(NAMED).owner is None
+    assert shared_of(store, NAMED).owner is None
     listing = await read(server, "session://downloads")
     assert listing["files"][0]["name"] == "g-default.pdf"
-    assert store.get(NAMED).owner is None, "reading is not claiming"
+    assert shared_of(store, NAMED).owner is None, "reading is not claiming"
 
 
 async def test_mcp_tools_point_at_the_session_they_named(server, monkeypatch):
@@ -612,12 +623,10 @@ def wired(tmp_path, monkeypatch):
     }))
     server.workspaces.actions.grid = AliveGrid()
     store = server.workspaces.store
-    store.set(NAMED, Workspace(
-        session_id="g-default", settings={"capture": True}, subs=["tester"],
-    ))
-    store.set(TESTER, Workspace(
-        session_id="g-tester", settings={"capture": True}, label="tester",
-    ))
+    seated(store, NAMED, session_id="g-default", settings={"capture": True}, subs=["tester"],
+    )
+    seated(store, NAMED, "tester", session_id="g-tester", settings={"capture": True}, label="tester",
+    )
     for sid, key in SIDS.items():
         server.capture.attached(key, sid, "chrome", "top-1", again=False)
     server.flows.save(NAMED, "trip", {"steps": [
@@ -639,7 +648,19 @@ async def test_mcp_run_flow_and_write_point_at_the_session_they_named(wired):
             assert own.structured_content["page"]["see"] == OWN_SEE, tool
 
 
-def test_rest_runs_writes_and_actions_point_at_the_session_they_named(wired):
+def test_rest_runs_writes_and_actions_point_at_the_session_they_named(wired, monkeypatch):
+    # The token's unnamed calls act in its own session, which captures like the
+    # default's: on the default's browser while that is the same session, on a
+    # browser of its own once it is not.
+    own_key = sessions.key_of(NAMED, TOKEN_SESSION)
+    own_sid = "g-default" if own_key == NAMED else "g-token"
+    seated(
+        wired.workspaces.store, NAMED, TOKEN_SESSION,
+        session_id=own_sid, settings={"capture": True},
+    )
+    if own_key != NAMED:
+        monkeypatch.setitem(SIDS, own_sid, own_key)
+        wired.capture.attached(own_key, own_sid, "chrome", "top-1", again=False)
     client = TestClient(wired.mcp.server.http_app(), headers={**AUTH, "Sf-Workspace": NAMED})
     for path, body in (
         ("/flows/trip/runs", {}),
@@ -659,7 +680,7 @@ async def test_upload_file_types_another_sessions_download(server, monkeypatch):
     whichever that is (ACT-40)."""
     store = server.workspaces.store
     store.update(NAMED, lambda r: replace(r, subs=[*r.subs, "zed"]))
-    store.set(sessions.key_of(NAMED, "zed"), Workspace(session_id="g-zed", label="zed"))
+    seated(store, NAMED, "zed", session_id="g-zed", label="zed")
     typed = []
 
     def reconnect(session_id):
@@ -705,11 +726,7 @@ def named_anywhere(caplog):
 
 async def test_no_log_line_names_a_sub_session(server, caplog, monkeypatch):
     store = server.workspaces.store
-    key = sessions.key_of(NAMED, SUBJECT)
-    store.set(key, Workspace(
-        session_id="g-subject", settings={"capture": True}, label=SUBJECT,
-    ))
-    store.update(NAMED, lambda r: replace(r, subs=[*r.subs, SUBJECT]))
+    key = seated(store, NAMED, SUBJECT, session_id="g-subject", settings={"capture": True}, label=SUBJECT)
     server.capture.attached(key, "g-subject", "chrome", "top-1", again=False)
     caplog.set_level(logging.DEBUG)
     async with Client(server.mcp.server) as c:
@@ -812,10 +829,8 @@ FAIL = B_SITE + "fail"
 def _with_session(server, monkeypatch, name, sid):
     """``name`` open in `NAMED` on ``sid``, capturing, its page throwing as
     `wired`'s do."""
-    key = sessions.key_of(NAMED, name)
     store = server.workspaces.store
-    store.set(key, Workspace(session_id=sid, settings={"capture": True}, label=name))
-    store.update(NAMED, lambda r: replace(r, subs=[*r.subs, name]))
+    key = seated(store, NAMED, name, session_id=sid, settings={"capture": True}, label=name)
     monkeypatch.setitem(SIDS, sid, key)
     server.capture.attached(key, sid, "chrome", "top-1", again=False)
     return key
@@ -865,6 +880,8 @@ async def test_a_refused_address_names_no_session_on_any_surface(
     """I2: a listing given where a file goes is refused without the name, over
     REST, as a flow step and over MCP; and the log never names it."""
     _with_session(wired, monkeypatch, DL, "g-dl")
+    # The REST calls below are the token's, unnamed: its own session answers.
+    seated(wired.workspaces.store, NAMED, TOKEN_SESSION, session_id="g-default", settings={"capture": True})
     caplog.set_level(logging.DEBUG)
     upload = {"selector": {"css": "input"}}
     addresses = [

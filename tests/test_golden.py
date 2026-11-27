@@ -46,7 +46,17 @@ from .conftest import (
     delivery_meta,
     over_http,
 )
-from .fakes import FakeActions, FakeClock, FakeGrid, Vault, header, request, untabbed
+from .fakes import (
+    TOKEN_SESSION,
+    FakeActions,
+    FakeClock,
+    FakeGrid,
+    Vault,
+    header,
+    request,
+    seated,
+    untabbed,
+)
 from .golden_tools import GOLDEN, compare, normalised, render
 from .test_flowrun import SECRET_STEP, SIMPLE, flow
 
@@ -523,15 +533,13 @@ def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
         "saved_at": NOW - 30,
     }
     store = server.workspaces.store
-    store.set(
-        "live",
-        Workspace(session_id="live-1", opened_at=NOW - 600).visited(
+    seated(store, "live",
+        record=Workspace(session_id="live-1", opened_at=NOW - 600).visited(
             "https://app.example.com/x", now=NOW - 60
         ),
     )
-    store.set(
-        "detached",
-        Workspace(
+    seated(store, "detached",
+        record=Workspace(
             session_id="",
             opened_at=NOW - 7200,
             settings={"browser": "firefox", "version": "142"},
@@ -548,9 +556,8 @@ def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
             ended={"at": NOW - 3500, "by": "admin"},
         ).visited("https://mail.example.org/inbox", now=NOW - 3600),
     )
-    store.set(
-        "sited",
-        Workspace(session_id="", opened_at=NOW - 1800)
+    seated(store, "sited",
+        record=Workspace(session_id="", opened_at=NOW - 1800)
         .visited("https://app.example.com/x", now=NOW - 90)
         .with_site_data(site_data),
     )
@@ -559,7 +566,7 @@ def test_the_admin_workspace_listing_is_what_it_was(tmp_path):
         opened_at=NOW - 300,
         reopened={"browser": "live-1", "report": {"restored": 1, "skipped": 0}},
     ).visited("https://app.example.com/y", now=NOW - 20)
-    store.set("reopened", reopened)
+    seated(store, "reopened", record=reopened)
     body = TestClient(server.mcp.server.http_app(), headers=AUTH).get("/admin/workspaces")
     assert body.status_code == 200
     compare("admin-workspaces.json", normalised(body.json()))
@@ -624,7 +631,7 @@ def test_every_error_envelope_is_what_it_was(monkeypatch):
     current = [None]
     monkeypatch.setattr(Actions, "navigate", lambda self, s, url: fail(s, url))
     server = untabbed(SeleniumMCP({**SETTINGS}))
-    server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))
+    seated(server.workspaces.store, NAMED, TOKEN_SESSION, session_id="b-1")
     server.actions.grid = FakeGrid()
     server.actions.grid.alive.add("b-1")
     client = TestClient(server.mcp.server.http_app(), headers=AUTH)
@@ -701,7 +708,10 @@ def twin(monkeypatch):
     server = untabbed(SeleniumMCP({**SETTINGS}))
     server.actions.grid = double.grid
     calling_as(monkeypatch, NAMED)
-    server.workspaces.store.set(NAMED, Workspace(session_id="b-1"))
+    # The in-memory client has no principal (the default's session); the
+    # endpoint's token caller has its own session on the same browser.
+    seated(server.workspaces.store, NAMED, session_id="b-1")
+    seated(server.workspaces.store, NAMED, TOKEN_SESSION, session_id="b-1")
     double.grid.alive.add("b-1")
     return server, double
 

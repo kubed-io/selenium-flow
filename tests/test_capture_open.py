@@ -13,7 +13,7 @@ from kubed.selenium_flow.workspace import settings
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .capture_events import log
-from .fakes import caller, loaded
+from .fakes import caller, loaded, record_of
 
 pytestmark = pytest.mark.unit
 
@@ -269,7 +269,7 @@ def ws():
 def test_an_open_with_capture_attaches_and_remembers_it(ws):
     result = ws.workspaces.open_browser(caller(), url="https://a.test/", capture=True)
     assert ws.monitor.attached == [("bot", "grid0001", "capture")]
-    assert ws.workspaces.store.get("bot").settings["capture"] is True
+    assert record_of(ws.workspaces.store, "bot").settings["capture"] is True
     assert result["capture"] is True and "grid0001" not in str(result)
 
 
@@ -281,7 +281,7 @@ def test_a_failed_attach_fails_the_open_and_binds_nothing(ws):
     ws.monitor.refuse = True
     with pytest.raises(BidiUnavailable):
         ws.workspaces.open_browser(caller(), capture=True)
-    record = ws.workspaces.store.get("bot")
+    record = record_of(ws.workspaces.store, "bot")
     assert record is None or not record.attached
 
 
@@ -300,7 +300,7 @@ def test_a_failure_after_the_attach_ends_the_watch(ws):
     with pytest.raises(TimeoutError):
         ws.workspaces.open_browser(caller(), url="https://typo.test/", capture=True)
     assert [c[1] for c in ws.monitor.ended_calls] == ["grid0001"]
-    record = ws.workspaces.store.get("bot")
+    record = record_of(ws.workspaces.store, "bot")
     assert record is None or not record.attached
 
 
@@ -385,7 +385,7 @@ def test_a_raising_monitor_never_fails_end_browser(ws):
 
     ws.monitor.ended = boom
     ws.workspaces.end_browser(caller())
-    assert not ws.workspaces.store.get("bot").attached
+    assert not record_of(ws.workspaces.store, "bot").attached
 
 
 def test_a_raising_monitor_never_fails_an_open(ws):

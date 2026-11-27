@@ -39,10 +39,9 @@ from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import waiting
 from kubed.selenium_flow.server import SeleniumMCP
 from kubed.selenium_flow.workspace import locks
-from kubed.selenium_flow.workspace.store import Workspace
 
 from .conftest import calling_as
-from .fakes import held, loaded, untabbed
+from .fakes import held, loaded, record_of, seated, shared_of, untabbed
 
 pytestmark = pytest.mark.unit
 
@@ -101,7 +100,7 @@ def server(monkeypatch):
     monkeypatch.setattr(
         server.pages, "listed", lambda _gid: ([dict(p) for p in PAGES], 0)
     )
-    server.store.set("w1", Workspace(session_id=GRID, history=list(HISTORY)))
+    seated(server.store, "w1", session_id=GRID, history=list(HISTORY))
     server.browser = browser
     return server
 
@@ -211,7 +210,7 @@ async def test_it_returns_with_the_summary_the_moment_the_person_hands_back(
     )
     assert "visited" in summary["message"]
     # Ruling 29: nothing to History, and the page was read, not reopened.
-    assert server.store.get("w1").history == HISTORY
+    assert shared_of(server.store, "w1").history == HISTORY
     assert server.browser.read == [GRID] and server.browser.opened == 0
 
 
@@ -294,7 +293,7 @@ async def test_nobody_in_control_answers_at_once(server, named, monkeypatch):
     assert summary["page"] == {"url": OUTLINE["url"], "title": "Home"}
     assert summary["message"] == NOBODY
     assert NOBODY == "nobody has control of this browser: carry on."
-    assert server.store.get("w1").history == HISTORY
+    assert shared_of(server.store, "w1").history == HISTORY
 
 
 async def test_a_held_notice_is_said_by_await_control(server, named):
@@ -304,7 +303,7 @@ async def test_a_held_notice_is_said_by_await_control(server, named):
         result = await client.call_tool("await_control")
     assert result.structured_content["reopened"] == {
         "cause": "reaped", "message": faults.REOPENED["reaped"]}
-    assert server.store.get("w1").reopened == {}
+    assert record_of(server.store, "w1").reopened == {}
 
 
 async def test_an_unsaid_hand_back_is_returned_once(server, named):
@@ -699,7 +698,7 @@ async def test_the_long_poll_answers_the_same_summary(server, monkeypatch):
     assert summary["visited"] == VISITED
     assert summary["page"] == {"url": OUTLINE["url"], "title": "Home"}
     assert "control of this browser" not in response.text  # no notice on HTTP
-    assert server.store.get("w1").history == HISTORY
+    assert shared_of(server.store, "w1").history == HISTORY
 
 
 async def test_the_long_poll_answers_at_the_cap(server, monkeypatch):

@@ -13,6 +13,7 @@ from starlette.testclient import TestClient
 from kubed.selenium_flow.names import CONFIG_FILE
 
 from .conftest import TOKEN
+from .fakes import seated
 
 pytestmark = pytest.mark.unit
 
@@ -164,18 +165,16 @@ async def test_no_tool_writes_the_config(data_server):
 
 def test_a_save_keeps_an_idle_workspaces_record_at_once(client, data_server):
     """The record is not written again after the save, and still never expires."""
-    from kubed.selenium_flow.workspace.store import Workspace
 
-    data_server.store.set(KEY, Workspace(session_id="a"))
+    seated(data_server.store, KEY, session_id="a")
     client.put(url(), json={"text": VALID}, headers=AUTH)
     assert data_server.store._data[KEY][0] == float("inf")
 
 
 def test_a_remove_sets_the_expiry_again_at_once(client, data_server):
-    from kubed.selenium_flow.workspace.store import Workspace
 
     client.put(url(), json={"text": VALID}, headers=AUTH)
-    data_server.store.set(KEY, Workspace(session_id="a"))
+    seated(data_server.store, KEY, session_id="a")
     client.delete(url(), headers=AUTH)
     assert data_server.store._data[KEY][0] < float("inf")
 
@@ -246,9 +245,8 @@ def _row(client):
 def test_the_row_carries_a_config_revision_that_follows_a_hand_edit(
     client, data_server, tmp_path
 ):
-    from kubed.selenium_flow.workspace.store import Workspace
 
-    data_server.store.set(KEY, Workspace())
+    seated(data_server.store, KEY)
     assert _row(client)["config_rev"] == ""
     client.put(url(), json={"text": VALID}, headers=AUTH)
     saved = _row(client)

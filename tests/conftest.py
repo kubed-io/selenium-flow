@@ -39,7 +39,8 @@ from .bidi_fakes import (
     FakeBrowser,
     browser_in_thread,  # noqa: F401 - a fixture, offered here
 )
-from .fakes import (  # noqa: F401 - FakePeer, RecordingActions, recorded, points, quick, configured, loaded are offered here
+from .fakes import (  # noqa: F401 - FakePeer, RecordingActions, recorded, points, quick, configured, loaded, seated, record_of, shared_of, TOKEN_SESSION are offered here
+    TOKEN_SESSION,
     FakeConnection,
     FakeGrid,
     FakePeer,
@@ -49,7 +50,10 @@ from .fakes import (  # noqa: F401 - FakePeer, RecordingActions, recorded, point
     loaded,
     points,
     quick,
+    record_of,
     recorded,
+    seated,
+    shared_of,
     untabbed,
 )
 

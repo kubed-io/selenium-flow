@@ -38,7 +38,7 @@ from kubed.selenium_flow.workspace.workspaces import (
 )
 
 from .conftest import NAMED, OTHER, RecordingActions, calling_as, http, manager
-from .fakes import FakeRedis
+from .fakes import FakeRedis, record_of, seated, shared_of
 
 pytestmark = pytest.mark.unit
 
@@ -334,8 +334,8 @@ def test_a_reaped_workspace_is_reopened_where_it_left_off():
     """
     actions = RecordingActions()
     workspaces = manager(actions)
-    workspaces.store.set(
-        NAMED, Workspace(session_id="dead").visited("https://example.com/page")
+    seated(
+        workspaces.store, NAMED, record=Workspace(session_id="dead").visited("https://example.com/page")
     )
     assert workspaces.resolve(NAMED) == "generated-1"
     assert actions.opened_urls == ["https://example.com/page"]
@@ -345,13 +345,11 @@ def test_a_refresh_reopens_with_the_same_settings():
     """Otherwise a refresh silently swaps the browser's shape mid-task."""
     actions = RecordingActions()
     workspaces = manager(actions)
-    workspaces.store.set(
-        NAMED,
-        Workspace(session_id="dead", settings={"width": 1400, "height": 900}),
+    seated(workspaces.store, NAMED, session_id="dead", settings={"width": 1400, "height": 900},
     )
     workspaces.resolve(NAMED)
     assert actions.opened_settings == [{"width": 1400, "height": 900}]
-    assert workspaces.store.get(NAMED).settings == {"width": 1400, "height": 900}
+    assert record_of(workspaces.store, NAMED).settings == {"width": 1400, "height": 900}
 
 
 def test_a_refresh_reopens_on_the_same_browser():
@@ -363,9 +361,7 @@ def test_a_refresh_reopens_on_the_same_browser():
     """
     actions = RecordingActions()
     workspaces = manager(actions)
-    workspaces.store.set(
-        NAMED,
-        Workspace(session_id="dead", settings={"browser": "firefox"}),
+    seated(workspaces.store, NAMED, session_id="dead", settings={"browser": "firefox"},
     )
     workspaces.resolve(NAMED)
     assert actions.opened_settings == [{"browser": "firefox"}]
@@ -384,7 +380,7 @@ def test_a_resize_is_remembered_so_a_refresh_replays_it():
     workspaces.remember(NAMED, "dead", "", {"browser": "firefox", "width": 800})
     workspaces.reshape(NAMED, {"width": 1024, "height": 768})
 
-    record = workspaces.store.get(NAMED)
+    record = record_of(workspaces.store, NAMED)
     assert record.window == "1024x768"
     assert record.settings["browser"] == "firefox", "a merge, not a swap"
 
@@ -398,9 +394,9 @@ def test_a_resize_is_remembered_so_a_refresh_replays_it():
 def test_the_refreshed_workspace_replaces_the_stored_one():
     actions = RecordingActions()
     workspaces = manager(actions)
-    workspaces.store.set(NAMED, Workspace(session_id="dead"))
+    seated(workspaces.store, NAMED, session_id="dead")
     workspaces.resolve(NAMED)
-    assert workspaces.store.get(NAMED).session_id == "generated-1"
+    assert record_of(workspaces.store, NAMED).session_id == "generated-1"
     assert actions.opened == 1, "a second resolve must not open another"
     assert workspaces.resolve(NAMED) == "generated-1"
 
@@ -408,13 +404,13 @@ def test_the_refreshed_workspace_replaces_the_stored_one():
 def test_touch_records_the_page_for_a_later_refresh(workspaces):
     workspaces.remember(NAMED, "abc")
     workspaces.touch(NAMED, "https://example.com/deep")
-    assert workspaces.store.get(NAMED).url == "https://example.com/deep"
+    assert record_of(workspaces.store, NAMED).url == "https://example.com/deep"
 
 
 def test_touch_on_an_unknown_key_is_harmless():
     workspaces = manager()
     workspaces.touch(NAMED, "https://example.com")
-    assert workspaces.store.get(NAMED) is None
+    assert record_of(workspaces.store, NAMED) is None
 
 
 # ---- ending a browser ------------------------------------------------------
@@ -442,7 +438,7 @@ def test_ending_a_browser_never_removes_the_workspace():
     workspaces = manager()
     workspaces.remember(NAMED, "mine", "https://x/", {"browser": "firefox"})
     workspaces.end_browser(Caller(NAMED))
-    record = workspaces.store.get(NAMED)
+    record = record_of(workspaces.store, NAMED)
     assert record is not None
     assert not record.attached
     assert record.url == "https://x/"
@@ -458,7 +454,7 @@ def test_a_workspace_can_only_end_its_own_browser():
     workspaces.remember(OTHER, "theirs")
     assert workspaces.end_browser(Caller(NAMED)) == "mine"
     assert actions.closed == ["mine"]
-    assert workspaces.store.get(OTHER).session_id == "theirs"
+    assert record_of(workspaces.store, OTHER).session_id == "theirs"
 
 
 def test_ending_a_browser_nobody_holds_is_harmless():
@@ -506,8 +502,8 @@ def test_describe_reports_a_held_workspace_and_whether_it_is_still_there(
     named_caller, workspaces
 ):
     """Whether the browser is still there is the question this resource is for."""
-    workspaces.store.set(
-        NAMED, Workspace(session_id="abc").visited("https://example.com")
+    seated(
+        workspaces.store, NAMED, record=Workspace(session_id="abc").visited("https://example.com")
     )
     status = workspaces.describe(clients_module.caller())
     assert status["url"] == "https://example.com"
@@ -517,7 +513,7 @@ def test_describe_reports_a_held_workspace_and_whether_it_is_still_there(
 
 def test_describe_flags_a_workspace_the_grid_has_reaped(named_caller):
     workspaces = manager()
-    workspaces.store.set(NAMED, Workspace(session_id="dead"))
+    seated(workspaces.store, NAMED, session_id="dead")
     assert workspaces.describe(clients_module.caller())["live"] is False
 
 
@@ -623,12 +619,12 @@ def test_redis_store_round_trips_a_record_and_expires_it():
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:", ttl=99)
     store.set("k", Workspace(session_id="abc").visited("https://example.com"))
-    record = store.get("k")
+    record = record_of(store, "k")
     assert (record.session_id, record.url) == ("abc", "https://example.com")
     assert "p:k" in fake.data, "the prefix must be applied"
     assert fake.expiries["p:k"] == 99, "entries must expire, not outlive the browser"
     store.delete("k")
-    assert store.get("k") is None
+    assert record_of(store, "k") is None
 
 
 def test_listing_redis_reads_every_record_in_one_round_trip():
@@ -637,7 +633,7 @@ def test_listing_redis_reads_every_record_in_one_round_trip():
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
     for key in ("a", "b", "c"):
-        store.set(key, Workspace(session_id=key))
+        seated(store, key, session_id=key)
     fake.calls.clear()
     assert sorted(store.records()) == ["a", "b", "c"]
     assert fake.calls == ["mget"]
@@ -658,7 +654,7 @@ def test_the_pointer_beside_a_workspace_does_not_empty_the_history():
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    store.set("desktop", Workspace(session_id="abc"))
+    seated(store, "desktop", session_id="abc")
     pointer.matching(store).set("abc", 10.5, 20.0)
 
     assert list(store.records()) == ["desktop"]
@@ -676,11 +672,11 @@ def test_the_memory_store_expires_like_redis_does():
     """Both backends must mean the same thing by SESSION_TTL."""
     now = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: now[0])
-    store.set("k", Workspace(session_id="abc"))
+    seated(store, "k", session_id="abc")
     now[0] += 59
-    assert store.get("k").session_id == "abc"
+    assert record_of(store, "k").session_id == "abc"
     now[0] += 2
-    assert store.get("k") is None
+    assert record_of(store, "k") is None
 
 
 def test_listing_collects_the_records_nobody_asks_for_again():
@@ -689,10 +685,10 @@ def test_listing_collects_the_records_nobody_asks_for_again():
     the only pass over every entry, so it is where they are collected."""
     now = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: now[0])
-    store.set("gone", Workspace(session_id="a"))
-    store.set("stays", Workspace(session_id="b"))
+    seated(store, "gone", session_id="a")
+    seated(store, "stays", session_id="b")
     now[0] += 61
-    store.set("stays", Workspace(session_id="b"))
+    seated(store, "stays", session_id="b")
 
     assert set(store.records()) == {"stays"}
     assert "gone" not in store._data, "the expired record was filtered, not freed"
@@ -709,7 +705,7 @@ def _stores():
 def test_update_applies_the_change_to_the_stored_record(store):
     store.set("k", Workspace(session_id="abc").visited("https://a.test"))
     got = store.update("k", lambda r: r.with_site_data({"cookies": []}))
-    assert got == store.get("k")
+    assert got == record_of(store, "k")
     assert (got.session_id, got.url, got.site_data) == ("abc", "https://a.test", {"cookies": []})
 
 
@@ -717,13 +713,13 @@ def test_update_applies_the_change_to_the_stored_record(store):
 def test_update_of_an_absent_workspace_writes_nothing(store):
     called = []
     assert store.update("k", lambda r: called.append(r) or r) is None
-    assert called == [] and store.get("k") is None
+    assert called == [] and record_of(store, "k") is None
 
 
 def test_an_update_that_changes_nothing_writes_nothing():
     now = [1000.0]
     store = MemoryStore(ttl=60, clock=lambda: now[0])
-    store.set("k", Workspace(session_id="abc"))
+    seated(store, "k", session_id="abc")
     now[0] += 50
     assert store.update("k", lambda r: None).session_id == "abc"
     assert store._data["k"][0] == 1060, "no write, so no slide"
@@ -739,7 +735,7 @@ def test_an_update_that_changes_nothing_writes_nothing():
 def test_redis_update_slides_the_expiry_like_set_does():
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:", ttl=99)
-    store.set("k", Workspace(session_id="abc"))
+    seated(store, "k", session_id="abc")
     fake.expiries["p:k"] = None
     store.update("k", lambda r: r.with_site_data({"a": 1}))
     assert fake.expiries["p:k"] == 99
@@ -752,7 +748,7 @@ def test_two_threads_updating_one_memory_workspace_lose_nothing():
     import time
 
     store = MemoryStore()
-    store.set("k", Workspace(settings={"a": 0, "b": 0}))
+    seated(store, "k", settings={"a": 0, "b": 0})
 
     def bump(which):
         def fn(r):
@@ -768,7 +764,7 @@ def test_two_threads_updating_one_memory_workspace_lose_nothing():
         t.start()
     for t in threads:
         t.join()
-    assert store.get("k").settings == {"a": 80, "b": 40}
+    assert record_of(store, "k").settings == {"a": 80, "b": 40}
 
 
 def test_redis_update_retries_when_another_writer_lands_first():
@@ -785,7 +781,7 @@ def test_redis_update_retries_when_another_writer_lands_first():
     fake.interfere = open_elsewhere
     got = store.update("k", lambda r: r.with_site_data({"a": 1}))
     assert (got.session_id, got.url, got.site_data) == ("new", "https://new.test", {"a": 1})
-    assert store.get("k") == got
+    assert record_of(store, "k") == got
 
 
 def test_two_first_writes_to_a_memory_key_cannot_both_land():
@@ -819,7 +815,7 @@ def test_redis_upsert_on_an_absent_key_retries_when_another_first_write_lands():
 
     def open_elsewhere():
         fake.interfere = None
-        store.set("k", Workspace(session_id="other"))
+        seated(store, "k", session_id="other")
 
     fake.interfere = open_elsewhere
     seen = []
@@ -830,7 +826,7 @@ def test_redis_upsert_on_an_absent_key_retries_when_another_first_write_lands():
 
     store.upsert("k", fn)
     assert seen == [None, "other"], "the second try saw the record that landed"
-    assert store.get("k").session_id == "mine"
+    assert record_of(store, "k").session_id == "mine"
 
 
 # ---- change: a write that answers ---------------------------------------------
@@ -838,15 +834,15 @@ def test_redis_upsert_on_an_absent_key_retries_when_another_first_write_lands():
 
 @pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
 def test_change_returns_what_it_stored_and_what_it_found(store):
-    store.set("k", Workspace(session_id="abc"))
+    seated(store, "k", session_id="abc")
     got, note = store.change("k", lambda r: (r.with_site_data({"a": 1}), r.session_id))
-    assert (got, note) == (store.get("k"), "abc")
+    assert (got, note) == (record_of(store, "k"), "abc")
     assert got.site_data == {"a": 1}
 
 
 @pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
 def test_a_change_that_stores_nothing_still_answers(store):
-    store.set("k", Workspace(session_id="abc"))
+    seated(store, "k", session_id="abc")
     got, note = store.change("k", lambda r: (None, "kept"))
     assert (got.session_id, note) == ("abc", "kept")
 
@@ -855,7 +851,7 @@ def test_a_change_that_stores_nothing_still_answers(store):
 def test_a_change_to_an_absent_workspace_runs_nothing_and_answers_nothing(store):
     called = []
     assert store.change("k", lambda r: called.append(r) or (r, "x")) == (None, None)
-    assert called == [] and store.get("k") is None
+    assert called == [] and record_of(store, "k") is None
 
 
 @pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
@@ -863,7 +859,7 @@ def test_a_creating_change_writes_the_first_record_and_answers(store):
     got, note = store.change(
         "k", lambda r: (Workspace(session_id="new"), r is None), create=True
     )
-    assert (got, note) == (store.get("k"), True)
+    assert (got, note) == (record_of(store, "k"), True)
     assert got.session_id == "new"
 
 
@@ -910,7 +906,7 @@ def test_a_retried_change_answers_with_its_last_run_only(store):
     got, note = store.change("k", fn)
     assert runs == ["old", "new"], "the change was retried"
     assert note is None
-    assert got.session_id == "new" and got == store.get("k")
+    assert got.session_id == "new" and got == record_of(store, "k")
 
 
 @pytest.mark.parametrize("store", _stores(), ids=lambda s: s.kind)
@@ -932,12 +928,12 @@ def test_two_first_opens_on_a_new_name_leave_exactly_one_browser():
     def first_open_lands():
         fake.interfere = None
         opened = actions.open_session()
-        store.set(NAMED, Workspace(session_id=opened["session_id"]))
+        seated(store, NAMED, session_id=opened["session_id"])
 
     fake.interfere = first_open_lands
     actions.grid.alive.add("late-browser")
     kept = workspaces.remember(NAMED, "late-browser")
-    assert kept == store.get(NAMED).session_id == "generated-1", "the first bind wins"
+    assert kept == record_of(store, NAMED).session_id == "generated-1", "the first bind wins"
     assert actions.closed == ["late-browser"], "the late browser is the one quit"
 
 
@@ -951,7 +947,7 @@ def test_a_browser_handed_to_a_caller_is_never_the_one_quit():
     inner = {}
     actions.during_first = lambda: inner.setdefault("id", workspaces.resolve(NAMED))
     outer = workspaces.resolve(NAMED)
-    assert outer == inner["id"] == workspaces.store.get(NAMED).session_id
+    assert outer == inner["id"] == record_of(workspaces.store, NAMED).session_id
     assert inner["id"] not in actions.closed
     assert actions.grid.alive == {inner["id"]}
 
@@ -965,7 +961,7 @@ def test_a_losing_open_describes_the_browser_the_workspace_kept():
         Caller(NAMED), url="https://won.test/", browser="firefox"
     )
     told = workspaces.open_browser(Caller(NAMED), url="https://lost.test/", browser="chrome")
-    kept = workspaces.store.get(NAMED)
+    kept = record_of(workspaces.store, NAMED)
     assert actions.grid.alive == {kept.session_id}
     assert told["browser"] == "firefox"
     assert told["url"] == "https://won.test/"
@@ -981,11 +977,11 @@ def test_a_losing_clean_open_erases_nothing_from_the_winner():
         "cookies": [{"name": "sid", "value": "1", "domain": "app.test"}],
         "origins": {}, "session": {}, "saved_at": 1000.0,
     }
-    workspaces.store.set(NAMED, Workspace(site_data=data).visited("https://app.test/"))
+    seated(workspaces.store, NAMED, record=Workspace(site_data=data).visited("https://app.test/"))
     actions.during_first = lambda: workspaces.open_browser(Caller(NAMED))
     told = workspaces.open_browser(Caller(NAMED), restore_site_data=False)
     assert "site_data" not in told, "the loser forgot nothing"
-    assert workspaces.store.get(NAMED).site_data["cookies"] == data["cookies"]
+    assert record_of(workspaces.store, NAMED).site_data["cookies"] == data["cookies"]
 
 
 def test_redis_update_gives_up_after_bounded_retries_and_says_so():
@@ -993,7 +989,7 @@ def test_redis_update_gives_up_after_bounded_retries_and_says_so():
 
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
-    store.set("k", Workspace(session_id="abc"))
+    seated(store, "k", session_id="abc")
     n = [0]
 
     def always():
@@ -1014,7 +1010,7 @@ def test_touch_slides_the_expiry_of_a_workspace_in_use():
     now[0] += 50
     workspaces.touch(NAMED, "https://example.com")
     now[0] += 50
-    assert workspaces.store.get(NAMED) is not None, "an in-use workspace must not lapse"
+    assert record_of(workspaces.store, NAMED) is not None, "an in-use workspace must not lapse"
 
 
 # ---- configuration ---------------------------------------------------------
@@ -1326,9 +1322,8 @@ def test_an_unreachable_grid_does_not_strand_the_workspace(monkeypatch):
 
 def test_context_is_what_a_reopen_should_inherit(monkeypatch):
     workspaces = manager()
-    workspaces.store.set(
-        NAMED,
-        Workspace(
+    seated(workspaces.store, NAMED,
+        record=Workspace(
             session_id="", settings={"browser": "firefox"}, set_by={"browser": "caller"}
         ).visited("https://x/"),
     )
@@ -1371,7 +1366,7 @@ def test_opening_a_replacement_ends_the_browser_it_replaces():
 def test_ending_a_workspace_with_no_browser_ends_nothing():
     actions = RecordingActions()
     workspaces = manager(actions)
-    workspaces.store.set(NAMED, Workspace(session_id="").visited("https://x/"))
+    seated(workspaces.store, NAMED, record=Workspace(session_id="").visited("https://x/"))
     assert workspaces.end_browser(Caller(NAMED)) is None
     assert actions.closed == []
 
@@ -1387,7 +1382,7 @@ def test_ending_detaches_even_when_the_browser_will_not_quit():
     workspaces = manager(Refuses())
     workspaces.remember(NAMED, "old-browser", "https://x/")
     workspaces.end_browser(Caller(NAMED))
-    assert not workspaces.store.get(NAMED).attached
+    assert not record_of(workspaces.store, NAMED).attached
 
 
 # ---- opening from a known start ---------------------------------------------
@@ -1409,8 +1404,8 @@ async def test_open_session_comes_back_to_the_page_it_was_on(server, monkeypatch
 
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.actions, "open_session", fake_open)
-    server.workspaces.store.set(
-        NAMED, Workspace(session_id="").visited("https://app.test/orders")
+    seated(
+        server.workspaces.store, NAMED, record=Workspace(session_id="").visited("https://app.test/orders")
     )
     async with Client(server.mcp.server) as client:
         await client.call_tool("open_session", {})
@@ -1437,9 +1432,8 @@ async def test_fresh_drops_the_remembered_page_and_keeps_the_browser(
 
     calling_as(monkeypatch, NAMED)
     monkeypatch.setattr(server.actions, "open_session", fake_open)
-    server.workspaces.store.set(
-        NAMED,
-        Workspace(
+    seated(server.workspaces.store, NAMED,
+        record=Workspace(
             session_id="",
             settings={"browser": "firefox", "width": 1400, "height": 900},
             set_by={"browser": "caller", "width": "caller", "height": "caller"},
@@ -1471,8 +1465,8 @@ async def test_a_url_given_alongside_fresh_still_wins(server, monkeypatch):
             seen.update(kwargs) or {"session_id": "abc", "url": "about:blank"}
         ),
     )
-    server.workspaces.store.set(
-        NAMED, Workspace(session_id="").visited("https://app.test/orders")
+    seated(
+        server.workspaces.store, NAMED, record=Workspace(session_id="").visited("https://app.test/orders")
     )
     async with Client(server.mcp.server) as client:
         await client.call_tool(
@@ -1507,7 +1501,7 @@ def test_two_opens_at_once_leave_exactly_one_browser():
     actions.during_first = lambda: workspaces.open_browser(Caller(NAMED))
     workspaces.open_browser(Caller(NAMED))
     assert actions.opened == 2
-    kept = workspaces.store.get(NAMED).session_id
+    kept = record_of(workspaces.store, NAMED).session_id
     assert actions.grid.alive == {kept}
     assert actions.closed == [({"generated-1", "generated-2"} - {kept}).pop()]
 
@@ -1518,7 +1512,7 @@ def test_two_reopens_after_a_reap_leave_exactly_one_browser():
     workspaces.remember(NAMED, "reaped", "https://x/")
     actions.during_first = lambda: workspaces.resolve(NAMED)
     workspaces.resolve(NAMED)
-    kept = workspaces.store.get(NAMED).session_id
+    kept = record_of(workspaces.store, NAMED).session_id
     assert actions.grid.alive == {kept}
     assert len(actions.closed) == 1 and actions.closed[0] != kept
 
@@ -1828,10 +1822,10 @@ def test_browser_is_the_grid_id_only_while_it_is_attached_and_alive():
     workspaces = manager(actions)
     assert workspaces.browser(NAMED) == "", "no record"
 
-    workspaces.store.set(NAMED, Workspace(session_id=""))
+    seated(workspaces.store, NAMED, session_id="")
     assert workspaces.browser(NAMED) == "", "a record with nothing attached"
 
-    workspaces.store.set(NAMED, Workspace(session_id="abc"))
+    seated(workspaces.store, NAMED, session_id="abc")
     assert workspaces.browser(NAMED) == "", "attached, but the Grid has reaped it"
 
     actions.grid.alive.add("abc")
@@ -1855,7 +1849,7 @@ def test_a_stored_record_with_a_non_numeric_opened_at_is_no_workspace():
     fake = FakeRedis()
     store = RedisStore(fake, prefix="p:")
     fake.set("p:desk", '{"session_id": "abc", "opened_at": "yesterday"}')
-    assert store.get("desk") is None
+    assert record_of(store, "desk") is None
     assert store.records() == {}
 
 
@@ -1889,7 +1883,7 @@ def test_two_concurrent_calls_on_one_workspace_run_one_after_the_other():
         SimpleNamespace(reconnect=lambda session_id: driver, is_alive=lambda _: True)
     )
     workspaces = manager(actions)
-    workspaces.store.set(NAMED, Workspace(session_id="abc"))
+    seated(workspaces.store, NAMED, session_id="abc")
     together = threading.Barrier(2, timeout=5)
     results, errors = [], []
 
@@ -1915,7 +1909,7 @@ def test_two_concurrent_calls_on_one_workspace_run_one_after_the_other():
     assert sorted(r["url"] for r in results) == ["https://a.test/", "https://b.test/"]
     first, second = order[0][1], order[2][1]
     assert order == [("in", first), ("out", first), ("in", second), ("out", second)]
-    record = workspaces.store.get(NAMED)
+    record = record_of(workspaces.store, NAMED)
     assert record.session_id == "abc", "the browser the record holds is unchanged"
     assert record.url in {"https://a.test/", "https://b.test/"}
 
@@ -1942,20 +1936,20 @@ def test_open_session_records_who_opened_the_browser():
     workspaces = manager()
     drk = Principal("oidc", subject="6b0f", username="drk")
     workspaces.open_browser(Caller(NAMED, "header", principal=drk))
-    assert workspaces.store.get(NAMED).opened_by == DRK
+    assert record_of(workspaces.store, NAMED).opened_by == DRK
 
 
 def test_an_open_server_records_nobody():
     workspaces = manager()
     workspaces.open_browser(Caller(NAMED, "header"))
-    assert workspaces.store.get(NAMED).opened_by is None
+    assert record_of(workspaces.store, NAMED).opened_by is None
 
 
 def test_a_reopen_after_a_reap_keeps_who_opened_it():
     workspaces = manager(RecordingActions())
-    workspaces.store.set(NAMED, Workspace(session_id="dead", opened_by=DRK))
+    seated(workspaces.store, NAMED, session_id="dead", opened_by=DRK)
     workspaces.resolve(NAMED)
-    assert workspaces.store.get(NAMED).opened_by == DRK
+    assert record_of(workspaces.store, NAMED).opened_by == DRK
 
 
 @pytest.mark.parametrize(
@@ -2032,7 +2026,7 @@ def test_a_refused_capability_costs_the_held_browser_nothing(capabilities, said)
     with pytest.raises(ValueError, match=said):
         workspaces.open_browser(Caller(NAMED), capabilities=capabilities)
     assert actions.closed == []
-    assert workspaces.store.get(NAMED).session_id == "generated-1"
+    assert record_of(workspaces.store, NAMED).session_id == "generated-1"
 
 
 def test_version_and_capabilities_are_remembered_and_carried():
@@ -2051,7 +2045,7 @@ def test_headless_is_remembered_and_carried():  # ruling 2
     workspaces.open_browser(Caller(NAMED), headless=True)
     workspaces.open_browser(Caller(NAMED))
     assert actions.opened_settings[-1]["headless"] is True
-    assert workspaces.store.get(NAMED).set_by["headless"] == "caller"
+    assert record_of(workspaces.store, NAMED).set_by["headless"] == "caller"
 
 
 def test_an_explicit_false_beats_a_remembered_true_and_is_remembered():
@@ -2066,13 +2060,9 @@ def test_an_explicit_false_beats_a_remembered_true_and_is_remembered():
 def test_a_reap_replays_headless():
     actions = RecordingActions()
     workspaces = manager(actions)
-    workspaces.store.set(
-        NAMED,
-        Workspace(
-            session_id="dead",
-            settings={"browser": "chrome", "headless": True},
-            set_by={"browser": "caller", "headless": "caller"},
-        ),
+    seated(workspaces.store, NAMED, session_id="dead",
+        settings={"browser": "chrome", "headless": True},
+        set_by={"browser": "caller", "headless": "caller"},
     )
     workspaces.resolve(NAMED)
     assert actions.opened_settings[-1]["headless"] is True
@@ -2095,13 +2085,9 @@ def test_a_remembered_raw_headless_flag_is_refused_on_an_explicit_open():
     actions = RecordingActions()
     workspaces = manager(actions)
     actions.grid.alive.add("held")
-    workspaces.store.set(
-        NAMED,
-        Workspace(
-            session_id="held",
-            settings={"browser": "chrome", "capabilities": RAW_HEADLESS},
-            set_by={"browser": "caller", "capabilities": "caller"},
-        ),
+    seated(workspaces.store, NAMED, session_id="held",
+        settings={"browser": "chrome", "capabilities": RAW_HEADLESS},
+        set_by={"browser": "caller", "capabilities": "caller"},
     )
     with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
         workspaces.open_browser(Caller(NAMED), browser="firefox")
@@ -2112,13 +2098,9 @@ def test_a_remembered_raw_headless_flag_is_refused_on_an_explicit_open():
 def test_a_reap_refuses_a_remembered_raw_headless_flag():
     actions = RecordingActions()
     workspaces = manager(actions)
-    workspaces.store.set(
-        NAMED,
-        Workspace(
-            session_id="dead",
-            settings={"browser": "firefox", "capabilities": RAW_HEADLESS},
-            set_by={"browser": "caller", "capabilities": "caller"},
-        ),
+    seated(workspaces.store, NAMED, session_id="dead",
+        settings={"browser": "firefox", "capabilities": RAW_HEADLESS},
+        set_by={"browser": "caller", "capabilities": "caller"},
     )
     with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
         workspaces.resolve(NAMED)
@@ -2130,7 +2112,7 @@ def test_an_empty_object_and_latest_clear_what_was_remembered():
     workspaces = manager(actions)
     workspaces.open_browser(Caller(NAMED), version="152", capabilities={"kubed:pool": "a"})
     workspaces.open_browser(Caller(NAMED), version="latest", capabilities={})
-    settings = workspaces.store.get(NAMED).settings
+    settings = record_of(workspaces.store, NAMED).settings
     assert settings["version"] == "latest" and settings["capabilities"] == {}
     workspaces.open_browser(Caller(NAMED))
     assert actions.opened_settings[-1]["capabilities"] == {}
@@ -2160,10 +2142,10 @@ def test_a_reap_replays_version_and_capabilities():
     actions = RecordingActions()
     workspaces = manager(actions)
     settings = {"browser": "chrome", "version": "152", "capabilities": {"kubed:pool": "a"}}
-    workspaces.store.set(NAMED, Workspace(session_id="dead", settings=settings))
+    seated(workspaces.store, NAMED, session_id="dead", settings=settings)
     workspaces.resolve(NAMED)
     assert actions.opened_settings == [settings]
-    record = workspaces.store.get(NAMED)
+    record = record_of(workspaces.store, NAMED)
     assert record.sent and record.ran == {"version": "100.0", "node": "node-1", "live_view": True}
 
 
@@ -2172,9 +2154,7 @@ def test_a_reopen_refuses_a_remembered_key_that_became_owned():  # ruling 26
     say how to clear it, and no browser of another shape is opened."""
     actions = RecordingActions()
     workspaces = manager(actions)
-    workspaces.store.set(
-        NAMED,
-        Workspace(session_id="dead", settings={"capabilities": {"browserName": "x"}}),
+    seated(workspaces.store, NAMED, session_id="dead", settings={"capabilities": {"browserName": "x"}},
     )
     with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
         workspaces.resolve(NAMED)
@@ -2183,17 +2163,17 @@ def test_a_reopen_refuses_a_remembered_key_that_became_owned():  # ruling 26
 
 def test_the_record_keeps_sent_and_ran_and_who_ended_it():
     workspaces, _actions = opened_workspace()
-    record = workspaces.store.get(NAMED)
+    record = record_of(workspaces.store, NAMED)
     assert record.sent == [{"key": "browserName", "value": "chrome", "sources": ["option"]}]
     assert record.ran["node"] == "node-1" and record.ended is None
     workspaces.end_browser(Caller(NAMED, "admin"), admin=True)
-    ended = workspaces.store.get(NAMED)
+    ended = record_of(workspaces.store, NAMED)
     assert ended.sent == record.sent and ended.ran == record.ran
     assert ended.ended["by"] == "admin" and isinstance(ended.ended["at"], float)
     workspaces.open_browser(Caller(NAMED))
-    assert workspaces.store.get(NAMED).ended is None
+    assert record_of(workspaces.store, NAMED).ended is None
     workspaces.end_browser(Caller(NAMED, "query"))
-    assert workspaces.store.get(NAMED).ended["by"] == "caller"
+    assert record_of(workspaces.store, NAMED).ended["by"] == "caller"
 
 
 def test_the_result_never_carries_sent_or_ran():
@@ -2287,7 +2267,7 @@ def test_a_bind_with_no_sources_reads_back_whole_through_redis():
     store = RedisStore(FakeRedis(), prefix="p:")
     m = manager(store=store)
     m.remember("w", "grid-a", settings={"browser": "firefox", "width": 1400})
-    record = store.get("w")
+    record = record_of(store, "w")
     assert record.session_id == "grid-a"
     assert record.settings == {"browser": "firefox", "width": 1400}
     assert record.set_by == {"browser": "caller", "width": "caller"}
@@ -2302,7 +2282,7 @@ def test_a_bind_keeps_the_sources_it_is_given_and_defaults_the_rest_to_the_calle
         settings={"browser": "firefox", "width": 1400},
         set_by={"browser": "config", "height": "client"},
     )
-    record = store.get("w")
+    record = record_of(store, "w")
     assert record.session_id == "grid-a"
     assert record.set_by == {"browser": "config", "width": "caller"}
 
@@ -2338,7 +2318,7 @@ def test_a_dropped_client_header_no_longer_applies():
 def test_only_what_the_caller_passed_is_carried():
     ws = Workspaces(RecordingActions(), MemoryStore(), defaults={"width": 800})
     ws.open_browser(Caller(NAMED), height=600)
-    assert ws.store.get(NAMED).set_by == {"width": "config", "height": "caller"}
+    assert record_of(ws.store, NAMED).set_by == {"width": "config", "height": "caller"}
     ws.defaults = {}
     ws.open_browser(Caller(NAMED))
     assert ws.actions.opened_settings[-1] == {"height": 600}
@@ -2354,7 +2334,7 @@ def test_a_reap_replays_the_whole_stored_set():
     ws.resolve(NAMED)
     assert ws.actions.opened_settings[-1] == {"width": 800, "height": 600}
     # Still the config's: the next explicit open reads the config afresh.
-    assert ws.store.get(NAMED).set_by == {"width": "config", "height": "caller"}
+    assert record_of(ws.store, NAMED).set_by == {"width": "config", "height": "caller"}
     ws.open_browser(Caller(NAMED))
     assert ws.actions.opened_settings[-1] == {"width": 1200, "height": 600}
 
@@ -2395,19 +2375,15 @@ def test_a_remembered_owned_key_on_an_explicit_open_says_how_to_clear_it():
     """Ruling 3: the remembered object is the caller's to clear, so the
     refusal says how, and the held browser is not ended for it."""
     ws = manager()
-    ws.store.set(
-        NAMED,
-        Workspace(
-            session_id="held",
-            settings={"capabilities": {"browserName": "x"}},
-            set_by={"capabilities": "caller"},
-        ),
+    seated(ws.store, NAMED, session_id="held",
+        settings={"capabilities": {"browserName": "x"}},
+        set_by={"capabilities": "caller"},
     )
     ws.actions.grid.alive.add("held")
     with pytest.raises(ValueError, match=re.escape("open_session(capabilities={})")):
         ws.open_browser(Caller(NAMED))
     assert ws.actions.closed == []
-    assert ws.store.get(NAMED).session_id == "held"
+    assert record_of(ws.store, NAMED).session_id == "held"
 
 
 def test_an_owned_key_passed_now_is_not_called_remembered():
@@ -2458,7 +2434,7 @@ def test_an_upgraded_record_asks_for_open_session_and_keeps_its_site_data():
     ws.open_browser(Caller(NAMED))
     assert ws.actions.closed == []
     assert ws.actions.opened_settings[-1]["site_data"] == saved
-    assert ws.store.get(NAMED).history[-1]["origin"] == "https://a.test"
+    assert shared_of(ws.store, NAMED).history[-1]["origin"] == "https://a.test"
 
 
 # ---- the flows for a page (spec 2026-11-12-flow-sites-paths) ----------------

@@ -7,7 +7,7 @@ from kubed.selenium_flow.workspace import workspaces as workspaces_module
 from kubed.selenium_flow.workspace.workspaces import Workspaces
 
 from .conftest import configured
-from .fakes import caller
+from .fakes import caller, record_of
 
 pytestmark = pytest.mark.unit
 
@@ -274,7 +274,7 @@ def test_a_reap_with_recording_off_remembers_the_browser_as_unrecorded():
     m.actions.grid.alive.clear()
     m.resolve("bot")
     assert m.describe(caller())["recording"] is False
-    assert "record" not in m.store.get("bot").settings
+    assert "record" not in record_of(m.store, "bot").settings
 
 
 def test_a_reap_that_loses_the_race_notes_its_video_for_discard():
@@ -393,4 +393,4 @@ def test_a_quit_that_failed_does_not_start_the_collectors_clock():
     m.actions.end_browser = down
     m.end_browser(caller())
     assert [c for c in announced.calls if c[0] == "ended"] == []
-    assert not m.store.get("bot").attached
+    assert not record_of(m.store, "bot").attached

@@ -10,10 +10,11 @@ from starlette.testclient import TestClient
 
 from kubed.selenium_flow.core.actions import BODY_CAP
 from kubed.selenium_flow.http.admin import capture as admin_capture
-from kubed.selenium_flow.workspace.store import Workspace
+from kubed.selenium_flow.workspace import sessions
 
 from .capture_events import done, log, nav_started, req
 from .conftest import TOKEN
+from .fakes import TOKEN_SESSION, seated
 
 pytestmark = pytest.mark.unit
 
@@ -42,24 +43,30 @@ def server(data_server):
     return data_server
 
 
-@pytest.fixture
-def fed(server):
-    """Workspace `ws` captures, holds no live browser, and has seen a failure."""
-    server.workspaces.store.set("ws", Workspace(settings={"capture": True}))
-    server.capture.attached("ws", "s1", "chrome", "top-1", again=False)
+def fail_in(server, workspace):
+    """``workspace``'s session key has attached and seen a failed request."""
+    server.capture.attached(workspace, "s1", "chrome", "top-1", again=False)
     feed(
         server.capture,
         nav_started("https://a.test/"),
         log("Uncaught TypeError", level="error", type="javascript"),
         req("r1", "https://a.test/api", initiator="fetch"),
         done("r1", 500),
+        workspace=workspace,
     )
+
+
+@pytest.fixture
+def fed(server):
+    """Workspace `ws` captures, holds no live browser, and has seen a failure."""
+    seated(server.workspaces.store, "ws", settings={"capture": True})
+    fail_in(server, "ws")
     return server
 
 
 @pytest.fixture
 def plain(server):
-    server.workspaces.store.set("plain", Workspace(settings={}))
+    seated(server.workspaces.store, "plain", settings={})
 
 
 @pytest.fixture
@@ -168,12 +175,17 @@ BODY_CLOSED = "no session is open in this workspace; a body lives only as long a
 def test_a_known_body_after_end_browser_is_404_over_http(admin_client, fed):
     """A body for a browser that has ended is a 404 naming why, never the
     "call open_session first" 400 — opening one cannot bring the body back."""
+    # The token's own session saw the failure; the capture is keyed by it.
+    seated(fed.workspaces.store, "ws", TOKEN_SESSION, settings={"capture": True})
+    if (token_key := sessions.key_of("ws", TOKEN_SESSION)) != "ws":
+        fail_in(fed, token_key)
     r = admin_client.post("/browser/network-body", json={"id": "1.1"},
                           headers={**AUTH, "Sf-Workspace": "ws"})
     assert r.status_code == 404 and r.json()["error"] == BODY_CLOSED
 
 
 def test_an_unknown_body_id_with_no_session_stays_400_over_http(admin_client, fed):
+    seated(fed.workspaces.store, "ws", TOKEN_SESSION, settings={"capture": True})
     r = admin_client.post("/browser/network-body", json={"id": "9.9"},
                           headers={**AUTH, "Sf-Workspace": "ws"})
     assert r.status_code == 400 and "open_session" in r.json()["error"]
@@ -319,7 +331,7 @@ def test_a_raising_monitor_does_not_fail_the_list(admin_client, fed, monkeypatch
     def broken(session_id):
         raise RuntimeError("monitor down")
 
-    fed.workspaces.store.set("ws", Workspace(session_id="s1", settings={"capture": True}))
+    seated(fed.workspaces.store, "ws", session_id="s1", settings={"capture": True})
     monkeypatch.setattr(fed.workspaces.monitor, "capturing", broken)
     monkeypatch.setattr(fed.actions.grid, "sessions", lambda: [{"session_id": "s1"}], raising=False)
     monkeypatch.setattr(fed.actions.grid, "files", lambda sid: [], raising=False)

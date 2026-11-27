@@ -21,7 +21,7 @@ from kubed.selenium_flow.mcp import instructions
 from kubed.selenium_flow.mcp.resources import RESOURCE_URI, where_linked
 
 from .conftest import NAMED, RESOURCE_TOOLS, calling_as, delivery_meta, http, over_http
-from .fakes import request
+from .fakes import record_of, request
 
 pytestmark = pytest.mark.unit
 
@@ -527,7 +527,7 @@ async def test_the_part_template_is_listed_beside_the_whole(reader):
 
 async def test_a_part_never_opens_a_browser(reader):
     assert (await read_part(reader, "live"))["live"] is False
-    assert reader.store.get(NAMED) is None
+    assert record_of(reader.store, NAMED) is None
 
 
 def test_every_key_the_context_carries_is_in_the_list_of_keys():

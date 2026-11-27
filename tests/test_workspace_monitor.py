@@ -9,7 +9,7 @@ from kubed.selenium_flow.workspace.store import Workspace
 from kubed.selenium_flow.workspace.workspaces import Caller, Workspaces
 
 from .conftest import NAMED, RecordingActions
-from .fakes import WorkspaceActions, caller
+from .fakes import WorkspaceActions, caller, record_of, seated
 
 pytestmark = pytest.mark.unit
 
@@ -38,7 +38,7 @@ def test_an_open_keeps_the_grids_timeout_and_announces_the_browser():
     announced = Announced()
     m = manager(announced)
     m.open_browser(caller(), browser="firefox")
-    assert m.store.get("bot").grid_timeout == 300
+    assert record_of(m.store, "bot").grid_timeout == 300
     assert announced.calls == [("opened", "bot", "grid0001", "firefox", 300, False)]
 
 
@@ -46,14 +46,14 @@ def test_a_timeout_the_grid_will_not_give_is_none_and_the_open_goes_on():
     m = manager()
     m.actions.grid.timeout_fails = True
     result = m.open_browser(caller())
-    assert result["workspace"] == "bot" and m.store.get("bot").grid_timeout is None
+    assert result["workspace"] == "bot" and record_of(m.store, "bot").grid_timeout is None
 
 
 def test_the_timeout_survives_the_browser_and_is_described():
     m = manager()
     m.open_browser(caller())
     m.end_browser(caller())
-    record = m.store.get("bot")
+    record = record_of(m.store, "bot")
     assert not record.attached and record.grid_timeout == 300
     assert m.describe(caller())["grid_timeout"] == 300
 
@@ -83,7 +83,7 @@ def test_ended_is_announced_once_the_record_no_longer_names_the_browser():
 
     class Watching(Announced):
         def ended(self, workspace, session_id, cause):
-            seen.append(m.store.get(workspace).attached)
+            seen.append(record_of(m.store, workspace).attached)
             return super().ended(workspace, session_id, cause)
 
     m = manager(Watching())
@@ -103,13 +103,13 @@ def test_a_reap_found_by_a_call_is_lost_and_the_reopen_is_announced():
         ("ended", "bot", "grid0001", "lost"),
         ("opened", "bot", "grid0002", "chrome", 600, True),
     ]
-    assert m.store.get("bot").grid_timeout == 600
+    assert record_of(m.store, "bot").grid_timeout == 600
 
 
 def test_a_racing_opens_loser_is_announced_ended_and_never_opened():
     announced = Announced()
     m = manager(announced)
-    m.store.set("bot", Workspace(session_id="winner"))
+    seated(m.store, "bot", session_id="winner")
     kept = m.remember("bot", "loser", replacing=None)
     assert kept == "winner"
     assert announced.calls == [("ended", "bot", "loser", "ended")]
@@ -119,7 +119,7 @@ def test_without_a_monitor_nothing_is_announced_and_nothing_fails():
     m = manager()
     m.open_browser(caller())
     m.end_browser(caller())
-    assert m.store.get("bot").grid_timeout == 300
+    assert record_of(m.store, "bot").grid_timeout == 300
 
 
 def test_an_old_held_report_reads_as_reaped():  # Review Focus 2

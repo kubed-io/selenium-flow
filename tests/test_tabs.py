@@ -17,10 +17,10 @@ from kubed.selenium_flow.core.tabs import (
     reconcile,
 )
 from kubed.selenium_flow.faults import BidiUnavailable
-from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, Workspace
+from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore
 
 from . import site_data_fakes
-from .fakes import Clock, FakeChannel, FakeRedis
+from .fakes import Clock, FakeChannel, FakeRedis, seated
 
 A = "https://a.example.test/"
 P = "https://pay.example.test/"
@@ -237,7 +237,7 @@ def test_redis_failures_raise():
 def test_records_skip_tab_state():
     fake = FakeRedis()
     store = RedisStore(fake)
-    store.set("caller", Workspace())
+    seated(store, "caller")
     matching(store).set("abc", STATE)
     assert "tabs:abc" not in store.records()
     assert list(store.records()) == ["caller"]
