@@ -3,6 +3,7 @@
 import pytest
 from fastmcp import Client
 
+from kubed.selenium_flow.mcp import skill
 from kubed.selenium_flow.mcp.instructions import instructions
 
 pytestmark = pytest.mark.unit
@@ -63,3 +64,19 @@ async def test_the_session_argument_says_your_own_is_named_after_you(server):
         "after you. Only open_session opens one. A named session's state is "
         "session://<name>/…; workspace:// is your own."
     )
+
+
+# Part D's (#249): its plan removes these two from the skip.
+PART_D = {"ADMIN_UI.md", "LIVE_VIEW.md"}
+
+
+def test_no_skill_agent_or_note_names_a_fixed_default():
+    root = skill.plugin_path().parent
+    files = [*(root / "plugin").rglob("*.md"), *(root / "docs/notes").rglob("*.md")]
+    assert files
+    for path in files:
+        if path.name in PART_D and "using-the-admin-ui" in path.parts:
+            continue
+        text = path.read_text(encoding="utf-8").lower()
+        for phrase in RETIRED:
+            assert phrase not in text, (phrase, str(path))

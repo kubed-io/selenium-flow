@@ -11,6 +11,7 @@ import pytest
 from fastmcp import Client
 from kubed.mcp.agents import META_KEY, Agent, parse_agent
 
+from kubed.selenium_flow import faults
 from kubed.selenium_flow.mcp import skill
 from kubed.selenium_flow.server import create_app
 
@@ -144,6 +145,22 @@ def test_it_stops_on_a_pinned_connection():  # PLG-47
     assert "under *Couldn't* that this connection is pinned to one session" in text
     assert "Never drop `session`" in text
     assert "drives the main agent's browser" in text
+
+
+def test_it_shares_only_when_told():  # PLG-47
+    text = " ".join(body().split())
+    assert "tells you to share the main agent's session" in text
+    assert "no other option, which joins its live browser" in text
+    assert "never call `end_browser` on it" in text
+    assert "Leave a session you shared open" in text
+
+
+def test_it_retries_once_on_a_held_session():  # PLG-47
+    text = " ".join(body().split())
+    assert f'"{faults.HELD}"' in text
+    assert "Try once more" in text
+    assert "`explorer-2`" in text
+    assert "If that is refused too, stop" in text
 
 
 async def test_it_names_each_skill_by_name(server):  # spec test 4, PLG-76

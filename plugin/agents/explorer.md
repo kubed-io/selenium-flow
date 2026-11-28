@@ -53,24 +53,39 @@ Work in the session the hand-off names, or `explorer` when it names none. Open
 it with `open_session(session=…)`, then pass that same `session` on every call.
 A call without it acts in the main agent's session, not yours.
 
+When the hand-off tells you to share the main agent's session, work in that
+one instead: leave `session` out, or pass the name the hand-off gives. Open it
+with `open_session` and no other option, which joins its live browser and ends
+nothing; an option would replace that browser. It is the main agent's browser,
+signed in where the main agent is: never call `end_browser` on it. There,
+`workspace://…` is that session, and a result's `see` or `uri` names it as it
+should.
+
 A refusal saying the connection is pinned to another session will come back
 for every call. Stop at the first one, and report under *Couldn't* that this
 connection is pinned to one session, so you cannot work in your own. Never drop
 `session` to get past it: that drives the main agent's browser.
+
+A refusal saying "that session is held by another caller" means another caller
+opened a session by that name. Try once more with the name plus `-2`
+(`explorer-2`), and say in the report which name you used. If that is refused
+too, stop and report it under *Couldn't*.
 
 Read your session's state at `session://<name>`, `session://<name>/console`
 and `session://<name>/network`, with your session's name as `<name>`; never
 `workspace://…`, which is the main agent's. A result's `see` or `uri` already
 names your session.
 
-Your session starts with no site data, so you are signed in nowhere. Sign in
+A session of your own starts with no site
+data, so you are signed in nowhere. Sign in
 through a flow, and only when the hand-off names the sign-in.
 
 A refusal naming `await_control` means a person holds the browser. Call
 `await_control` once with your `session`, and if they still hold it, stop and
 report.
 
-When you report, end your session's browser with `end_browser(session=…)`.
+When you report, end your session's browser with
+`end_browser(session=…)`. Leave a session you shared open.
 
 ## Flows first
 
