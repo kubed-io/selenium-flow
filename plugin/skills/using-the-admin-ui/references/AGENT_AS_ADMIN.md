@@ -35,21 +35,22 @@ page from (the `deploying-the-server` skill, *The admin token as a secret*). Che
 (`references/ADMIN_UI.md`).
 
 ```
-open_session(session="admin")
-navigate(url="https://flows.example.com/", session="admin")
-write(selector={"css": "#token"}, secret={"name": "admin", "key": "token"}, session="admin")
-interact(action="click", selector={"xpath": "//button[@type='submit']"}, session="admin")
-navigate(url="https://flows.example.com/#/workspaces/research-bot/flows/sign-up", session="admin")
+open_session(session="admin-ui")
+navigate(url="https://flows.example.com/", session="admin-ui")
+write(selector={"css": "#token"}, secret={"name": "admin", "key": "token"}, session="admin-ui")
+interact(action="click", selector={"xpath": "//button[@type='submit']"}, session="admin-ui")
+navigate(url="https://flows.example.com/#/workspaces/research-bot/flows/sign-up", session="admin-ui")
 ```
 
-- A sub-session of its own keeps your task's browser as it was.
+- A session of its own keeps your task's browser as it was. Its name is
+  `admin-ui`, never `admin`, which is the server token's own session.
 - `navigate` comes first, in its own call: a `write` that types a secret takes
   no `url`.
 - Go to a view by its hash route (`references/ADMIN_UI.md`, *Routes*). `config_url` on
   `workspace://current` is the Config tab's.
 - A box's confirm is a button naming the verb, such as **Move**. End browser
   asks with the browser's own dialog: answer it with `dialog(action="accept")`.
-- `end_browser(session="admin")` when the work is done. The token goes with the
+- `end_browser(session="admin-ui")` when the work is done. The token goes with the
   browser, since nothing saved it.
 
 ## Signing in with OIDC

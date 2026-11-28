@@ -703,3 +703,15 @@ def test_workspaces_lists_the_context_keys_b_built():
     assert {"session", "main", "sessions"} <= example.keys()
     for entry in example["sessions"]:
         assert set(entry) == set(capabilities.SESSION_ENTRY["required"])
+
+
+def test_the_admin_skill_opens_admin_ui():
+    page = (SKILLS_DIR / "using-the-admin-ui/references/AGENT_AS_ADMIN.md").read_text()
+    assert 'session="admin-ui"' in page
+    assert 'session="admin"' not in page
+
+
+def test_site_data_says_fresh_on_a_live_session():
+    page = collapsed((SKILLS_DIR / "signing-in/references/SITE_DATA.md").read_text())
+    assert "a new session starts with none" in page
+    assert "`fresh=true` puts saved site data back" in page
