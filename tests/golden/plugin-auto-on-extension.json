@@ -88,10 +88,90 @@
     },
     "instructions": "Drives a real Chrome or Firefox browser on Selenium Grid. The browser is persistent: it stays alive between tool calls and keeps its page, cookies and scroll position.\n\nName your workspace first: add ?workspace=<name> to the MCP URL, or send an Sf-Workspace header. Every call is then about that workspace, and no call takes a session id — calling again with the same name is how you get the same browser back, after a reconnect or a restart.\n\nLifecycle:\n1. Call open_session to start a browser. Pass browser=\"firefox\" for Firefox; the default is Chrome. Every other tool behaves identically on both.\n2. Call the other tools. They act on your workspace's browser.\n3. Call end_browser when finished, including after a failure. Browsers are a scarce resource and an abandoned one holds a slot until the Grid reaps it. Your workspace survives it, so open_session picks up where you left off.\n\nA workspace can hold more sessions, each a browser of its own. To work in a named one, pass its session on every call: a call without it acts in your own. Its state is session://<name>/… (console, network, site-data, downloads), and a result's see or uri already names it. workspace:// is the connection's own session: for a subagent on its main agent's connection, the main agent's.\n\nElements are addressed by XPath or by CSS - pass one or the other, never both: selector={\"xpath\": \"//input[@name='q']\"} or selector={\"css\": \"input[name=q]\"}.\n\nMost actions take an optional url. It is not an assertion: if the browser is somewhere else it navigates there first, so you can jump straight to a page instead of clicking a path to it.\n\nPrefer extract to read a page — it is far cheaper than a screenshot. Use execute_script for anything the other tools do not cover, scrolling included.\n\n\nHow to drive this well — when to screenshot rather than extract, what a timeout on a good XPath usually means, how to write a flow — is the driving-a-browser skill, which your client already has from this server. Read it before your first call; it describes this version of the server.\n"
   },
-  "prompts/get": {},
+  "prompts/get": {
+    "build_flow": {
+      "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+      "messages": [
+        {
+          "content": {
+            "text": "Build a selenium-flow flow for: <task>\n\n- Starts at: <url>\n- Save it as: propose one from the task, lowercase with hyphens\n\nDrive it by hand first, then save what worked. How flows are written is in\nthe `building-flows` skill.\n\n1. Read `workspace://current`. If `live` is false, call `open_session()`. Then\n   go to <url>.\n2. `outline` the page before each action, scoped with a `selector` or filtered\n   with `text`, and take the selector it gives you.\n3. Carry out the task one call at a time with `interact`, `write`, `press_key`\n   and `extract`. The URL and title after each action say whether it did what\n   you meant.\n4. Note what varies between runs, such as an account, an id or a site: those\n   become parameters, written `${name}`. A password is a secret, never a\n   parameter (`SECRETS.md` in the `signing-in` skill).\n5. Note what must be true for the run to go on: those become `assert` steps with\n   a `message` saying what should have been the case. Put one after anything\n   that navigates.\n6. Make the first step navigate, or assert that the browser is already where it\n   needs to be.\n7. `save_flow` with a name, description, `sites`, `paths`, `parameters` and the\n   steps you ran.\n8. Run it twice with `run_flow`: once where you built it, and once from a clean\n   start, `end_browser()` then `open_session(url=\"<url>\")`.\n\nReport the flow's name, what it takes, and both runs.\n",
+            "type": "text"
+          },
+          "role": "user"
+        }
+      ],
+      "resultType": "complete"
+    },
+    "repair_flow": {
+      "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+      "messages": [
+        {
+          "content": {
+            "text": "Repair the saved flow <flow> with the selenium-flow tools.\n\n- Failing step: the run will say\n- Symptom: not described, so start from what the run reports\n\nA flow breaks because the page changed under it, or because it ran somewhere it\nwas not written for. Find out which before editing anything.\n\n1. Read `workspace://current`. If `live` is false, call `open_session()`: a\n   flow never opens a browser.\n2. Read `flow://flows/<flow>` for its steps and parameters.\n3. `run_flow(name=\"<flow>\", verbose=true)`, passing its required\n   parameters as `params`; ask me for any value you do not have. The failing\n   step's `error` is the diagnosis: for an element that is there but cannot be\n   used, it says why and what to do. *When a flow fails* in `FLOWS.md` in the\n   `building-flows` skill reads a failed run; an error that is not about a\n   locator is in `TROUBLESHOOTING.md` in the `driving-a-browser` skill.\n4. Go to the page that step acts on, with `navigate` or by running the steps\n   before it by hand.\n5. `outline` that page, scoped with a `selector` or filtered with `text`, to see\n   what the step should address now.\n6. Fix the cause:\n   - The page changed: an element moved, was renamed or is now behind a menu.\n     Fix the step's selector, or add the `interact` step that opens what hides\n     it.\n   - The flow assumed a page it did not navigate to: give it a first step that\n     navigates, or an `assert` whose `message` says where it must be.\n7. `save_flow` under the same name, then `run_flow` again and read what it\n   returns to confirm it passes for the right reason.\n8. If the flow should refuse to run in some state, such as already signed in,\n   add an `assert` whose `message` says so.\n\nReport what had changed, what you edited, and the run that proves it.\n",
+            "type": "text"
+          },
+          "role": "user"
+        }
+      ],
+      "resultType": "complete"
+    }
+  },
   "prompts/list": {
     "cacheScope": "private",
-    "prompts": [],
+    "prompts": [
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "arguments": [
+          {
+            "description": "What the flow should do, in a sentence — \"sign in and open the orders page for an account\".",
+            "name": "task",
+            "required": true
+          },
+          {
+            "description": "Where it starts.",
+            "name": "url",
+            "required": true
+          },
+          {
+            "description": "What to save it as. Leave empty and a name will be proposed from the task.",
+            "name": "name",
+            "required": false
+          }
+        ],
+        "description": "Walk a browser task by hand with selenium-flow, then save it as a flow that can be replayed in one call.",
+        "name": "build_flow"
+      },
+      {
+        "_meta": {
+          "fastmcp": {
+            "tags": []
+          }
+        },
+        "arguments": [
+          {
+            "description": "The flow's name, as flow://flows lists it.",
+            "name": "flow",
+            "required": true
+          },
+          {
+            "description": "Which step failed, if you know. Leave empty to find out by running it.",
+            "name": "step",
+            "required": false
+          },
+          {
+            "description": "What went wrong, in a few words. Leave empty to start from the failure itself.",
+            "name": "symptom",
+            "required": false
+          }
+        ],
+        "description": "Fix a saved selenium-flow flow that has stopped working, by looking at the page it fails on.",
+        "name": "repair_flow"
+      }
+    ],
     "resultType": "complete",
     "ttlMs": 0
   },

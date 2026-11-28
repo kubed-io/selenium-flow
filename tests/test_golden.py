@@ -230,7 +230,9 @@ async def plugin_surface(
     the server's dict and not a client model's reading of it.
 
     It reads only the plugin's URIs (``skill://``, ``prompts://``,
-    ``agents://``): the others ask the Grid.
+    ``agents://``): the others ask the Grid. A skill is walked when either
+    listing names it, and is read through ``skills/get``, which answers under
+    every Via.
     """
     info = Implementation(name="a spec-complete client", version="1")
     cell: dict = {}
@@ -249,10 +251,19 @@ async def plugin_surface(
         )["resourceTemplates"]
         listing = await request(client, "skills/list")
         cell["skills/list"] = listing
+        skill_uris = [
+            *(entry["uri"] for entry in listing["skills"]),
+            *(
+                row["uri"]
+                for row in cell["resources/list"]
+                if row["uri"].startswith("skill://") and row["uri"].endswith("/SKILL.md")
+            ),
+        ]
         cell["skills/get"] = {
-            entry["uri"]: await request(client, "skills/get", uri=entry["uri"])
-            for entry in listing["skills"]
+            uri: await request(client, "skills/get", uri=uri)
+            for uri in dict.fromkeys(skill_uris)
         }
+        entries = [got["skill"] for got in cell["skills/get"].values()]
 
         folders = []
         directories = {}
@@ -268,19 +279,19 @@ async def plugin_surface(
                 for row in result["resources"]:
                     if row.get("mimeType") == DIRECTORY:
                         pending.append(row["uri"])
-                    # A skill's files come from skills/list's rows below; only prompt
+                    # A skill's files come from skills/get's entries below; only prompt
                     # and agent files are collected here.
                     elif not folder.startswith("skill://"):
                         files.append(row["uri"])
 
-        for entry in listing["skills"]:
+        for entry in entries:
             await walk(entry["uri"].removesuffix("/SKILL.md"))
         for start in ("prompts://selenium-flow", "agents://selenium-flow"):
             await walk(start)
         cell["resources/directory/read"] = directories
 
         uris = []
-        for entry in listing["skills"]:
+        for entry in entries:
             uris += [entry["uri"], *(row["uri"] for row in entry["resources"])]
             uris.append(entry["uri"].removesuffix("SKILL.md") + "_manifest")
         uris += files

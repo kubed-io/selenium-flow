@@ -27,6 +27,8 @@ from kubed.mcp.protocol import MCPError
 
 from kubed.selenium_flow.mcp import skill as skill_module
 
+from .conftest import over_http
+
 # The URIs served, spelled out here as the convention being checked rather than
 # read back from the server's own code: the server's name, then the skill's.
 NAMESPACE = "skill://selenium-flow"
@@ -509,8 +511,12 @@ async def test_a_fastmcp_client_reads_the_whole_skill(server, extensions, name):
 
 async def test_a_fastmcp_client_discovers_the_skills(server):
     """The real thing: FastMCP's own client, against this server."""
-    async with Client(server.mcp.server, extensions=[SkillsClientExtension()]) as client:
+    # Two clients: skills/list lists only under Via extension, while
+    # list_skill_resources reads the default Via's resources/list.
+    via = {"Sf-Via": "extension"}
+    async with over_http(server, via, extensions=[SkillsClientExtension()]) as client:
         found = await client.list_skills()
+    async with Client(server.mcp.server) as client:
         listed = await client.list_skill_resources()
     assert sorted(s.frontmatter.name for s in found) == sorted(SKILLS)
     for skill in found:
