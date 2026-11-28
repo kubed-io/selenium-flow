@@ -192,13 +192,17 @@ async def test_via_fits_the_instructions_and_the_listings(reader, mode, via, sen
     async with over_http(reader, mode=mode, **given) as c:
         assert c.instructions == instructions.instructions(True, via=via)
         assert "skill://" not in c.instructions
-        assert PLUGIN_PROMPTS.isdisjoint(await names(c, "prompts/list", "prompts"))
         skills = (await request(c, "skills/list"))["skills"]
         agents = await names(c, "agents/list", "agents")
         if via == "local":
             assert skills == [] and agents == set()
         else:
             assert len(skills) == 5 and agents == {"explorer"}
+        prompts = await names(c, "prompts/list", "prompts")
+        if via == "local":
+            assert PLUGIN_PROMPTS.isdisjoint(prompts)
+        else:
+            assert prompts >= PLUGIN_PROMPTS
         assert await delivery_meta(c) == {
             "resources": "on", "listed": [], "via": via, "prefix": None, "max": 100,
         }
@@ -225,7 +229,7 @@ async def test_the_handshake_reports_the_prefix_and_off(reader):
         }
 
 
-@pytest.mark.parametrize("sent", [{"headers": {"Sf-Max": "2"}}, {"params": {"max": "2"}}])
+@pytest.mark.parametrize("sent", [{"headers": {"Sf-Via": "extension", "Sf-Max": "2"}}, {"params": {"via": "extension", "max": "2"}}])
 async def test_max_caps_the_skills_listed(reader, sent):
     async with over_http(reader, **sent) as c:
         assert len((await request(c, "skills/list"))["skills"]) == 2

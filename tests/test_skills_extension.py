@@ -15,6 +15,7 @@ from kubed.mcp.skills import SkillsExtension
 from mcp.shared.exceptions import MCPError
 from mcp_types import INVALID_PARAMS
 
+from .conftest import over_http
 from .fakes import header, request
 
 pytestmark = pytest.mark.unit
@@ -32,6 +33,7 @@ SKILLS = (
 SKILL_URIS = sorted(f"{NAMESPACE}/{name}/SKILL.md" for name in SKILLS)
 SKILL_URI = f"{NAMESPACE}/driving-a-browser/SKILL.md"
 MANIFEST_URI = f"{NAMESPACE}/driving-a-browser/_manifest"
+EXTENSION = {"Sf-Via": "extension"}
 
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
@@ -44,7 +46,7 @@ async def test_the_extension_is_declared_beside_resources(server, mode):
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 async def test_the_listing_is_the_five_skills(server, mode):
-    async with Client(server.mcp.server, mode=mode) as client:
+    async with over_http(server, EXTENSION, mode=mode) as client:
         listing = await request(client, "skills/list")
     assert listing["resultType"] == "complete"
     assert listing["ttlMs"] == 0
@@ -54,8 +56,10 @@ async def test_the_listing_is_the_five_skills(server, mode):
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 async def test_get_returns_the_listed_entry(server, mode):
-    async with Client(server.mcp.server, mode=mode) as client:
-        for listed in (await request(client, "skills/list"))["skills"]:
+    async with over_http(server, EXTENSION, mode=mode) as client:
+        entries = (await request(client, "skills/list"))["skills"]
+        assert len(entries) == len(SKILLS)
+        for listed in entries:
             got = await request(client, "skills/get", uri=listed["uri"])
             assert got["skill"] == listed
             assert got["resultType"] == "complete"
@@ -63,8 +67,10 @@ async def test_get_returns_the_listed_entry(server, mode):
 
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 async def test_every_file_verifies_against_its_digest(server, mode):
-    async with Client(server.mcp.server, mode=mode) as client:
-        for entry in (await request(client, "skills/list"))["skills"]:
+    async with over_http(server, EXTENSION, mode=mode) as client:
+        entries = (await request(client, "skills/list"))["skills"]
+        assert len(entries) == len(SKILLS)
+        for entry in entries:
             for resource in entry["resources"]:
                 data = (await client.read_resource(resource["uri"]))[0].text.encode()
                 assert resource["size"] == len(data), resource["uri"]
@@ -76,8 +82,10 @@ async def test_each_entry_names_every_file_the_server_serves(server):
     """A reference added later is in the entry without anyone touching it.
 
     The listing shows each SKILL.md alone, so its manifest is the served set."""
-    async with Client(server.mcp.server) as client:
-        for entry in (await request(client, "skills/list"))["skills"]:
+    async with over_http(server, EXTENSION) as client:
+        entries = (await request(client, "skills/list"))["skills"]
+        assert len(entries) == len(SKILLS)
+        for entry in entries:
             root = entry["uri"].removesuffix("/SKILL.md")
             manifest = json.loads((await client.read_resource(f"{root}/_manifest"))[0].text)
             served = {f"{root}/{f['path']}" for f in manifest["files"]}
@@ -88,15 +96,17 @@ async def test_each_entry_names_every_file_the_server_serves(server):
 
 
 async def test_the_frontmatter_is_the_served_header(server):
-    async with Client(server.mcp.server) as client:
-        for entry in (await request(client, "skills/list"))["skills"]:
+    async with over_http(server, EXTENSION) as client:
+        entries = (await request(client, "skills/list"))["skills"]
+        assert len(entries) == len(SKILLS)
+        for entry in entries:
             text = (await client.read_resource(entry["uri"]))[0].text
             assert entry["frontmatter"] == header(text)
             assert entry["uri"] == f"{NAMESPACE}/{entry['frontmatter']['name']}/SKILL.md"
 
 
 async def test_a_fastmcp_client_gets_the_entry(server):
-    async with Client(server.mcp.server, extensions=[SkillsClientExtension()]) as client:
+    async with over_http(server, EXTENSION, extensions=[SkillsClientExtension()]) as client:
         listed = await client.list_skills()
         got = await client.get_skill(SKILL_URI)
     assert sorted(entry.uri for entry in listed) == SKILL_URIS
@@ -115,9 +125,21 @@ async def test_get_of_any_other_uri_is_unknown(server, uri):
 
 
 async def test_a_list_cursor_is_ignored(server):
-    """No list page size is set, so the five entries are the one page (PLG-22)."""
-    async with Client(server.mcp.server) as client:
+    """No list page size is set, so under `extension` the five entries are the one page (PLG-22)."""
+    async with over_http(server, EXTENSION) as client:
         first = await request(client, "skills/list")
+        assert len(first["skills"]) == len(SKILLS)
         again = await request(client, "skills/list", cursor="2")
     assert again["skills"] == first["skills"]
     assert "nextCursor" not in again
+
+
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+async def test_the_default_via_lists_the_skills_as_resources_only(server, mode):
+    async with over_http(server, mode=mode) as client:
+        listing = await request(client, "skills/list")
+        rows = {row["uri"] for row in (await request(client, "resources/list"))["resources"]}
+        got = await request(client, "skills/get", uri=SKILL_URI)
+    assert listing["skills"] == []
+    assert set(SKILL_URIS) <= rows
+    assert got["skill"]["uri"] == SKILL_URI

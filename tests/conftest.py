@@ -134,11 +134,11 @@ def http(params=None, headers=None):
 
 
 @asynccontextmanager
-async def over_http(server, headers=None, params=None, *, mode=None, client_info=None):
+async def over_http(server, headers=None, params=None, *, mode=None, client_info=None, extensions=None):
     """A client of ``server`` over the real ASGI app, authenticated with ``TOKEN``.
 
     ``headers`` and ``params`` travel as an HTTP client would send them, so the
-    server reads them itself. ``mode`` and ``client_info`` go to ``Client`` when given.
+    server reads them itself. ``mode``, ``client_info`` and ``extensions`` go to ``Client`` when given.
     """
     app = server.mcp.server.http_app()
 
@@ -160,6 +160,8 @@ async def over_http(server, headers=None, params=None, *, mode=None, client_info
     options = {"client_info": client_info}
     if mode is not None:
         options["mode"] = mode
+    if extensions is not None:
+        options["extensions"] = extensions
     async with app.router.lifespan_context(app), Client(transport, **options) as client:
         yield client
 
