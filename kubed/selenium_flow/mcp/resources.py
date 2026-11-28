@@ -24,8 +24,8 @@ SESSION_URI = "session://{name}"
 
 CAPTURE_KEPT = (
     "What was captured is the workspace's, not the browser's: it stays readable "
-    "after the session ends, until capture.ttl passes with nothing new or "
-    "open_session is called without capture."
+    "after the session ends, until capture.ttl passes with nothing new or a "
+    "new browser opens without capture; an open_session that joins keeps it."
 )
 
 DESCRIPTION = (
@@ -340,8 +340,8 @@ ONE_SITE_DESCRIPTION = (
 
 SESSION_DESCRIPTION = (
     "One session of this workspace, by name: the same answer as "
-    "workspace://current, for that session instead of yours. default is the "
-    "workspace's own; workspace://current's sessions lists the rest. Its "
+    "workspace://current, for that session instead of yours; "
+    "workspace://current's sessions lists every session, first one first. Its "
     "console, network, site data and downloads are session://{name}/console, "
     "/network, /site-data and /downloads. A name with no session is not "
     "found. Reading this never opens a browser."

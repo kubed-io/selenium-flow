@@ -659,3 +659,71 @@ def test_the_control_sentences_the_skill_quotes_whole_are_the_servers(sent):
 
     page = re.sub(r"\s+", " ", CONTROL_PAGE.read_text())
     assert getattr(control, sent).format(who="alex", at="14:02") in page
+
+
+# ---- sessions are a list (#248) --------------------------------------------
+
+REFERENCES = SKILLS_DIR / ENTRY_SKILL / "references"
+
+
+def collapsed(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_rule_one_says_a_join_ends_nothing():
+    """Calling `open_session` again joins; only a change or `fresh=true` ends the browser."""
+    rules = body(ENTRY_SKILL).split("## Rules", 1)[1]
+    rule = collapsed(rules.split("1. ", 1)[1].split("\n2. ", 1)[0])
+    assert "Calling it again joins your live browser and ends nothing" in rule
+    assert "`fresh=true` is also how you get a clean browser or your saved site data back" in rule
+
+
+def test_the_held_refusal_the_skill_quotes_is_the_servers():
+    from kubed.selenium_flow import faults
+
+    page = (REFERENCES / "TROUBLESHOOTING.md").read_text()
+    assert has_heading(page, f'"{faults.HELD}"')
+
+
+def test_control_says_a_join_is_not_refused():
+    page = collapsed(CONTROL_PAGE.read_text())
+    assert "An `open_session` that joins your live browser is not refused" in page
+
+
+def test_workspaces_lists_the_context_keys_b_built():
+    from kubed.selenium_flow.core import capabilities
+
+    page = (REFERENCES / "WORKSPACES.md").read_text()
+    section = page.split("## What `workspace://current` says", 1)[1].split("\n## ", 1)[0]
+    for key in ("session", "main", "sessions", "yours"):
+        assert f"`{key}`" in section, key
+    assert has_heading(page, "A result says `main_moved`")
+    # The section's first fenced json block is the example.
+    example = json.loads(section.split("```json", 1)[1].split("```", 1)[0])
+    assert {"session", "main", "sessions"} <= example.keys()
+    for entry in example["sessions"]:
+        assert set(entry) == set(capabilities.SESSION_ENTRY["required"])
+
+
+def test_the_admin_skill_opens_admin_ui():
+    page = (SKILLS_DIR / "using-the-admin-ui/references/AGENT_AS_ADMIN.md").read_text()
+    assert 'session="admin-ui"' in page
+    assert 'session="admin"' not in page
+
+
+def test_site_data_says_fresh_on_a_live_session():
+    page = collapsed((SKILLS_DIR / "signing-in/references/SITE_DATA.md").read_text())
+    assert "a new session starts with none" in page
+    assert "`fresh=true` puts saved site data back" in page
+
+
+def test_rule_7_leaves_a_shared_session_open():
+    text = " ".join(body(ENTRY_SKILL).split())
+    rule = re.split(r" 8\. |## ", text.split(" 7. ", 1)[1], maxsplit=1)[0]
+    assert "Leave open a session you share with your main agent" in rule
+
+
+def test_workspaces_page_does_not_say_the_name_is_enough_to_drive_a_browser():
+    page = " ".join((REFERENCES / "WORKSPACES.md").read_text().split())
+    assert "anyone who can call this server and knows it drives your browser" not in page
+    assert "A caller with another subject gets a 403" in page

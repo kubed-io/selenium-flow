@@ -2,8 +2,10 @@
 
 A workspace is the named box that keeps your flows, files, site data, page
 history and the settings you passed. A session is a live browser in it, started
-by `open_session` and ended by `end_browser`, an admin or the Grid's reaper. The
-workspace has a default session and may have sub-sessions (below). The server never invents a name: the caller names the workspace.
+by `open_session` and ended by `end_browser`, an admin or the Grid's reaper. A
+workspace holds a list of sessions: yours is named after you, and the first is
+its main one (below). The server never invents a name: the caller names the
+workspace.
 
 ## Naming your workspace
 
@@ -22,33 +24,38 @@ workspace has a default session and may have sub-sessions (below). The server ne
 - The same name always finds the same workspace, after a reconnect, a client
   restart or a week. A workspace expires after a day unused by default; the next
   call that names it starts a new one.
-- A name is an address, not a credential: anyone who can call this server and
-  knows it drives your browser. To share a browser, share the name. A connector's
-  header is the same for every member of the organisation, so they all share one
-  workspace and one browser.
+- A name is an address, not a credential: anyone with your subject who knows it
+  drives your session. A caller with another subject gets a 403 on it and can
+  open its own session in the workspace. A connector's header is the same for
+  every member of the organisation, so they share the workspace, and a browser
+  only when they share a subject.
 
 ## Sessions in a workspace
 
-The default session is the one a call reaches when it names none; a caller
-with no token subject (the static token, stdio) always does. A caller whose
-token has a subject that does not own the default gets its own sub-session
-instead, labelled by its username, made on its first call and opened with `open_session`. A
-sub-session is another Grid browser in the same workspace, opened with
-`open_session(session="tester")` and reached by passing the same `session` to
-every tool call, and its state read at `session://tester/…`. A blank `session`
-is none: your own.
+A call that names no session acts in your own, named after you.
+`open_session` opens it, or joins it when its browser is live. To work in
+another session you opened, pass `session`: `open_session(session="tester")`,
+then the same `session` on every call, its state at `session://tester/…`. A
+blank `session` is none. The first session in the list is main, and that
+changes nothing about what it can do. An idle session you didn't open, such as
+an old `default`, isn't yours: open your own, and it becomes main. A name
+another caller holds is refused with "that session is held by another caller"
+(403), so pick another name. Callers with the same subject share a session and
+take turns. On a live session, `fresh=true` replaces the browser for a clean
+start, with saved site data back, and `restore_site_data=false` with it starts
+as a new user.
 
 | Fact | Holds |
 |---|---|
-| Name | letters, digits, dots, dashes and underscores like a workspace's; `default` is the workspace's own; `current`, `downloads`, `console`, `network`, `files` and `site-data` are reserved |
+| Name | letters, digits, dots, dashes and underscores like a workspace's; your own is your username, else your token's subject, `admin` for the server token, and `default` when nothing names you; `current`, `downloads`, `console`, `network`, `files` and `site-data` are reserved |
 | Contents | its own cookies, storage, downloads, capture and window; it starts empty and nothing is copied from another session |
 | Shared | the workspace's files, flows, config and history; each history entry names its session |
-| Life | `session.sub_ttl` (default 3600 seconds) after its last use; then it is gone and a tool call naming it is `NoSession`; reading `session://{name}` says not found |
+| Life | the first in the list lasts as the workspace does, `workspace.ttl` after its last use (for ever in a kept workspace); any other `session.sub_ttl` (default 3600 seconds) after its last use; then it is gone and a tool call naming it is `NoSession`; reading `session://{name}` says not found |
 | Opening | only `open_session` opens a browser; a typo is refused and opens nothing |
-| Callers | the server cannot tell callers on one connection apart: callers that name the same session are one caller and take turns; a main agent gives each subagent its own name |
+| Callers | the server cannot tell callers on one connection apart: callers with the same subject share a session and take turns; a subagent shares its main agent's session, or names its own |
 | Pin | `?session=tester` on the MCP URL, or an `Sf-Session` header, fixes a connection to a session; a call naming another is refused |
 | Reading | `session://{name}` is that session as `workspace://current` is yours; `/console`, `/network`, `/network/{id}`, `/site-data`, `/site-data/{site}` and `/downloads` are its own; a result's `see` and `uri` already point at the session the call acted in |
-| Subagents | a subagent shares its main agent's connection, so `workspace://…` is the main agent's session; it reads its own at `session://<name>/…`, and in Claude Code only when its `tools:` lists `ReadMcpResourceTool` and `ToolSearch` |
+| Subagents | a subagent shares its main agent's connection, so `workspace://…` is the main agent's session; it reads its own at `session://<name>/…`, and in Claude Code only when its `tools:` lists `ReadMcpResourceTool` and `ToolSearch`; one that shares its main agent's session never calls `end_browser` on it |
 
 A flow runs in one session: the one its `run_flow` names. A person's control
 covers one session, so `await_control` takes the `session` a refused call
@@ -57,14 +64,20 @@ named (`references/CONTROL.md`).
 ## What `workspace://current` says
 
 ```json
-{"workspace": "research-bot", "named_by": "query", "browser": "chrome",
+{"workspace": "research-bot", "named_by": "query", "session": "research-bot-agent",
+ "main": true, "browser": "chrome",
  "url": "https://example.com/", "live": true, "in_frame": false,
  "window": "1400x900",
- "tabs": [{"tab": "t1", "url": "https://example.com/", "title": "Example", "current": true}]}
+ "tabs": [{"tab": "t1", "url": "https://example.com/", "title": "Example", "current": true}],
+ "sessions": [{"name": "research-bot-agent", "main": true, "live": true,
+               "last_used": 1764240000, "url": "https://example.com/",
+               "uri": "session://research-bot-agent", "yours": true}]}
 ```
 
 | Field | Means |
 |---|---|
+| `session`, `main` | your own session's name, and whether it heads the workspace's list |
+| `sessions` | every session in list order, each `{name, main, live, last_used, url, uri, yours}`; `yours` means your subject holds it, so you may use it, and another session's `url` is its origin, path and hash route |
 | `live` | a session is open |
 | `in_frame` | a `frame` switch is in force |
 | `tabs` | each tab with its `tab` id, `url`, `title` and whether it is `current`; reading it never follows a popup |
@@ -99,6 +112,12 @@ These are the traps:
   no saved site data. Use it only for a site with a self-signed certificate.
 - For anything no option covers there is `capabilities`, the last resort
   (`references/TROUBLESHOOTING.md`, *Sending a capability no option covers*).
+
+## A result says `main_moved`
+
+Another session opened while yours headed the list idle, and took the head. Your
+next result says so once, as `main_moved: {from, to, at}` beside `main: false`.
+Nothing else changed: carry on in your own session.
 
 ## A result says `reopened`
 

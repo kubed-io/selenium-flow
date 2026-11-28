@@ -41,7 +41,7 @@ key in it stops the server.
 | `WORKSPACE_STORE` | `memory` | `redis`, to keep workspaces across a restart |
 | `WORKSPACE_TTL` | `86400` | keep a workspace longer after its last use; it does not bound the browser |
 | `SESSION_KEEP_ALIVE` | `900` | keep a browser alive longer between calls |
-| `SESSION_SUB_TTL` | `3600` | seconds a sub-session lasts after its last use |
+| `SESSION_SUB_TTL` | `3600` | seconds a session that is not first in its workspace's list is kept after its last use |
 | `DATA_DIR` | unset | give workspaces their flows and files, under `DATA_DIR/workspaces/<name>/`; unset means none |
 | `RECORDING_ENABLED` | `false` | allow `open_session(record=true)`, once the Grid's recordings reach `RECORDING_DIR` |
 | `RECORDING_DIR` | `$DATA_DIR/recordings` | where the Grid's recordings arrive. The recorder must keep `SE_VIDEO_FILE_NAME=auto` and `SE_VIDEO_FILE_NAME_SUFFIX=true` (or `SE_VIDEO_SESSION_SUBFOLDER=true`) so the Grid session id is in the path |

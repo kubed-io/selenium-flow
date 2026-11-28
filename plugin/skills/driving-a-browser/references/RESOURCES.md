@@ -25,7 +25,7 @@ and `ToolSearch`. A client that cannot read resources gets the tools
 | `workspace://network` | the requests your own session's page made, each with an id; needs capture too |
 | `workspace://network{?filter,pages}` | the same, narrowed: `?filter=failed`, `?filter=xhr` |
 | `workspace://network/{id}` | one of your own session's requests in full |
-| `session://{name}` | a session by name, as `workspace://current` is your own; `default` is the workspace's own, and a name with no session is not found |
+| `session://{name}` | a session by name, as `workspace://current` is your own; a name with no session is not found |
 | `session://{name}/console` | that session's console, as `workspace://console` is yours |
 | `session://{name}/console{?level,pages}` | the same, narrowed |
 | `session://{name}/network` | that session's requests; `network_body(id, session=name)` for a body |

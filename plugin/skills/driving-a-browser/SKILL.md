@@ -8,16 +8,17 @@ description: Use when a task needs a live browser through selenium-flow - a page
 The browser is real and stays open between calls, with its page, cookies,
 storage and scroll position. Your workspace, named by your client's
 `?workspace=` or `Sf-Workspace` (`stdio` over stdio), keeps your settings, last
-page, files, flows and site data. A session is a live browser in it: the
-workspace's default session, and sub-sessions you name. When a session ends,
-`open_session()` with no arguments brings you back to the same page.
+page, files, flows and site data. A session is a live browser in it. Yours is
+named after you, and the first in the workspace's list is its main one, which is
+only its place. When a session ends, `open_session()` with no arguments brings
+you back to the same page.
 
 ## Rules
 
-1. Call `open_session` once, first. Nothing else opens a browser, and calling it
-   again ends the one you hold, losing anything unsaved such as a sign-in or a
-   half-filled form. Reopen only to switch browser or change an option, or after
-   a result says you have no browser.
+1. Call `open_session` once, first. Nothing else opens a browser. Calling it
+   again joins your live browser and ends nothing. A different browser or
+   option, or `fresh=true`, ends it, losing anything unsaved; `fresh=true` is
+   also how you get a clean browser or your saved site data back.
 2. Put `url` on the action instead of navigating first. An action with an
    optional `url` goes there only if the browser is elsewhere. Use `navigate`
    when going to the page is the whole step.
@@ -34,7 +35,8 @@ workspace's default session, and sub-sessions you name. When a session ends,
    `secret={"name": ..., "key": ...}` and the server types it;
    `secret://secrets` lists the secrets.
 7. End every task with `end_browser()`, after a failure too. The Grid has few
-   slots, and your workspace survives it.
+   slots, and your workspace survives it. Leave open a session you share with
+   your main agent: it ends its own.
 
 `execute_script` is for what no tool does: many values in one round trip,
 computed style, scrolling. The script is a function body, so `return` the value.
@@ -47,7 +49,7 @@ Open the one row that matches.
 
 | When | Read |
 |---|---|
-| Naming or sharing a workspace, a second browser or a subagent's session, a `reopened` result, browser version, headless | `references/WORKSPACES.md` |
+| Naming or sharing a workspace, a second browser or a subagent's session, a `reopened` or `main_moved` result, browser version, headless | `references/WORKSPACES.md` |
 | A call refused because a person holds the browser, a `control` field on a result | `references/CONTROL.md` |
 | Reading a page, choosing a selector, `outline` entries, screenshots | `references/READING_PAGES.md` |
 | A whole task end to end; hover menus, dragging, typing, keys, iframes, tabs, dialogs, scrolling | `references/INTERACTION.md` |
@@ -65,7 +67,7 @@ Open the one row that matches.
 | Tool | Reach for it |
 |---|---|
 | `open_session` | first, once per task; with no arguments, back to the last page |
-| `end_browser` | last, in every task |
+| `end_browser` | last, in every task, but not your main agent's session when you share it |
 | `navigate` | when going to a URL is the whole step |
 | `interact` | click, double or right click, hover (keeps a `:hover` menu open), scroll an element into view |
 | `drag` | a card onto a column (`to`), a slider (`by_x`) |

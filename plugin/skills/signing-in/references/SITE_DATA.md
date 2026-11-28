@@ -1,9 +1,11 @@
 # Site data
 
 A new browser starts empty. `save_site_data` keeps the cookies and storage of
-the sites the workspace has been to, and every browser opened in the workspace
+the sites your session has been to, and every browser your session opens
 afterwards has them back before `open_session` returns: the one after
-`end_browser()` and the one that replaces a reaped browser too.
+`end_browser()` and the one that replaces a reaped browser too. While your
+session's browser is live, `open_session` joins it and restores nothing:
+`fresh=true` puts saved site data back.
 
 ## When to save
 
@@ -28,7 +30,7 @@ so a save after signing out keeps you signed out.
 ```
 
 Site data is each session's own. In a named session the `uri` is
-`session://<name>/site-data`, and a sub-session starts with none.
+`session://<name>/site-data`, and a new session starts with none.
 
 `skipped` names a site whose storage is not in this save, and why:
 
@@ -74,6 +76,10 @@ open_session(restore_site_data=false)
 It opens with nothing and deletes what was saved, so the next open is empty too,
 and says `site_data: {"forgotten": n}` when something was there. The workspace's
 page history is kept.
+
+On a live session, pass `fresh=true` with it:
+`open_session(fresh=true, restore_site_data=false)`; without `fresh` the call
+joins and deletes nothing.
 
 ## Limits
 
