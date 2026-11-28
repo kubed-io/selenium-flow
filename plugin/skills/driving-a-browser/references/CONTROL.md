@@ -31,7 +31,9 @@ Reads still answer: `extract`, `outline`, `screenshot`, `print`,
 `network_body`, every resource, the flow library and `keep_file`. A read that
 would move the page or the window is refused: a `url` the browser is not on, or a
 `screenshot` with `width`, `height` or `full_page`. `execute_script`, `assert`,
-`open_session` and `end_browser` count as acting.
+`end_browser`, and an `open_session` that opens or replaces a browser, count as
+acting. An `open_session` that joins your live browser is not refused: it
+changes nothing. Its `url`, if it passes one, navigates, and that is refused.
 
 `await_control()` returns when they hand back, or at once with nobody in control
 (`control: null`, or a hand-back you had not been told of). A client that runs

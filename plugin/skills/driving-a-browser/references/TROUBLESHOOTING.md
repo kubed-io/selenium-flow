@@ -43,9 +43,10 @@ never, so when a call looks wrong and says nothing, check
 `workspace://network?filter=failed`, and `workspace://network` for a request
 with no status yet; in a named session, `session://<name>/network`.
 
-All of this needs `open_session(capture=true)`. An `open_session()` without it
-turns capture off and forgets what was captured, so read the console and network
-before you reopen.
+All of this needs `open_session(capture=true)`. A new browser opened without it
+captures nothing and forgets what was captured, so read the console and network
+before you reopen. An `open_session()` that joins your live browser keeps its
+capture.
 
 ## "name your workspace"
 
@@ -56,6 +57,12 @@ request carried both: drop one. Retrying unchanged does not help.
 ## "no session is open in workspace …"
 
 Call `open_session` once, then carry on.
+
+## "that session is held by another caller"
+
+You named a session another caller opened, so it is a 403 and nothing was
+opened. Name your own, or leave `session` out to act in your own session
+(`references/WORKSPACES.md`). Retrying unchanged does not help.
 
 ## "this workspace's config is invalid"
 
