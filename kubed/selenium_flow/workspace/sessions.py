@@ -119,10 +119,11 @@ def own_name(principal: Principal | None) -> str:
     if principal.admin:
         return ADMIN_SUBJECT
     for candidate in (principal.username, subject_of(principal)):
-        if candidate in (ADMIN_SUBJECT, NO_SUBJECT):
-            continue
         try:
-            return valid_session_name(candidate)
+            text = valid_session_name(candidate)
         except ValueError:
             continue
+        if text in (ADMIN_SUBJECT, NO_SUBJECT):
+            continue
+        return text
     raise ValueError(OWN_UNNAMED)

@@ -365,6 +365,12 @@ def test_own_name_falls_back_to_the_subject(username):
     assert sessions.own_name(who) == "3f2a-77"
 
 
+@pytest.mark.parametrize("name", ["admin ", " default"])
+def test_a_padded_reserved_username_falls_to_the_subject(name):
+    who = Principal("oidc", subject="sub-x", username=name)
+    assert sessions.own_name(who) == "sub-x"
+
+
 def test_an_own_name_nothing_valid_names_is_refused():
     with pytest.raises(ValueError) as refused:
         sessions.own_name(Principal("oidc", subject="auth0|1"))
