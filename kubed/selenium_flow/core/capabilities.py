@@ -218,6 +218,22 @@ FLOWS_HINT = {
 }
 
 
+# One entry of a workspace's session list, in `others` and `sessions` alike (WS-89).
+SESSION_ENTRY = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "main": {"type": "boolean"},
+        "live": {"type": "boolean"},
+        "last_used": {"type": ["integer", "null"]},
+        "url": {"type": ["string", "null"]},
+        "uri": {"type": "string"},
+        "yours": {"type": "boolean"},
+    },
+    "required": ["name", "main", "live", "last_used", "url", "uri", "yours"],
+}
+
+
 # What every page result says when the call moved between tabs (ACT-50), each
 # present only when it happened. Before an action's own fields, so `frame`'s
 # `in_frame` and `tab`'s `tab` say it in their own words.

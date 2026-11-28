@@ -173,7 +173,7 @@ NAME_PARAM = "workspace"
 CONTEXT_KEYS = (
     "workspace",
     "session",
-    "default",
+    "main",
     "sessions",
     "named_by",
     "principal",
@@ -634,8 +634,10 @@ class Workspaces:
         status = {
             "workspace": workspace,
             "session": session,
-            "default": session == self.head_of(workspace),
-            "sessions": self.listed_sessions(workspace, own=session),
+            "main": session == self.head_of(workspace),
+            "sessions": self.listed_sessions(
+                workspace, own=session, subject=subject_of(caller.principal)
+            ),
             "named_by": caller.named_by,
             "principal": caller.principal.status() if caller.principal else None,
             "browser": None,
@@ -2074,7 +2076,11 @@ class Workspaces:
             # the one the workspace holds. This one's provisional note stays, so
             # its video is deleted, not filed. That open gives its browser the
             # slot itself; this answer is scrubbed as a resource is.
-            return self._named(key, self.scrubber.resource(name, self._held(name)))
+            return self._named(
+                key,
+                self.scrubber.resource(name, self._held(name)),
+                subject_of(caller.principal),
+            )
         # This browser holds the workspace now: it starts afresh, unframed, on
         # the page it opened at.
         self.origins.opened(name, kept)
@@ -2115,7 +2121,7 @@ class Workspaces:
         # The page it opened on, new or remembered, is new to this caller in
         # this browser.
         self._hint(told, name, told.get("url"), scrubbed=True)
-        return self._named(key, told)
+        return self._named(key, told, subject_of(caller.principal))
 
     def _resolve_open(
         self, caller: Caller, key: str, url: str | None, wanted: dict
@@ -2166,19 +2172,22 @@ class Workspaces:
             allowed_navigation(url)
         return previous, resolved
 
-    def _named(self, key: str, answer: dict) -> dict:
+    def _named(self, key: str, answer: dict, subject: str) -> dict:
         """``answer`` as `open_session` gives it: its workspace, its session's
-        name and whether that heads the list (WS-48), and ``others``, every
-        other session in the workspace, when there are any (WS-72)."""
+        name and whether that heads the list (``main``, WS-48), and
+        ``others``, every other session in the workspace, when there are any,
+        each ``yours`` when ``subject`` holds it (WS-89)."""
         workspace, name = sessions.split(key)
         named = {
             "workspace": workspace,
             "session": name,
-            "default": name == self.head_of(workspace),
+            "main": name == self.head_of(workspace),
             **{k: v for k, v in answer.items() if k != "workspace"},
         }
         others = [
-            s for s in self.listed_sessions(workspace, own=name) if s["name"] != name
+            s
+            for s in self.listed_sessions(workspace, own=name, subject=subject)
+            if s["name"] != name
         ]
         if others:
             # Their pages may be on any origin: scrubbed as a resource is.
@@ -2186,13 +2195,14 @@ class Workspaces:
         return named
 
     def listed_sessions(
-        self, workspace: str, own: str = sessions.DEFAULT
+        self, workspace: str, own: str, subject: str
     ) -> list[dict]:
-        """Every session of ``workspace``, in list order, as ``{name, label,
-        default, live, url, uri}``: ``default`` says which heads the list, and
-        one whose record expired is left out (`listed`). Which browsers live
-        is one Grid listing (`_running`). A workspace with no session lists
-        none.
+        """Every session of ``workspace``, in list order, as ``{name, main,
+        live, last_used, url, uri, yours}`` (WS-89): ``main`` says which heads
+        the list, ``last_used`` is in epoch seconds or None before its first
+        bind, and ``yours`` says whether ``subject`` holds it. One whose
+        record expired is left out (`listed`). Which browsers live is one
+        Grid listing (`_running`). A workspace with no session lists none.
 
         The session ``own`` (the reader's) has its page whole; every other
         has its origin, path and route only (`page_of`), as a pruned history
@@ -2215,11 +2225,12 @@ class Workspaces:
         return [
             {
                 "name": name,
-                "label": name,
-                "default": name == shared.head,
+                "main": name == shared.head,
                 "live": live(r),
+                "last_used": int(r.last_used) or None,
                 "url": page(name),
                 "uri": f"session://{name}",
+                "yours": r.holder == subject,
             }
             for name, r in found
         ]

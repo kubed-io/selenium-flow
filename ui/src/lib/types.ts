@@ -246,10 +246,17 @@ export interface ContextData {
   capture?: boolean
   capturing?: boolean
   captured?: Captured
-  /** The caller's session (WS-72), and whether it is the default. */
+  /** The session this describes (WS-82), and whether it heads the list. */
   session?: string
-  default?: boolean
-  sessions?: SessionInfo[]
+  main?: boolean
+  /** Every session of the workspace, in list order (WS-89). */
+  sessions?: ContextSession[]
+}
+
+/** One entry of a context's session list (WS-89): the reader's own has its whole url. */
+export interface ContextSession {
+  name: string; main: boolean; live: boolean; last_used: number | null
+  url: string | null; uri: string; yours: boolean
 }
 
 export interface Captured { console: number; network: number; errors: number; failed_requests: number; dropped?: number }

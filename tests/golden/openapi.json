@@ -6001,10 +6001,6 @@
             "description": "Where an admin changes them, when the server has one.",
             "type": "string"
           },
-          "default": {
-            "description": "Whether that is the workspace's default session.",
-            "type": "boolean"
-          },
           "flows_here": {
             "description": "Present only when saved flows say they apply to url: at most 10, this workspace's own first. Read from the record, so a page that moved by itself since the last call is not reflected.",
             "items": {
@@ -6072,6 +6068,10 @@
             "description": "Whether a session is open in this workspace.",
             "type": "boolean"
           },
+          "main": {
+            "description": "Whether this session heads the workspace's list, which makes it main: only its place in the list.",
+            "type": "boolean"
+          },
           "named_by": {
             "description": "Which mechanism supplied the name.",
             "enum": [
@@ -6119,19 +6119,25 @@
             "type": "string"
           },
           "sessions": {
-            "description": "Every session of the workspace, the default first.",
+            "description": "Every session of the workspace, in list order: the first is main.",
             "items": {
               "properties": {
-                "default": {
-                  "type": "boolean"
-                },
-                "label": {
-                  "type": "string"
+                "last_used": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "live": {
                   "type": "boolean"
                 },
+                "main": {
+                  "type": "boolean"
+                },
                 "name": {
+                  "type": "string"
+                },
+                "uri": {
                   "type": "string"
                 },
                 "url": {
@@ -6139,8 +6145,20 @@
                     "string",
                     "null"
                   ]
+                },
+                "yours": {
+                  "type": "boolean"
                 }
               },
+              "required": [
+                "name",
+                "main",
+                "live",
+                "last_used",
+                "url",
+                "uri",
+                "yours"
+              ],
               "type": "object"
             },
             "type": "array"
