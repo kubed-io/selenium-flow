@@ -85,10 +85,9 @@ Session = Annotated[
     str | None,
     Field(
         description=(
-            "Which session of this workspace to act in: a sub-session's name, or "
-            "default. Leave it out, or blank, to act in your own. Only open_session "
-            "opens one. A named session's state is session://<name>/…; "
-            "workspace:// is your own."
+            "Which session to act in, by name. Leave it out to act in your own, "
+            "named after you. Only open_session opens one. A named session's state "
+            "is session://<name>/…; workspace:// is your own."
         )
     ),
 ]
@@ -326,15 +325,21 @@ def register(
         restore_site_data: bool = True,
         session: Session = None,
     ) -> dict:
-        """Start a session in this workspace, or come back to the one it had. Call it
+        """Opens your own session, or joins it when its browser is live; that ends
+        nothing. session="x" opens or joins x instead. The first session in the
+        workspace's list is its main one; that is only its place in the list. Call it
         before anything else: nothing opens a browser for you.
 
         With no arguments it opens a browser from the server's and your connection's
         defaults, plus the options you passed before, and goes back to the page you were
-        on: the right call after a browser was reaped or ended. Calling it while you
-        hold a browser ends that one first, which is how you switch:
+        on: the right call after a browser was reaped or ended. While your browser is
+        live it joins it instead and answers joined: true; a url then navigates there.
+        Only an option you pass that differs from the live browser's, or fresh=true,
+        ends it and opens a new one, which is how you switch:
         open_session(browser="firefox"). Files that browser had and you did not keep
-        go with it.
+        go with it. When another session has taken the head of the list from yours,
+        your next result says so once, in main_moved beside main: false; carry on in
+        your own session.
 
         The options:
         - browser is chrome (default) or firefox. version="152" asks the Grid for
@@ -357,16 +362,17 @@ def register(
           so only when one will — it costs the Grid. capture=true keeps what the
           page logs and fetches — workspace://console and workspace://network,
           session://<name>/console and /network for a named session — and a call
-          that caused a page error says so in its result. An open
+          that caused a page error says so in its result. A new browser opened
           without capture=true forgets what was captured, so read those first when
-          you are debugging. Neither is kept: ask again for the next browser.
+          you are debugging; a join keeps it. Neither is kept: ask again for the
+          next browser.
         - fresh=true starts on about:blank. Saved site data comes back by default;
           restore_site_data=false opens without it and deletes it, which is how you
-          start as a new user.
-        - session="tester" opens a sub-session: a browser of its own beside the
-          workspace's default, starting empty, that another call reaches with the
-          same session; its state is session://tester/…. It never ends another
-          session's browser; others lists them.
+          start as a new user. On a live session, fresh=true is how you get a clean
+          browser or your saved site data back: a join ignores restore_site_data.
+        - session="tester" opens a session of its own, starting empty, that another
+          call reaches with the same session; its state is session://tester/…. It
+          never ends another session's browser; others lists them.
 
         capabilities is the last resort, only for something no option above covers:
         extra W3C capabilities sent to the Grid as given, best effort, and

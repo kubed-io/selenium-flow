@@ -81,9 +81,9 @@ Session = Annotated[
     str | None,
     Field(
         description=(
-            "Which session's downloads a session://downloads uri is read from: a "
-            "sub-session's name, or default. Leave it out, or blank, for your own. "
-            "A session://<name>/downloads uri already names its session."
+            "Which session's downloads a session://downloads uri is read from, by "
+            "name. Leave it out for your own, named after you. A "
+            "session://<name>/downloads uri already names its session."
         )
     ),
 ]
