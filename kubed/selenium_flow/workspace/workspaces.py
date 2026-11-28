@@ -2697,8 +2697,17 @@ class Workspaces:
     def _restamp(self, key: str) -> None:
         """Write the record of ``key`` as it is, so it takes the lifetime of
         its place in the list now (WS-87): an old head moved behind an opener
-        would otherwise keep the head's, for ever in a kept workspace."""
-        self.store.update(key, lambda r: r)
+        would otherwise keep the head's, for ever in a kept workspace.
+
+        Best-effort: the opener's browser is bound and listed by now, so a
+        store that fails is logged by type and the open goes on."""
+        try:
+            self.store.update(key, lambda r: r)
+        except Exception as exc:  # noqa: BLE001 - the open has happened
+            log.warning(
+                "the moved head of %s was not restamped: %s",
+                sessions.logged(key), type(exc).__name__,
+            )
 
     def _idle_head(self, key: str) -> str | None:
         """The head of the list an `open_session` in the session ``key`` may

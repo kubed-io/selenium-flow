@@ -328,6 +328,24 @@ def test_headed_puts_the_opener_first_and_the_idle_head_behind_it():  # WS-86
     assert shared.headed("e", "a", 5.0) is shared, "e is not listed"
 
 
+def test_headed_stamps_the_old_heads_top_entry_with_the_move():  # WS-86
+    shared = (
+        Workspace(["a", "b"])
+        .visited("https://old.example.com/a?q=1", now=1.0, session="a")
+        .visited("https://b.example.com/", now=2.0, session="b")
+        .visited("https://example.com/new?q=2", now=3.0, session="a")
+    )
+    moved = shared.headed("b", "a", 500.0)
+    assert [(v["url"], v["at"]) for v in moved.history] == [
+        ("https://example.com/new?q=2", 500.0),
+        ("https://b.example.com/", 2.0),
+        ("https://old.example.com/a", 1.0),
+    ]
+    later = moved.pruned(now=550.0, ttl=1000, sub_ttl=100)
+    assert later.page("a") == "https://example.com/new?q=2"
+    assert shared.headed("b", "b", 500.0).history == shared.history
+
+
 def test_a_moved_session_back_at_the_head_has_no_notice():  # WS-86
     back = Workspace(["a", "b"]).headed("b", "a", 5.0).headed("a", "b", 6.0)
     assert back.sessions == ["a", "b"]

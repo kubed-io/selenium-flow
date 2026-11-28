@@ -233,6 +233,30 @@ SESSION_ENTRY = {
     "required": ["name", "main", "live", "last_used", "url", "uri", "yours"],
 }
 
+# What a result says, once, after another session took the head of the
+# workspace's list from the caller's (WS-86).
+MAIN_HINT = {
+    "type": "boolean",
+    "description": (
+        "False, beside main_moved: your session no longer heads the workspace's "
+        "list. Present only with main_moved."
+    ),
+}
+MAIN_MOVED_HINT = {
+    "type": "object",
+    "description": (
+        "Present only on the first result after another session took the head "
+        "of this workspace's list from yours: from is yours, to heads it now, at "
+        "is when, in epoch seconds. Said once."
+    ),
+    "properties": {
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "at": {"type": "integer"},
+    },
+    "required": ["from", "to", "at"],
+}
+
 
 # What every page result says when the call moved between tabs (ACT-50), each
 # present only when it happened. Before an action's own fields, so `frame`'s
@@ -283,6 +307,8 @@ def _page(**extra) -> dict:
             **PAGE_STATE,
             "site_data": SITE_DATA_HINT,
             "reopened": REOPENED_HINT,
+            "main": MAIN_HINT,
+            "main_moved": MAIN_MOVED_HINT,
             "page": PAGE_HINT,
             "flows_here": FLOWS_HINT,
         },
@@ -345,6 +371,8 @@ BODY_RESPONSE = {
             "description": "True when the text was cut at 100 000 bytes.",
         },
         "page": PAGE_HINT,
+        "main": MAIN_HINT,
+        "main_moved": MAIN_MOVED_HINT,
     },
     "required": ["id", "uri", "mime", "size", "binary", "text", "truncated"],
 }
@@ -499,6 +527,8 @@ AWAIT_RESPONSE = {
         },
         "site_data": SITE_DATA_HINT,
         "reopened": REOPENED_HINT,
+        "main": MAIN_HINT,
+        "main_moved": MAIN_MOVED_HINT,
         "message": {"type": "string", "description": "What happened, in a sentence."},
     },
     "required": ["handed_back", "ended", "control", "message"],
@@ -531,31 +561,30 @@ CAPABILITIES: tuple[Capability, ...] = (
                 },
                 "session": {
                     "type": "string",
+                    "description": "The session this browser is, by its name.",
+                },
+                "main": {
+                    "type": "boolean",
                     "description": (
-                        "The session this browser is: default, or a "
-                        "sub-session's name."
+                        "Whether this session heads the workspace's list, which "
+                        "makes it main: only its place in the list."
                     ),
                 },
-                "default": {
+                "joined": {
                     "type": "boolean",
-                    "description": "Whether it is the workspace's default session.",
+                    "description": (
+                        "True when this call joined the session's live browser: "
+                        "nothing ended or opened. Present only then."
+                    ),
                 },
+                "main_moved": MAIN_MOVED_HINT,
                 "others": {
                     "type": "array",
                     "description": (
                         "Every other session of this workspace. Present only "
                         "when there are some."
                     ),
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string"},
-                            "label": {"type": "string"},
-                            "default": {"type": "boolean"},
-                            "live": {"type": "boolean"},
-                            "url": {"type": ["string", "null"]},
-                        },
-                    },
+                    "items": SESSION_ENTRY,
                 },
                 "browser": {
                     "type": "string",

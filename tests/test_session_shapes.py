@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import pytest
 
+from kubed.selenium_flow.core.capabilities import SESSION_ENTRY, _page
+from kubed.selenium_flow.spec.schemas import RESPONSES
 from kubed.selenium_flow.urls import page_of
 from kubed.selenium_flow.workspace.store import Session
 
@@ -103,3 +105,14 @@ def test_no_default_or_label_key_survives():
     named = workspaces.describe(pinned("first", FIRST), at="session://first")
     for answer in (opened, context, named):
         assert {"default", "label"}.isdisjoint(_keys(answer))
+
+
+def test_the_schemas_have_one_entry_shape_and_no_default():
+    opened = RESPONSES["open_session"]["properties"]
+    context = RESPONSES["current_workspace"]["properties"]
+    assert opened["others"]["items"] is SESSION_ENTRY
+    assert context["sessions"]["items"] is SESSION_ENTRY
+    assert set(SESSION_ENTRY["required"]) == ENTRY_KEYS
+    for properties in (opened, context, SESSION_ENTRY["properties"]):
+        assert {"default", "label"}.isdisjoint(properties)
+    assert "main_moved" in _page()["properties"]

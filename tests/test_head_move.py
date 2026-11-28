@@ -3,13 +3,17 @@ takes the head, and the old head is told once, on its next result (WS-86)."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from kubed.selenium_flow.flows import api as flowapi
 from kubed.selenium_flow.flows import store as flow_store
 from kubed.selenium_flow.secrets import perform_write
 from kubed.selenium_flow.workspace import sessions
-from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore
+from kubed.selenium_flow.workspace import store as store_module
+from kubed.selenium_flow.workspace import workspaces as workspaces_module
+from kubed.selenium_flow.workspace.store import MemoryStore, RedisStore, StoreConflict
 
 from .fakes import Anywhere, Clock, FakeRedis, RecordingActions, record_of, shared_of
 from .test_locks import in_thread
@@ -279,6 +283,50 @@ def test_the_old_head_takes_sub_ttl_at_the_move(backend):
     assert store.get("shop/first") is None
     clock.now += 10**9
     assert store.get("shop/second") is not None
+
+
+def test_the_old_head_keeps_its_page_at_the_move(monkeypatch):
+    """Idle longer than ``sub_ttl`` before the move, the old head's page still
+    carries its query: it takes the move's time, as its record does."""
+    clock = Clock()
+    timed = SimpleNamespace(time=clock)
+    monkeypatch.setattr(workspaces_module, "time", timed)
+    monkeypatch.setattr(store_module, "time", timed)
+    store = MemoryStore(ttl=1000, sub_ttl=100, clock=clock)
+    workspaces, store, actions = built(store)
+    search = "https://example.com/search?q=shoes"
+    workspaces.open_browser(as_(FIRST), url=search)
+    clock.now += 150
+    actions.grid.alive.discard(grid_id(store, "first"))
+    workspaces.open_browser(as_(SECOND))
+    shared = shared_of(store, "shop")
+    assert shared.sessions == ["second", "first"]
+    assert shared.page("first") == search
+    workspaces.resolve(FIRST_KEY)
+    assert actions.opened_urls[-1] == search
+
+
+def test_an_open_survives_a_restamp_that_fails(caplog):
+    """The browser is bound and listed by then: a store that fails the old
+    head's restamp is logged by type, and the open goes on."""
+    workspaces, store, actions = built(memory())
+    workspaces.open_browser(as_(FIRST))
+    actions.grid.alive.discard(grid_id(store, "first"))
+    update = store.update
+
+    def failing(key, fn):
+        if key == FIRST_KEY:
+            raise StoreConflict("lost the race")
+        return update(key, fn)
+
+    store.update = failing
+    caplog.set_level("WARNING")
+    opened = workspaces.open_browser(as_(SECOND), url=PAGE)
+    assert opened["main"] is True and opened["session"] == "second"
+    assert shared_of(store, "shop").sessions == ["second", "first"]
+    assert shared_of(store, "shop").page("second") == PAGE
+    assert "StoreConflict" in caplog.text
+    assert "lost the race" not in caplog.text and "first" not in caplog.text
 
 
 def test_a_head_that_is_main_again_is_never_told():

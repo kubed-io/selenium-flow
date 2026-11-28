@@ -365,6 +365,11 @@ class Workspace:
         (WS-86). ``idle`` keeps a notice of the move, made ``at``; ``name``'s
         own notice goes, since it heads the list again.
 
+        ``idle``'s newest entry takes the time ``at`` too: as the head's top it
+        was kept whole however old, and from now it is kept for ``sub_ttl``,
+        as long as ``idle``'s record, restamped at the move, can reopen to it.
+        No other entry changes.
+
         Only while ``idle`` is still the head and ``name`` is another listed
         name: otherwise the record is ``self``."""
         if idle is None or idle != self.head or name == idle:
@@ -374,7 +379,13 @@ class Workspace:
         rest = [n for n in self.sessions if n not in (name, idle)]
         moved = {k: v for k, v in self.main_moved.items() if k != name}
         moved[idle] = {"to": name, "at": at}
-        return replace(self, sessions=[name, idle, *rest], main_moved=moved)
+        history = list(self.history)
+        top = next((i for i, v in enumerate(history) if _tag(v) == idle), None)
+        if top is not None:
+            history[top] = {**history[top], "at": at}
+        return replace(
+            self, sessions=[name, idle, *rest], main_moved=moved, history=history
+        )
 
     def told(self, name: str) -> tuple[Workspace, dict | None]:
         """The same record without ``name``'s notice, and the notice as it is
