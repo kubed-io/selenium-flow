@@ -1108,7 +1108,7 @@ def test_the_event_fires_for_open_reopen_and_a_withheld_bound_write(ws):
     seen: list[OriginChanged] = []
     ws.on_origin_changed(seen.append)
     first = sid(ws)
-    ws.open_browser(CALLER, url=f"{A}/")
+    ws.open_browser(CALLER, url=f"{A}/", fresh=True)
     second = sid(ws)
     assert seen[-1] == OriginChanged(W, second, None, A, False)
     # A bound write that lands on B with the value in its URL: withheld, and heard.
@@ -1129,10 +1129,23 @@ def test_the_event_fires_for_open_reopen_and_a_withheld_bound_write(ws):
 
 
 def test_open_session_scrubs_what_it_tells(ws):
-    told = ws.open_browser(CALLER, url=f"{A}/search?q=alpha-11")
+    told = ws.open_browser(CALLER, url=f"{A}/search?q=alpha-11", fresh=True)
     assert told["url"] == f"{A}/search?q=[secret:a/password]"
     record = shared_of(ws.store, "w")
     assert "alpha-11" not in json.dumps(record.history)
+
+
+def test_a_join_navigating_to_a_withheld_url_hints_for_no_earlier_page(ws):  # WS-85
+    """The join's page is the navigate's, masked and not recorded: the flows of
+    the page the history still has are not paired with it."""
+    hint = {"name": "home", "description": "on the home page"}
+    ws.hints = lambda workspace, url: [hint] if url == f"{A}/" else []
+    assert ws.open_browser(CALLER)["flows_here"] == [hint]
+    told = ws.open_browser(CALLER, url=f"{A}/?q=alpha-11")
+    assert told["joined"] is True
+    assert told["url"] == f"{A}/?q=[secret:a/password]"
+    assert "flows_here" not in told
+    assert shared_of(ws.store, "w").page("default") == f"{A}/"
 
 
 def test_an_open_that_lost_its_race_is_scrubbed_and_gives_no_slot(ws, monkeypatch):
@@ -1142,7 +1155,7 @@ def test_an_open_that_lost_its_race_is_scrubbed_and_gives_no_slot(ws, monkeypatc
     ws.store.update("w", lambda r: replace(r, history=[
         {"origin": A, "url": f"{A}/?q=alpha-11", "at": time.time()}
     ]))
-    told = ws.open_browser(CALLER, url=f"{A}/")
+    told = ws.open_browser(CALLER, url=f"{A}/", fresh=True)
     assert told["url"] == f"{A}/?q=[secret:a/password]"
     assert W not in ws.scrubber._entries
     assert ws.origins.current(W, "won-elsewhere") is None
@@ -1276,7 +1289,7 @@ def test_the_event_is_never_emitted_inside_a_store_fn(ws, monkeypatch):
     monkeypatch.setattr(ws.store, "change", watched)
     heard = []
     ws.on_origin_changed(lambda event: heard.append(bool(inside)))
-    ws.open_browser(CALLER, url=f"{B}/")
+    ws.open_browser(CALLER, url=f"{B}/", fresh=True)
     ws.actions.result = {"url": f"{A}/", "title": "t"}
     act(ws)
     ws.actions.grid.alive.discard(sid(ws))
@@ -1532,7 +1545,7 @@ def test_a_reopen_landing_on_a_value_never_records_it(ws, monkeypatch):  # fix 2
 def test_the_reopen_report_is_scrubbed_when_handed_over(ws, monkeypatch):  # fix 3
     report = {"cookies": 0, "sites": [], "skipped": [{"reason": "page said alpha-11"}]}
     monkeypatch.setattr(
-        ws, "_touch", lambda *a, **k: ({"cause": "lost", "report": report}, None)
+        ws, "_touch", lambda *a, **k: ({"cause": "lost", "report": report}, None, None)
     )
     result = act(ws)
     assert result["site_data"]["skipped"][0]["reason"] == "page said [secret:a/password]"
@@ -1547,14 +1560,14 @@ def test_an_open_whose_scrub_fails_records_no_url(ws, monkeypatch):  # fix 4
     monkeypatch.setattr(ws.scrubber._catalogue, "forms_for", lambda o: boom())
     monkeypatch.setattr(ws.scrubber._catalogue, "leashed", boom)
     with pytest.raises(faults.ScrubFailed):
-        ws.open_browser(CALLER, url=f"{B}/somewhere")
+        ws.open_browser(CALLER, url=f"{B}/somewhere", fresh=True)
     assert f"{B}/somewhere" not in json.dumps(shared_of(ws.store, "w").history)
 
 
 def test_a_withheld_open_keeps_the_earlier_entry_of_its_origin(ws):  # fix 5
     first = shared_of(ws.store, "w").history[0]
     assert first["url"] == f"{A}/"
-    ws.open_browser(CALLER, url=f"{A}/?q=alpha-11")
+    ws.open_browser(CALLER, url=f"{A}/?q=alpha-11", fresh=True)
     history = shared_of(ws.store, "w").history
     assert history and history[0]["url"] == f"{A}/"
 

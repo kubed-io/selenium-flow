@@ -172,7 +172,7 @@ def test_open_session_and_end_browser_are_refused_while_controlled():
     sid = grid_id(workspaces)
     gate.shut.add(sid)
     with pytest.raises(faults.Controlled):
-        workspaces.open_browser(CALLER)
+        workspaces.open_browser(CALLER, fresh=True)
     with pytest.raises(faults.Controlled):
         workspaces.end_browser(CALLER)
     assert workspaces.actions.n == 1, "a second browser was opened"

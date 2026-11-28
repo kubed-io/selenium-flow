@@ -240,7 +240,7 @@ async def test_a_blank_browser_still_means_the_default(server, monkeypatch, give
     # Only the browser: a second call inherits the first's remembered page, and
     # that has nothing to do with what this is about.
     blank = await opened_with({"browser": given})
-    omitted = await opened_with({})
+    omitted = await opened_with({"fresh": True})
     assert blank.get("browser") == omitted.get("browser")
     # And a browser that was actually named still arrives, in any case.
     assert (await opened_with({"browser": "Firefox"})).get("browser") == "firefox"

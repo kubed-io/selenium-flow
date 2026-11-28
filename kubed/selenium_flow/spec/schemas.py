@@ -12,8 +12,11 @@ from __future__ import annotations
 from ..core.capabilities import (
     CAPABILITIES,
     FLOWS_HINT,
+    MAIN_HINT,
+    MAIN_MOVED_HINT,
     PAGE_HINT,
     REOPENED_HINT,
+    SESSION_ENTRY,
     SITE_DATA_HINT,
 )
 from ..flows import places, tags
@@ -31,23 +34,19 @@ RESPONSES = {
                 "type": "string",
                 "description": "The session this describes: yours, by its name.",
             },
-            "default": {
+            "main": {
                 "type": "boolean",
-                "description": "Whether that is the workspace's default session.",
+                "description": (
+                    "Whether this session heads the workspace's list, which makes"
+                    " it main: only its place in the list."
+                ),
             },
             "sessions": {
                 "type": "array",
-                "description": "Every session of the workspace, the default first.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string"},
-                        "label": {"type": "string"},
-                        "default": {"type": "boolean"},
-                        "live": {"type": "boolean"},
-                        "url": {"type": ["string", "null"]},
-                    },
-                },
+                "description": (
+                    "Every session of the workspace, in list order: the first is main."
+                ),
+                "items": SESSION_ENTRY,
             },
             "named_by": {
                 "type": "string",
@@ -512,6 +511,10 @@ FLOW_SCHEMAS = {
             "site_data": SITE_DATA_HINT,
             # Present only when the run's browser was replaced before it: said once.
             "reopened": REOPENED_HINT,
+            # Present only once after another session took the head from the
+            # run's (WS-86).
+            "main": MAIN_HINT,
+            "main_moved": MAIN_MOVED_HINT,
             # Present only with capture on: the steps' hints, summed.
             "page": PAGE_HINT,
             # Present only when the run ended on a page it did not begin on and

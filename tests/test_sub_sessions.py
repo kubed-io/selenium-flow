@@ -19,7 +19,7 @@ from kubed.selenium_flow.core.capabilities import CAPABILITIES
 from kubed.selenium_flow.flows.document import step_schemas
 from kubed.selenium_flow.mcp import clients as clients_module
 from kubed.selenium_flow.mcp import waiting
-from kubed.selenium_flow.principal import Principal
+from kubed.selenium_flow.principal import NO_SUBJECT, Principal
 from kubed.selenium_flow.workspace import locks
 from kubed.selenium_flow.workspace.store import (
     MemoryStore,
@@ -66,6 +66,11 @@ def built(record=None, actions=None):
     if record is not None:
         seated(store, "shop", record=record)
     return manager(actions or RecordingActions(), store), store
+
+
+def listing(workspaces):
+    """``shop``'s sessions as a caller with no principal, in its own, reads them."""
+    return workspaces.listed_sessions("shop", own="default", subject=NO_SUBJECT)
 
 
 def test_no_name_reaches_the_default():
@@ -158,7 +163,7 @@ def test_a_dead_sub_session_name_is_pruned_on_the_next_listing():  # WS-81, WS-8
     workspaces, store = built(Session())
     store.update("shop", lambda r: r.listing("gone"))
     seated(store, "shop", "tester")
-    assert [s["name"] for s in workspaces.listed_sessions("shop")] == [
+    assert [s["name"] for s in listing(workspaces)] == [
         "default", "tester",
     ]
     assert shared_of(store, "shop").sessions == ["default", "tester"]
@@ -172,7 +177,7 @@ def test_a_listing_reads_every_sub_session_in_one_round_trip():
         seated(store, "shop", name)
     workspaces = manager(RecordingActions(), store)
     fake.calls.clear()
-    listed = workspaces.listed_sessions("shop")
+    listed = listing(workspaces)
     assert [s["name"] for s in listed] == ["default", "a", "b", "c"]
     assert fake.calls == ["get", "mget"], "the workspace's record, then its subs at once"
 
@@ -196,7 +201,7 @@ def test_a_name_whose_record_was_made_since_the_read_is_not_pruned():
     seated(store, "shop")
     seated(store, "shop", "tester")
     store.hidden = "shop/tester"
-    manager(RecordingActions(), store).listed_sessions("shop")
+    listing(manager(RecordingActions(), store))
     assert shared_of(store, "shop").sessions == ["default", "tester"]
 
 
@@ -220,7 +225,7 @@ def test_a_failed_open_leaves_no_sub_record_the_listing_misses(failing):
     workspaces = manager(RecordingActions(), store)
     with pytest.raises(StoreConflict):
         workspaces.session_of(as_(), "tester", opening=True)
-    workspaces.listed_sessions("shop")
+    listing(workspaces)
     # Either nothing, or a name the listing pruned: never a record no listing shows.
     assert record_of(store, "shop", "tester") is None
     assert shared_of(store, "shop").sessions == ["default"]
@@ -333,7 +338,7 @@ def test_a_sub_session_opens_its_own_browser_and_leaves_the_default_open():
     tester = record_of(store, "shop", "tester").session_id
     assert tester not in ("", default)
     # Opening it again ends its own browser, never the default's (WS-13, 4).
-    workspaces.open_browser(as_(), session="tester")
+    workspaces.open_browser(as_(), session="tester", fresh=True)
     assert actions.closed == [tester]
     assert record_of(store, "shop").session_id == default
 
@@ -484,7 +489,7 @@ def test_a_sub_sessions_recording_is_the_workspaces_and_known_by_its_key():
     assert actions.opened_settings[0]["video_name"] == "shop"
 
 
-def test_another_sessions_page_is_listed_without_its_query():  # WS-72
+def test_another_sessions_page_is_listed_without_its_query():  # WS-89
     secret_page = "https://b.example.test/cb?code=SECRET#state=TOKEN"
     workspaces, _ = built(Session())
     workspaces.open_browser(as_(), url=A_SITE + "?mine=1")
@@ -508,38 +513,42 @@ def test_another_sessions_page_is_listed_without_its_query():  # WS-72
     assert urls(told["others"]) == {"default": A_SITE}
 
 
-def test_open_session_answers_session_default_and_others():  # WS-48, WS-72
-    workspaces, _ = built(Session())
+def test_open_session_answers_session_main_and_others():  # WS-48, WS-89
+    workspaces, store = built(Session())
     first = workspaces.open_browser(as_(), url=A_SITE)
-    assert (first["workspace"], first["session"], first["default"]) == (
+    assert (first["workspace"], first["session"], first["main"]) == (
         "shop", "default", True
     )
     assert "others" not in first, "a workspace with one session is as it was"
     second = workspaces.open_browser(as_(), url=B_SITE, session="tester")
-    assert (second["workspace"], second["session"], second["default"]) == (
+    assert (second["workspace"], second["session"], second["main"]) == (
         "shop", "tester", False
     )
+
+    def used(name):
+        return int(record_of(store, "shop", name).last_used)
+
     assert second["others"] == [
-        {"name": "default", "label": "default", "default": True, "live": True,
-         "url": A_SITE, "uri": "session://default"},
+        {"name": "default", "main": True, "live": True, "last_used": used("default"),
+         "url": A_SITE, "uri": "session://default", "yours": True},
     ]
     workspaces.end_browser(as_(), session="tester")
     again = workspaces.open_browser(as_())
     assert again["session"] == "default"
     assert again["others"] == [
-        {"name": "tester", "label": "tester", "default": False, "live": False,
-         "url": B_SITE, "uri": "session://tester"},
+        {"name": "tester", "main": False, "live": False, "last_used": used("tester"),
+         "url": B_SITE, "uri": "session://tester", "yours": True},
     ]
 
 
-def test_listing_sessions_sends_no_browser_a_command():  # WS-39, WS-72
+def test_listing_sessions_sends_no_browser_a_command():  # WS-39, WS-89
     actions = RecordingActions()
     workspaces, store = two_open(actions)
     default, tester = ids(store)
     grid = actions.grid
     grid.checked.clear()
     grid.listed = 0
-    listed = workspaces.listed_sessions("shop")
+    listed = listing(workspaces)
     assert [(s["name"], s["live"]) for s in listed] == [
         ("default", True), ("tester", True),
     ]
@@ -555,7 +564,7 @@ def test_listing_sessions_sends_no_browser_a_command():  # WS-39, WS-72
     assert told["others"][0]["live"] is True
     # Ended: the listing no longer has it.
     workspaces.end_browser(as_(), session="tester")
-    assert [s["live"] for s in workspaces.listed_sessions("shop")] == [True, False]
+    assert [s["live"] for s in listing(workspaces)] == [True, False]
 
 
 def test_a_grid_that_cannot_be_listed_lists_attached_sessions_as_live():
@@ -563,7 +572,7 @@ def test_a_grid_that_cannot_be_listed_lists_attached_sessions_as_live():
     workspaces, _ = two_open(actions)
     actions.grid.list_fails = True
     actions.grid.checked.clear()
-    assert [s["live"] for s in workspaces.listed_sessions("shop")] == [True, True]
+    assert [s["live"] for s in listing(workspaces)] == [True, True]
     assert actions.grid.checked == []
 
 

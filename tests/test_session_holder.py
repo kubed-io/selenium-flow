@@ -79,7 +79,7 @@ def test_an_unnamed_read_with_no_session_answers_empty_and_makes_nothing():
     seated(store, "shop", "tester", holder="sub-b")
     before = {**store.records(), **store.sessions_of("shop")}
     context = workspaces.describe(as_(FIRST))
-    assert (context["session"], context["default"], context["live"]) == (
+    assert (context["session"], context["main"], context["live"]) == (
         "first", False, False,
     )
     assert context["url"] is None
@@ -310,17 +310,17 @@ def _clocked(monkeypatch, ttl=100, sub_ttl=10):
 
 
 def _names(context):
-    return [(s["name"], s["default"]) for s in context["sessions"]]
+    return [(s["name"], s["main"]) for s in context["sessions"]]
 
 
 def test_a_new_workspaces_list_is_empty_until_its_first_open():
     workspaces, store, _ = built()
     context = workspaces.describe(as_())
     assert context["sessions"] == []
-    assert context["default"] is False
+    assert context["main"] is False
     assert shared_of(store, "shop") is None
     opened = workspaces.open_browser(as_())
-    assert (opened["session"], opened["default"]) == ("default", True)
+    assert (opened["session"], opened["main"]) == ("default", True)
     assert shared_of(store, "shop").sessions == ["default"]
     assert _names(workspaces.describe(as_())) == [("default", True)]
 
@@ -330,12 +330,12 @@ def test_the_first_to_open_heads_the_list():
     first = workspaces.open_browser(as_(FIRST))
     second = workspaces.open_browser(as_(SECOND))
     assert shared_of(store, "shop").sessions == ["first", "second"]
-    assert (first["default"], second["default"]) == (True, False)
+    assert (first["main"], second["main"]) == (True, False)
     assert _names(workspaces.describe(as_(SECOND))) == [
         ("first", True), ("second", False),
     ]
-    assert workspaces.describe(as_(FIRST))["default"] is True
-    assert workspaces.describe(as_(SECOND))["default"] is False
+    assert workspaces.describe(as_(FIRST))["main"] is True
+    assert workspaces.describe(as_(SECOND))["main"] is False
 
 
 def test_an_expired_session_leaves_the_list(monkeypatch):

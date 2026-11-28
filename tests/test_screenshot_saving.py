@@ -582,10 +582,10 @@ def test_open_session_opens_insecure_only_when_asked_and_remembers_it(server, mo
         async with Client(server.mcp.server) as client:
             await client.call_tool("open_session", {})
             await client.call_tool("open_session", {"insecure": True})
-            opened = await client.call_tool("open_session", {})
+            opened = await client.call_tool("open_session", {"fresh": True})
             # And an explicit false beats the remembered true (Copilot, #40).
             await client.call_tool("open_session", {"insecure": False})
-            await client.call_tool("open_session", {})
+            await client.call_tool("open_session", {"fresh": True})
             return opened.structured_content
 
     last = asyncio.run(go())

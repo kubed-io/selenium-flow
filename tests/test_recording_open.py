@@ -124,7 +124,7 @@ def test_headless_false_lets_a_remembered_headless_workspace_record():
     m.open_browser(caller(), headless=True)
     assert m.open_browser(caller(), record=True, headless=False)["recording"] is True
     assert m.actions.calls[-1]["headless"] is False
-    m.open_browser(caller())
+    m.open_browser(caller(), fresh=True)
     assert m.actions.calls[-1]["headless"] is False
 
 

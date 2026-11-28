@@ -347,7 +347,7 @@ def test_capture_is_never_inherited_but_a_reap_replays_it(ws):
     ws.actions.grid.alive.clear()  # the Grid reaped it
     ws.workspaces.resolve("bot/default")
     assert len(ws.monitor.attached) == 2  # the silent reopen replayed it
-    ws.workspaces.open_browser(caller())
+    ws.workspaces.open_browser(caller(), fresh=True)
     assert len(ws.monitor.attached) == 2  # an explicit open did not
     assert "capture" not in ws.actions.opened[-1]
 

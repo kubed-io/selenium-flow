@@ -247,6 +247,8 @@ class RecordingActions:
         self.opened_version_from = []
         self.closed = []
         self.grid = FakeGrid()
+        # Every navigate, as (tool, session, kwargs).
+        self.calls = []
         # What `tabs_listed` answers, or raises when it is an exception.
         self.listing: list[dict] | BaseException = []
 
@@ -284,6 +286,10 @@ class RecordingActions:
         self.closed.append(session_id)
         self.grid.alive.discard(session_id)
         return {"success": True, "session_id": session_id}
+
+    def navigate(self, session_id, **kwargs):
+        self.calls.append(("navigate", session_id, kwargs))
+        return {"url": kwargs.get("url"), "title": "Navigated"}
 
     def check_tabs(self, session_id):
         return {}

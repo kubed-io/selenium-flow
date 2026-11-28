@@ -1,5 +1,5 @@
 """Reading a session: the context lists every session, `session://{name}` reads
-a named one, and capture is kept and read per session (WS-72, WS-73, CAP-81)."""
+a named one, and capture is kept and read per session (WS-89, WS-73, CAP-81)."""
 
 from __future__ import annotations
 
@@ -78,17 +78,17 @@ async def read(server, uri):
         return json.loads((await c.read_resource(uri))[0].text)
 
 
-def test_the_context_lists_every_session_default_first(server):
+def test_the_context_lists_every_session_main_first(server):
     context = server.workspaces.describe(_caller())
-    assert context["session"] == "default" and context["default"] is True
-    assert [(s["name"], s["default"], s["live"], s["url"]) for s in context["sessions"]] == [
+    assert context["session"] == "default" and context["main"] is True
+    assert [(s["name"], s["main"], s["live"], s["url"]) for s in context["sessions"]] == [
         ("default", True, True, A_SITE),
         ("tester", False, True, B_SITE),
     ]
-    assert {"session", "default", "sessions"} <= set(CONTEXT_KEYS)
+    assert {"session", "main", "sessions"} <= set(CONTEXT_KEYS)
     # The caller's own session describes itself, wherever it is pinned.
     there = server.workspaces.describe(_caller("tester"))
-    assert (there["session"], there["default"], there["url"]) == ("tester", False, B_SITE)
+    assert (there["session"], there["main"], there["url"]) == ("tester", False, B_SITE)
     assert there["sessions"] == context["sessions"]
     part = server.workspaces.describe_part(_caller("tester"), "session")
     assert part == {"workspace": NAMED, "session": "tester"}
@@ -121,11 +121,11 @@ async def test_reading_a_named_session_leaves_the_records_as_they_were(server):
 
 async def test_session_resource_reads_a_named_session(server):
     tester = await read(server, "session://tester")
-    assert (tester["session"], tester["default"], tester["url"]) == (
+    assert (tester["session"], tester["main"], tester["url"]) == (
         "tester", False, B_SITE,
     )
     default = await read(server, "session://default")
-    assert (default["session"], default["default"], default["url"]) == (
+    assert (default["session"], default["main"], default["url"]) == (
         "default", True, A_SITE,
     )
     assert default["workspace"] == tester["workspace"] == NAMED

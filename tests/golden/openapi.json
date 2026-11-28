@@ -118,6 +118,30 @@
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
             "items": {
@@ -329,6 +353,30 @@
           "handed_back": {
             "description": "True when a person handed the browser back: the rest says what they did. False at the cap (call again) or with nobody in control.",
             "type": "boolean"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
           },
           "message": {
             "description": "What happened, in a sentence.",
@@ -640,6 +688,30 @@
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "message": {
             "description": "The dialog's text, read before it was answered.",
             "type": "string"
@@ -934,6 +1006,30 @@
             "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "matched": {
             "description": "How many elements the selector matched. Present only when more than one did.",
             "type": "integer"
@@ -1210,6 +1306,30 @@
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
             "items": {
@@ -1445,6 +1565,30 @@
           "in_frame": {
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
           },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
@@ -1855,6 +1999,30 @@
                 "type": "string"
               }
             },
+            "type": "object"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
             "type": "object"
           },
           "page": {
@@ -2326,6 +2494,30 @@
             "description": "Whether the session is now inside a frame.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
             "items": {
@@ -2613,6 +2805,30 @@
             "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "matched": {
             "description": "How many elements the selector matched. Present only when more than one did.",
             "type": "integer"
@@ -2853,6 +3069,30 @@
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
             "items": {
@@ -3014,6 +3254,30 @@
           "id": {
             "description": "The request id that was asked for.",
             "type": "string"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
           },
           "mime": {
             "description": "The response's content type.",
@@ -3251,10 +3515,6 @@
             "description": "Whether this browser's console and network are being captured.",
             "type": "boolean"
           },
-          "default": {
-            "description": "Whether it is the workspace's default session.",
-            "type": "boolean"
-          },
           "flows_here": {
             "description": "Present only when saved flows say they apply to the page it opened on: at most 10, your workspace's own first. Run one with run_flow when its description is the task you were given and you have its required parameters; read its uri first when you are not sure. Being listed here makes a flow fit the page, not your task.",
             "items": {
@@ -3312,20 +3572,54 @@
             },
             "type": "array"
           },
+          "joined": {
+            "description": "True when this call joined the session's live browser: nothing ended or opened. Present only then.",
+            "type": "boolean"
+          },
+          "main": {
+            "description": "Whether this session heads the workspace's list, which makes it main: only its place in the list.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "others": {
             "description": "Every other session of this workspace. Present only when there are some.",
             "items": {
               "properties": {
-                "default": {
-                  "type": "boolean"
-                },
-                "label": {
-                  "type": "string"
+                "last_used": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "live": {
                   "type": "boolean"
                 },
+                "main": {
+                  "type": "boolean"
+                },
                 "name": {
+                  "type": "string"
+                },
+                "uri": {
                   "type": "string"
                 },
                 "url": {
@@ -3333,8 +3627,20 @@
                     "string",
                     "null"
                   ]
+                },
+                "yours": {
+                  "type": "boolean"
                 }
               },
+              "required": [
+                "name",
+                "main",
+                "live",
+                "last_used",
+                "url",
+                "uri",
+                "yours"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -3348,7 +3654,7 @@
             "type": "string"
           },
           "session": {
-            "description": "The session this browser is: default, or a sub-session's name.",
+            "description": "The session this browser is, by its name.",
             "type": "string"
           },
           "settings": {
@@ -3606,6 +3912,30 @@
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
             "items": {
@@ -3852,6 +4182,30 @@
           "key": {
             "description": "The key that was sent.",
             "type": "string"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
           },
           "matched": {
             "description": "How many elements the selector matched. Present only when more than one did.",
@@ -4111,6 +4465,30 @@
           "in_frame": {
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
           },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
@@ -4376,6 +4754,30 @@
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
             "items": {
@@ -4593,6 +4995,30 @@
           "in_frame": {
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
           },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
@@ -4922,6 +5348,30 @@
           "in_frame": {
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
           },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
@@ -5503,6 +5953,30 @@
             "description": "Always false: a tab starts at its top page. Not present for list.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
             "items": {
@@ -5822,6 +6296,30 @@
             "description": "False when the session moved to another tab, which leaves any frame. Present only when it moved.",
             "type": "boolean"
           },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
+          },
           "opened": {
             "description": "The tabs that opened, each with its URL. Present only when some did.",
             "items": {
@@ -6001,10 +6499,6 @@
             "description": "Where an admin changes them, when the server has one.",
             "type": "string"
           },
-          "default": {
-            "description": "Whether that is the workspace's default session.",
-            "type": "boolean"
-          },
           "flows_here": {
             "description": "Present only when saved flows say they apply to url: at most 10, this workspace's own first. Read from the record, so a page that moved by itself since the last call is not reflected.",
             "items": {
@@ -6072,6 +6566,10 @@
             "description": "Whether a session is open in this workspace.",
             "type": "boolean"
           },
+          "main": {
+            "description": "Whether this session heads the workspace's list, which makes it main: only its place in the list.",
+            "type": "boolean"
+          },
           "named_by": {
             "description": "Which mechanism supplied the name.",
             "enum": [
@@ -6119,19 +6617,25 @@
             "type": "string"
           },
           "sessions": {
-            "description": "Every session of the workspace, the default first.",
+            "description": "Every session of the workspace, in list order: the first is main.",
             "items": {
               "properties": {
-                "default": {
-                  "type": "boolean"
-                },
-                "label": {
-                  "type": "string"
+                "last_used": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
                 },
                 "live": {
                   "type": "boolean"
                 },
+                "main": {
+                  "type": "boolean"
+                },
                 "name": {
+                  "type": "string"
+                },
+                "uri": {
                   "type": "string"
                 },
                 "url": {
@@ -6139,8 +6643,20 @@
                     "string",
                     "null"
                   ]
+                },
+                "yours": {
+                  "type": "boolean"
                 }
               },
+              "required": [
+                "name",
+                "main",
+                "live",
+                "last_used",
+                "url",
+                "uri",
+                "yours"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -6367,6 +6883,30 @@
           "index": {
             "description": "Which of them was used, counting from 0: the first that could be used, or for hover and scroll_to, the first displayed, else the first.",
             "type": "integer"
+          },
+          "main": {
+            "description": "False, beside main_moved: your session no longer heads the workspace's list. Present only with main_moved.",
+            "type": "boolean"
+          },
+          "main_moved": {
+            "description": "Present only on the first result after another session took the head of this workspace's list from yours: from is yours, to heads it now, at is when, in epoch seconds. Said once.",
+            "properties": {
+              "at": {
+                "type": "integer"
+              },
+              "from": {
+                "type": "string"
+              },
+              "to": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "at"
+            ],
+            "type": "object"
           },
           "matched": {
             "description": "How many elements the selector matched. Present only when more than one did.",

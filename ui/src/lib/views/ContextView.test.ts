@@ -101,11 +101,14 @@ test('no capture pills or chips when capture is off; REC needs a live browser', 
   expect(screen.queryByText('Console')).toBeNull()
 })
 
-test('the MCP App names a sub-session and says nothing for the default (UI-78)', () => {
-  const r = render(ContextView, { props: { data: { ...base, session: 'tester', default: false, sessions: [{ name: 'default', label: 'default', default: true, live: true, browser: 'firefox' }, { name: 'tester', label: 'tester', default: false, live: true, browser: 'chrome' }] } } })
+test('the MCP App names a sub-session and says nothing for main (UI-78)', () => {
+  const r = render(ContextView, { props: { data: { ...base, session: 'tester', main: false, sessions: [
+    { name: 'default', main: true, live: true, last_used: 1700000000, url: 'https://example.com/', uri: 'session://default', yours: false },
+    { name: 'tester', main: false, live: true, last_used: 1700000060, url: 'https://example.com/a?q=1', uri: 'session://tester', yours: true },
+  ] } } })
   expect(screen.getByText('tester')).toHaveClass('pill', 'session')
   r.unmount()
-  render(ContextView, { props: { data: { ...base, session: 'default', default: true } } })
+  render(ContextView, { props: { data: { ...base, session: 'default', main: true } } })
   expect(screen.queryByText('default')).toBeNull()
   expect(screen.queryByText('tester')).toBeNull()
 })
