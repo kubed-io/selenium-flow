@@ -108,6 +108,11 @@ HEADLESS_RECORD_REMEMBERED = (
     "pass headless=false to record"
 )
 
+# What an open says when a concurrent open bound its browser first.
+RACED_NOTE = (
+    "another open in this workspace bound its browser first: this is that browser"
+)
+
 
 # How many times a move (WS-90) starts again when an old pod names another
 # sub-session between its steps.
@@ -1956,6 +1961,10 @@ class Workspaces:
         session is seated here, the one place that may (WS-78), unless another
         subject holds it (WS-84).
 
+        On a session whose live browser the caller's subject holds, it joins
+        that browser (`_joinable`, `_joined`) instead of replacing it (WS-85);
+        any other open is `_open_browser` (WS-13).
+
         Its answer is scrubbed (`_open_browser`), and so is its failure, with
         every leashed secret: a first page that failed may quote where it
         landed, and no browser holds the slot yet.
@@ -1978,20 +1987,32 @@ class Workspaces:
             planned = sessions.key_of(caller.name, name)
             timing.workspace = planned
             self._holds(planned, subject_of(caller.principal))
-            self._scrubbing(
+            _, resolved = self._scrubbing(
                 planned, lambda: self._resolve_open(caller, planned, url, wanted)
             )
             key = self.session_of(caller, session, opening=True)
             timing.workspace = key
             # Read before the open, as `act` reads it.
             own = self.own(caller, session, key)
-            told = self._scrubbing(
-                key,
-                lambda: self._open_browser(
-                    caller, key, url, fresh, restore_site_data, timing=timing,
-                    **wanted,
-                ),
+            record = self._scrubbing(
+                key, lambda: self._joinable(caller, key, fresh, resolved)
             )
+            if record is not None:
+                timing.browser = _kind(record.settings)
+                told = self._scrubbing(
+                    key,
+                    lambda: self._joined(
+                        caller, key, record, url, surface=surface, own=own
+                    ),
+                )
+            else:
+                told = self._scrubbing(
+                    key,
+                    lambda: self._open_browser(
+                        caller, key, url, fresh, restore_site_data, timing=timing,
+                        **wanted,
+                    ),
+                )
             # Its restore report names the session it opened (`act`).
             self.pointed(key, own, told)
             return told
@@ -2078,7 +2099,7 @@ class Workspaces:
             # slot itself; this answer is scrubbed as a resource is.
             return self._named(
                 key,
-                self.scrubber.resource(name, self._held(name)),
+                self.scrubber.resource(name, self._held(name, RACED_NOTE)),
                 subject_of(caller.principal),
             )
         # This browser holds the workspace now: it starts afresh, unframed, on
@@ -2122,6 +2143,81 @@ class Workspaces:
         # this browser.
         self._hint(told, name, told.get("url"), scrubbed=True)
         return self._named(key, told, subject_of(caller.principal))
+
+    def _joinable(
+        self,
+        caller: Caller,
+        key: str,
+        fresh,
+        resolved: settings_module.Sourced,
+    ) -> Session | None:
+        """The record of the session ``key`` an open joins, or None when it
+        replaces or opens one (WS-85): the open does not pass ``fresh``, the
+        record holds a browser that ``caller``'s subject holds, no setting the
+        open passed resolves to a value other than the live browser's
+        (`settings.changed`), and the Grid finds that browser live. Asked in
+        that order, so the Grid is asked only when everything else joins."""
+        if as_bool(fresh):
+            return None
+        record = self._session(key)
+        if record is None or not record.attached:
+            return None
+        if record.holder != subject_of(caller.principal):
+            return None
+        if settings_module.changed(resolved, record.settings or {}):
+            return None
+        if not self.actions.grid.is_alive(record.session_id):
+            return None
+        return record
+
+    def _joined(
+        self,
+        caller: Caller,
+        key: str,
+        record: Session,
+        url: str | None,
+        *,
+        surface: str,
+        own: str | None = None,
+    ) -> dict:
+        """`open_session`'s join of ``record``'s live browser, before its
+        failure's scrub (WS-85). It ends, opens and restores nothing, and takes
+        no person's control into account, except for ``url``: that navigates,
+        as one said call (`_said`), refused while a person holds the browser.
+        Either way the record's ``called_at`` slides and its held reopen
+        notice stays held for the next action. ``own`` is the caller's own
+        session, which the navigate's pointers are read against (`act`).
+
+        It answers the session as `_held` describes it, with ``joined``; after
+        a navigate, its ``url``, ``title`` and ``flows_here`` are the
+        navigate's.
+        """
+        browser = record.session_id
+        subject = subject_of(caller.principal)
+        if not url:
+            self._touch(key, browser=browser, deliver=False)
+            held = self.scrubber.resource(key, self._held(key))
+            return self._named(key, {**held, "joined": True}, subject)
+        navigated, page, hidden = self._said(
+            key,
+            browser,
+            _kind(record.settings),
+            lambda s: self.actions.navigate(s, url=url),
+            tool="navigate",
+            surface=surface,
+            own=own,
+        )
+        # A URL the scrub changed carried a value: never recorded (`act`).
+        withheld = {"url": None} if hidden else {}
+        self.settle(
+            key, navigated, browser=browser, deliver=False, own=own, **withheld
+        )
+        if page is not None:
+            navigated["page"] = page
+        held = self.scrubber.resource(key, self._held(key))
+        # The flows are the navigate's page's, or none: never the page before.
+        held.pop("flows_here", None)
+        return self._named(key, {**held, **navigated, "joined": True}, subject)
 
     def _resolve_open(
         self, caller: Caller, key: str, url: str | None, wanted: dict
@@ -2344,8 +2440,9 @@ class Workspaces:
             carries = True
         return "" if carries else url
 
-    def _held(self, name: str) -> dict:
-        """What ``open_session`` reports for the browser the record holds."""
+    def _held(self, name: str, note: str | None = None) -> dict:
+        """What ``open_session`` reports for the browser the record holds,
+        with ``note`` when one is given."""
         record = self.store.get(name)
         settings = dict(record.settings or {}) if record else {}
         held = {
@@ -2355,9 +2452,9 @@ class Workspaces:
             "settings": settings,
             "recording": bool(settings.get("record")),
             "capture": bool(settings.get("capture")),
-            "note": "another open in this workspace bound its browser first: "
-            "this is that browser",
         }
+        if note is not None:
+            held["note"] = note
         for key in ("width", "height"):
             if key in settings:
                 held[key] = settings[key]

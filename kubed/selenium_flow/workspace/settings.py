@@ -198,12 +198,15 @@ class Sourced:
 
     ``set_by`` has the same keys as ``settings``. ``version_from`` is where the
     version in effect came from (``config``, ``client``, ``call`` or
-    ``remembered``), None when there is none.
+    ``remembered``), None when there is none. ``passed`` is the keys this
+    call's own arguments set, after coercion: a value coerced to None is not
+    passed.
     """
 
     settings: dict
     set_by: dict[str, str]
     version_from: str | None
+    passed: frozenset[str] = frozenset()
 
 
 def version_from(set_by: Mapping[str, str]) -> str | None:
@@ -283,7 +286,43 @@ def sourced(
         came = "call"
     else:
         came = version_from(set_by)
-    return Sourced(settings, set_by, came)
+    return Sourced(settings, set_by, came, frozenset(chosen))
+
+
+_FLAGS = frozenset(
+    name for name, (_, _, coerce) in SETTINGS.items() if coerce is _as_flag
+)
+
+
+def _compared(name: str, value):
+    """``value`` of the setting ``name`` as `changed` compares it: the
+    browser normalised, `latest` as no version, a flag as a bool, `{}` as no
+    capabilities."""
+    if name == "browser":
+        return normalize_browser(value)
+    if name == "version":
+        return None if value in (None, LATEST) else value
+    if name in _FLAGS:
+        return bool(value)
+    if name == "capabilities":
+        return value or None
+    return value
+
+
+def changed(resolved: Sourced, live: Mapping) -> list[str]:
+    """The settings this call passed whose resolved value differs from the
+    live browser's ``live`` settings, in the order of `SETTINGS` (WS-85).
+
+    Only what the call passed is compared: the defaults, the config, and a
+    config changed since the open never make a browser differ.
+    """
+    return [
+        name
+        for name in SETTINGS
+        if name in resolved.passed
+        and _compared(name, resolved.settings.get(name))
+        != _compared(name, live.get(name))
+    ]
 
 
 def resolve(

@@ -116,6 +116,20 @@ def test_an_unnamed_or_pinned_call_points_at_workspace(two):
         assert result["page"]["see"] == "workspace://console?level=error", (caller, session)
 
 
+def test_a_joins_navigate_points_at_the_session_it_named(two):  # WS-85
+    workspaces, capture = two
+    workspaces.actions.navigate = lambda sid, url: erring(capture)(sid)
+    for session, see in (
+        ("tester", "session://tester/console?level=error"),
+        (None, "workspace://console?level=error"),
+    ):
+        told = workspaces.open_browser(
+            unnamed(), session=session, url="https://example.com/b"
+        )
+        assert told["joined"] is True, session
+        assert told["page"]["see"] == see, session
+
+
 def test_a_named_sessions_error_note_never_names_it(two):
     workspaces, capture = two
     with pytest.raises(TimeoutException) as raised:
@@ -289,10 +303,12 @@ def test_a_restore_names_the_session_it_restored(named_caller):
     save = lambda s: m.actions.save_site_data(s)  # noqa: E731
     m.act(Caller(NAMED), save, session="tester")
     m.act(Caller(NAMED), save)
-    told = m.open_browser(Caller(NAMED), session="tester")
+    told = m.open_browser(Caller(NAMED), session="tester", fresh=True)
     assert told["site_data"]["uri"] == "session://tester/site-data"
-    assert m.open_browser(Caller(NAMED))["site_data"]["uri"] == "workspace://site-data"
-    told = m.open_browser(pinned("tester", NAMED))
+    assert m.open_browser(Caller(NAMED), fresh=True)["site_data"]["uri"] == (
+        "workspace://site-data"
+    )
+    told = m.open_browser(pinned("tester", NAMED), fresh=True)
     assert told["site_data"]["uri"] == "workspace://site-data"
     # A silent reopen hands its report to the next call.
     m.actions.grid.alive.clear()

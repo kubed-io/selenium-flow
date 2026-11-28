@@ -2054,7 +2054,7 @@ def test_version_and_capabilities_are_remembered_and_carried():
     actions = RecordingActions()
     workspaces = manager(actions)
     workspaces.open_browser(Caller(NAMED), version="152", capabilities={"kubed:pool": "a"})
-    workspaces.open_browser(Caller(NAMED))
+    workspaces.open_browser(Caller(NAMED), fresh=True)
     carried = actions.opened_settings[-1]
     assert carried["version"] == "152"
     assert carried["capabilities"] == {"kubed:pool": "a"}
@@ -2064,7 +2064,7 @@ def test_headless_is_remembered_and_carried():  # ruling 2
     actions = RecordingActions()
     workspaces = manager(actions)
     workspaces.open_browser(Caller(NAMED), headless=True)
-    workspaces.open_browser(Caller(NAMED))
+    workspaces.open_browser(Caller(NAMED), fresh=True)
     assert actions.opened_settings[-1]["headless"] is True
     assert record_of(workspaces.store, NAMED).set_by["headless"] == "caller"
 
@@ -2074,7 +2074,7 @@ def test_an_explicit_false_beats_a_remembered_true_and_is_remembered():
     workspaces = manager(actions)
     workspaces.open_browser(Caller(NAMED), headless=True)
     workspaces.open_browser(Caller(NAMED), headless="false")
-    workspaces.open_browser(Caller(NAMED))
+    workspaces.open_browser(Caller(NAMED), fresh=True)
     assert actions.opened_settings[-1]["headless"] is False
 
 
@@ -2135,7 +2135,7 @@ def test_an_empty_object_and_latest_clear_what_was_remembered():
     workspaces.open_browser(Caller(NAMED), version="latest", capabilities={})
     settings = record_of(workspaces.store, NAMED).settings
     assert settings["version"] == "latest" and settings["capabilities"] == {}
-    workspaces.open_browser(Caller(NAMED))
+    workspaces.open_browser(Caller(NAMED), fresh=True)
     assert actions.opened_settings[-1]["capabilities"] == {}
 
 
@@ -2147,7 +2147,7 @@ def test_switching_browser_drops_a_remembered_version():  # ruling 20
     assert "version" not in actions.opened_settings[-1]
     # Naming the same browser again is no switch.
     workspaces.open_browser(Caller(NAMED), browser="firefox", version="142")
-    workspaces.open_browser(Caller(NAMED), browser="Firefox")
+    workspaces.open_browser(Caller(NAMED), browser="Firefox", fresh=True)
     assert actions.opened_settings[-1]["version"] == "142"
 
 
@@ -2322,7 +2322,7 @@ def test_a_changed_config_reaches_the_next_explicit_open():  # ruling 1
     )
     ws.open_browser(Caller(NAMED))
     ws.defaults = {"browser": "firefox", "width": 1200, "version": "152"}
-    ws.open_browser(Caller(NAMED))
+    ws.open_browser(Caller(NAMED), fresh=True)
     last = ws.actions.opened_settings[-1]
     assert (last["browser"], last["width"], last["version"]) == ("firefox", 1200, "152")
 
@@ -2333,7 +2333,7 @@ def test_a_dropped_client_header_no_longer_applies():
     ws = manager()
     ws.open_browser(caller_of({"workspace": NAMED}, {"sf-browser": "firefox"}))
     assert ws.actions.opened_settings[-1]["browser"] == "firefox"
-    ws.open_browser(caller_of({"workspace": NAMED}))
+    ws.open_browser(caller_of({"workspace": NAMED}), fresh=True)
     assert ws.actions.opened_settings[-1].get("browser") in (None, "chrome")
 
 
@@ -2342,7 +2342,7 @@ def test_only_what_the_caller_passed_is_carried():
     ws.open_browser(Caller(NAMED), height=600)
     assert record_of(ws.store, NAMED).set_by == {"width": "config", "height": "caller"}
     ws.defaults = {}
-    ws.open_browser(Caller(NAMED))
+    ws.open_browser(Caller(NAMED), fresh=True)
     assert ws.actions.opened_settings[-1] == {"height": 600}
 
 
@@ -2357,7 +2357,7 @@ def test_a_reap_replays_the_whole_stored_set():
     assert ws.actions.opened_settings[-1] == {"width": 800, "height": 600}
     # Still the config's: the next explicit open reads the config afresh.
     assert record_of(ws.store, NAMED).set_by == {"width": "config", "height": "caller"}
-    ws.open_browser(Caller(NAMED))
+    ws.open_browser(Caller(NAMED), fresh=True)
     assert ws.actions.opened_settings[-1] == {"width": 1200, "height": 600}
 
 
@@ -2377,7 +2377,7 @@ def test_a_resize_survives_a_config_change():  # Review Focus 3
     ws.open_browser(Caller(NAMED))
     ws.reshape(NAMED_KEY, {"width": 1024, "height": 768})
     ws.defaults = {"width": 1200}
-    ws.open_browser(Caller(NAMED))
+    ws.open_browser(Caller(NAMED), fresh=True)
     last = ws.actions.opened_settings[-1]
     assert (last["width"], last["height"]) == (1024, 768)
 
@@ -2388,7 +2388,7 @@ def test_a_passed_version_keeps_its_browser_after_session_browser_changes():
     ws = manager()
     ws.open_browser(Caller(NAMED), version="152")
     ws.defaults = {"browser": "firefox"}
-    ws.open_browser(Caller(NAMED))
+    ws.open_browser(Caller(NAMED), fresh=True)
     last = ws.actions.opened_settings[-1]
     assert (last["browser"], last["version"]) == ("chrome", "152")
 
@@ -2419,7 +2419,7 @@ def test_the_version_origin_reaches_the_open():
     ws = manager()
     ws.open_browser(Caller(NAMED), version="152")
     assert ws.actions.opened_version_from[-1] == "call"
-    ws.open_browser(Caller(NAMED))
+    ws.open_browser(Caller(NAMED), fresh=True)
     assert ws.actions.opened_version_from[-1] == "remembered"
     ws.actions.grid.alive.discard("generated-2")
     ws.resolve(NAMED_KEY)
@@ -2570,7 +2570,9 @@ def test_open_session_hints_for_the_page_it_opened_on():  # ruling 19
     m.hints = lambda name, url: [LOGIN_HINT] if "/login" in url else []
     opened = m.open_browser(Caller(NAMED), url="http://localhost:8080/login")
     assert opened["flows_here"] == [LOGIN_HINT]
-    again = m.open_browser(Caller(NAMED))
+    # A changed setting replaces the browser, which reopens on the page (WS-85).
+    again = m.open_browser(Caller(NAMED), width=1024)
+    assert "joined" not in again and m.actions.opened == 2
     assert again["url"] == "http://localhost:8080/login"
     assert again["flows_here"] == [LOGIN_HINT]
 

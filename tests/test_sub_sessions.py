@@ -338,7 +338,7 @@ def test_a_sub_session_opens_its_own_browser_and_leaves_the_default_open():
     tester = record_of(store, "shop", "tester").session_id
     assert tester not in ("", default)
     # Opening it again ends its own browser, never the default's (WS-13, 4).
-    workspaces.open_browser(as_(), session="tester")
+    workspaces.open_browser(as_(), session="tester", fresh=True)
     assert actions.closed == [tester]
     assert record_of(store, "shop").session_id == default
 

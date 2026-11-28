@@ -200,7 +200,7 @@ def test_a_refused_open_records_nothing(timed):
     server, rec = timed
     held(server)
     with pytest.raises(faults.Controlled):
-        server.workspaces.open_browser(Caller(NAMED))
+        server.workspaces.open_browser(Caller(NAMED), fresh=True)
     assert rec.spans.get_finished_spans() == ()
     assert points(rec.metrics, CALL_DURATION) == []
 

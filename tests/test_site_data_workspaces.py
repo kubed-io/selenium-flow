@@ -194,8 +194,9 @@ def test_an_insecure_save_keeps_what_a_secure_browser_saved_and_says_why(named_c
 
 def test_remember_keeps_site_data(named_caller):
     m = opened_with_save()
-    m.open_browser(Caller(NAMED))
-    m.open_browser(Caller(NAMED))
+    m.open_browser(Caller(NAMED), fresh=True)
+    m.open_browser(Caller(NAMED), fresh=True)
+    assert m.actions.opened == 3
     assert list(record_of(m.store, NAMED).site_data["origins"]) == ["https://app.example.com"]
 
 
@@ -468,7 +469,9 @@ def test_an_open_drops_a_report_nobody_collected(named_caller):
     m = opened_with_save()
     reaped(m)
     m.resolve(NAMED_KEY)
-    assert m.open_browser(Caller(NAMED))["site_data"] == REPORT, "the open's own report"
+    assert m.open_browser(Caller(NAMED), fresh=True)["site_data"] == REPORT, (
+        "the open's own report"
+    )
     assert "site_data" not in m.act(Caller(NAMED), lambda s: {"url": URL})
 
 
