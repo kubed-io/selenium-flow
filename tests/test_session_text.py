@@ -80,3 +80,11 @@ def test_no_skill_agent_or_note_names_a_fixed_default():
         text = path.read_text(encoding="utf-8").lower()
         for phrase in RETIRED:
             assert phrase not in text, (phrase, str(path))
+
+
+async def test_the_capture_text_says_a_join_keeps_capture(server):
+    async with Client(server.mcp.server) as client:
+        resources = {str(r.uri): r for r in await client.list_resources()}
+    text = " ".join(resources["workspace://current"].description.split())
+    assert "an open_session that joins keeps it" in text
+    assert "open_session is called without capture" not in text

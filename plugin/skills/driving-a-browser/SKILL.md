@@ -35,7 +35,8 @@ you back to the same page.
    `secret={"name": ..., "key": ...}` and the server types it;
    `secret://secrets` lists the secrets.
 7. End every task with `end_browser()`, after a failure too. The Grid has few
-   slots, and your workspace survives it.
+   slots, and your workspace survives it. Leave open a session you share with
+   your main agent: it ends its own.
 
 `execute_script` is for what no tool does: many values in one round trip,
 computed style, scrolling. The script is a function body, so `return` the value.
@@ -66,7 +67,7 @@ Open the one row that matches.
 | Tool | Reach for it |
 |---|---|
 | `open_session` | first, once per task; with no arguments, back to the last page |
-| `end_browser` | last, in every task |
+| `end_browser` | last, in every task, but not your main agent's session when you share it |
 | `navigate` | when going to a URL is the whole step |
 | `interact` | click, double or right click, hover (keeps a `:hover` menu open), scroll an element into view |
 | `drag` | a card onto a column (`to`), a slider (`by_x`) |

@@ -417,7 +417,8 @@ def register(
 
     @own("end_browser")
     def end_browser(session: Session = None) -> dict:
-        """Quit this workspace's browser and free its Grid slot.
+        """Quit your session's browser, or the one session names, and free its Grid
+        slot.
 
         Call it when finished, and on failure paths too: browsers are scarce, and an
         abandoned one holds its slot until the Grid reaps it. The workspace survives,

@@ -24,10 +24,11 @@ workspace.
 - The same name always finds the same workspace, after a reconnect, a client
   restart or a week. A workspace expires after a day unused by default; the next
   call that names it starts a new one.
-- A name is an address, not a credential: anyone who can call this server and
-  knows it drives your browser. To share a browser, share the name. A connector's
-  header is the same for every member of the organisation, so they all share one
-  workspace and one browser.
+- A name is an address, not a credential: anyone with your subject who knows it
+  drives your session. A caller with another subject gets a 403 on it and can
+  open its own session in the workspace. A connector's header is the same for
+  every member of the organisation, so they share the workspace, and a browser
+  only when they share a subject.
 
 ## Sessions in a workspace
 

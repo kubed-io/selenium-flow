@@ -61,7 +61,7 @@ Call `open_session` once, then carry on.
 ## "that session is held by another caller"
 
 You named a session another caller opened, so it is a 403 and nothing was
-opened. Name your own, or leave `session` out to act in your own session
+done. Name your own, or leave `session` out to act in your own session
 (`references/WORKSPACES.md`). Retrying unchanged does not help.
 
 ## "this workspace's config is invalid"

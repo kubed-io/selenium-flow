@@ -24,8 +24,8 @@ SESSION_URI = "session://{name}"
 
 CAPTURE_KEPT = (
     "What was captured is the workspace's, not the browser's: it stays readable "
-    "after the session ends, until capture.ttl passes with nothing new or "
-    "open_session is called without capture."
+    "after the session ends, until capture.ttl passes with nothing new or a "
+    "new browser opens without capture; an open_session that joins keeps it."
 )
 
 DESCRIPTION = (

@@ -1,7 +1,7 @@
 # Site data
 
 A new browser starts empty. `save_site_data` keeps the cookies and storage of
-the sites the workspace has been to, and every browser opened in the workspace
+the sites your session has been to, and every browser your session opens
 afterwards has them back before `open_session` returns: the one after
 `end_browser()` and the one that replaces a reaped browser too. While your
 session's browser is live, `open_session` joins it and restores nothing:

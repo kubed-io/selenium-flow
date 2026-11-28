@@ -715,3 +715,15 @@ def test_site_data_says_fresh_on_a_live_session():
     page = collapsed((SKILLS_DIR / "signing-in/references/SITE_DATA.md").read_text())
     assert "a new session starts with none" in page
     assert "`fresh=true` puts saved site data back" in page
+
+
+def test_rule_7_leaves_a_shared_session_open():
+    text = " ".join(body(ENTRY_SKILL).split())
+    rule = re.split(r" 8\. |## ", text.split(" 7. ", 1)[1], maxsplit=1)[0]
+    assert "Leave open a session you share with your main agent" in rule
+
+
+def test_workspaces_page_does_not_say_the_name_is_enough_to_drive_a_browser():
+    page = " ".join((REFERENCES / "WORKSPACES.md").read_text().split())
+    assert "anyone who can call this server and knows it drives your browser" not in page
+    assert "A caller with another subject gets a 403" in page

@@ -29,8 +29,9 @@ Lifecycle:
 1. Call open_session to start a browser, or to join your live one. Pass \
 browser="firefox" for Firefox; the default is Chrome. Every other tool behaves \
 identically on both.
-2. Call the other tools. They act on your workspace's browser.
-3. Call end_browser when finished, including after a failure. Browsers are a \
+2. Call the other tools. They act in your own session's browser.
+3. Call end_browser when finished, including after a failure, unless you are a \
+subagent sharing your main agent's session: the main agent ends it. Browsers are a \
 scarce resource and an abandoned one holds a slot until the Grid reaps it. Your \
 workspace survives it, so open_session picks up where you left off.
 
