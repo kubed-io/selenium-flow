@@ -317,6 +317,73 @@ def test_a_list_appends_a_name_once_and_drops_names():
     assert shared.without(["a", "b"]).head is None
 
 
+def test_headed_puts_the_opener_first_and_the_idle_head_behind_it():  # WS-86
+    shared = Workspace(["a", "b", "c", "d"])
+    moved = shared.headed("c", "a", 5.0)
+    assert moved.sessions == ["c", "a", "b", "d"]
+    assert moved.main_moved == {"a": {"to": "c", "at": 5.0}}
+    assert shared.headed("c", "b", 5.0) is shared, "b is not the head"
+    assert shared.headed("c", None, 5.0) is shared
+    assert shared.headed("a", "a", 5.0) is shared
+    assert shared.headed("e", "a", 5.0) is shared, "e is not listed"
+
+
+def test_a_moved_session_back_at_the_head_has_no_notice():  # WS-86
+    back = Workspace(["a", "b"]).headed("b", "a", 5.0).headed("a", "b", 6.0)
+    assert back.sessions == ["a", "b"]
+    assert back.main_moved == {"b": {"to": "a", "at": 6.0}}
+    assert back.told("a") == (back, None)
+
+
+def test_a_notice_is_told_once_with_the_head_it_is_told_at():  # WS-86
+    moved = Workspace(["a", "b", "c"]).headed("b", "a", 5.5)
+    rest, notice = moved.told("a")
+    assert notice == {"from": "a", "to": "b", "at": 5}
+    assert rest.main_moved == {}
+    assert rest.told("a") == (rest, None)
+
+
+def test_a_notice_of_a_session_now_at_the_head_is_dropped_untold():  # WS-86
+    # The new head expired and was pruned, so the old head heads the list
+    # again without an open: its notice is dropped, never told as main.
+    pruned = Workspace(["a", "b", "c"]).headed("b", "a", 5.0).without(["b"])
+    assert pruned.head == "a" and "a" in pruned.main_moved
+    rest, notice = pruned.told("a")
+    assert notice is None and rest.main_moved == {}
+    unlisted = Workspace(["a"], main_moved={"z": {"to": "a", "at": 1.0}})
+    rest, notice = unlisted.told("z")
+    assert notice is None and rest.main_moved == {}
+
+
+def test_without_drops_the_notice_of_a_name_that_leaves():  # WS-86
+    moved = Workspace(["a", "b", "c"]).headed("b", "a", 5.0)
+    assert moved.without(["c"]).main_moved == moved.main_moved
+    gone = moved.without(["a"])
+    assert gone.sessions == ["b", "c"] and gone.main_moved == {}
+
+
+def test_main_moved_round_trips_and_reads_tolerantly():  # WS-86
+    moved = Workspace(["a", "b"]).headed("b", "a", 5.0)
+    assert Workspace.from_json(moved.to_json()) == moved
+    assert "main_moved" not in json.loads(Workspace(["a"]).to_json())
+    for raw in (
+        [],
+        "x",
+        {"a": "b"},
+        {"a": {"to": 3, "at": 1.0}},
+        {"a": {"to": "b", "at": "soon"}},
+        {"a": {"to": "b", "at": float("nan")}},
+        {"a": {"to": "b"}},
+        {"z": {"to": "b", "at": 1.0}},
+    ):
+        data = {"sessions": ["b", "a"], "history": [], "main_moved": raw}
+        assert Workspace.from_json(json.dumps(data)).main_moved == {}, raw
+    kept = {"sessions": ["b", "a"], "main_moved": {"a": {"to": "b", "at": 2}}}
+    assert Workspace.from_json(json.dumps(kept)).main_moved == {
+        "a": {"to": "b", "at": 2.0}
+    }
+
+
 def test_the_heads_top_entry_is_the_one_kept():
     shared = (
         Workspace(sessions=["a", "b"])

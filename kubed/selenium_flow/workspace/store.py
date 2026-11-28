@@ -328,6 +328,11 @@ class Workspace:
     # record (WS-54). Written by `visited`; the admin History tab reads it.
     history: list = field(default_factory=list)
     old: Old | None = None
+    # The pending notice of each session an open moved off the head (WS-86):
+    # its name to ``{"to": the opener, "at": epoch seconds}``. Each is told
+    # once (`told`), and dropped when its name leaves the list or heads it
+    # again.
+    main_moved: dict = field(default_factory=dict)
 
     @property
     def head(self) -> str | None:
@@ -345,9 +350,49 @@ class Workspace:
         return replace(self, sessions=[*self.sessions, name])
 
     def without(self, names: Iterable[str]) -> Workspace:
-        """The same record with ``names`` gone from its list."""
+        """The same record with ``names`` gone from its list, and their
+        notices with them (WS-86)."""
         gone = set(names)
-        return replace(self, sessions=[n for n in self.sessions if n not in gone])
+        return replace(
+            self,
+            sessions=[n for n in self.sessions if n not in gone],
+            main_moved={k: v for k, v in self.main_moved.items() if k not in gone},
+        )
+
+    def headed(self, name: str, idle: str | None, at: float) -> Workspace:
+        """The same record with ``name`` moved to the head and ``idle``, the
+        head it takes over from, right behind it, the rest in their order
+        (WS-86). ``idle`` keeps a notice of the move, made ``at``; ``name``'s
+        own notice goes, since it heads the list again.
+
+        Only while ``idle`` is still the head and ``name`` is another listed
+        name: otherwise the record is ``self``."""
+        if idle is None or idle != self.head or name == idle:
+            return self
+        if name not in self.sessions:
+            return self
+        rest = [n for n in self.sessions if n not in (name, idle)]
+        moved = {k: v for k, v in self.main_moved.items() if k != name}
+        moved[idle] = {"to": name, "at": at}
+        return replace(self, sessions=[name, idle, *rest], main_moved=moved)
+
+    def told(self, name: str) -> tuple[Workspace, dict | None]:
+        """The same record without ``name``'s notice, and the notice as it is
+        told: ``{"from", "to", "at"}``, ``to`` the head now and ``at`` in whole
+        seconds. ``(self, None)`` when ``name`` has none (WS-86).
+
+        A ``name`` that heads the list again another way (the head before it
+        expired and was pruned), or is no longer listed, has its notice
+        dropped untold: it would say that a main session is not main."""
+        entry = self.main_moved.get(name)
+        if entry is None:
+            return self, None
+        rest = replace(
+            self, main_moved={k: v for k, v in self.main_moved.items() if k != name}
+        )
+        if name == self.head or name not in self.sessions:
+            return rest, None
+        return rest, {"from": name, "to": self.head, "at": int(entry["at"])}
 
     def page(self, session: str | None) -> str:
         """The page ``session`` (a name) is on: its newest entry, or ""."""
@@ -358,8 +403,12 @@ class Workspace:
         return [v for v in self.history if _tag(v) == session]
 
     def to_json(self) -> str:
-        # Never `old`: a write is always in the new shape.
-        return json.dumps({"sessions": list(self.sessions), "history": self.history})
+        # Never `old`: a write is always in the new shape. No notice, no key,
+        # so a record no open moved keeps the JSON it had before WS-86.
+        data: dict = {"sessions": list(self.sessions), "history": self.history}
+        if self.main_moved:
+            data["main_moved"] = self.main_moved
+        return json.dumps(data)
 
     @classmethod
     def from_json(cls, raw: str | bytes) -> Workspace | None:
@@ -373,7 +422,12 @@ class Workspace:
             return None
         history = _visits(data.get("history"))
         if "sessions" in data:
-            return cls(sessions=_names(data.get("sessions")), history=history)
+            names = _names(data.get("sessions"))
+            return cls(
+                sessions=names,
+                history=history,
+                main_moved=_moves(data.get("main_moved"), names),
+            )
         # The shape before WS-81: the default's fields inline, beside an owner
         # and the sub-sessions' names.
         session = Session.from_data(data)
@@ -546,6 +600,29 @@ def _names(raw) -> list[str]:
     if not isinstance(raw, list):
         return []
     return list(dict.fromkeys(n for n in raw if isinstance(n, str) and n))
+
+
+def _moves(raw, names: list[str]) -> dict:
+    """A stored ``main_moved``: the well-formed entries whose session is in
+    ``names``, none when it is missing or no map (WS-86)."""
+    if not isinstance(raw, dict):
+        return {}
+    moves = {}
+    for name, entry in raw.items():
+        if name not in names or not isinstance(entry, dict):
+            continue
+        to, at = entry.get("to"), entry.get("at")
+        if not isinstance(to, str) or not to:
+            continue
+        if isinstance(at, bool) or not isinstance(at, (int, float)):
+            continue
+        try:
+            if not math.isfinite(at) or at < 0:
+                continue
+            moves[name] = {"to": to, "at": float(at)}
+        except OverflowError:  # an int too large for a float
+            continue
+    return moves
 
 
 def _size(raw) -> str | None:

@@ -973,11 +973,12 @@ def test_port_zero_is_a_port_and_not_the_default(tmp_path):
 
 def recording(touched):
     """A `Workspaces._touch` that notes each page and browser it is handed,
-    and answers as a touch with no reopen's report and nothing to hint."""
+    and answers as a touch with no reopen's report, nothing to hint and no
+    move's notice."""
 
     def touch(name, url, browser=None, **kw):
         touched.append((url, browser))
-        return None, None
+        return None, None, None
 
     return touch
 
@@ -1193,7 +1194,9 @@ async def test_a_bound_write_after_a_silent_reopen_says_what_came_back(
     report = {"restored": ["nc.example.com"], "skipped": [], "uri": "workspace://site-data"}
     monkeypatch.setattr(
         server.workspaces, "_touch",
-        lambda name, url, browser=None, **kw: ({"cause": "lost", "report": report}, None),
+        lambda name, url, browser=None, **kw: (
+            {"cause": "lost", "report": report}, None, None
+        ),
     )
 
     write = await server.mcp.get_tool("write")

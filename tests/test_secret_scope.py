@@ -1545,7 +1545,7 @@ def test_a_reopen_landing_on_a_value_never_records_it(ws, monkeypatch):  # fix 2
 def test_the_reopen_report_is_scrubbed_when_handed_over(ws, monkeypatch):  # fix 3
     report = {"cookies": 0, "sites": [], "skipped": [{"reason": "page said alpha-11"}]}
     monkeypatch.setattr(
-        ws, "_touch", lambda *a, **k: ({"cause": "lost", "report": report}, None)
+        ws, "_touch", lambda *a, **k: ({"cause": "lost", "report": report}, None, None)
     )
     result = act(ws)
     assert result["site_data"]["skipped"][0]["reason"] == "page said [secret:a/password]"

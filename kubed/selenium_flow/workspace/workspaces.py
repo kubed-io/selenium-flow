@@ -1751,6 +1751,9 @@ class Workspaces:
         for key in ("reopened", "site_data"):
             if settled.get(key):
                 summary[key] = settled[key]
+        if settled.get("main_moved"):
+            summary["main"] = False
+            summary["main_moved"] = settled["main_moved"]
         return summary
 
     def settle(
@@ -1804,12 +1807,12 @@ class Workspaces:
         # Popped before the store is asked anything, so a store that fails
         # cannot leave the capture, every value, in what the caller gets.
         captured = result.pop(site_data_module.CAPTURED, None)
-        told = None
+        told = moved = None
         if touch:
             if url is FROM_RESULT:
                 url = result.get("url")
             pages = url if isinstance(url, (list, tuple)) else (url,)
-            told, page = self._touch(
+            told, page, moved = self._touch(
                 name, *pages, browser=browser, since=since, deliver=deliver
             )
             if hint and page:
@@ -1831,10 +1834,17 @@ class Workspaces:
             self.pointed(name, own, result)
         except Exception:
             # The caller gets the error, not this result: the reopen's notice
-            # goes back on the record for the next one.
+            # goes back on the record for the next one, and so does a move's.
             if told:
                 self._hold_again(name, told, browser)
+            if moved:
+                self._hold_moved_again(name, moved)
             raise
+        if moved:
+            # Said once the result is the caller's, so one put back is never
+            # also said (WS-86).
+            result["main"] = False
+            result["main_moved"] = moved
 
     @staticmethod
     def pointed(name: str, own: str | None, result: dict) -> None:
@@ -2015,6 +2025,7 @@ class Workspaces:
                 )
             # Its restore report names the session it opened (`act`).
             self.pointed(key, own, told)
+            self._tell_moved(key, told)
             return told
 
     def _open_browser(
@@ -2081,9 +2092,13 @@ class Workspaces:
             **settings,
         )
         timeout = self._timeout_of(opened["session_id"])
+        # Asked just before the bind, so the head is as idle as it is now: a
+        # head with a live browser is never moved (WS-86).
+        idle = self._idle_head(key)
         kept = self.remember(
             name, opened["session_id"], self._landing(name, opened.get("url", "")),
             settings,
+            idle_head=idle,
             set_by=resolved.set_by,
             replacing=ended, forget_site_data=forgotten is not None,
             opened_by=caller.principal.opener() if caller.principal else None,
@@ -2476,6 +2491,7 @@ class Workspaces:
         sent: list | None = None,
         ran: dict | None = None,
         set_by: dict | None = None,
+        idle_head: str | None = None,
     ) -> str:
         """Bind a browser to this workspace, and say which browser it holds.
 
@@ -2501,6 +2517,10 @@ class Workspaces:
 
         ``set_by`` says who set each setting, by key; one it does not name is
         the caller's.
+
+        ``idle_head`` is the idle head an `open_session` found (`_idle_head`):
+        a bind that wins moves this session to the head in front of it, in
+        the same write that lists it, while it is still the head (WS-86).
         """
         # The page goes on the workspace's history, once bound (WS-54).
         def bound(r: Session | None) -> tuple[Session | None, str | None]:
@@ -2537,15 +2557,27 @@ class Workspaces:
         _, kept = self.store.change(name, bound, create=True)
         if not kept:
             # Listed again, its workspace's record made if it lapsed, so a
-            # session the list lost comes back to it on a reopen (WS-81).
+            # session the list lost comes back to it on a reopen (WS-81). An
+            # open that found the head idle takes it here (WS-86).
             workspace, session = sessions.split(name)
-            self.change_shared(
-                workspace,
-                lambda r: (None, None)
-                if r is not None and session in r.sessions
-                else ((r or Workspace()).listing(session), None),
-                create=True,
-            )
+            now = time.time()
+
+            def listed(r: Workspace | None) -> tuple[Workspace | None, bool]:
+                base = (r or Workspace()).listing(session)
+                headed = base.headed(session, idle_head, now)
+                if headed is r:
+                    return None, False
+                return headed, headed is not base
+
+            _, moved = self.change_shared(workspace, listed, create=True)
+            if moved:
+                log.info(
+                    "workspace %s: an open moved to the head of its list",
+                    sessions.logged(workspace),
+                )
+                # Its place is no longer the head's: written as it is, so it
+                # takes the lifetime of where it is now (WS-87).
+                self._restamp(sessions.key_of(workspace, idle_head))
             self._visit(name, url)
             return session_id
         log.info(
@@ -2584,9 +2616,10 @@ class Workspaces:
         another, the TTL still slides and the history is left alone.
 
         Returns a silent reopen's notice, ``{"cause", "report"}``, the first
-        time this browser is touched after it, and never again.
+        time this browser is touched after it, and never again; a move's notice
+        (WS-86) is left for the next result.
         """
-        return self._touch(name, *urls, browser=browser)[0]
+        return self._touch(name, *urls, browser=browser, tell=False)[0]
 
     def _touch(
         self,
@@ -2595,8 +2628,10 @@ class Workspaces:
         browser: str | None = None,
         since: str | None = None,
         deliver: bool = True,
-    ) -> tuple[dict | None, str | None]:
-        """:meth:`touch`, and the page to hint for: the last of ``urls`` with
+        tell: bool = True,
+    ) -> tuple[dict | None, str | None, dict | None]:
+        """:meth:`touch`, the page to hint for, and the notice of a move off
+        the head told (`_visit`, WS-86). The page is the last of ``urls`` with
         an origin, when its host, port, path or route differs from the page
         before (the record's, or ``since`` for a run that flushed its pages
         part-way). None when there is nothing to hint for.
@@ -2605,8 +2640,8 @@ class Workspaces:
         time, with `page_key` only, which is pure and never raises: the hint
         itself is slow work, asked for outside it by the caller.
 
-        Stamps ``called_at`` on every write, and hands over the held notice
-        only when ``deliver``.
+        Stamps ``called_at`` on every write, and hands over the held notices
+        only when ``deliver``: a move's only when ``tell`` too.
         """
         # The pages go on the workspace's history, after the session's own
         # record says this browser is still the one it holds. That write is
@@ -2623,28 +2658,102 @@ class Workspaces:
 
         noted = self.store.change(name, at)[1]
         if noted is None:
-            return None, None
+            return None, None, None
         notice, held = noted
-        page = self._visit(name, *(urls if held else ()), since=since)
-        return notice, page
+        page, moved = self._visit(
+            name, *(urls if held else ()), since=since, tell=deliver and tell
+        )
+        return notice, page, moved
 
     def _visit(
-        self, key: str, *urls: str | None, since: str | None = None
-    ) -> str | None:
+        self,
+        key: str,
+        *urls: str | None,
+        since: str | None = None,
+        tell: bool = False,
+    ) -> tuple[str | None, dict | None]:
         """The session ``key`` landing on ``urls``, written to its
         workspace's history tagged with its name (WS-54), through that record's
         compare-and-set so no other session's entry is lost. Answers the page
-        to hint for, as `_touch` does. Written with no page too, which slides
-        the workspace's expiry and its head's (WS-87); nothing is written
-        when the workspace has no record."""
+        to hint for, as `_touch` does, and with ``tell`` the session's notice
+        of a move off the head, taken off the record in that same write, so
+        only one of two racing calls gets it (`Workspace.told`, WS-86).
+        Written with no page too, which slides the workspace's expiry and its
+        head's (WS-87); nothing is written when the workspace has no record."""
         workspace, name = sessions.split(key)
         ttl, sub_ttl = self.store.ttl, self.store.sub_ttl
 
-        def at(r: Workspace) -> tuple[Workspace, str | None]:
+        def at(r: Workspace) -> tuple[Workspace, tuple[str | None, dict | None]]:
             page = _hinted(r.page(name) if since is None else since, urls)
-            return r.visited(*urls, ttl=ttl, session=name, sub_ttl=sub_ttl), page
+            fresh = r.visited(*urls, ttl=ttl, session=name, sub_ttl=sub_ttl)
+            moved = None
+            if tell:
+                fresh, moved = fresh.told(name)
+            return fresh, (page, moved)
 
-        return self.change_shared(workspace, at)[1]
+        noted = self.change_shared(workspace, at)[1]
+        return noted if noted is not None else (None, None)
+
+    def _restamp(self, key: str) -> None:
+        """Write the record of ``key`` as it is, so it takes the lifetime of
+        its place in the list now (WS-87): an old head moved behind an opener
+        would otherwise keep the head's, for ever in a kept workspace."""
+        self.store.update(key, lambda r: r)
+
+    def _idle_head(self, key: str) -> str | None:
+        """The head of the list an `open_session` in the session ``key`` may
+        take (WS-86): the head when it is another session and is idle, with
+        no record, no browser, or a browser one `Grid.is_alive` finds dead.
+        None otherwise."""
+        workspace, name = sessions.split(key)
+        head = self.head_of(workspace)
+        if head is None or head == name:
+            return None
+        record = self.store.get(sessions.key_of(workspace, head))
+        if record is None or not record.attached:
+            return head
+        return None if self.actions.grid.is_alive(record.session_id) else head
+
+    def _tell_moved(self, key: str, result: dict) -> None:
+        """Tell the session ``key``'s notice of a move off the head on
+        ``result`` (an `open_session` answer), taking it off the record in
+        one write (WS-86). A store that fails leaves the notice for the next
+        result: it never fails the open."""
+        workspace, name = sessions.split(key)
+
+        def took(r: Workspace) -> tuple[Workspace | None, dict | None]:
+            rest, moved = r.told(name)
+            # A notice dropped untold (`Workspace.told`) is written away too.
+            return (None if rest is r else rest), moved
+
+        try:
+            moved = self.change_shared(workspace, took)[1]
+        except Exception as exc:  # noqa: BLE001 - the open has happened
+            log.warning(
+                "the move notice for %s was not told: %s",
+                sessions.logged(key), type(exc).__name__,
+            )
+            return
+        if moved:
+            result["main"] = False
+            result["main_moved"] = moved
+
+    def _hold_moved_again(self, key: str, moved: dict) -> None:
+        """Put a notice of a move off the head back when the result carrying
+        it failed (WS-86): only while its session is listed, is not the head,
+        and has no newer notice."""
+        workspace, name = sessions.split(key)
+
+        def held(r: Workspace) -> tuple[Workspace | None, None]:
+            if name not in r.sessions or r.head == name or name in r.main_moved:
+                return None, None
+            # Its `at` as told, whole seconds, which is all it is ever told as.
+            entry = {"to": moved["to"], "at": float(moved["at"])}
+            back = {**r.main_moved, name: entry}
+            return replace(r, main_moved=back), None
+
+        with contextlib.suppress(Exception):  # the caller's own error is the one to see
+            self.change_shared(workspace, held)
 
     def _page(self, key: str) -> str:
         """The page the session ``key`` is on: its newest entry in its
